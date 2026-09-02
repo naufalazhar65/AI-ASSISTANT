@@ -1,0 +1,16 @@
+{
+  "name": "@ai-provider/mock",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@voice/ai-provider": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}
