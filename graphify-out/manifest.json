@@ -72,9 +72,9 @@
     "semantic_hash": ""
   },
   "apps/web/src/app/page.tsx": {
-    "mtime": 1788340353.9641273,
-    "seen": 1788340684.878664,
-    "ast_hash": "443f9111b307f7e95f90884a393a4723",
+    "mtime": 1788345263.9716275,
+    "seen": 1788345319.931468,
+    "ast_hash": "227d1f837c42caba24c84b6fa3fde9b3",
     "semantic_hash": ""
   },
   "apps/web/src/audio/AudioCapture.ts": {
@@ -108,9 +108,9 @@
     "semantic_hash": ""
   },
   "apps/web/src/hooks/useVoice.ts": {
-    "mtime": 1788340267.883051,
-    "seen": 1788340684.8786712,
-    "ast_hash": "6a1d1446ed71e1863ae87a5c16465429",
+    "mtime": 1788345147.5206728,
+    "seen": 1788345319.931475,
+    "ast_hash": "af705ddac5c0e6c3da266b886a88fd8f",
     "semantic_hash": ""
   },
   "apps/web/tailwind.config.ts": {
@@ -198,9 +198,9 @@
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1788341345.7304523,
-    "seen": 1788341346.909955,
-    "ast_hash": "7aebe040601c192dabf2cbac6ea99c90",
+    "mtime": 1788345318.7017174,
+    "seen": 1788345319.931489,
+    "ast_hash": "4b0879540a9daf292eadc65fb1072a27",
     "semantic_hash": ""
   },
   "PRD_Real-Time_Voice_AI_Assistant.md": {
@@ -288,9 +288,9 @@
     "semantic_hash": ""
   },
   "apps/web/src/components/ui/ai-chat.tsx": {
-    "mtime": 1788340303.8124292,
-    "seen": 1788340684.878669,
-    "ast_hash": "b2075bd56657cd8666623f88ec552f1f",
+    "mtime": 1788345256.4585013,
+    "seen": 1788345319.9314728,
+    "ast_hash": "b64523999817f919a5bdccba5fd4a1cb",
     "semantic_hash": ""
   },
   "apps/web/src/lib/providers.ts": {
@@ -333,6 +333,18 @@
     "mtime": 1788340174.4092,
     "seen": 1788340684.8786728,
     "ast_hash": "8d770f5aa9f8ade4c66987f6a8f8022a",
+    "semantic_hash": ""
+  },
+  "apps/web/src/app/api/sessions/route.ts": {
+    "mtime": 1788345012.041477,
+    "seen": 1788345319.931465,
+    "ast_hash": "7bdad54983fcf17e7ff6be150146fe69",
+    "semantic_hash": ""
+  },
+  "apps/web/src/lib/sessions.ts": {
+    "mtime": 1788345169.8029432,
+    "seen": 1788345319.931477,
+    "ast_hash": "a5250c2ae1bee5b86b07bfb1b2b34561",
     "semantic_hash": ""
   }
 }

@@ -1514,7 +1514,7 @@
       "file_type": "code",
       "norm_label": ".emit()",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L336"
+      "source_location": "L342"
     },
     {
       "id": "apps_web_src_ai_groqstreamingprovider_groqstreamingprovider_extractpersona",
@@ -1526,7 +1526,7 @@
       "file_type": "code",
       "norm_label": ".extractpersona()",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L271"
+      "source_location": "L277"
     },
     {
       "id": "apps_web_src_ai_groqstreamingprovider_groqstreamingprovider_firstsentenceend",
@@ -1538,7 +1538,7 @@
       "file_type": "code",
       "norm_label": ".firstsentenceend()",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L307"
+      "source_location": "L313"
     },
     {
       "id": "apps_web_src_ai_groqstreamingprovider_groqstreamingprovider_generateandspeak",
@@ -1610,7 +1610,7 @@
       "file_type": "code",
       "norm_label": ".persistpersona()",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L288"
+      "source_location": "L294"
     },
     {
       "id": "apps_web_src_ai_groqstreamingprovider_groqstreamingprovider_runtextturn",
@@ -1718,7 +1718,7 @@
       "file_type": "code",
       "norm_label": ".speak()",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L319"
+      "source_location": "L325"
     },
     {
       "id": "apps_web_src_ai_groqstreamingprovider_groqstreamingprovider_streamassistantreply",
@@ -8416,7 +8416,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L330",
+      "source_location": "L336",
       "weight": 1.0
     },
     {
@@ -8440,7 +8440,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L222",
+      "source_location": "L228",
       "weight": 1.0
     },
     {
@@ -8452,7 +8452,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L226",
+      "source_location": "L232",
       "weight": 1.0
     },
     {
@@ -8464,7 +8464,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L246",
+      "source_location": "L252",
       "weight": 1.0
     },
     {
@@ -8476,7 +8476,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L249",
+      "source_location": "L255",
       "weight": 1.0
     },
     {
@@ -8536,7 +8536,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/app/api/llm/route.ts",
-      "source_location": "L271",
+      "source_location": "L274",
       "weight": 1.0
     },
     {
@@ -11968,7 +11968,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L336",
+      "source_location": "L342",
       "weight": 1.0
     },
     {
@@ -17765,7 +17765,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L271",
+      "source_location": "L277",
       "weight": 1.0
     },
     {
@@ -17776,7 +17776,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L288",
+      "source_location": "L294",
       "weight": 1.0
     },
     {
@@ -17787,7 +17787,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L307",
+      "source_location": "L313",
       "weight": 1.0
     },
     {
@@ -17798,7 +17798,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L319",
+      "source_location": "L325",
       "weight": 1.0
     },
     {
@@ -17809,7 +17809,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
-      "source_location": "L336",
+      "source_location": "L342",
       "weight": 1.0
     },
     {

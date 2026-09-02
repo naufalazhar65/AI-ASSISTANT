@@ -42,15 +42,15 @@
     "semantic_hash": ""
   },
   "apps/web/src/ai/GroqStreamingProvider.ts": {
-    "mtime": 1788339497.4906485,
-    "seen": 1788340684.878659,
-    "ast_hash": "74ae02975932e6afb1a2b0578954a375",
+    "mtime": 1788341276.3579538,
+    "seen": 1788341346.90993,
+    "ast_hash": "02e07c1209ec50d530fb815bcdbfb27f",
     "semantic_hash": ""
   },
   "apps/web/src/app/api/llm/route.ts": {
-    "mtime": 1788340244.3034246,
-    "seen": 1788340684.8786602,
-    "ast_hash": "7cb8759abeb5e32a423163ae98ab3aa9",
+    "mtime": 1788341281.208792,
+    "seen": 1788341346.909931,
+    "ast_hash": "6867a6e3d746cdd92326415adbcab282",
     "semantic_hash": ""
   },
   "apps/web/src/app/api/stt/route.ts": {
@@ -198,9 +198,9 @@
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1788340683.8289936,
-    "seen": 1788340684.878685,
-    "ast_hash": "6fba2374aa029b5d7d6d7da27c8320f2",
+    "mtime": 1788341345.7304523,
+    "seen": 1788341346.909955,
+    "ast_hash": "7aebe040601c192dabf2cbac6ea99c90",
     "semantic_hash": ""
   },
   "PRD_Real-Time_Voice_AI_Assistant.md": {

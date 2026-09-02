@@ -131,7 +131,7 @@
       "file_type": "code",
       "norm_label": "persistedsettings",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L48"
+      "source_location": "L54"
     },
     {
       "id": "apps_web_src_hooks_usevoice_serializedconversation",
@@ -144,7 +144,46 @@
       "file_type": "code",
       "norm_label": "serializedconversation",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L43"
+      "source_location": "L49"
+    },
+    {
+      "id": "apps_web_src_hooks_usevoice_usevoiceresult",
+      "label": "UseVoiceResult",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "useVoice.ts",
+      "file_type": "code",
+      "norm_label": "usevoiceresult",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L15"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_session",
+      "label": "Session",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "useVoice.ts",
+      "file_type": "code",
+      "norm_label": "session",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L28"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_sessionmeta",
+      "label": "SessionMeta",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "useVoice.ts",
+      "file_type": "code",
+      "norm_label": "sessionmeta",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L20"
     },
     {
       "id": "apps_web_src_ai_conversationmanager_conversationevent",
@@ -199,19 +238,6 @@
       "source_location": "L13"
     },
     {
-      "id": "apps_web_src_hooks_usevoice_usevoiceresult",
-      "label": "UseVoiceResult",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "ConversationManager",
-      "file_type": "code",
-      "norm_label": "usevoiceresult",
-      "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L14"
-    },
-    {
       "id": "packages_state_machine_src_index_conversationstatemachine",
       "label": "ConversationStateMachine",
       "_callable": true,
@@ -264,6 +290,58 @@
       "source_location": "L26"
     },
     {
+      "id": "apps_web_src_lib_persona_personatarget",
+      "label": "PersonaTarget",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "personatarget",
+      "source_file": "apps/web/src/lib/persona.ts",
+      "source_location": "L70"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_reminder",
+      "label": "Reminder",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "reminder",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L19"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_reminderlistener",
+      "label": "ReminderListener",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "reminderlistener",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L32"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_serializedconversation",
+      "label": "SerializedConversation",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "serializedconversation",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L15"
+    },
+    {
       "id": "apps_web_src_ai_groqstreamingprovider_groqstreamingprovider",
       "label": "GroqStreamingProvider",
       "_callable": true,
@@ -275,19 +353,6 @@
       "norm_label": "groqstreamingprovider",
       "source_file": "apps/web/src/ai/GroqStreamingProvider.ts",
       "source_location": "L28"
-    },
-    {
-      "id": "apps_web_src_components_ui_ai_chat_aichatcardprops",
-      "label": "AIChatCardProps",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 47,
-      "community_name": "GroqStreamingProvider",
-      "file_type": "code",
-      "norm_label": "aichatcardprops",
-      "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L40"
     },
     {
       "id": "packages_ai_provider_src_index_aiprovider",
@@ -433,19 +498,6 @@
       "source_location": "L51"
     },
     {
-      "id": "apps_web_src_lib_persona_personatarget",
-      "label": "PersonaTarget",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "personatarget",
-      "source_file": "apps/web/src/lib/persona.ts",
-      "source_location": "L70"
-    },
-    {
       "id": "apps_web_src_lib_providers_providerid",
       "label": "ProviderId",
       "_callable": true,
@@ -470,32 +522,6 @@
       "norm_label": "providerspec",
       "source_file": "apps/web/src/lib/providers.ts",
       "source_location": "L11"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_reminder",
-      "label": "Reminder",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "reminder",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L19"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_reminderlistener",
-      "label": "ReminderListener",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "reminderlistener",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L32"
     },
     {
       "id": "apps_web_src_lib_tools_toolcall",
@@ -535,6 +561,19 @@
       "norm_label": "toolrisk",
       "source_file": "apps/web/src/lib/tools.ts",
       "source_location": "L13"
+    },
+    {
+      "id": "apps_web_src_components_ui_ai_chat_aichatcardprops",
+      "label": "AIChatCardProps",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 8,
+      "community_name": "ai-chat-input.tsx",
+      "file_type": "code",
+      "norm_label": "aichatcardprops",
+      "source_file": "apps/web/src/components/ui/ai-chat.tsx",
+      "source_location": "L40"
     },
     {
       "id": "apps_web_src_components_ui_ai_chat_aichatmessage",
@@ -1025,6 +1064,54 @@
       "source_location": "L60"
     },
     {
+      "id": "apps_web_src_hooks_usevoice_apideletesession",
+      "label": "apiDeleteSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "useVoice.ts",
+      "file_type": "code",
+      "norm_label": "apideletesession()",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L138"
+    },
+    {
+      "id": "apps_web_src_hooks_usevoice_apilistsessions",
+      "label": "apiListSessions()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "useVoice.ts",
+      "file_type": "code",
+      "norm_label": "apilistsessions()",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L108"
+    },
+    {
+      "id": "apps_web_src_hooks_usevoice_apiloadsession",
+      "label": "apiLoadSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "useVoice.ts",
+      "file_type": "code",
+      "norm_label": "apiloadsession()",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L115"
+    },
+    {
+      "id": "apps_web_src_hooks_usevoice_apiupsertsession",
+      "label": "apiUpsertSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "useVoice.ts",
+      "file_type": "code",
+      "norm_label": "apiupsertsession()",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L122"
+    },
+    {
       "id": "apps_web_src_hooks_usevoice_historyuser",
       "label": "historyUser()",
       "_callable": true,
@@ -1034,7 +1121,7 @@
       "file_type": "code",
       "norm_label": "historyuser()",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L73"
+      "source_location": "L79"
     },
     {
       "id": "apps_web_src_hooks_usevoice_loadhistory",
@@ -1046,7 +1133,7 @@
       "file_type": "code",
       "norm_label": "loadhistory()",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L81"
+      "source_location": "L87"
     },
     {
       "id": "apps_web_src_hooks_usevoice_loadsettings",
@@ -1058,7 +1145,7 @@
       "file_type": "code",
       "norm_label": "loadsettings()",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L54"
+      "source_location": "L60"
     },
     {
       "id": "apps_web_src_hooks_usevoice_savehistory",
@@ -1070,7 +1157,7 @@
       "file_type": "code",
       "norm_label": "savehistory()",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L92"
+      "source_location": "L98"
     },
     {
       "id": "apps_web_src_hooks_usevoice_savesettings",
@@ -1082,7 +1169,7 @@
       "file_type": "code",
       "norm_label": "savesettings()",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L65"
+      "source_location": "L71"
     },
     {
       "id": "apps_web_src_hooks_usevoice_usevoice",
@@ -1094,7 +1181,7 @@
       "file_type": "code",
       "norm_label": "usevoice()",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L100"
+      "source_location": "L146"
     },
     {
       "id": "apps_web_src_ai_conversationmanager_conversationmanager_confirmtool",
@@ -1301,6 +1388,18 @@
       "source_location": "L119"
     },
     {
+      "id": "apps_web_src_ai_conversationmanager_conversationmanager_serialize",
+      "label": ".serialize()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 14,
+      "community_name": "ConversationManager",
+      "file_type": "code",
+      "norm_label": ".serialize()",
+      "source_file": "apps/web/src/ai/ConversationManager.ts",
+      "source_location": "L70"
+    },
+    {
       "id": "apps_web_src_ai_conversationmanager_conversationmanager_start",
       "label": ".start()",
       "_callable": true,
@@ -1433,6 +1532,390 @@
       "source_location": "L36"
     },
     {
+      "id": "apps_web_src_app_api_persona_route_post",
+      "label": "POST()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "post()",
+      "source_file": "apps/web/src/app/api/persona/route.ts",
+      "source_location": "L12"
+    },
+    {
+      "id": "apps_web_src_app_api_reminders_stream_route_frame",
+      "label": "frame()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "frame()",
+      "source_file": "apps/web/src/app/api/reminders/stream/route.ts",
+      "source_location": "L22"
+    },
+    {
+      "id": "apps_web_src_app_api_reminders_stream_route_get",
+      "label": "GET()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "get()",
+      "source_file": "apps/web/src/app/api/reminders/stream/route.ts",
+      "source_location": "L26"
+    },
+    {
+      "id": "apps_web_src_app_api_sessions_route_delete",
+      "label": "DELETE()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "delete()",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L52"
+    },
+    {
+      "id": "apps_web_src_app_api_sessions_route_get",
+      "label": "GET()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "get()",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L17"
+    },
+    {
+      "id": "apps_web_src_app_api_sessions_route_post",
+      "label": "POST()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "post()",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L28"
+    },
+    {
+      "id": "apps_web_src_lib_persona_ensureuserpersona",
+      "label": "ensureUserPersona()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "ensureuserpersona()",
+      "source_file": "apps/web/src/lib/persona.ts",
+      "source_location": "L38"
+    },
+    {
+      "id": "apps_web_src_lib_persona_loadpersonaprompt",
+      "label": "loadPersonaPrompt()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "loadpersonaprompt()",
+      "source_file": "apps/web/src/lib/persona.ts",
+      "source_location": "L52"
+    },
+    {
+      "id": "apps_web_src_lib_persona_personadir",
+      "label": "personaDir()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "personadir()",
+      "source_file": "apps/web/src/lib/persona.ts",
+      "source_location": "L33"
+    },
+    {
+      "id": "apps_web_src_lib_persona_upsertpersonafact",
+      "label": "upsertPersonaFact()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "upsertpersonafact()",
+      "source_file": "apps/web/src/lib/persona.ts",
+      "source_location": "L78"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_addreminder",
+      "label": "addReminder()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "addreminder()",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L124"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_broadcastdue",
+      "label": "broadcastDue()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "broadcastdue()",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L51"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_ensuretimer",
+      "label": "ensureTimer()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "ensuretimer()",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L38"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_listuserswithreminders",
+      "label": "listUsersWithReminders()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "listuserswithreminders()",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L84"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_readreminders",
+      "label": "readReminders()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "readreminders()",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L95"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_reminderspath",
+      "label": "remindersPath()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "reminderspath()",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L79"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_subscribereminders",
+      "label": "subscribeReminders()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "subscribereminders()",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L73"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_takeduereminders",
+      "label": "takeDueReminders()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "takeduereminders()",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L141"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_writereminders",
+      "label": "writeReminders()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "writereminders()",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L111"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_deletesession",
+      "label": "deleteSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "deletesession()",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L117"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_indexpath",
+      "label": "indexPath()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "indexpath()",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L38"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_listsessions",
+      "label": "listSessions()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "listsessions()",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L53"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_loadsession",
+      "label": "loadSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "loadsession()",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L71"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_sanitizeid",
+      "label": "sanitizeId()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "sanitizeid()",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L46"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_sessionpath",
+      "label": "sessionPath()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "sessionpath()",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L42"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_sessionsdir",
+      "label": "sessionsDir()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "sessionsdir()",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L34"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_sortbyid",
+      "label": "sortById()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "sortbyid()",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L32"
+    },
+    {
+      "id": "apps_web_src_lib_sessions_upsertsession",
+      "label": "upsertSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "upsertsession()",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L88"
+    },
+    {
+      "id": "apps_web_src_lib_users_approot",
+      "label": "appRoot()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "approot()",
+      "source_file": "apps/web/src/lib/users.ts",
+      "source_location": "L26"
+    },
+    {
+      "id": "apps_web_src_lib_users_reporoot",
+      "label": "repoRoot()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "reporoot()",
+      "source_file": "apps/web/src/lib/users.ts",
+      "source_location": "L37"
+    },
+    {
+      "id": "apps_web_src_lib_users_sanitizeuser",
+      "label": "sanitizeUser()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "sanitizeuser()",
+      "source_file": "apps/web/src/lib/users.ts",
+      "source_location": "L11"
+    },
+    {
+      "id": "apps_web_src_lib_users_userdataroot",
+      "label": "userDataRoot()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "userdataroot()",
+      "source_file": "apps/web/src/lib/users.ts",
+      "source_location": "L32"
+    },
+    {
       "id": "apps_web_src_app_api_stt_route_post",
       "label": "POST()",
       "_callable": true,
@@ -1455,18 +1938,6 @@
       "norm_label": "rootlayout()",
       "source_file": "apps/web/src/app/layout.tsx",
       "source_location": "L9"
-    },
-    {
-      "id": "apps_web_src_ai_conversationmanager_conversationmanager_serialize",
-      "label": ".serialize()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 47,
-      "community_name": "GroqStreamingProvider",
-      "file_type": "code",
-      "norm_label": ".serialize()",
-      "source_file": "apps/web/src/ai/ConversationManager.ts",
-      "source_location": "L70"
     },
     {
       "id": "apps_web_src_ai_groqstreamingprovider_groqstreamingprovider_confirmtool",
@@ -2045,90 +2516,6 @@
       "source_location": "L59"
     },
     {
-      "id": "apps_web_src_app_api_persona_route_post",
-      "label": "POST()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "post()",
-      "source_file": "apps/web/src/app/api/persona/route.ts",
-      "source_location": "L12"
-    },
-    {
-      "id": "apps_web_src_app_api_reminders_stream_route_frame",
-      "label": "frame()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "frame()",
-      "source_file": "apps/web/src/app/api/reminders/stream/route.ts",
-      "source_location": "L22"
-    },
-    {
-      "id": "apps_web_src_app_api_reminders_stream_route_get",
-      "label": "GET()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "get()",
-      "source_file": "apps/web/src/app/api/reminders/stream/route.ts",
-      "source_location": "L26"
-    },
-    {
-      "id": "apps_web_src_lib_persona_ensureuserpersona",
-      "label": "ensureUserPersona()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "ensureuserpersona()",
-      "source_file": "apps/web/src/lib/persona.ts",
-      "source_location": "L38"
-    },
-    {
-      "id": "apps_web_src_lib_persona_loadpersonaprompt",
-      "label": "loadPersonaPrompt()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "loadpersonaprompt()",
-      "source_file": "apps/web/src/lib/persona.ts",
-      "source_location": "L52"
-    },
-    {
-      "id": "apps_web_src_lib_persona_personadir",
-      "label": "personaDir()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "personadir()",
-      "source_file": "apps/web/src/lib/persona.ts",
-      "source_location": "L33"
-    },
-    {
-      "id": "apps_web_src_lib_persona_upsertpersonafact",
-      "label": "upsertPersonaFact()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "upsertpersonafact()",
-      "source_file": "apps/web/src/lib/persona.ts",
-      "source_location": "L78"
-    },
-    {
       "id": "apps_web_src_lib_providers_findpublicprovider",
       "label": "findPublicProvider()",
       "_callable": true,
@@ -2163,114 +2550,6 @@
       "norm_label": "resolveprovider()",
       "source_file": "apps/web/src/lib/providers.ts",
       "source_location": "L70"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_addreminder",
-      "label": "addReminder()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "addreminder()",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L124"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_broadcastdue",
-      "label": "broadcastDue()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "broadcastdue()",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L51"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_ensuretimer",
-      "label": "ensureTimer()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "ensuretimer()",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L38"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_listuserswithreminders",
-      "label": "listUsersWithReminders()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "listuserswithreminders()",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L84"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_readreminders",
-      "label": "readReminders()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "readreminders()",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L95"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_reminderspath",
-      "label": "remindersPath()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "reminderspath()",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L79"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_subscribereminders",
-      "label": "subscribeReminders()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "subscribereminders()",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L73"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_takeduereminders",
-      "label": "takeDueReminders()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "takeduereminders()",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L141"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_writereminders",
-      "label": "writeReminders()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "writereminders()",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L111"
     },
     {
       "id": "apps_web_src_lib_tools_cleanurl",
@@ -2477,54 +2756,6 @@
       "source_location": "L242"
     },
     {
-      "id": "apps_web_src_lib_users_approot",
-      "label": "appRoot()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "approot()",
-      "source_file": "apps/web/src/lib/users.ts",
-      "source_location": "L26"
-    },
-    {
-      "id": "apps_web_src_lib_users_reporoot",
-      "label": "repoRoot()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "reporoot()",
-      "source_file": "apps/web/src/lib/users.ts",
-      "source_location": "L37"
-    },
-    {
-      "id": "apps_web_src_lib_users_sanitizeuser",
-      "label": "sanitizeUser()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "sanitizeuser()",
-      "source_file": "apps/web/src/lib/users.ts",
-      "source_location": "L11"
-    },
-    {
-      "id": "apps_web_src_lib_users_userdataroot",
-      "label": "userDataRoot()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "userdataroot()",
-      "source_file": "apps/web/src/lib/users.ts",
-      "source_location": "L32"
-    },
-    {
       "id": "apps_web_src_app_page_home",
       "label": "Home()",
       "_callable": true,
@@ -2594,7 +2825,7 @@
       "file_type": "code",
       "norm_label": "aichatcard()",
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L92"
+      "source_location": "L97"
     },
     {
       "id": "apps_web_src_components_ui_ai_chat_input_arrowupicon",
@@ -2726,7 +2957,7 @@
       "file_type": "code",
       "norm_label": "mulberry32()",
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L71"
+      "source_location": "L76"
     },
     {
       "id": "apps_web_src_components_ui_ai_chat_rendercontent",
@@ -5876,6 +6107,193 @@
       "source_location": "L2"
     },
     {
+      "id": "apps_web_src_app_api_persona_route",
+      "label": "persona/route.ts",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "persona/route.ts",
+      "source_file": "apps/web/src/app/api/persona/route.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "apps_web_src_app_api_persona_route_runtime",
+      "label": "runtime",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "runtime",
+      "source_file": "apps/web/src/app/api/persona/route.ts",
+      "source_location": "L4"
+    },
+    {
+      "id": "apps_web_src_app_api_reminders_stream_route",
+      "label": "stream/route.ts",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "stream/route.ts",
+      "source_file": "apps/web/src/app/api/reminders/stream/route.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "apps_web_src_app_api_reminders_stream_route_dynamic",
+      "label": "dynamic",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "dynamic",
+      "source_file": "apps/web/src/app/api/reminders/stream/route.ts",
+      "source_location": "L20"
+    },
+    {
+      "id": "apps_web_src_app_api_reminders_stream_route_runtime",
+      "label": "runtime",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "runtime",
+      "source_file": "apps/web/src/app/api/reminders/stream/route.ts",
+      "source_location": "L19"
+    },
+    {
+      "id": "apps_web_src_app_api_sessions_route",
+      "label": "sessions/route.ts",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "sessions/route.ts",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "apps_web_src_app_api_sessions_route_dynamic",
+      "label": "dynamic",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "dynamic",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L15"
+    },
+    {
+      "id": "apps_web_src_app_api_sessions_route_runtime",
+      "label": "runtime",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "runtime",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L14"
+    },
+    {
+      "id": "apps_web_src_lib_persona",
+      "label": "persona.ts",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "persona.ts",
+      "source_file": "apps/web/src/lib/persona.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "apps_web_src_lib_persona_fact_sections",
+      "label": "FACT_SECTIONS",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "fact_sections",
+      "source_file": "apps/web/src/lib/persona.ts",
+      "source_location": "L27"
+    },
+    {
+      "id": "apps_web_src_lib_persona_persona_order",
+      "label": "PERSONA_ORDER",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "persona_order",
+      "source_file": "apps/web/src/lib/persona.ts",
+      "source_location": "L24"
+    },
+    {
+      "id": "apps_web_src_lib_persona_template_dir",
+      "label": "TEMPLATE_DIR",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "template_dir",
+      "source_file": "apps/web/src/lib/persona.ts",
+      "source_location": "L21"
+    },
+    {
+      "id": "apps_web_src_lib_persona_user_data_dir",
+      "label": "USER_DATA_DIR",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "user_data_dir",
+      "source_file": "apps/web/src/lib/persona.ts",
+      "source_location": "L22"
+    },
+    {
+      "id": "apps_web_src_lib_reminders",
+      "label": "reminders.ts",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "reminders.ts",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "apps_web_src_lib_reminders_listeners",
+      "label": "listeners",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "listeners",
+      "source_file": "apps/web/src/lib/reminders.ts",
+      "source_location": "L34"
+    },
+    {
+      "id": "apps_web_src_lib_sessions",
+      "label": "sessions.ts",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "sessions.ts",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "apps_web_src_lib_users",
+      "label": "users.ts",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "sanitizeUser",
+      "file_type": "code",
+      "norm_label": "users.ts",
+      "source_file": "apps/web/src/lib/users.ts",
+      "source_location": "L1"
+    },
+    {
       "id": "apps_web_src_app_api_stt_route",
       "label": "stt/route.ts",
       "_origin": "ast",
@@ -6467,30 +6885,6 @@
       "source_location": "L1"
     },
     {
-      "id": "prd_real_time_voice_ai_assistant_26_audio_testing",
-      "label": "26. Audio Testing",
-      "_origin": "ast",
-      "community": 49,
-      "community_name": "26. Audio Testing",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "26. audio testing",
-      "source_file": "PRD_Real-Time_Voice_AI_Assistant.md",
-      "source_location": "L1426"
-    },
-    {
-      "id": "prd_real_time_voice_ai_assistant_audio_edge_cases",
-      "label": "Audio Edge Cases",
-      "_origin": "ast",
-      "community": 49,
-      "community_name": "26. Audio Testing",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "audio edge cases",
-      "source_file": "PRD_Real-Time_Voice_AI_Assistant.md",
-      "source_location": "L1444"
-    },
-    {
       "id": "prd_real_time_voice_ai_assistant",
       "label": "PRD_Real-Time_Voice_AI_Assistant.md",
       "_origin": "ast",
@@ -6573,6 +6967,18 @@
       "norm_label": "20. observability",
       "source_file": "PRD_Real-Time_Voice_AI_Assistant.md",
       "source_location": "L1122"
+    },
+    {
+      "id": "prd_real_time_voice_ai_assistant_26_audio_testing",
+      "label": "26. Audio Testing",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "PRD_Real-Time_Voice_AI_Assistant.md",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "26. audio testing",
+      "source_file": "PRD_Real-Time_Voice_AI_Assistant.md",
+      "source_location": "L1426"
     },
     {
       "id": "prd_real_time_voice_ai_assistant_27_interrupt_testing",
@@ -6753,6 +7159,18 @@
       "norm_label": "6. core user experience",
       "source_file": "PRD_Real-Time_Voice_AI_Assistant.md",
       "source_location": "L145"
+    },
+    {
+      "id": "prd_real_time_voice_ai_assistant_audio_edge_cases",
+      "label": "Audio Edge Cases",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "PRD_Real-Time_Voice_AI_Assistant.md",
+      "file_type": "document",
+      "node_kind": "heading",
+      "norm_label": "audio edge cases",
+      "source_file": "PRD_Real-Time_Voice_AI_Assistant.md",
+      "source_location": "L1444"
     },
     {
       "id": "prd_real_time_voice_ai_assistant_product_requirements_document_prd",
@@ -7366,116 +7784,6 @@
       "source_location": "L14"
     },
     {
-      "id": "apps_web_src_app_api_persona_route",
-      "label": "persona/route.ts",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "persona/route.ts",
-      "source_file": "apps/web/src/app/api/persona/route.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "apps_web_src_app_api_persona_route_runtime",
-      "label": "runtime",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "runtime",
-      "source_file": "apps/web/src/app/api/persona/route.ts",
-      "source_location": "L4"
-    },
-    {
-      "id": "apps_web_src_app_api_reminders_stream_route",
-      "label": "stream/route.ts",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "stream/route.ts",
-      "source_file": "apps/web/src/app/api/reminders/stream/route.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "apps_web_src_app_api_reminders_stream_route_dynamic",
-      "label": "dynamic",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "dynamic",
-      "source_file": "apps/web/src/app/api/reminders/stream/route.ts",
-      "source_location": "L20"
-    },
-    {
-      "id": "apps_web_src_app_api_reminders_stream_route_runtime",
-      "label": "runtime",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "runtime",
-      "source_file": "apps/web/src/app/api/reminders/stream/route.ts",
-      "source_location": "L19"
-    },
-    {
-      "id": "apps_web_src_lib_persona",
-      "label": "persona.ts",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "persona.ts",
-      "source_file": "apps/web/src/lib/persona.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "apps_web_src_lib_persona_fact_sections",
-      "label": "FACT_SECTIONS",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "fact_sections",
-      "source_file": "apps/web/src/lib/persona.ts",
-      "source_location": "L27"
-    },
-    {
-      "id": "apps_web_src_lib_persona_persona_order",
-      "label": "PERSONA_ORDER",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "persona_order",
-      "source_file": "apps/web/src/lib/persona.ts",
-      "source_location": "L24"
-    },
-    {
-      "id": "apps_web_src_lib_persona_template_dir",
-      "label": "TEMPLATE_DIR",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "template_dir",
-      "source_file": "apps/web/src/lib/persona.ts",
-      "source_location": "L21"
-    },
-    {
-      "id": "apps_web_src_lib_persona_user_data_dir",
-      "label": "USER_DATA_DIR",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "user_data_dir",
-      "source_file": "apps/web/src/lib/persona.ts",
-      "source_location": "L22"
-    },
-    {
       "id": "apps_web_src_lib_providers",
       "label": "providers.ts",
       "_origin": "ast",
@@ -7507,28 +7815,6 @@
       "norm_label": "public_providers",
       "source_file": "apps/web/src/lib/providers.ts",
       "source_location": "L59"
-    },
-    {
-      "id": "apps_web_src_lib_reminders",
-      "label": "reminders.ts",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "reminders.ts",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "apps_web_src_lib_reminders_listeners",
-      "label": "listeners",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "listeners",
-      "source_file": "apps/web/src/lib/reminders.ts",
-      "source_location": "L34"
     },
     {
       "id": "apps_web_src_lib_tools",
@@ -7595,17 +7881,6 @@
       "norm_label": "user_notes_dir",
       "source_file": "apps/web/src/lib/tools.ts",
       "source_location": "L224"
-    },
-    {
-      "id": "apps_web_src_lib_users",
-      "label": "users.ts",
-      "_origin": "ast",
-      "community": 61,
-      "community_name": "tools.ts",
-      "file_type": "code",
-      "norm_label": "users.ts",
-      "source_file": "apps/web/src/lib/users.ts",
-      "source_location": "L1"
     },
     {
       "id": "prd_real_time_voice_ai_assistant_43_recommended_mvp_product_architecture",
@@ -7717,7 +7992,7 @@
       "file_type": "code",
       "norm_label": "card_particles",
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L82"
+      "source_location": "L87"
     },
     {
       "id": "apps_web_src_components_ui_ai_chat_input",
@@ -7750,7 +8025,7 @@
       "file_type": "code",
       "norm_label": "tts_voices",
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L68"
+      "source_location": "L73"
     },
     {
       "id": "apps_web_src_components_ui_button",
@@ -8612,6 +8887,54 @@
       "weight": 1.0
     },
     {
+      "source": "apps_web_src_app_api_sessions_route_delete",
+      "target": "apps_web_src_lib_sessions_deletesession",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L60",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_app_api_sessions_route_get",
+      "target": "apps_web_src_lib_sessions_loadsession",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_app_api_sessions_route_get",
+      "target": "apps_web_src_lib_sessions_listsessions",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_app_api_sessions_route_post",
+      "target": "apps_web_src_lib_sessions_upsertsession",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L43",
+      "weight": 1.0
+    },
+    {
       "source": "apps_web_src_app_api_tts_route_post",
       "target": "apps_web_src_app_api_tts_route_detectmodel",
       "relation": "calls",
@@ -8644,7 +8967,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/app/page.tsx",
-      "source_location": "L57",
+      "source_location": "L62",
       "weight": 1.0
     },
     {
@@ -8764,7 +9087,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L137",
+      "source_location": "L147",
       "weight": 1.0
     },
     {
@@ -8776,7 +9099,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L400",
+      "source_location": "L453",
       "weight": 1.0
     },
     {
@@ -8788,7 +9111,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L83",
+      "source_location": "L88",
       "weight": 1.0
     },
     {
@@ -8896,7 +9219,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L111",
+      "source_location": "L157",
       "weight": 1.0
     },
     {
@@ -8908,7 +9231,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L129",
+      "source_location": "L178",
       "weight": 1.0
     },
     {
@@ -8920,7 +9243,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L129",
+      "source_location": "L178",
       "weight": 1.0
     },
     {
@@ -8932,7 +9255,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L159",
+      "source_location": "L208",
       "weight": 1.0
     },
     {
@@ -8944,7 +9267,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L165",
+      "source_location": "L214",
       "weight": 1.0
     },
     {
@@ -8956,7 +9279,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L169",
+      "source_location": "L218",
       "weight": 1.0
     },
     {
@@ -8968,7 +9291,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L170",
+      "source_location": "L219",
       "weight": 1.0
     },
     {
@@ -8980,7 +9303,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L172",
+      "source_location": "L221",
       "weight": 1.0
     },
     {
@@ -8992,7 +9315,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L176",
+      "source_location": "L225",
       "weight": 1.0
     },
     {
@@ -9004,7 +9327,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L230",
+      "source_location": "L279",
       "weight": 1.0
     },
     {
@@ -9016,7 +9339,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L240",
+      "source_location": "L289",
       "weight": 1.0
     },
     {
@@ -9028,7 +9351,55 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L263",
+      "source_location": "L312",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice_usevoice",
+      "target": "apps_web_src_hooks_usevoice_apilistsessions",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L324",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice_usevoice",
+      "target": "apps_web_src_hooks_usevoice_apiloadsession",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L328",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice_usevoice",
+      "target": "apps_web_src_hooks_usevoice_apiupsertsession",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L378",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice_usevoice",
+      "target": "apps_web_src_hooks_usevoice_apideletesession",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L418",
       "weight": 1.0
     },
     {
@@ -9305,6 +9676,234 @@
       "context": "call",
       "source_file": "apps/web/src/lib/reminders.ts",
       "source_location": "L112",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_deletesession",
+      "target": "apps_web_src_lib_users_sanitizeuser",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L118",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_deletesession",
+      "target": "apps_web_src_lib_sessions_sanitizeid",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L119",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_deletesession",
+      "target": "apps_web_src_lib_sessions_sessionpath",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L122",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_deletesession",
+      "target": "apps_web_src_lib_sessions_listsessions",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L126",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_deletesession",
+      "target": "apps_web_src_lib_sessions_indexpath",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L127",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_indexpath",
+      "target": "apps_web_src_lib_sessions_sessionsdir",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L39",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_listsessions",
+      "target": "apps_web_src_lib_users_sanitizeuser",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L54",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_listsessions",
+      "target": "apps_web_src_lib_sessions_indexpath",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L57",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_loadsession",
+      "target": "apps_web_src_lib_users_sanitizeuser",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L72",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_loadsession",
+      "target": "apps_web_src_lib_sessions_sanitizeid",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L73",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_loadsession",
+      "target": "apps_web_src_lib_sessions_sessionpath",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L76",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_sessionpath",
+      "target": "apps_web_src_lib_sessions_sessionsdir",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L43",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_sessionsdir",
+      "target": "apps_web_src_lib_users_userdataroot",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L35",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_upsertsession",
+      "target": "apps_web_src_lib_sessions_sessionpath",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L106",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_upsertsession",
+      "target": "apps_web_src_lib_sessions_listsessions",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L108",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_upsertsession",
+      "target": "apps_web_src_lib_sessions_indexpath",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L112",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_upsertsession",
+      "target": "apps_web_src_lib_users_sanitizeuser",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L94",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_upsertsession",
+      "target": "apps_web_src_lib_sessions_sanitizeid",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L96",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_upsertsession",
+      "target": "apps_web_src_lib_sessions_sessionsdir",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L98",
       "weight": 1.0
     },
     {
@@ -9844,7 +10443,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L15",
+      "source_location": "L16",
       "weight": 1.0
     },
     {
@@ -9856,7 +10455,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L16",
+      "source_location": "L17",
       "weight": 1.0
     },
     {
@@ -9868,7 +10467,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L17",
+      "source_location": "L18",
       "weight": 1.0
     },
     {
@@ -9880,7 +10479,19 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L30",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice_usevoiceresult",
+      "target": "apps_web_src_lib_sessions_sessionmeta",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "field",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L37",
       "weight": 1.0
     },
     {
@@ -10724,6 +11335,54 @@
       "weight": 1.0
     },
     {
+      "source": "apps_web_src_app_api_sessions_route",
+      "target": "apps_web_src_lib_sessions_deletesession",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_app_api_sessions_route",
+      "target": "apps_web_src_lib_sessions_listsessions",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_app_api_sessions_route",
+      "target": "apps_web_src_lib_sessions_loadsession",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_app_api_sessions_route",
+      "target": "apps_web_src_lib_sessions_upsertsession",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
       "source": "apps_web_src_app_page",
       "target": "apps_web_src_components_floatingparticles_floatingparticles",
       "relation": "imports",
@@ -10929,6 +11588,18 @@
     },
     {
       "source": "apps_web_src_hooks_usevoice",
+      "target": "apps_web_src_lib_sessions_sessionmeta",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice",
       "target": "apps_web_src_ai_conversationmanager_conversationmanager",
       "relation": "imports",
       "_origin": "ast",
@@ -11105,6 +11776,30 @@
       "context": "import",
       "source_file": "apps/web/src/lib/reminders.ts",
       "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_users_sanitizeuser",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_users_userdataroot",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -11504,6 +12199,18 @@
       "weight": 1.0
     },
     {
+      "source": "apps_web_src_app_api_sessions_route",
+      "target": "apps_web_src_lib_sessions",
+      "relation": "imports_from",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
       "source": "apps_web_src_app_page",
       "target": "apps_web_src_components_floatingparticles",
       "relation": "imports_from",
@@ -11685,6 +12392,18 @@
     },
     {
       "source": "apps_web_src_hooks_usevoice",
+      "target": "apps_web_src_lib_sessions",
+      "relation": "imports_from",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice",
       "target": "apps_web_src_ai_conversationmanager",
       "relation": "imports_from",
       "_origin": "ast",
@@ -11777,6 +12496,18 @@
       "context": "import",
       "source_file": "apps/web/src/lib/reminders.ts",
       "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_users",
+      "relation": "imports_from",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -12113,6 +12844,18 @@
       "context": "type",
       "source_file": "packages/mock-provider/src/index.ts",
       "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_session",
+      "target": "apps_web_src_lib_sessions_sessionmeta",
+      "relation": "inherits",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "type",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L28",
       "weight": 1.0
     },
     {
@@ -13008,6 +13751,61 @@
       "weight": 1.0
     },
     {
+      "source": "apps_web_src_app_api_sessions_route",
+      "target": "apps_web_src_app_api_sessions_route_runtime",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_app_api_sessions_route",
+      "target": "apps_web_src_app_api_sessions_route_dynamic",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_app_api_sessions_route",
+      "target": "apps_web_src_app_api_sessions_route_get",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_app_api_sessions_route",
+      "target": "apps_web_src_app_api_sessions_route_post",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_app_api_sessions_route",
+      "target": "apps_web_src_app_api_sessions_route_delete",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/app/api/sessions/route.ts",
+      "source_location": "L52",
+      "weight": 1.0
+    },
+    {
       "source": "apps_web_src_app_api_stt_route",
       "target": "apps_web_src_app_api_stt_route_post",
       "relation": "contains",
@@ -13323,7 +14121,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L68",
+      "source_location": "L73",
       "weight": 1.0
     },
     {
@@ -13334,7 +14132,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L71",
+      "source_location": "L76",
       "weight": 1.0
     },
     {
@@ -13345,7 +14143,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L82",
+      "source_location": "L87",
       "weight": 1.0
     },
     {
@@ -13356,7 +14154,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/components/ui/ai-chat.tsx",
-      "source_location": "L92",
+      "source_location": "L97",
       "weight": 1.0
     },
     {
@@ -13592,13 +14390,57 @@
     },
     {
       "source": "apps_web_src_hooks_usevoice",
+      "target": "apps_web_src_hooks_usevoice_apilistsessions",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L108",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice",
+      "target": "apps_web_src_hooks_usevoice_apiloadsession",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L115",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice",
+      "target": "apps_web_src_hooks_usevoice_apiupsertsession",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L122",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice",
+      "target": "apps_web_src_hooks_usevoice_apideletesession",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/hooks/useVoice.ts",
+      "source_location": "L138",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_hooks_usevoice",
       "target": "apps_web_src_hooks_usevoice_usevoice",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L100",
+      "source_location": "L146",
       "weight": 1.0
     },
     {
@@ -13609,7 +14451,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L14",
+      "source_location": "L15",
       "weight": 1.0
     },
     {
@@ -13620,7 +14462,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L43",
+      "source_location": "L49",
       "weight": 1.0
     },
     {
@@ -13631,7 +14473,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L48",
+      "source_location": "L54",
       "weight": 1.0
     },
     {
@@ -13642,7 +14484,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L54",
+      "source_location": "L60",
       "weight": 1.0
     },
     {
@@ -13653,7 +14495,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L65",
+      "source_location": "L71",
       "weight": 1.0
     },
     {
@@ -13664,7 +14506,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L73",
+      "source_location": "L79",
       "weight": 1.0
     },
     {
@@ -13675,7 +14517,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L81",
+      "source_location": "L87",
       "weight": 1.0
     },
     {
@@ -13686,7 +14528,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "apps/web/src/hooks/useVoice.ts",
-      "source_location": "L92",
+      "source_location": "L98",
       "weight": 1.0
     },
     {
@@ -13995,6 +14837,138 @@
       "confidence_score": 1.0,
       "source_file": "apps/web/src/lib/reminders.ts",
       "source_location": "L95",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_deletesession",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L117",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_serializedconversation",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_sessionmeta",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_session",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_sortbyid",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_sessionsdir",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_indexpath",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L38",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_sessionpath",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_sanitizeid",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L46",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_listsessions",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L53",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_loadsession",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L71",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions",
+      "target": "apps_web_src_lib_sessions_upsertsession",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L88",
       "weight": 1.0
     },
     {
@@ -18580,8 +19554,32 @@
       "source_file": "apps/web/verify.ts",
       "source_location": "L61",
       "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_listsessions",
+      "target": "apps_web_src_lib_sessions_sortbyid",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L61",
+      "weight": 1.0
+    },
+    {
+      "source": "apps_web_src_lib_sessions_upsertsession",
+      "target": "apps_web_src_lib_sessions_sortbyid",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "apps/web/src/lib/sessions.ts",
+      "source_location": "L110",
+      "weight": 1.0
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "af8541a234ed235a4db1a95c6e8786b8f1e4b255"
+  "built_at_commit": "02637c50a048617ad066797b8eaa2773c9f2564f"
 }

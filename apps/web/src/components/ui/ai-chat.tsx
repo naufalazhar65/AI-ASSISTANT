@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Check, Clock, Mic, MicOff, Send, Settings, Square, Type, Volume2, X } from "lucide-react";
+import { AlertTriangle, Check, Clock, Mic, MicOff, Send, Settings, Square, Trash, Type, Volume2, X } from "lucide-react";
 import { ConfirmationRequest } from "@voice/ai-provider";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +63,11 @@ interface AIChatCardProps {
   onDeny?: (callId: string) => void;
   reminders?: string[];
   onDismissReminder?: (index: number) => void;
+  sessions?: { id: string; title: string; updatedAt: number; turns: number }[];
+  currentSessionId?: string | null;
+  onSwitchSession?: (id: string) => void;
+  onNewSession?: () => void;
+  onDeleteSession?: (id: string) => void;
 }
 
 export const TTS_VOICES = ["autumn", "diana", "hannah", "austin", "daniel", "troy"] as const;
@@ -115,6 +120,11 @@ export default function AIChatCard({
   onDeny,
   reminders = [],
   onDismissReminder,
+  sessions = [],
+  currentSessionId = null,
+  onSwitchSession,
+  onNewSession,
+  onDeleteSession,
 }: AIChatCardProps) {
   const [input, setInput] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -373,6 +383,49 @@ export default function AIChatCard({
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Conversations (multi-session) selector */}
+        {(onSwitchSession || onNewSession) && (
+          <div className="relative z-10 flex items-center gap-2 px-4 py-2 border-b border-white/10">
+            <select
+              value={currentSessionId ?? ""}
+              onChange={(e) => {
+                const id = e.target.value;
+                if (id) onSwitchSession?.(id);
+              }}
+              className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/50 px-2 py-1.5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-white/40"
+              aria-label="Conversations"
+            >
+              {sessions.filter(Boolean).map((s) => (
+                <option key={s.id} value={s.id} className="bg-black text-white">
+                  {s.title || "Untitled"} · {s.turns || 0}
+                </option>
+              ))}
+            </select>
+            {onNewSession && (
+              <button
+                type="button"
+                onClick={onNewSession}
+                title="New conversation"
+                aria-label="New conversation"
+                className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-white/70 hover:bg-white/15 transition-colors"
+              >
+                + New
+              </button>
+            )}
+            {onDeleteSession && currentSessionId && (
+              <button
+                type="button"
+                onClick={() => onDeleteSession(currentSessionId)}
+                title="Delete this conversation"
+                aria-label="Delete this conversation"
+                className="shrink-0 rounded-lg border border-white/10 bg-white/5 p-1.5 text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              >
+                <Trash className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )}
 

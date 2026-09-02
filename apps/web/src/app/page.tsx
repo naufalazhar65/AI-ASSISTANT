@@ -51,6 +51,11 @@ export default function Home() {
     denyTool,
     reminders,
     dismissReminder,
+    sessions,
+    currentSessionId,
+    switchSession,
+    newSession,
+    deleteSession,
     toggleMic,
     sendText,
     interrupt,
@@ -145,6 +150,11 @@ export default function Home() {
           onDeny={denyTool}
           reminders={reminders}
           onDismissReminder={dismissReminder}
+          sessions={sessions}
+          currentSessionId={currentSessionId}
+          onSwitchSession={(id) => void switchSession(id)}
+          onNewSession={newSession}
+          onDeleteSession={(id) => void deleteSession(id)}
         />
 
         {micState.status === "denied" && (

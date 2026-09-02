@@ -10,6 +10,7 @@ import { AIProvider, ConfirmationRequest, ProviderEvent } from "@voice/ai-provid
 import { State } from "@voice/state-machine";
 import { MockProvider } from "@ai-provider/mock";
 import { PUBLIC_PROVIDERS, ProviderId } from "@/lib/providers";
+import { SessionMeta } from "@/lib/sessions";
 
 export interface UseVoiceResult {
   state: State;
@@ -33,6 +34,11 @@ export interface UseVoiceResult {
   denyTool: (callId: string) => void;
   reminders: string[];
   dismissReminder: (index: number) => void;
+  sessions: SessionMeta[];
+  currentSessionId: string | null;
+  switchSession: (id: string) => Promise<void>;
+  newSession: () => void;
+  deleteSession: (id: string) => Promise<void>;
   start: () => Promise<void>;
   stop: () => void;
   toggleMic: () => Promise<void>;
@@ -97,6 +103,46 @@ function saveHistory(user: string, conversation: SerializedConversation): void {
   }
 }
 
+// --- Multi-session (server-side, per-user) API helpers ---
+
+async function apiListSessions(user: string): Promise<SessionMeta[]> {
+  const res = await fetch(`/api/sessions?user=${encodeURIComponent(user)}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { sessions?: SessionMeta[] };
+  return Array.isArray(data.sessions) ? data.sessions : [];
+}
+
+async function apiLoadSession(user: string, id: string): Promise<SerializedConversation | null> {
+  const res = await fetch(`/api/sessions?user=${encodeURIComponent(user)}&id=${encodeURIComponent(id)}`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as { session?: { conversation?: SerializedConversation } };
+  return data.session?.conversation ?? null;
+}
+
+async function apiUpsertSession(
+  user: string,
+  sessionId: string | null,
+  conversation: SerializedConversation,
+  title?: string
+): Promise<string | null> {
+  const res = await fetch("/api/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user, session_id: sessionId, conversation, title }),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { id?: string };
+  return typeof data.id === "string" ? data.id : null;
+}
+
+async function apiDeleteSession(user: string, id: string): Promise<void> {
+  await fetch("/api/sessions", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user, session_id: id }),
+  });
+}
+
 export function useVoice(): UseVoiceResult {
   const managerRef = useRef<ConversationManager | null>(null);
   const captureRef = useRef<AudioCapture | null>(null);
@@ -115,6 +161,9 @@ export function useVoice(): UseVoiceResult {
   const voiceOutputRef = useRef(true);
   const hadAudioRef = useRef(false);
   const [reminders, setReminders] = useState<string[]>([]);
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const currentSessionIdRef = useRef<string | null>(null);
 
   const toggleVoiceOutput = useCallback(() => {
     setVoiceOutput((prev) => {
@@ -266,6 +315,26 @@ export function useVoice(): UseVoiceResult {
     }
   }, [manager]);
 
+  // Load the user's saved multi-sessions on mount, restoring the most recent
+  // one so they resume where they left off (OpenClaw multi-session).
+  useEffect(() => {
+    const user = historyUser();
+    if (!user) return;
+    void (async () => {
+      const list = await apiListSessions(user);
+      setSessions(list);
+      const latest = list[0];
+      if (latest) {
+        const conv = await apiLoadSession(user, latest.id);
+        setCurrentSessionId(latest.id);
+        if (conv && conv.transcripts.some((t) => t.state === "final")) {
+          manager.restoreHistory(conv.transcripts);
+          setTranscripts(manager.history);
+        }
+      }
+    })();
+  }, [manager]);
+
   // Connect the provider eagerly on mount so typed chat works immediately,
   // independently of the microphone (FR-011 text fallback). This does not
   // enter LISTENING; mic capture later reuses the connected provider.
@@ -297,6 +366,75 @@ export function useVoice(): UseVoiceResult {
   const dismissReminder = useCallback((index: number) => {
     setReminders((prev) => prev.filter((_, i) => i !== index));
   }, []);
+
+  // --- Multi-session management ---
+
+  // Persist the current conversation to whichever session is active. Safe to
+  // call on every transcript event; upsert is cheap and idempotent.
+  const autosave = useCallback(
+    async (sessionId: string | null): Promise<string | null> => {
+      const user = historyUser();
+      if (!user) return sessionId;
+      const saved = await apiUpsertSession(user, sessionId, manager.serialize());
+      if (saved && saved !== sessionId) setCurrentSessionId(saved);
+      return saved;
+    },
+    [manager]
+  );
+
+  const refreshSessions = useCallback(async () => {
+    const user = historyUser();
+    if (!user) return;
+    setSessions(await apiListSessions(user));
+  }, []);
+
+  const switchSession = useCallback(
+    async (id: string) => {
+      const user = historyUser();
+      if (!user) return;
+      // Persist the outgoing session first, then load the incoming one.
+      await autosave(currentSessionId);
+      const conversation = await apiLoadSession(user, id);
+      setCurrentSessionId(id);
+      if (conversation) manager.restoreHistory(conversation.transcripts);
+      setTranscripts(manager.history);
+      await refreshSessions();
+    },
+    [currentSessionId, autosave, manager, refreshSessions]
+  );
+
+  const newSession = useCallback(() => {
+    void autosave(currentSessionId);
+    manager.restoreHistory([]);
+    setTranscripts([]);
+    setCurrentSessionId(null);
+    void refreshSessions();
+  }, [autosave, currentSessionId, manager, refreshSessions]);
+
+  const deleteSession = useCallback(
+    async (id: string) => {
+      const user = historyUser();
+      if (!user) return;
+      await apiDeleteSession(user, id);
+      if (currentSessionId === id) {
+        manager.restoreHistory([]);
+        setTranscripts([]);
+        setCurrentSessionId(null);
+      }
+      await refreshSessions();
+    },
+    [currentSessionId, manager, refreshSessions]
+  );
+
+  // Autosave the active session after a turn advances (debounced), so a reload
+  // between turns leaves nothing unsaved. `autosave` is cheap + idempotent.
+  useEffect(() => {
+    if (currentSessionId === null) return;
+    const t = setTimeout(() => {
+      void autosave(currentSessionId);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [currentSessionId, autosave, transcripts.length]);
 
   const start = useCallback(async () => {
     await capture.start();
@@ -374,6 +512,11 @@ export function useVoice(): UseVoiceResult {
     denyTool,
     reminders,
     dismissReminder,
+    sessions,
+    currentSessionId,
+    switchSession,
+    newSession,
+    deleteSession,
     start,
     stop,
     toggleMic,
