@@ -49,6 +49,8 @@ export default function Home() {
     lastError,
     confirmTool,
     denyTool,
+    reminders,
+    dismissReminder,
     toggleMic,
     sendText,
     interrupt,
@@ -141,6 +143,8 @@ export default function Home() {
           lastError={lastError}
           onConfirm={confirmTool}
           onDeny={denyTool}
+          reminders={reminders}
+          onDismissReminder={dismissReminder}
         />
 
         {micState.status === "denied" && (

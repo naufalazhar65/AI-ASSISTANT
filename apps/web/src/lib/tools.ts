@@ -1,5 +1,7 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { sanitizeUser, userDataRoot, appRoot, repoRoot } from "./users";
+import { addReminder } from "./reminders";
 
 export interface ToolCall {
   id: string;
@@ -118,15 +120,58 @@ export const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    risk: "read",
+    function: {
+      name: "file_read",
+      description:
+        "Read a file or list a directory inside the project workspace, given a path relative to the repo root (e.g. 'apps/web/src/lib/tools.ts' or 'apps/web'). Returns the file content (or directory listing). Sensitive paths (env files, .git, node_modules, .next, .data) are blocked.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Path relative to the project root, e.g. 'prd' or 'apps/web'",
+          },
+        },
+        required: ["path"],
+      },
+    },
+  },
+  {
+    type: "function",
+    risk: "write",
+    function: {
+      name: "remind_me",
+      description:
+        "Schedule a reminder. This creates a persistent scheduled notification, so the user confirms before it runs. `when` must be a concrete ISO-8601 date-time with timezone offset, e.g. '2026-09-02T15:00:00+07:00'. If the user gives a relative time, first convert it to a concrete ISO-8601 timestamp. The user will be notified when it is due.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: {
+            type: "string",
+            description: "What to be reminded about, in the user's own words",
+          },
+          when: {
+            type: "string",
+            description: "Concrete ISO-8601 timestamp with offset, e.g. '2026-09-02T15:00:00+07:00'",
+          },
+        },
+        required: ["text", "when"],
+      },
+    },
+  },
 ];
 
-export async function executeTool(call: ToolCall): Promise<string> {
+export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<string> {
   let args: Record<string, unknown>;
   try {
     args = JSON.parse(call.arguments || "{}");
   } catch {
     return "Error: invalid tool arguments";
   }
+  const userKey = sanitizeUser(rawUser);
   switch (call.name) {
     case "web_search":
       return webSearch(typeof args.query === "string" ? args.query : "");
@@ -136,40 +181,57 @@ export async function executeTool(call: ToolCall): Promise<string> {
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid expression"}`;
       }
+    case "file_read":
+      try {
+        return fileRead(typeof args.path === "string" ? args.path : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot read path"}`;
+      }
     case "save_note":
       try {
-        return saveNote(typeof args.content === "string" ? args.content : "");
+        return saveNote(typeof args.content === "string" ? args.content : "", userKey);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid note"}`;
       }
     case "list_notes":
-      return listNotes();
+      return listNotes(userKey);
     case "delete_note":
       try {
-        return deleteNote(Number(args.number));
+        return deleteNote(Number(args.number), userKey);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid note number"}`;
+      }
+    case "remind_me":
+      try {
+        return scheduleReminder(
+          typeof args.text === "string" ? args.text : "",
+          typeof args.when === "string" ? args.when : "",
+          rawUser
+        );
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid reminder"}`;
       }
     default:
       return `Error: unknown tool "${call.name}"`;
   }
 }
 
-// Persistent notes store (server-side only; `node:fs`). Fixed constant path —
-// never derived from user input, so there is no path traversal. A write is
-// atomic (temp file + rename) so a crash can't corrupt the store.
-const NOTES_DIR = "apps/web/.data";
-const NOTES_FILE = "apps/web/.data/notes.json";
+// Persistent notes store (server-side only; `node:fs`). Path is built from a
+// sanitized user key (fallback to a shared file when none) so it is never
+// derived raw from user input → no path traversal. A write is atomic (temp
+// file + rename) so a crash can't corrupt the store.
+const NOTES_FILE = join(appRoot(), ".data", "notes.json");
+const USER_NOTES_DIR = userDataRoot();
 const MAX_NOTES = 50;
 const NOTE_BUDGET = 80000;
 
-function notesPath(): string {
-  return NOTES_FILE;
+function notesPath(userKey: string | null): string {
+  return userKey ? `${USER_NOTES_DIR}/${userKey}/notes.json` : NOTES_FILE;
 }
 
-function readNotes(): { id: string; content: string }[] {
+function readNotes(userKey: string | null): { id: string; content: string }[] {
   try {
-    const raw = readFileSync(notesPath(), "utf8");
+    const raw = readFileSync(notesPath(userKey), "utf8");
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -177,36 +239,91 @@ function readNotes(): { id: string; content: string }[] {
   }
 }
 
-function writeNotes(notes: { id: string; content: string }[]): void {
-  mkdirSync(dirname(notesPath()), { recursive: true });
-  const tmp = `${notesPath()}.tmp`;
+function writeNotes(notes: { id: string; content: string }[], userKey: string | null): void {
+  mkdirSync(dirname(notesPath(userKey)), { recursive: true });
+  const tmp = `${notesPath(userKey)}.tmp`;
   writeFileSync(tmp, JSON.stringify(notes, null, 2));
-  renameSync(tmp, notesPath());
+  renameSync(tmp, notesPath(userKey));
 }
 
-function saveNote(content: string): string {
+function saveNote(content: string, userKey: string | null): string {
   const note = content.trim().slice(0, 500);
   if (!note) throw new Error("empty note");
-  const notes = readNotes();
+  const notes = readNotes(userKey);
   notes.push({ id: String(Date.now()), content: note });
   while (notes.length > MAX_NOTES) notes.shift();
   if (JSON.stringify(notes).length > NOTE_BUDGET) notes.splice(0, Math.max(1, notes.length - 5));
-  writeNotes(notes);
+  writeNotes(notes, userKey);
   return `Saved note #${notes.length}: "${note}".`;
 }
 
-function listNotes(): string {
-  const notes = readNotes();
+function listNotes(userKey: string | null): string {
+  const notes = readNotes(userKey);
   if (!notes.length) return "You have no saved notes yet.";
   return notes.map((n, i) => `${i + 1}. ${n.content}`).join("\n").slice(0, 3000);
 }
 
-function deleteNote(index: number): string {
-  const notes = readNotes();
+function deleteNote(index: number, userKey: string | null): string {
+  const notes = readNotes(userKey);
   if (index < 1 || index > notes.length) throw new Error(`no note #${index}`);
   const removed = notes.splice(index - 1, 1)[0];
-  writeNotes(notes);
+  writeNotes(notes, userKey);
   return `Deleted note #${index} "${removed.content}".`;
+}
+
+function scheduleReminder(text: string, isoWhen: string, rawUser: unknown): string {
+  const atMs = Date.parse(isoWhen);
+  if (Number.isNaN(atMs)) throw new Error(`cannot parse time "${isoWhen}" — use ISO-8601 with offset`);
+  const whenText = new Date(atMs).toLocaleString("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  const r = addReminder(text, atMs, rawUser);
+  return `Reminder set: "${r.text}" at ${whenText}. The user will be notified then.`;
+}
+
+// File access tool (Phase 4). Read-only, sandboxed to the project root
+// (process.cwd()), resolved after `..` normalization, and a deny-list keeps
+// secrets/build/server directories out of the LLM context:
+//   - .env* / *.local        → API keys, never exposed
+//   - .git, node_modules, .next, .data  → not user-authored material
+const FILE_ROOT = () => repoRoot();
+const FILE_MAX_BYTES = 60000;
+const DENY_SEGMENTS = [".git", "node_modules", ".next", ".data", "dist", "coverage"];
+const DENY_PATTERNS = [/^\.env(\.|$)/i, /.local$/, /\.(key|pem|crt)$/i, /\.(pyc|class|o)$/];
+
+function fileRead(rawPath: string): string {
+  const p = (rawPath || "").trim();
+  if (!p) throw new Error("empty path");
+  if (isAbsolute(p) || p.includes("~")) throw new Error("path must be relative to the project root");
+
+  const root = FILE_ROOT();
+  const abs = resolve(root, p);
+  if (abs !== root && !abs.startsWith(root + sep)) throw new Error("path escapes the project root");
+
+  const rel = abs.slice(root.length).split(sep).filter(Boolean);
+  for (const seg of rel) {
+    if (DENY_SEGMENTS.includes(seg)) throw new Error(`"${seg}" is not readable`);
+    if (DENY_PATTERNS.some((re) => re.test(seg))) throw new Error(`"${seg}" is blocked for security`);
+  }
+
+  const stat = statSync(abs);
+  if (stat.isDirectory()) {
+    const entries = readdirSync(abs).slice(0, 200);
+    const labeled = entries.map((e) => {
+      let type = "file";
+      try {
+        type = statSync(resolve(abs, e)).isDirectory() ? "dir" : type;
+      } catch {
+        /* ignore */
+      }
+      return `${type}\t${e}`;
+    });
+    return labeled.length ? `Directory listing (${rel.join("/") || "."}):\n${labeled.join("\n")}` : "(empty directory)";
+  }
+
+  if (stat.size > FILE_MAX_BYTES) throw new Error("file too large to read");
+  return readFileSync(abs, "utf8").slice(0, FILE_MAX_BYTES);
 }
 
 const DDG_INSTANT = "https://api.duckduckgo.com/";

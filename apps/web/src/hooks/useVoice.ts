@@ -31,6 +31,8 @@ export interface UseVoiceResult {
   lastError: string | null;
   confirmTool: (callId: string) => void;
   denyTool: (callId: string) => void;
+  reminders: string[];
+  dismissReminder: (index: number) => void;
   start: () => Promise<void>;
   stop: () => void;
   toggleMic: () => Promise<void>;
@@ -112,6 +114,7 @@ export function useVoice(): UseVoiceResult {
   const [lastError, setLastError] = useState<string | null>(null);
   const voiceOutputRef = useRef(true);
   const hadAudioRef = useRef(false);
+  const [reminders, setReminders] = useState<string[]>([]);
 
   const toggleVoiceOutput = useCallback(() => {
     setVoiceOutput((prev) => {
@@ -159,6 +162,7 @@ export function useVoice(): UseVoiceResult {
       p.setProvider(provider);
       p.setModel(model);
       p.setTtsSettings(voice);
+      p.setUser(historyUser() ?? undefined);
     }
   }, [provider, model, voice]);
 
@@ -269,6 +273,31 @@ export function useVoice(): UseVoiceResult {
     void manager.connect();
   }, [manager]);
 
+  // Scheduler & reminders (OpenClaw): open an SSE stream that pushes due
+  // reminders for this user, including any that came due while the tab was
+  // closed (the server replays them on connect). Cap the visible queue so a
+  // flood of overdue reminders cannot grow unbounded.
+  useEffect(() => {
+    const user = historyUser();
+    if (!user) return;
+    const es = new EventSource(`/api/reminders/stream?user=${encodeURIComponent(user)}`);
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data) as { id?: string; text?: string };
+        if (typeof data.text === "string" && data.text.trim()) {
+          setReminders((prev) => [...prev, data.text!.trim()].slice(-5));
+        }
+      } catch {
+        /* ignore malformed frames */
+      }
+    };
+    return () => es.close();
+  }, []);
+
+  const dismissReminder = useCallback((index: number) => {
+    setReminders((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const start = useCallback(async () => {
     await capture.start();
     if (capture.isActive()) {
@@ -343,6 +372,8 @@ export function useVoice(): UseVoiceResult {
     lastError,
     confirmTool,
     denyTool,
+    reminders,
+    dismissReminder,
     start,
     stop,
     toggleMic,

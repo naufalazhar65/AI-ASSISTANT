@@ -1,12 +1,12 @@
 {
-  "0": "10. Conversation State Machine",
+  "0": "13. Real-Time Transport",
   "1": "useVoice.ts",
   "2": "compilerOptions",
   "3": "dependencies",
   "4": "8. Functional Requirements",
   "5": "PRD_Real-Time_Voice_AI_Assistant.md",
   "6": "devDependencies",
-  "7": "GroqStreamingProvider",
+  "7": "43. Recommended MVP Product Architecture",
   "8": "ai-chat-input.tsx",
   "9": "mock-provider/package.json",
   "10": "compilerOptions",
@@ -36,7 +36,6 @@
   "34": "38. Product Success Criteria",
   "35": "next.config.js",
   "36": "postcss.config.js",
-  "37": "llm/route.ts",
   "38": "stt/route.ts",
   "39": "layout.tsx",
   "40": "16. Latency Requirements",
@@ -46,10 +45,8 @@
   "44": "5. Target Users",
   "45": "7. Conversation Model",
   "46": "next-env.d.ts",
-  "47": "AIProvider",
-  "48": "13. Real-Time Transport",
+  "47": "GroqStreamingProvider",
   "49": "26. Audio Testing",
-  "50": "43. Recommended MVP Product Architecture",
   "51": "vitest.config.mts",
   "52": "next",
   "53": "tailwindcss",
@@ -58,5 +55,7 @@
   "56": "SOUL.md",
   "57": "USER.md",
   "58": "tailwind.config.js",
-  "59": "tailwind.config.ts"
+  "59": "tailwind.config.ts",
+  "60": "README.md",
+  "61": "tools.ts"
 }

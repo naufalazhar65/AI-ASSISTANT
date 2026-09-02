@@ -51,6 +51,12 @@ export class GroqStreamingProvider implements AIProvider {
     this.llmProvider = provider ?? undefined;
   }
 
+  /** Current user identity (from localStorage) for per-user persona isolation. */
+  private user: string | undefined;
+  setUser(user: string | undefined): void {
+    this.user = user ?? undefined;
+  }
+
   connect(): Promise<void> {
     this.connected = true;
     this.emit({ type: "connected" });
@@ -181,9 +187,16 @@ async sendAudio(audio: ArrayBuffer): Promise<void> {
     let streamed = "";
     try {
       const body: Record<string, unknown> = { messages: opts.messages };
-      if (opts.confirm_call) body.confirm_call = opts.confirm_call;
+      // The route's confirm_call contract is { call: ToolCall; allow }. The
+      // caller hands us { id, name, arguments, allow }; wrap it so the route
+      // receives the shape it declares (and stops misreading undefined.call).
+      if (opts.confirm_call) {
+        const { allow, id, name, arguments: args } = opts.confirm_call;
+        body.confirm_call = { call: { id, name, arguments: args }, allow };
+      }
       if (this.llmProvider) body.provider = this.llmProvider;
       if (this.llmModel) body.model = this.llmModel;
+      if (this.user) body.user = this.user;
       const res = await fetch("/api/llm", {
         method: "POST",
         signal: controller.signal,
@@ -286,7 +299,12 @@ async sendAudio(audio: ArrayBuffer): Promise<void> {
         fetch("/api/persona", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ target: w.target, key: w.key, value: w.value }),
+          body: JSON.stringify({
+            target: w.target,
+            key: w.key,
+            value: w.value,
+            ...(this.user ? { user: this.user } : {}),
+          }),
         })
       )
     );
@@ -297,17 +315,28 @@ async sendAudio(audio: ArrayBuffer): Promise<void> {
     return match ? match.index! : -1;
   }
 
+  /**
+   * Synthesize one sentence to speech (FR-006). TTS is best-effort: if Groq
+   * rejects the request (429 rate limit, 502, …) or the network hiccups we
+   * silently skip the audio for this sentence rather than failing the whole
+   * turn — the assistant still finishes visibly as text. Voice output is a
+   * supplement; a throttled/live speaker must not surface raw fetch errors.
+   */
   private async speak(sentence: string, generation: number, signal: AbortSignal): Promise<void> {
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      signal,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: sentence, voice: this.ttsVoice }),
-    });
-    if (!res.ok) throw new Error(`TTS failed (${res.status})`);
-    const audio = await res.arrayBuffer();
-    if (this.generationId !== generation || audio.byteLength === 0) return;
-    this.emit({ type: "audio_delta", audio: new Uint8Array(audio), sampleRate: 0 });
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: sentence, voice: this.ttsVoice }),
+      });
+      if (!res.ok) return; // 429/5xx: skip audio, keep streaming text
+      const audio = await res.arrayBuffer();
+      if (this.generationId !== generation || audio.byteLength === 0) return;
+      this.emit({ type: "audio_delta", audio: new Uint8Array(audio), sampleRate: 0 });
+    } catch {
+      // abort (interrupt) and transient failures are not user-facing errors.
+    }
   }
 
   private emit(event: ProviderEvent): void {

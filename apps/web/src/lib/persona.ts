@@ -1,17 +1,26 @@
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
+import { sanitizeUser, appRoot, userDataRoot } from "./users";
 
 /**
- * Loads the assistant's persona files (IDENTITY/DREAMS/SOUL/USER) from
- * `apps/web/persona` at request time and folds them into a single system
- * prompt prefix. Missing files are skipped gracefully.
+ * Loads the assistant's persona files (IDENTITY/DREAMS/SOUL/USER) at request
+ * time and folds them into a single system prompt prefix. Missing files are
+ * skipped gracefully.
+ *
+ * Persona is isolated per user (FR-auth): each user gets a copy of the base
+ * persona under `.data/users/<user>/persona/`, so their facts and style never
+ * bleed across accounts while every user starts from the same template.
  *
  * Also provides a small update helper so the assistant can persist stable
- * user facts and style preferences to these files at runtime (OpenClaw-style
- * "lived" persona): USER.md for facts about the user, SOUL.md for how the
- * assistant speaks. Files stay the single source of truth.
+ * user facts and style preferences at runtime (OpenClaw-style "lived"
+ * persona): USER.md for facts about the user, SOUL.md for how the assistant
+ * speaks. Files stay the single source of truth.
  */
-const PERSONA_DIR = join(process.cwd(), "persona");
+
+/** Base persona template (shared, read-only); the seed for every user. */
+const TEMPLATE_DIR = join(appRoot(), "persona");
+const USER_DATA_DIR = userDataRoot();
+
 const PERSONA_ORDER = ["IDENTITY.md", "DREAMS.md", "SOUL.md", "USER.md"] as const;
 
 /** Headers (## ...) whose following lines are treated as a fact list. */
@@ -20,10 +29,33 @@ const FACT_SECTIONS: Record<string, string[]> = {
   "SOUL.md": ["## Style"],
 };
 
-export function loadPersonaPrompt(): string {
+/** Persona dir for a (already-sanitized) user; null falls back to template. */
+function personaDir(userKey: string | null): string {
+  return userKey ? join(USER_DATA_DIR, userKey, "persona") : TEMPLATE_DIR;
+}
+
+/** Seed a user's persona from the shared template if it doesn't exist yet. */
+export function ensureUserPersona(rawUser: unknown): string | null {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return null;
+  const dir = personaDir(userKey);
+  mkdirSync(dir, { recursive: true });
+  for (const file of PERSONA_ORDER) {
+    const target = join(dir, file);
+    if (!existsSync(target) && existsSync(join(TEMPLATE_DIR, file))) {
+      copyFileSync(join(TEMPLATE_DIR, file), target);
+    }
+  }
+  return userKey;
+}
+
+export function loadPersonaPrompt(rawUser?: unknown): string {
+  const userKey = sanitizeUser(rawUser);
+  if (userKey) ensureUserPersona(userKey); // seed per-user persona on first load
+  const dir = personaDir(userKey);
   const sections: string[] = [];
   for (const file of PERSONA_ORDER) {
-    const path = join(PERSONA_DIR, file);
+    const path = join(dir, file);
     if (!existsSync(path)) continue;
     try {
       const body = readFileSync(path, "utf8").trim();
@@ -39,14 +71,25 @@ export type PersonaTarget = "USER" | "SOUL";
 
 /**
  * Appends (or updates) a fact line under the matching `## Section` of the
- * persona file. Duplicates are removed; a line with the same key is replaced
- * in place. Fact line format: `- <key>: <value>`.
+ * user's persona file. Duplicates are removed; a line with the same key is
+ * replaced in place. Fact line format: `- <key>: <value>`. Writes to the
+ * per-user persona when a valid user is provided, else the shared template.
  */
-export function upsertPersonaFact(target: PersonaTarget, key: string, value: string): void {
+export function upsertPersonaFact(
+  target: PersonaTarget,
+  key: string,
+  value: string,
+  rawUser?: unknown
+): void {
+  const userKey = sanitizeUser(rawUser);
+  if (userKey) ensureUserPersona(userKey);
   const fileName = target === "USER" ? "USER.md" : "SOUL.md";
   const headers = FACT_SECTIONS[fileName];
   if (!headers?.length) return;
-  const path = join(PERSONA_DIR, fileName);
+  const dir = personaDir(userKey);
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, fileName);
+  if (!existsSync(path)) return;
   const valueTrim = value.trim();
   if (!key.trim() || !valueTrim) return;
 

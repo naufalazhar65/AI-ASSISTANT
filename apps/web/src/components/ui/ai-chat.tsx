@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Check, Mic, MicOff, Send, Settings, Square, Type, Volume2, X } from "lucide-react";
+import { AlertTriangle, Check, Clock, Mic, MicOff, Send, Settings, Square, Type, Volume2, X } from "lucide-react";
 import { ConfirmationRequest } from "@voice/ai-provider";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +61,8 @@ interface AIChatCardProps {
   confirmation?: ConfirmationRequest[] | null;
   onConfirm?: (callId: string) => void;
   onDeny?: (callId: string) => void;
+  reminders?: string[];
+  onDismissReminder?: (index: number) => void;
 }
 
 export const TTS_VOICES = ["autumn", "diana", "hannah", "austin", "daniel", "troy"] as const;
@@ -111,6 +113,8 @@ export default function AIChatCard({
   lastError = null,
   onConfirm,
   onDeny,
+  reminders = [],
+  onDismissReminder,
 }: AIChatCardProps) {
   const [input, setInput] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -448,6 +452,30 @@ msg.sender === "ai"
               </div>
             </motion.div>
           )}
+
+          {reminders.map((r, i) => (
+            <motion.div
+              key={`reminder-${i}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 self-center w-full"
+              role="alert"
+            >
+              <Clock className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-amber-300">Reminder</p>
+                <p className="text-xs text-white/90 break-words mt-0.5">{r}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onDismissReminder?.(i)}
+                className="shrink-0 rounded-md p-1 text-white/50 hover:text-white/90 hover:bg-white/10 transition-colors"
+                aria-label="Dismiss reminder"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </motion.div>
+          ))}
 
           {/* AI Typing Indicator */}
           {isTyping && (

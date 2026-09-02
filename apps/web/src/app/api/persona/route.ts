@@ -4,12 +4,13 @@ import { upsertPersonaFact, PersonaTarget } from "@/lib/persona";
 export const runtime = "nodejs";
 
 /**
- * POST /api/persona — Persist a stable user fact or style preference to the
- * persona .md files (USER.md / SOUL.md), OpenClaw-style. Body:
- * `{ target: "USER"|"SOUL", key, value }`.
+ * POST /api/persona — Persist a stable user fact or style preference to this
+ * user's persona .md files (USER.md / SOUL.md), OpenClaw-style. Body:
+ * `{ target: "USER"|"SOUL", key, value, user? }`. The optional `user` keys the
+ * per-user persona folder; when omitted, the shared template is used.
  */
 export async function POST(request: NextRequest) {
-  let body: { target?: string; key?: string; value?: string };
+  let body: { target?: string; key?: string; value?: string; user?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -24,6 +25,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "missing key or value" }, { status: 400 });
   }
 
-  upsertPersonaFact(target, body.key.trim(), body.value.trim());
+  upsertPersonaFact(target, body.key.trim(), body.value.trim(), body.user);
   return NextResponse.json({ ok: true });
 }

@@ -42,15 +42,15 @@
     "semantic_hash": ""
   },
   "apps/web/src/ai/GroqStreamingProvider.ts": {
-    "mtime": 1788329066.7764506,
-    "seen": 1788329324.2912042,
-    "ast_hash": "0588cd0bf4257f74e3612308a720fdf1",
+    "mtime": 1788339497.4906485,
+    "seen": 1788340684.878659,
+    "ast_hash": "74ae02975932e6afb1a2b0578954a375",
     "semantic_hash": ""
   },
   "apps/web/src/app/api/llm/route.ts": {
-    "mtime": 1788334988.0879033,
-    "seen": 1788335081.280881,
-    "ast_hash": "1738128c50f7100ffb77d0cc8f0af05b",
+    "mtime": 1788340244.3034246,
+    "seen": 1788340684.8786602,
+    "ast_hash": "7cb8759abeb5e32a423163ae98ab3aa9",
     "semantic_hash": ""
   },
   "apps/web/src/app/api/stt/route.ts": {
@@ -60,9 +60,9 @@
     "semantic_hash": ""
   },
   "apps/web/src/app/api/tts/route.ts": {
-    "mtime": 1788327967.1562428,
-    "seen": 1788328073.769685,
-    "ast_hash": "88dc5771797e24aea543b5ebaf7607fb",
+    "mtime": 1788337437.0052059,
+    "seen": 1788337545.8309891,
+    "ast_hash": "46e6726032fabf44c0bd17442c42c013",
     "semantic_hash": ""
   },
   "apps/web/src/app/layout.tsx": {
@@ -72,9 +72,9 @@
     "semantic_hash": ""
   },
   "apps/web/src/app/page.tsx": {
-    "mtime": 1788335509.6223657,
-    "seen": 1788335794.6793752,
-    "ast_hash": "c5a556dc6466d0d447df789228efa0d1",
+    "mtime": 1788340353.9641273,
+    "seen": 1788340684.878664,
+    "ast_hash": "443f9111b307f7e95f90884a393a4723",
     "semantic_hash": ""
   },
   "apps/web/src/audio/AudioCapture.ts": {
@@ -108,9 +108,9 @@
     "semantic_hash": ""
   },
   "apps/web/src/hooks/useVoice.ts": {
-    "mtime": 1788335597.4709988,
-    "seen": 1788335794.679383,
-    "ast_hash": "3048500319b79534994f7edeae8d8428",
+    "mtime": 1788340267.883051,
+    "seen": 1788340684.8786712,
+    "ast_hash": "6a1d1446ed71e1863ae87a5c16465429",
     "semantic_hash": ""
   },
   "apps/web/tailwind.config.ts": {
@@ -126,9 +126,9 @@
     "semantic_hash": ""
   },
   "apps/web/verify.ts": {
-    "mtime": 1788319015.812767,
-    "seen": 1788319081.5571442,
-    "ast_hash": "a7e8e6ca6d5b53ef6bd9725922df91cc",
+    "mtime": 1788337765.1982496,
+    "seen": 1788337816.158918,
+    "ast_hash": "6186f16777f8e18cb819087cf01db178",
     "semantic_hash": ""
   },
   "package.json": {
@@ -198,9 +198,9 @@
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1788336275.1676338,
-    "seen": 1788336279.374229,
-    "ast_hash": "d19af21c97ba1502393e647ccba10d08",
+    "mtime": 1788340683.8289936,
+    "seen": 1788340684.878685,
+    "ast_hash": "6fba2374aa029b5d7d6d7da27c8320f2",
     "semantic_hash": ""
   },
   "PRD_Real-Time_Voice_AI_Assistant.md": {
@@ -210,9 +210,9 @@
     "semantic_hash": ""
   },
   "apps/web/src/lib/persona.ts": {
-    "mtime": 1788289046.5807946,
-    "seen": 1788289156.113081,
-    "ast_hash": "daeb4c8fa414b607a077a5c55ed93067",
+    "mtime": 1788338997.1275058,
+    "seen": 1788339149.897677,
+    "ast_hash": "aeaa9ab08dba6d53c8c526660c062846",
     "semantic_hash": ""
   },
   "apps/web/persona/DREAMS.md": {
@@ -240,15 +240,15 @@
     "semantic_hash": ""
   },
   "apps/web/src/app/api/persona/route.ts": {
-    "mtime": 1788288840.3359349,
-    "seen": 1788289156.1130729,
-    "ast_hash": "9a134d970a931124e5c2a71287b86aad",
+    "mtime": 1788338532.170015,
+    "seen": 1788339149.8976672,
+    "ast_hash": "28c2692cd91c4753fcc7a6f36208eedf",
     "semantic_hash": ""
   },
   "apps/web/src/lib/tools.ts": {
-    "mtime": 1788327391.4725416,
-    "seen": 1788327737.50354,
-    "ast_hash": "893e591f00f3eec90477cf695e5f484e",
+    "mtime": 1788340236.9655874,
+    "seen": 1788340684.878674,
+    "ast_hash": "aefaf1bfb875dd62cef22582138fd52e",
     "semantic_hash": ""
   },
   "apps/web/src/components/ui/ai-chat-input.tsx": {
@@ -288,9 +288,9 @@
     "semantic_hash": ""
   },
   "apps/web/src/components/ui/ai-chat.tsx": {
-    "mtime": 1788336064.828634,
-    "seen": 1788336279.3742132,
-    "ast_hash": "3e8ec00365f100f7901d7ef91446a13e",
+    "mtime": 1788340303.8124292,
+    "seen": 1788340684.878669,
+    "ast_hash": "b2075bd56657cd8666623f88ec552f1f",
     "semantic_hash": ""
   },
   "apps/web/src/lib/providers.ts": {
@@ -309,6 +309,30 @@
     "mtime": 1788335717.4945877,
     "seen": 1788335794.6793962,
     "ast_hash": "058870f44b39931aa5a4d682b74ea48d",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1788336708.25514,
+    "seen": 1788337545.831012,
+    "ast_hash": "a4b6817832d2c691c0e143c4ccf859da",
+    "semantic_hash": ""
+  },
+  "apps/web/src/lib/users.ts": {
+    "mtime": 1788339042.7526996,
+    "seen": 1788339149.897679,
+    "ast_hash": "f97cd98e270f4cff5b859a7d5f53c56b",
+    "semantic_hash": ""
+  },
+  "apps/web/src/app/api/reminders/stream/route.ts": {
+    "mtime": 1788340501.506309,
+    "seen": 1788340684.8786619,
+    "ast_hash": "845e05d0f1de5be06e37d59ab4fc7611",
+    "semantic_hash": ""
+  },
+  "apps/web/src/lib/reminders.ts": {
+    "mtime": 1788340174.4092,
+    "seen": 1788340684.8786728,
+    "ast_hash": "8d770f5aa9f8ade4c66987f6a8f8022a",
     "semantic_hash": ""
   }
 }

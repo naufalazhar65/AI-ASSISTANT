@@ -15,12 +15,16 @@ const SYSTEM_PROMPT = [
   "You are a concise, natural voice assistant. Answer in plain short sentences ",
   "that are easy to speak aloud. Never use markdown. If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, and delete_note. ",
+  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, and remind_me. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
-  "show saved notes, and delete_note to remove one. save_note and delete_note ",
+  "show saved notes, delete_note to remove one, file_read to read a project ",
+  "file or list a directory (path relative to the repo root), and remind_me when ",
+  "the user asks to be reminded in the future (convert any relative time to a ",
+  "concrete ISO-8601 timestamp with offset). ",
+  "save_note, delete_note, and remind_me ",
   "will pause for the user's confirmation before they run; do not claim the ",
-  "note was saved or deleted yet.",
+  "note was saved/deleted or the reminder set yet.",
   "Tool results come from the server and should be trusted as fresh information.",
   " The persona files below (USER, SOUL, IDENTITY, DREAMS) are your persistent ",
   "memory: they already contain what you know, and you may update them. ",
@@ -32,12 +36,14 @@ const SYSTEM_PROMPT = [
 ].join("");
 
 /**
- * Builds the system prompt: base instructions plus the persona files, which
- * are the single source of truth for stable user facts and assistant style.
+ * Builds the system prompt: base instructions plus this user's persona files,
+ * which are the single source of truth for stable user facts and style.
+ * Per-user isolation is keyed by the sanitized `user` (falls back to the
+ * shared persona when no valid user is supplied).
  */
-function buildSystemPrompt(): string {
+function buildSystemPrompt(rawUser?: unknown): string {
   const parts = [SYSTEM_PROMPT];
-  const persona = loadPersonaPrompt();
+  const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
   return parts.join("\n\n");
 }
@@ -147,7 +153,8 @@ async function runAgent(
   controller: ReadableStreamDefaultController<Uint8Array>,
   emitter: TextEncoder,
   round: number,
-  model?: string
+  model?: string,
+  user?: unknown
 ): Promise<{ needsConfirmation: ToolCall[] | null }> {
   const withTools = round <= MAX_TOOL_ROUNDS;
   const { text, toolCalls } = await runOneCompletion(
@@ -184,9 +191,9 @@ async function runAgent(
   // All read-only tools: execute them server-side and continue (FR-013).
   if (round < MAX_TOOL_ROUNDS) {
     for (const call of toolCalls) {
-      messages.push({ role: "tool", tool_call_id: call.id, content: await executeTool(call) });
+      messages.push({ role: "tool", tool_call_id: call.id, content: await executeTool(call, user) });
     }
-    return runAgent(messages, url, apiKey, defaultModel, systemPrompt, controller, emitter, round + 1, model);
+    return runAgent(messages, url, apiKey, defaultModel, systemPrompt, controller, emitter, round + 1, model, user);
   }
 
   throw new Error("too many tool rounds");
@@ -208,6 +215,7 @@ export async function POST(request: NextRequest) {
     confirm_call?: { call: ToolCall; allow: boolean };
     model?: string;
     provider?: string;
+    user?: unknown;
   };
   try {
     body = await request.json();
@@ -218,7 +226,7 @@ export async function POST(request: NextRequest) {
     return new Response("missing messages", { status: 400 });
   }
 
-  const systemPrompt = buildSystemPrompt();
+  const systemPrompt = buildSystemPrompt(body.user);
   const messages: ChatMessage[] = body.messages as ChatMessage[];
   const model = body.model?.trim() || undefined;
   const emitter = new TextEncoder();
@@ -256,11 +264,14 @@ export async function POST(request: NextRequest) {
   if (body.confirm_call) {
     const call = body.confirm_call.call;
     const allow = body.confirm_call.allow;
+    if (!call || typeof call.id !== "string") {
+      return new Response("confirm_call requires a valid call", { status: 400 });
+    }
     messages.push({
       role: "tool",
       tool_call_id: call.id,
       content: allow
-        ? await executeTool(call)
+        ? await executeTool(call, body.user)
         : "The user declined this action. Do NOT execute it; briefly tell the user you skipped it.",
     });
   }
@@ -282,7 +293,8 @@ export async function POST(request: NextRequest) {
           controller,
           emitter,
           1,
-          model
+          model,
+          body.user
         );
         if (needsConfirmation && needsConfirmation.length) {
           controller.enqueue(

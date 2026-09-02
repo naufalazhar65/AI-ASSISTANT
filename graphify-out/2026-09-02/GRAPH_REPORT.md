@@ -1,23 +1,28 @@
 # Graph Report - ai-assistant  (2026-09-02)
 
 ## Corpus Check
-- 52 files · ~27,590 words
+- 56 files · ~31,745 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 639 nodes · 832 edges · 60 communities (40 shown, 15 thin omitted)
+- 681 nodes · 933 edges · 59 communities (41 shown, 13 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 10 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
+## Graph Freshness
+- Built from commit: `af8541a2`
+- Run `git rev-parse HEAD` and compare to check if the graph is stale.
+- Run `graphify update .` after code changes (no API cost).
+
 ## Community Hubs (Navigation)
-- 10. Conversation State Machine
+- 13. Real-Time Transport
 - useVoice.ts
 - compilerOptions
 - dependencies
 - 8. Functional Requirements
 - PRD_Real-Time_Voice_AI_Assistant.md
 - devDependencies
-- GroqStreamingProvider
+- 43. Recommended MVP Product Architecture
 - ai-chat-input.tsx
 - mock-provider/package.json
 - compilerOptions
@@ -47,7 +52,6 @@
 - 38. Product Success Criteria
 - next.config.js
 - postcss.config.js
-- llm/route.ts
 - stt/route.ts
 - layout.tsx
 - 16. Latency Requirements
@@ -57,17 +61,17 @@
 - 5. Target Users
 - 7. Conversation Model
 - next-env.d.ts
-- AIProvider
-- 13. Real-Time Transport
+- GroqStreamingProvider
 - 26. Audio Testing
-- 43. Recommended MVP Product Architecture
 - IDENTITY.md
 - DREAMS.md
 - SOUL.md
 - USER.md
+- README.md
+- tools.ts
 
 ## God Nodes (most connected - your core abstractions)
-1. `GroqStreamingProvider` - 28 edges
+1. `GroqStreamingProvider` - 29 edges
 2. `ConversationManager` - 27 edges
 3. `AudioCapture` - 20 edges
 4. `AIProvider` - 20 edges
@@ -75,29 +79,29 @@
 6. `8. Functional Requirements` - 17 edges
 7. `compilerOptions` - 16 edges
 8. `useVoice()` - 15 edges
-9. `AutoTurnManager` - 13 edges
-10. `cn()` - 12 edges
+9. `executeTool()` - 14 edges
+10. `AutoTurnManager` - 13 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `ConversationManager` --references--> `AIProvider`  [EXTRACTED]
   apps/web/src/ai/ConversationManager.ts → packages/ai-provider/src/index.ts
-- `GroqStreamingProvider` --implements--> `AIProvider`  [EXTRACTED]
-  apps/web/src/ai/GroqStreamingProvider.ts → packages/ai-provider/src/index.ts
-- `GroqStreamingProvider` --references--> `ConfirmationRequest`  [EXTRACTED]
-  apps/web/src/ai/GroqStreamingProvider.ts → packages/ai-provider/src/index.ts
-- `GroqStreamingProvider` --references--> `ConversationMessage`  [EXTRACTED]
-  apps/web/src/ai/GroqStreamingProvider.ts → packages/ai-provider/src/index.ts
+- `ConversationManager` --references--> `ConversationMessage`  [EXTRACTED]
+  apps/web/src/ai/ConversationManager.ts → packages/ai-provider/src/index.ts
 - `AIChatCardProps` --references--> `ConfirmationRequest`  [EXTRACTED]
   apps/web/src/components/ui/ai-chat.tsx → packages/ai-provider/src/index.ts
+- `UseVoiceResult` --references--> `ConfirmationRequest`  [EXTRACTED]
+  apps/web/src/hooks/useVoice.ts → packages/ai-provider/src/index.ts
+- `useVoice()` --calls--> `MockProvider`  [EXTRACTED]
+  apps/web/src/hooks/useVoice.ts → packages/mock-provider/src/index.ts
 
 ## Import Cycles
 - None detected.
 
-## Communities (60 total, 15 thin omitted)
+## Communities (59 total, 13 thin omitted)
 
 ### Community 1 - "useVoice.ts"
-Cohesion: 0.06
-Nodes (19): AutoTurnManager, VADMode, TranscriptEntry, AudioCapture, AudioCaptureListener, AudioCaptureState, AudioPlayer, VADCallbacks (+11 more)
+Cohesion: 0.07
+Nodes (17): AutoTurnManager, VADMode, AudioCapture, AudioCaptureListener, AudioCaptureState, AudioPlayer, VADCallbacks, VADOptions (+9 more)
 
 ### Community 2 - "compilerOptions"
 Cohesion: 0.07
@@ -112,8 +116,8 @@ Cohesion: 0.09
 Nodes (23): 8. Functional Requirements, Acceptance Requirement, FR-001 — Voice Input, FR-002 — Voice Activity Detection, FR-003 — Streaming Speech-to-Text, FR-004 — LLM Processing, FR-005 — Streaming AI Response, FR-006 — Streaming Text-to-Speech (+15 more)
 
 ### Community 5 - "PRD_Real-Time_Voice_AI_Assistant.md"
-Cohesion: 0.09
-Nodes (21): 11. Technical Architecture, 14. Audio Pipeline, 15. Audio Requirements, 18. Security Requirements, 20. Observability, 27. Interrupt Testing, 28. Performance Testing, 29. Security Testing (+13 more)
+Cohesion: 0.08
+Nodes (23): 10. Conversation State Machine, 11. Technical Architecture, 14. Audio Pipeline, 15. Audio Requirements, 18. Security Requirements, 20. Observability, 27. Interrupt Testing, 28. Performance Testing (+15 more)
 
 ### Community 6 - "devDependencies"
 Cohesion: 0.07
@@ -121,7 +125,7 @@ Nodes (28): devDependencies, autoprefixer, eslint, eslint-config-next, postcss, 
 
 ### Community 8 - "ai-chat-input.tsx"
 Cohesion: 0.07
-Nodes (31): Home(), STATE_HUES, STATE_LABELS, FloatingParticles(), mulberry32(), PARTICLE_CONFIGS, SignInForm(), useAuth() (+23 more)
+Nodes (29): Home(), STATE_HUES, STATE_LABELS, FloatingParticles(), mulberry32(), PARTICLE_CONFIGS, SignInForm(), useAuth() (+21 more)
 
 ### Community 9 - "mock-provider/package.json"
 Cohesion: 0.14
@@ -144,8 +148,8 @@ Cohesion: 0.15
 Nodes (12): compilerOptions, esModuleInterop, lib, module, moduleResolution, noEmit, skipLibCheck, strict (+4 more)
 
 ### Community 14 - "ConversationManager"
-Cohesion: 0.08
-Nodes (16): ConversationEvent, ConversationListener, ConversationManager, nextId(), main(), ConversationMessage, ConversationStateMachine, Event (+8 more)
+Cohesion: 0.07
+Nodes (18): ConversationEvent, ConversationListener, ConversationManager, nextId(), TranscriptEntry, UseVoiceResult, delay(), main() (+10 more)
 
 ### Community 15 - "AGENTS.md"
 Cohesion: 0.15
@@ -203,6 +207,10 @@ Nodes (6): 40. Future Feature Roadmap, Computer Control, Developer Tools, Produc
 Cohesion: 0.50
 Nodes (3): extends, next/core-web-vitals, next/typescript
 
+### Community 29 - "tts/route.ts"
+Cohesion: 0.40
+Nodes (5): detectModel(), GROQ_VOICES_AR, GROQ_VOICES_EN, POST(), runtime
+
 ### Community 30 - "12. Recommended Technology Stack"
 Cohesion: 0.50
 Nodes (4): 12.1 Frontend, 12.2 Backend, 12.3 AI Layer, 12. Recommended Technology Stack
@@ -222,10 +230,6 @@ Nodes (4): 33. Memory Architecture, Conversation Memory, Long-term Memory, Short
 ### Community 34 - "38. Product Success Criteria"
 Cohesion: 0.50
 Nodes (4): 38. Product Success Criteria, Product, Technical, User Experience
-
-### Community 37 - "llm/route.ts"
-Cohesion: 0.08
-Nodes (36): buildSystemPrompt(), ChatMessage, POST(), runAgent(), runOneCompletion(), runtime, SYSTEM_PROMPT, POST() (+28 more)
 
 ### Community 40 - "16. Latency Requirements"
 Cohesion: 0.67
@@ -251,29 +255,33 @@ Nodes (3): 5.1 Primary Users, 5.2 Secondary Users, 5. Target Users
 Cohesion: 0.67
 Nodes (3): 7.1 Conversation Structure, 7.2 Message Structure, 7. Conversation Model
 
-### Community 47 - "AIProvider"
-Cohesion: 0.09
-Nodes (8): AIProvider, MessageRole, MockProviderLike, ProviderEvent, ProviderEventListener, SendResult, ToolDefinition, MockProvider
+### Community 47 - "GroqStreamingProvider"
+Cohesion: 0.06
+Nodes (12): GroqStreamingProvider, AIChatCardProps, AIProvider, ConfirmationRequest, ConversationMessage, MessageRole, MockProviderLike, ProviderEvent (+4 more)
+
+### Community 61 - "tools.ts"
+Cohesion: 0.05
+Nodes (68): buildSystemPrompt(), ChatMessage, POST(), runAgent(), runOneCompletion(), runtime, SYSTEM_PROMPT, POST() (+60 more)
 
 ## Knowledge Gaps
-- **305 isolated node(s):** `next/core-web-vitals`, `next/typescript`, `path`, `nextConfig`, `name` (+300 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 365 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **15 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **315 isolated node(s):** `next/core-web-vitals`, `next/typescript`, `path`, `nextConfig`, `name` (+310 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 377 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **13 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ConversationManager` connect `ConversationManager` to `useVoice.ts`, `llm/route.ts`, `AIProvider`?**
-  _High betweenness centrality (0.022) - this node is a cross-community bridge._
-- **Why does `GroqStreamingProvider` connect `GroqStreamingProvider` to `ai-chat-input.tsx`, `useVoice.ts`, `ConversationManager`, `AIProvider`?**
-  _High betweenness centrality (0.022) - this node is a cross-community bridge._
+- **Why does `ConversationManager` connect `ConversationManager` to `useVoice.ts`, `GroqStreamingProvider`?**
+  _High betweenness centrality (0.026) - this node is a cross-community bridge._
+- **Why does `GroqStreamingProvider` connect `GroqStreamingProvider` to `useVoice.ts`?**
+  _High betweenness centrality (0.023) - this node is a cross-community bridge._
+- **Why does `MockProvider` connect `GroqStreamingProvider` to `useVoice.ts`, `ConversationManager`?**
+  _High betweenness centrality (0.017) - this node is a cross-community bridge._
 - **What connects `next/core-web-vitals`, `next/typescript`, `path` to the rest of the system?**
-  _305 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _315 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `useVoice.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.06110102843315184 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06638714185883997 - nodes in this community are weakly interconnected._
 - **Should `compilerOptions` be split into smaller, more focused modules?**
   _Cohesion score 0.07407407407407407 - nodes in this community are weakly interconnected._
 - **Should `dependencies` be split into smaller, more focused modules?**
   _Cohesion score 0.06896551724137931 - nodes in this community are weakly interconnected._
-- **Should `8. Functional Requirements` be split into smaller, more focused modules?**
-  _Cohesion score 0.08695652173913043 - nodes in this community are weakly interconnected._

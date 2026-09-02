@@ -103,7 +103,25 @@ async function main() {
   if (!delBad.startsWith("Error:")) throw new Error("delete_note out-of-range not guarded");
   const after = await executeTool({ id: "t", name: "list_notes", arguments: "{}" });
   if (after.includes(tag)) throw new Error(`note not removed; list=${after}`);
-  console.log("tools (incl. persistent notes): OK");
+
+  // --- file access tool (read-only, sandboxed to project root) ---
+  const fr = (p: string) => executeTool({ id: "t", name: "file_read", arguments: JSON.stringify({ path: p }) });
+  const readTools = await fr("apps/web/src/lib/tools.ts");
+  if (!readTools.includes("export") || readTools.startsWith("Error:")) throw new Error("file_read can't read source");
+  const dirList = await fr("apps/web");
+  if (dirList.startsWith("Error:") || !/src/.test(dirList)) throw new Error("file_read can't list dir");
+  for (const [bad, why] of [
+    ["../.env.local", "escape + env"],
+    ["/etc/passwd", "absolute"],
+    [".env", "blocked env"],
+    ["node_modules", "blocked segment"],
+    ["~/foo", "tilde"],
+    ["..", "root escape"],
+  ] as const) {
+    const r = await fr(bad);
+    if (!r.startsWith("Error:")) throw new Error(`file_read not guarded: ${bad} -> ${r}`);
+  }
+  console.log("tools (notes + file access): OK");
 }
 
 main().catch((err) => {
