@@ -27,6 +27,80 @@ import { runAssistantTurn, ChatMessage } from "@/lib/agent";
 import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
 
+/**
+ * Escape helper for Telegram legacy Markdown (parse_mode="Markdown"), which only
+ * recognises `_italic_`, `*bold*`, `` `code` ``, ```code block``` and
+ * `[links](url)`. We protect code/inline-code blocks and then escape stray
+ * markup characters in prose so an LLM answer renders as emphasis instead of
+ * literal `*`/`_`. If Telegram still rejects the entities (e.g. an unmatched
+ * `**`), `replyMia` falls back to sending the raw text — the bot never fails to
+ * deliver a message.
+ */
+function toTelegramMarkdown(text: string): string {
+  const placeholders: string[] = [];
+  const protect = (slice: string): string => {
+    placeholders.push(slice);
+    return `\u0000${placeholders.length - 1}\u0000`;
+  };
+  let out = "";
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    // Code block: ``` ... ```
+    if (text.startsWith("```", i)) {
+      const end = text.indexOf("```", i + 3);
+      if (end !== -1) {
+        out += protect(text.slice(i, end + 3));
+        i = end + 3;
+        continue;
+      }
+    }
+    // Inline code: ` ... `
+    if (text[i] === "`") {
+      const end = text.indexOf("`", i + 1);
+      if (end !== -1) {
+        out += protect(text.slice(i, end + 1));
+        i = end + 1;
+        continue;
+      }
+    }
+    // Escape characters that could start unintended markup in plain prose.
+    const c = text[i];
+    if (c === "\\" || c === "[" || c === "`") {
+      out += "\\" + c;
+    } else {
+      out += c;
+    }
+    i += 1;
+  }
+  for (let k = 0; k < placeholders.length; k++) {
+    out = out.replaceAll(`\u0000${k}\u0000`, placeholders[k]);
+  }
+  return out;
+}
+
+function isMarkdownEntityError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /can't parse|parse entities|unmatched/i.test(msg);
+}
+
+/** Send a Mia reply with light Markdown, falling back to plain text on error. */
+async function replyMia(ctx: Context, text: string): Promise<void> {
+  const safe = text ?? "";
+  try {
+    await ctx.reply(toTelegramMarkdown(safe), { parse_mode: "Markdown" });
+    console.log(`[telegram] replied (markdown) to chat ${ctx.chat?.id ?? "?"}`);
+  } catch (err) {
+    if (isMarkdownEntityError(err)) {
+      console.log(`[telegram] markdown rejected (${isMarkdownEntityError(err) ? "entity" : ""}); sending plain`);
+      await ctx.reply(safe).catch(() => {});
+    } else {
+      console.error("[telegram] reply error (rethrow):", err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+}
+
 type ChatState = {
   provider: string;
   model?: string;
@@ -47,12 +121,23 @@ const ALLOWED_USERNAMES = (process.env.TELEGRAM_ALLOWED_USERNAME || "")
   .map((s) => s.trim().toLowerCase().replace(/^@/, ""))
   .filter(Boolean);
 
-/** Owner chat id to send proactive reminder pushes to. */
-const OWNER_CHAT_ID = process.env.TELEGRAM_CHAT_ID
+/**
+ * Owner chat to send proactive reminder pushes to. Prefer an explicit
+ * `TELEGRAM_CHAT_ID` / `TELEGRAM_ALLOWED_USER_ID`, but also remember the chat
+ * id of the last message from the owner so a username-only allow-list still
+ * delivers reminders (the proactive push would otherwise silently never fire).
+ */
+const ownerChatId = process.env.TELEGRAM_CHAT_ID
   ? Number(process.env.TELEGRAM_CHAT_ID)
   : ALLOWED_USER_IDS[0]
     ? Number(ALLOWED_USER_IDS[0])
     : null;
+let lastSeenOwnerChat: number | null = null;
+
+/** Best-effort target for proactive pushes: explicit id, else the owner's chat. */
+function pushTarget(): number | null {
+  return ownerChatId ?? lastSeenOwnerChat;
+}
 
 function isAllowedUser(ctx: Context): boolean {
   const from = ctx.from;
@@ -115,42 +200,55 @@ export async function startTelegramBot(): Promise<void> {
   };
 
   bot.on("message:text", async (ctx) => {
-    if (!isAllowedUser(ctx)) {
-      return; // ignore unknown senders (single-user trust boundary)
-    }
-    const chatId = ctx.chat.id;
-    const text = (ctx.message.text || "").trim();
-    const state = getState(chatId);
-    const user = userKeyFor(ctx);
+    try {
+      if (!isAllowedUser(ctx)) {
+        return; // ignore unknown senders (single-user trust boundary)
+      }
+      // Remember the owner's chat so proactive pushes (reminders) have a target
+      // even when only a username allow-list is configured (no explicit chat id).
+      lastSeenOwnerChat = ctx.chat.id;
+      const chatId = ctx.chat.id;
+      const text = (ctx.message.text || "").trim();
+      const state = getState(chatId);
+      const user = userKeyFor(ctx);
 
-    if (text.startsWith("/")) {
-      await handleCommand(ctx, state, text);
-      return;
-    }
+      if (text.startsWith("/")) {
+        await handleCommand(ctx, state, text);
+        return;
+      }
 
-    // Waiting for a yes/no confirmation of a risky tool.
-    if (state.pending) {
-      await handleConfirmation(ctx, state, user, text);
-      return;
-    }
+      // Waiting for a yes/no confirmation of a risky tool.
+      if (state.pending) {
+        await handleConfirmation(ctx, state, user, text);
+        return;
+      }
 
-    await runTurn(ctx, state, user, undefined, text);
+      await runTurn(ctx, state, user, undefined, text);
+    } catch (err) {
+      console.error("[telegram] handler error:", err instanceof Error ? (err.stack || err.message) : String(err));
+      await ctx.reply("Maaf, ada kendala internal. Coba lagi ya.").catch(() => {});
+    }
   });
 
-  // Proactive reminder push an owner's due reminders to the owner chat.
-  if (OWNER_CHAT_ID) {
-    subscribeReminders((reminder: Reminder) => {
-      const at = new Date(reminder.at);
-      const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      bot.api
-        .sendMessage(OWNER_CHAT_ID!, `🔔 Reminder: ${reminder.text} (pukul ${timeLabel})`)
-        .catch((e) => {
-          console.warn("[telegram] reminder push failed:", e instanceof Error ? e.message : String(e));
-        });
-    });
-  }
+  // Proactive reminder push: deliver due reminders to the owner's chat.
+  subscribeReminders((reminder: Reminder) => {
+    const target = pushTarget();
+    if (target == null) return;
+    const at = new Date(reminder.at);
+    const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    bot.api
+      .sendMessage(target, `🔔 *Reminder*: ${toTelegramMarkdown(reminder.text)} (pukul \`${timeLabel}\`)`, { parse_mode: "Markdown" })
+      .catch((e) => {
+        console.warn("[telegram] reminder push failed:", e instanceof Error ? e.message : String(e));
+      });
+  });
 
   console.log("[telegram] starting long-polling bot…");
+  // Surface every per-update / middleware error so a broken reply is diagnosable
+  // (grammY swallows these without an explicit catch handler).
+  bot.catch((err) => {
+    console.error("[telegram] update error:", err.error instanceof Error ? err.error.message : String(err.error));
+  });
   // Do NOT await bot.start() here: it is a long-running poll loop that never
   // resolves, and instrumentation's `register` must complete before Next serves
   // requests (awaiting it would block server readiness). Run it fire-and-forget
@@ -165,12 +263,12 @@ async function handleCommand(ctx: Context, state: ChatState, text: string): Prom
   switch (cmd) {
     case "/start":
     case "/help":
-      await ctx.reply(HELP_TEXT);
+      await replyMia(ctx, HELP_TEXT);
       return;
     case "/reset":
       state.history = [];
       state.pending = null;
-      await ctx.reply("Riwayat percakapan sudah direset.");
+      await replyMia(ctx, "Riwayat percakapan sudah direset.");
       return;
     case "/provider": {
       const next = rest.join(" ").trim();
@@ -179,23 +277,23 @@ async function handleCommand(ctx: Context, state: ChatState, text: string): Prom
           state.provider = next.toLowerCase();
           state.history = [];
           state.pending = null;
-          await ctx.reply(`Provider diganti ke ${state.provider}.`);
+          await replyMia(ctx, `Provider diganti ke *${state.provider}*.`);
         } else {
-          await ctx.reply("Provider tidak dikenal. Pilih: groq, opencode, 9router, mock.");
+          await replyMia(ctx, "Provider tidak dikenal. Pilih: `groq`, `opencode`, `9router`, `mock`.");
         }
       } else {
-        await ctx.reply(`Provider saat ini: ${state.provider}${state.model ? ` (model: ${state.model})` : ""}`);
+        await replyMia(ctx, `Provider saat ini: *${state.provider}*${state.model ? ` (model: \`${state.model}\`)` : ""}`);
       }
       return;
     }
     case "/model": {
       const next = rest.join(" ").trim();
       state.model = next || undefined;
-      await ctx.reply(next ? `Model diset: ${next}` : "Model direset ke default provider.");
+      await replyMia(ctx, next ? `Model diset: \`${next}\`` : "Model direset ke default provider.");
       return;
     }
     default:
-      await ctx.reply("Command tidak dikenal. Ketik /help.");
+      await replyMia(ctx, "Command tidak dikenal. Ketik /help.");
   }
 }
 
@@ -204,20 +302,21 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
   const yes = /^(ya|yes|y|setuju|lanjut|ok|oke)$/i.test(text);
   const no = /^(tidak|no|n|gak|nggak|skip|cancel|batal)$/i.test(text);
   if (!yes && !no) {
-    await ctx.reply("Balas 'ya' untuk melanjutkan, atau 'tidak' untuk membatalkan.");
+    await replyMia(ctx, "Balas `ya` untuk melanjutkan, atau `tidak` untuk membatalkan.");
     return;
   }
   state.pending = null;
-  await ctx.reply("Oke, sebentar ya…");
+  await replyMia(ctx, "Oke, sebentar ya…");
   const result = await runAssistantTurn({
     messages: pending.messages,
     provider: state.provider,
     model: state.model,
     user,
+    channel: "text",
     confirm_call: { call: pending.call, allow: yes },
   });
   state.history.push({ role: "assistant", content: result.text });
-  await ctx.reply(result.text || "Selesai.");
+  await replyMia(ctx, result.text || "Selesai.");
 }
 
 async function runTurn(
@@ -237,15 +336,19 @@ async function runTurn(
 
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
+    console.log(`[telegram] turn start (provider=${state.provider})`);
     result = await runAssistantTurn({
       messages: turnMessages,
       provider: state.provider,
       model: state.model,
       user,
+      channel: "text",
       confirm_call: confirmCall,
     });
+    console.log(`[telegram] turn done (text len=${(result.text || "").length})`);
   } catch (err) {
-    await ctx.reply(`Maaf, ada kendala: ${err instanceof Error ? err.message : "gagal"} `);
+    console.error("[telegram] turn failed:", err instanceof Error ? err.message : String(err));
+    await replyMia(ctx, `Maaf, ada kendala: ${err instanceof Error ? err.message : "gagal"} `);
     return;
   }
 
@@ -259,12 +362,13 @@ async function runTurn(
     } catch {
       /* ignore */
     }
-    await ctx.reply(
-      `Mia ingin melakukan aksi berikut (${call.name}${args ? `: ${args}` : ""}). Balas 'ya' untuk lanjut, atau 'tidak' untuk membatalkan.`
+    await replyMia(
+      ctx,
+      `Mia ingin melakukan aksi berikut: *${call.name}*${args ? ` — \`${args}\`` : ""}\nBalas \`ya\` untuk lanjut, atau \`tidak\` untuk membatalkan.`
     );
     return;
   }
 
   state.history.push({ role: "assistant", content: result.text });
-  await ctx.reply(result.text || "…");
+  await replyMia(ctx, result.text || "…");
 }

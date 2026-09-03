@@ -17,8 +17,8 @@ type ParsedTime = { hour: number; minute: number };
  * found. Supports "jam 9", "9 pagi", "jam 9 pagi", "9:30", "09:30", "9am/pm".
  */
 export function parseClockTime(text: string): ParsedTime | null {
-  // "9 pagi" / "jam 9 pagi" / "09:30" / "9:00" / "9am"
-  const clockRe = /(\d{1,2})(?::(\d{2}))?\s*(am|pm|\bpagi\b|\bsiang\b|\bsore\b|\bmalam\b|\bsubuh\b|\bdini hari\b)?/i;
+  // "9 pagi" / "jam 9 pagi" / "09:30" / "9.40" / "9:00" / "9am"
+  const clockRe = /(\d{1,2})(?:[.:](\d{2}))?\s*(am|pm|\bpagi\b|\bsiang\b|\bsore\b|\bmalam\b|\bsubuh\b|\bdini hari\b)?/i;
   const m = text.match(clockRe);
   if (!m) return null;
   let hour = parseInt(m[1], 10);

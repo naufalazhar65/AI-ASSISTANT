@@ -58,6 +58,26 @@ const SYSTEM_PROMPT = [
   "facts are captured separately by the system. Just answer conversationally.",
 ].join("");
 
+/**
+ * Formatting guidance for a text channel (Telegram legacy Markdown). Kept out of
+ * the VOICE path because TTS would read the markdown characters aloud. Telegram's
+ * legacy Markdown supports *bold*, _italic_, `inline code`, ```code block``` and
+ * [links]; we ask for a restrained subset so replies render with useful emphasis
+ * without turning into formatting soup.
+ */
+function textFormatInstruction(): string {
+  return [
+    "You are chatting on a TEXT channel (Telegram), not a voice interface, so ",
+    "you MAY use light Telegram Markdown to make your reply clearer and more ",
+    "readable. Rules: use *bold* only for a key word/phrase you want to stress, ",
+    "_italics_ for a term, and `code` (or a ```code block```) for commands, file ",
+    "paths, provider/model names, or steps. Keep every reply short and natural; ",
+    "do NOT wrap whole paragraphs in bold, do NOT invent heading levels, and do ",
+    "not use markdown characters in normal prose (they would show literally). If ",
+    "there is nothing worth stressing, just answer in plain text.",
+  ].join(" ");
+}
+
 /** Current date + time line, so the model can schedule / answer "what time". */
 function currentTimeLine(): string {
   const now = new Date();
@@ -98,11 +118,12 @@ function openCodeSystemPromptParts(): string {
  * which are the single source of truth for stable user facts and style.
  * Per-user isolation is keyed by the sanitized `user`.
  */
-export function buildSystemPrompt(rawUser?: unknown): string {
+export function buildSystemPrompt(rawUser?: unknown, channel?: "voice" | "text"): string {
   const parts = [SYSTEM_PROMPT];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
   parts.push(currentTimeLine());
+  if (channel === "text") parts.push(textFormatInstruction());
   return parts.join("\n\n");
 }
 
@@ -114,13 +135,14 @@ export function buildSystemPrompt(rawUser?: unknown): string {
  * prompt with no confirmation UI. So it is constrained to a conversational
  * answer (plain short sentences, TTS-friendly).
  */
-export function buildOpenCodeSystemPrompt(rawUser?: unknown): string {
+export function buildOpenCodeSystemPrompt(rawUser?: unknown, channel?: "voice" | "text"): string {
   const parts = [openCodeSystemPromptParts()];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
   // The local model has no real-time clock; give it the current local time so it
   // can answer "what time is it?" / schedule-aware questions factually.
   parts.push(currentTimeLine());
+  if (channel === "text") parts.push(textFormatInstruction());
   return parts.join("\n\n");
 }
 
@@ -274,6 +296,39 @@ export type TurnResult = {
 };
 
 /**
+ * Deterministic reminder scheduling (OpenClaw-style), provider-independent. The
+ * models we use (esp. Groq qwen and local OpenCode) often answer "siap, aku
+ * setel reminder" while ALSO failing to emit a `remind_me` tool call — so a
+ * reminder would be promised but never stored. Running `detectReminderIntent`
+ * here guarantees "ingetin aku jam X" always lands in the reminder store,
+ * regardless of whether the model called the tool. Guarded so it never double
+ * schedules when the model already requested/confirmed `remind_me`.
+ */
+function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content) return text;
+  const intent = detectReminderIntent(String(lastUser.content));
+  if (!intent) return text;
+  try {
+    addReminder(intent.text, intent.atMs, user);
+    const at = new Date(intent.atMs);
+    const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const confirmSuffix = ` (Sudah kusetel reminder pukul ${timeLabel}, nanti kubangunkan.)`;
+    return /remind|ingat|alarm|bangun/i.test(text) ? text : (text || "").trimEnd() + confirmSuffix;
+  } catch {
+    return text;
+  }
+}
+
+/** True when this turn already went through a `remind_me` tool call/confirm. */
+function remindToolAlreadyHandled(opts: {
+  confirm_call?: { call: ToolCall; allow: boolean };
+}, needsConfirmation: ToolCall[] | null): boolean {
+  if (opts.confirm_call?.call?.name === "remind_me") return true;
+  return !!needsConfirmation?.some((c) => c.name === "remind_me");
+}
+
+/**
  * Run one full assistant turn for a user across any provider (mock / opencode /
  * groq / 9router), including server-side read-only tools, risky-tool pausing,
  * automatic persona memory capture, and reminder scheduling on the opencode
@@ -286,12 +341,15 @@ export async function runAssistantTurn(opts: {
   model?: string;
   user?: unknown;
   confirm_call?: { call: ToolCall; allow: boolean };
+  /** Voice (default) keeps replies plain for TTS; "text" allows Telegram markdown. */
+  channel?: "voice" | "text";
 }): Promise<TurnResult> {
   const { messages } = opts;
   const model = opts.model?.trim() || undefined;
   const requested = opts.provider ?? "";
   const providerId: ProviderId = isProviderId(requested) ? requested : "groq";
-  const systemPrompt = buildSystemPrompt(opts.user);
+  const channel = opts.channel ?? "voice";
+  const systemPrompt = buildSystemPrompt(opts.user, channel);
 
   // Mock provider: no network, canned reply (token-free UI/channel testing).
   if (providerId === "mock") {
@@ -305,7 +363,7 @@ export async function runAssistantTurn(opts: {
   // OpenCode native agent: talk to the local `opencode serve` server via its
   // session/prompt_async/SSE protocol (pure server-side transport swap).
   if (providerId === "opencode") {
-    const opencodeSystemPrompt = buildOpenCodeSystemPrompt(opts.user);
+    const opencodeSystemPrompt = buildOpenCodeSystemPrompt(opts.user, channel);
     let opencodeText = await runOpenCodeTurn({
       systemPrompt: opencodeSystemPrompt,
       messages: messages as OpenCodeChatMessage[],
@@ -324,26 +382,8 @@ export async function runAssistantTurn(opts: {
 
     // OpenCode can't call server-side tools (no agent tool loop on this path),
     // so detect a "remind/bangunin di <waktu>" intent directly and schedule it
-    // with the same store the `remind_me` tool uses, appending a confirmation
-    // to the answer if the model hedged.
-    const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
-    if (lastUser?.content) {
-      const intent = detectReminderIntent(String(lastUser.content));
-      if (intent) {
-        try {
-          addReminder(intent.text, intent.atMs, opts.user);
-          const at = new Date(intent.atMs);
-          const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-          const confirmSuffix = ` (Sudah kusetel reminder pukul ${timeLabel}, nanti kubangunkan.)`;
-          if (!/remind|ingat|alarm|bangun/i.test(opencodeText)) {
-            opencodeText = (opencodeText || "").trimEnd() + confirmSuffix;
-          }
-        } catch {
-          // invalid user / empty text: leave the reply as-is
-        }
-      }
-    }
-
+    // with the same store the `remind_me` tool uses.
+    opencodeText = scheduleReminderFromIntent(messages, opts.user, opencodeText);
     return { text: opencodeText || "", needsConfirmation: null };
   }
 
@@ -405,6 +445,13 @@ export async function runAssistantTurn(opts: {
     messages,
     rawUser: opts.user,
   });
+
+  // Deterministic reminder scheduling for providers that may answer verbally
+  // without calling the `remind_me` tool (skipped when the tool already handled
+  // it, to avoid double-scheduling). Mirrors the opencode path.
+  if (!remindToolAlreadyHandled(opts, needsConfirmation)) {
+    text = scheduleReminderFromIntent(messages, opts.user, text);
+  }
 
   return { text, needsConfirmation };
 }
