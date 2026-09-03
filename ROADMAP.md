@@ -23,7 +23,7 @@ Fondasi dari project voice assistant tidak dibuang — menjadi landasan Fase 1�
 [x] Voice: ASR/LLM/TTS pipelines, transcript, multilingual detection
 ```
 
- **Node penting:** `packages/state-machine`, `packages/ai-provider`, `packages/mock-provider`, `apps/web/src/ai/*`, `apps/web/src/lib/{tools,persona,autoMemory,sessions,reminders,tasks,uploads,automations,automationRunner,status,assistantError,reminderIntent,reminderMessage,channelMessage,users,opencode}.ts`, `apps/web/src/channels/{telegram,discord,pushTarget}.ts`, `/api/llm` route, `instrumentation-node.ts`.
+ **Node penting:** `packages/state-machine`, `packages/ai-provider`, `packages/mock-provider`, `apps/web/src/ai/*`, `apps/web/src/lib/{tools,persona,autoMemory,sessions,reminders,tasks,uploads,automations,automationRunner,status,assistantError,reminderIntent,reminderMessage,channelMessage,rag,backup,users,opencode}.ts`, `apps/web/src/channels/{telegram,discord,pushTarget}.ts`, `/api/llm` route, `instrumentation-node.ts`.
 
 ---
 
@@ -110,7 +110,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 ## Fase 4 — Advanced Features
 
 ```text
-[ ] Long-term memory (RAG / knowledge retrieval dari catatan & file)
+[x] Long-term memory (RAG / knowledge retrieval dari catatan & file)  — rag.ts (local BM25 over notes, tasks, reminders, automations, uploads, persona) + tool search_memory; zero API dependency for retrieval, offline-ready
 [ ] Multi-agent / specialized agents (mis. agent web, agent files, agent reminders)
 [ ] Voice interaction (perluas voice ke channel bot bila relevan; DSCORD voice)
 [ ] Integrasi lain: Calendar, Email, Smart home (opsional pribadi)
@@ -128,7 +128,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [ ] Logging & error handling (file log, error surfaces)
 [ ] Config management (env + config file terpusat)
 [ ] Secure credential handling (token, key di env; tak pernah ke client)
-[ ] Backup & recovery (memory, notes, reminders, sessions)
+[x] Backup & recovery (memory, notes, reminders, sessions)  — backup.ts (backupNow, listBackups, restoreBackup, auto prune max 5, auto-backup on server boot) + command /backup di Telegram & Discord
 [ ] Observability ringan (log turn, latency, error count)
 ```
 
