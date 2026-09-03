@@ -79,7 +79,11 @@ export function loadPersonaPrompt(rawUser?: unknown): string {
         .join("\n\n")
     );
   }
-  return sections.join("\n\n");
+  const joined = sections.join("\n\n");
+  // Global cap across all injected persona/memory sections (OpenClaw
+  // bootstrapTotalMaxChars analogue) so many modest sections can't add up to a
+  // bloated prompt. Per-section caps above stay; this is the second layer.
+  return truncateWithMarker(joined, PERSONA_TOTAL_MAX_CHARS);
 }
 
 export type PersonaTarget = "USER" | "SOUL";
@@ -149,6 +153,8 @@ export function upsertPersonaFact(
 /** Per-section caps (characters). Keep them modest. */
 export const PERSONA_MAX_CHARS = 4000;
 export const DAY_LOG_MAX_CHARS = 2000;
+/** Global cap across all injected persona + daily-memory sections combined. */
+export const PERSONA_TOTAL_MAX_CHARS = 12000;
 
 /** Clip `text` to `maxChars`, appending a marker when anything was dropped. */
 export function truncateWithMarker(text: string, maxChars: number): string {

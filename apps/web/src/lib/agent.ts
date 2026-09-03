@@ -78,14 +78,30 @@ function textFormatInstruction(): string {
   ].join(" ");
 }
 
+/** User-local timezone; defaults to the server zone when unset. */
+function userTimezone(): string {
+  const tz = process.env.MIA_USER_TIMEZONE;
+  if (tz) return tz;
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return "UTC";
+  }
+}
+
 /** Current date + time line, so the model can schedule / answer "what time". */
 function currentTimeLine(): string {
+  const tz = userTimezone();
+  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+  const timeFormatter = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour12: false, hour: "2-digit", minute: "2-digit" });
   const now = new Date();
+  const dateStr = formatter.format(now).replace(/-/g, "-");
+  const timeStr = timeFormatter.format(now);
+  const [h, m] = timeStr.split(":");
   return (
     `Current date and time (user's local zone): ` +
-    `${now.toLocaleDateString("en-CA")} ${now.toLocaleTimeString("en-US", { hour12: false })} ` +
-    `(${Intl.DateTimeFormat().resolvedOptions().timeZone}). ` +
-    `When asked the time, answer in a clear 24-hour format, e.g. "it's ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}".`
+    `${dateStr} ${timeStr} (${tz}). ` +
+    `When asked the time, answer in a clear 24-hour format, e.g. "it's ${h}:${m}".`
   );
 }
 
@@ -122,6 +138,13 @@ export function buildSystemPrompt(rawUser?: unknown, channel?: "voice" | "text")
   const parts = [SYSTEM_PROMPT];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
+  // Always address the user by the preferred name/honorific stored in USER.md
+  // (the "preferred address" — e.g. "Mas Naufal"), never drop the honorific.
+  parts.push(
+    "Address the user by the exact name shown in USER below (their preferred " +
+      "address, e.g. \"Mas Naufal\"). Use that exact form when referring to or " +
+      "greeting the user — never shorten or drop the honorific."
+  );
   parts.push(currentTimeLine());
   if (channel === "text") parts.push(textFormatInstruction());
   return parts.join("\n\n");
@@ -139,6 +162,12 @@ export function buildOpenCodeSystemPrompt(rawUser?: unknown, channel?: "voice" |
   const parts = [openCodeSystemPromptParts()];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
+  // Address the user by their preferred name/honorific from USER.md.
+  parts.push(
+    "Address the user by the exact name shown in USER below (their preferred " +
+      "address, e.g. \"Mas Naufal\"). Use that exact form when referring to or " +
+      "greeting the user — never shorten or drop the honorific."
+  );
   // The local model has no real-time clock; give it the current local time so it
   // can answer "what time is it?" / schedule-aware questions factually.
   parts.push(currentTimeLine());
