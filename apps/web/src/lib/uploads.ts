@@ -9,7 +9,7 @@
 // Path: .data/users/<user>/uploads/<filename>
 // Same atomic-write + sanitized user key pattern as notes/reminders/tasks.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync, existsSync, unlinkSync } from "node:fs";
 import { join, extname } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
 
@@ -151,4 +151,33 @@ export function listUploads(rawUser?: unknown): string {
     const kind = m.isImage ? "image" : m.isText ? "text" : "binary";
     return `${i + 1}. ${m.name} (${kb} KB, ${kind})`;
   }).join("\n").slice(0, 2000);
+}
+
+/**
+ * Read the text content of a previously-uploaded file (matched by name or
+ * 1-based list number). Only text-like files under MAX_TEXT_BYTES return
+ * content; images/binaries return a short note instead.
+ */
+export function readUpload(rawUser?: unknown, nameOrNumber?: string): string {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  const metas = readIndex(userKey);
+  if (!metas.length) throw new Error("no files uploaded yet");
+
+  let meta: UploadMeta | undefined;
+  const q = (nameOrNumber || "").trim();
+  if (/^\d+$/.test(q)) {
+    const idx = Number(q) - 1;
+    meta = metas[idx];
+  } else {
+    meta = metas.find((m) => m.name === q);
+  }
+  if (!meta) throw new Error(`no uploaded file "${q}"`);
+
+  if (!meta.isText) return `"${meta.name}" is not a text file (${meta.isImage ? "image" : "binary"}); cannot read its content.`;
+  const abs = join(uploadsDir(userKey), meta.name);
+  if (!existsSync(abs)) throw new Error(`file "${meta.name}" is missing from disk`);
+  const size = statSync(abs).size;
+  if (size > MAX_TEXT_BYTES) return `"${meta.name}" is too large to read (${(size / 1024).toFixed(1)} KB).`;
+  return readFileSync(abs, "utf8").slice(0, MAX_TEXT_BYTES);
 }

@@ -179,9 +179,9 @@ export async function startDiscordBot(): Promise<void> {
           );
           const kb = (meta.size / 1024).toFixed(1);
           if (meta.isText && meta.textContent !== undefined) {
-            fileContexts.push(`[File "${meta.name}" (${kb} KB):\n${meta.textContent.slice(0, 6000)}\n]`);
+            fileContexts.push(`[The user uploaded file "${meta.name}" (${kb} KB). It is already saved by the system; do not save it again. Its text content:\n${meta.textContent.slice(0, 6000)}\n]`);
           } else {
-            fileContexts.push(`[User uploaded file "${meta.name}" (${kb} KB, saved).]`);
+            fileContexts.push(`[The user uploaded file "${meta.name}" (${kb} KB). It is already saved by the system; do not save it again.]`);
           }
         } catch (e) {
           console.warn("[discord] attachment fetch failed:", e instanceof Error ? e.message : String(e));
@@ -198,7 +198,6 @@ export async function startDiscordBot(): Promise<void> {
       if (fileContexts.length) {
         const prefix = fileContexts.join("\n");
         text = text ? `${prefix}\n\n${text}` : prefix;
-        await replyMia(msg, `File tersimpan (${fileContexts.length}). Isi sudah kubaca sebagai konteks. ${text ? "Apa yang mau aku lakukan?" : ""}`).catch(() => {});
       }
 
       if (text.startsWith("/")) {

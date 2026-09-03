@@ -4,7 +4,7 @@ import { sanitizeUser, userDataRoot, appRoot, repoRoot } from "./users";
 import { addReminder } from "./reminders";
 import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
-import { listUploads } from "./uploads";
+import { listUploads, readUpload } from "./uploads";
 
 export interface ToolCall {
   id: string;
@@ -274,6 +274,25 @@ export const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    risk: "read",
+    function: {
+      name: "read_upload",
+      description:
+        "Read the text content of a file the user previously uploaded via Telegram or Discord. Provide the file name (from list_uploads) or its 1-based list number.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "File name or 1-based list number from list_uploads.",
+          },
+        },
+        required: ["name"],
+      },
+    },
+  },
 ];
 
 export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<string> {
@@ -357,6 +376,12 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
       }
     case "list_uploads":
       return listUploads(rawUser);
+    case "read_upload":
+      try {
+        return readUpload(rawUser, typeof args.name === "string" ? args.name : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid upload"}`;
+      }
     default:
       return `Error: unknown tool "${call.name}"`;
   }
