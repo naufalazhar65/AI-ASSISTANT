@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSy
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot } from "./users";
 import { addReminder } from "./reminders";
+import { nextOccurrence } from "./reminderIntent";
 
 export interface ToolCall {
   id: string;
@@ -272,8 +273,14 @@ function deleteNote(index: number, userKey: string | null): string {
 }
 
 function scheduleReminder(text: string, isoWhen: string, rawUser: unknown): string {
-  const atMs = Date.parse(isoWhen);
-  if (Number.isNaN(atMs)) throw new Error(`cannot parse time "${isoWhen}" — use ISO-8601 with offset`);
+  const parsed = new Date(isoWhen);
+  if (Number.isNaN(parsed.getTime())) throw new Error(`cannot parse time "${isoWhen}" — use ISO-8601 with offset`);
+  // Safety net: a model without a live clock sometimes emits a past/stale date
+  // for a bare clock time ("jam 3 sore"). Never schedule in the past — rebase
+  // such a time to its next occurrence (today/tomorrow) via the shared parser.
+  const atMs = parsed.getTime() < Date.now()
+    ? nextOccurrence(parsed.getHours(), parsed.getMinutes())
+    : parsed.getTime();
   const whenText = new Date(atMs).toLocaleString("en-GB", {
     dateStyle: "medium",
     timeStyle: "short",

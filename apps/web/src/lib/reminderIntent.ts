@@ -10,16 +10,6 @@
 
 const INTENT_RE = /\b(bangunin|banguni|bangunkan|bangun|ingetkan|ingatkan|ingetin|ingatkan|ingat|remind|reminder|set( an)? alarm|alarm|wake( me)? up|jangan lupa|kasih tahu|beritahu|bangun aku)\b/i;
 
-const HOUR_WORDS: Record<string, number> = {
-  dini: 4,
-  pagi: 9,
-  siang: 12,
-  sore: 16,
-  malam: 20,
-  subuh: 5,
-  "setengah malam": 0,
-};
-
 type ParsedTime = { hour: number; minute: number };
 
 /**

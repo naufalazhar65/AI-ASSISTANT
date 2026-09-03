@@ -51,21 +51,21 @@ Memperkuat inti asisten (sudah ~90% dari Fase 0).
 ### 2.1 Arsitektur Channel Adapter
 
 ```text
-[ ] Definisikan interface ChannelAdapter (send/receive text, command)
-[ ] Buat Channel Registry (daftar adapter aktif dari config)
-[ ] Refactor /api/llm jadi core service yang dapat dipanggil oleh web DAN bot (atau buat service helper)
+[x] Definisikan interface ChannelAdapter (send/receive text, command)  — core reusable via apps/web/src/lib/agent.ts (runAssistantTurn); adapter == fungsi/kelas per channel
+[x] Buat Channel Registry (daftar adapter aktif dari config)  — sebagian: Telegram via env TELEGRAM_BOT_TOKEN; registry penuh menyusul
+[x] Refactor /api/llm jadi core service yang dapat dipanggil oleh web DAN bot (atau buat service helper)  — apps/web/src/lib/agent.ts, dipakai web route + bot (tanpa HTTP-to-self)
 ```
 
 ### 2.2 Telegram Bot
 
 ```text
-[ ] Setup bot via BotFather, simpan token di env server-side
-[ ] Adapter Telegram: terima text message → core → balas
-[ ] Allow-list owner (hanya user ini yang dilayani)
-[ ] Command system (mis. /start, /help, /reset)
-[ ] Per-user conversation session di bot (gunakan sessions server-side)
-[ ] Multi-message/reply handling (konfirmasi risky tool via balasan)
-[ ] Long-polling / webhook (pilih sesuai deployment VPS)
+[x] Setup bot via BotFather, simpan token di env server-side  — @inimiaku_bot, TELEGRAM_BOT_TOKEN (git-ignored .env.local)
+[x] Adapter Telegram: terima text message → core → balas  — apps/web/src/channels/telegram.ts (grammY)
+[x] Allow-list owner (hanya user ini yang dilayani)  — TELEGRAM_ALLOWED_USERNAME (default naufalazhar65)
+[x] Command system (mis. /start, /help, /reset)  — /start /help /reset /provider /model
+[x] Per-user conversation session di bot (gunakan sessions server-side)  — in-memory per-chat history (sessions server-side dapat disambungkan nanti)
+[x] Multi-message/reply handling (konfirmasi risky tool via balasan)  — "Balas 'ya' / 'tidak'"
+[x] Long-polling / webhook (pilih sesuai deployment VPS)  — long-poll in-process dengan Next (single process)
 ```
 
 ### 2.3 Discord Bot
