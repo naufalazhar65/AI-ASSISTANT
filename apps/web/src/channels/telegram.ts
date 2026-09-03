@@ -26,6 +26,8 @@ import { Bot, Context } from "grammy";
 import { runAssistantTurn, ChatMessage } from "@/lib/agent";
 import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
+import { reminderMessage } from "@/lib/reminderMessage";
+import { saveUpload } from "@/lib/uploads";
 
 /**
  * Escape helper for Telegram legacy Markdown (parse_mode="Markdown"), which only
@@ -230,6 +232,70 @@ export async function startTelegramBot(): Promise<void> {
     }
   });
 
+  // File upload: text documents are read and folded into the conversation as
+  // context so the assistant can act on them; images/binary are saved only.
+  const downloadTelegramFile = async (filePath: string): Promise<Buffer> => {
+    const res = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+    if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  };
+  bot.on("message:document", async (ctx) => {
+    try {
+      if (!isAllowedUser(ctx)) return;
+      lastSeenOwnerChat = ctx.chat.id;
+      const doc = ctx.message.document;
+      if (!doc) return;
+      const file = await ctx.getFile();
+      const filePath = file.file_path;
+      if (!filePath) {
+        await ctx.reply("Gagal membaca berkas (file belum tersedia).").catch(() => {});
+        return;
+      }
+      const buffer = await downloadTelegramFile(filePath);
+      const meta = saveUpload(
+        userKeyFor(ctx),
+        doc.file_name || "document.bin",
+        doc.mime_type || "application/octet-stream",
+        buffer
+      );
+      if (meta.isText && meta.textContent !== undefined) {
+        await replyMia(
+          ctx,
+          `File \`${meta.name}\` tersimpan (${(meta.size / 1024).toFixed(1)} KB). Isinya kubaca:\n\`\`\`\n${meta.textContent.slice(0, 1500)}\n\`\`\`\nApa yang mau aku lakukan dengan file ini?`
+        );
+      } else {
+        const kind = meta.isImage ? "gambar" : "berkas";
+        await replyMia(ctx, `Berkas \`${meta.name}\` (${kind}, ${(meta.size / 1024).toFixed(1)} KB) tersimpan. `);
+      }
+    } catch (err) {
+      console.error("[telegram] document handler error:", err instanceof Error ? err.message : String(err));
+      await ctx.reply("Maaf, gagal menyimpan berkas itu.").catch(() => {});
+    }
+  });
+
+  bot.on("message:photo", async (ctx) => {
+    try {
+      if (!isAllowedUser(ctx)) return;
+      lastSeenOwnerChat = ctx.chat.id;
+      const photo = ctx.message.photo;
+      if (!photo || !photo.length) return;
+      const file = await ctx.getFile();
+      const filePath = file.file_path;
+      if (!filePath) return;
+      const buffer = await downloadTelegramFile(filePath);
+      saveUpload(
+        userKeyFor(ctx),
+        "photo.jpg",
+        "image/jpeg",
+        buffer
+      );
+      await replyMia(ctx, "Gambar tersimpan. Aku belum bisa melihat isinya langsung, tapi bisa kubantu sebut/kelola.");
+    } catch (err) {
+      console.error("[telegram] photo handler error:", err instanceof Error ? err.message : String(err));
+      await ctx.reply("Maaf, gagal menyimpan foto itu.").catch(() => {});
+    }
+  });
+
   // Proactive reminder push: deliver due reminders to the owner's chat.
   subscribeReminders((reminder: Reminder) => {
     const target = pushTarget();
@@ -237,7 +303,7 @@ export async function startTelegramBot(): Promise<void> {
     const at = new Date(reminder.at);
     const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     bot.api
-      .sendMessage(target, `🔔 *Reminder*: ${toTelegramMarkdown(reminder.text)} (pukul \`${timeLabel}\`)`, { parse_mode: "Markdown" })
+      .sendMessage(target, toTelegramMarkdown(`🌸 *Mia* — ${reminderMessage(reminder.text, timeLabel)}`), { parse_mode: "Markdown" })
       .catch((e) => {
         console.warn("[telegram] reminder push failed:", e instanceof Error ? e.message : String(e));
       });

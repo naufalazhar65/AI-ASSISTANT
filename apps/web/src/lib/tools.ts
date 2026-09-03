@@ -4,6 +4,7 @@ import { sanitizeUser, userDataRoot, appRoot, repoRoot } from "./users";
 import { addReminder } from "./reminders";
 import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
+import { listUploads } from "./uploads";
 
 export interface ToolCall {
   id: string;
@@ -259,6 +260,20 @@ export const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    risk: "read",
+    function: {
+      name: "list_uploads",
+      description:
+        "List files the user has uploaded via Telegram or Discord (text documents, images, etc.)",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
 ];
 
 export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<string> {
@@ -340,6 +355,8 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid reschedule"}`;
       }
+    case "list_uploads":
+      return listUploads(rawUser);
     default:
       return `Error: unknown tool "${call.name}"`;
   }

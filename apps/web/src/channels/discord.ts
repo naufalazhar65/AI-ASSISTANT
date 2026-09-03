@@ -28,6 +28,8 @@ import { Client, Events, GatewayIntentBits, Message, Partials } from "discord.js
 import { runAssistantTurn, ChatMessage } from "@/lib/agent";
 import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
+import { reminderMessage } from "@/lib/reminderMessage";
+import { saveUpload } from "@/lib/uploads";
 
 /** Minimal sendable text surface we rely on (any discord.js text channel). */
 type SendableChannel = { send: (content: string) => Promise<Message> };
@@ -159,14 +161,45 @@ export async function startDiscordBot(): Promise<void> {
       if (!msg.author || msg.author.bot) return;
       console.log(`[discord] msg author=${msg.author.id} channel=${msg.channelId} allowedUser=${isAllowedUser(msg)} allowedChannel=${isAllowedChannel(msg)}`);
       if (!isAllowedMessage(msg)) return;
-      // Only react to text content (skip slash-command payloads / embeds-only).
-      const text = (msg.content || "").trim();
-      if (!text) return;
+      const user = userKeyFor(msg);
+      // Deal with file attachments first (docs/images), then the text.
+      let text = (msg.content || "").trim();
+      const atts = msg.attachments ? [...msg.attachments.values()] : [];
+      const fileContexts: string[] = [];
+      for (const att of atts) {
+        try {
+          const res = await fetch(att.url);
+          if (!res.ok) continue;
+          const buf = Buffer.from(await res.arrayBuffer());
+          const meta = saveUpload(
+            user,
+            att.name || "file.bin",
+            att.contentType || "application/octet-stream",
+            buf
+          );
+          const kb = (meta.size / 1024).toFixed(1);
+          if (meta.isText && meta.textContent !== undefined) {
+            fileContexts.push(`[File "${meta.name}" (${kb} KB):\n${meta.textContent.slice(0, 6000)}\n]`);
+          } else {
+            fileContexts.push(`[User uploaded file "${meta.name}" (${kb} KB, saved).]`);
+          }
+        } catch (e) {
+          console.warn("[discord] attachment fetch failed:", e instanceof Error ? e.message : String(e));
+        }
+      }
+
+      // A message that is only a file (no text) still counts if we saved it.
+      if (!text && !fileContexts.length) return;
 
       lastSeenOwnerChannel = msg.channel as unknown as SendableChannel;
       const chatId = msg.channelId;
       const state = getState(chatId);
-      const user = userKeyFor(msg);
+
+      if (fileContexts.length) {
+        const prefix = fileContexts.join("\n");
+        text = text ? `${prefix}\n\n${text}` : prefix;
+        await replyMia(msg, `File tersimpan (${fileContexts.length}). Isi sudah kubaca sebagai konteks. ${text ? "Apa yang mau aku lakukan?" : ""}`).catch(() => {});
+      }
 
       if (text.startsWith("/")) {
         await handleCommand(msg, state, text);
@@ -191,7 +224,7 @@ export async function startDiscordBot(): Promise<void> {
     if (target == null) return;
     const at = new Date(reminder.at);
     const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    target.send(`🔔 **Reminder**: ${reminder.text} (pukul ${timeLabel})`).catch((e: unknown) => {
+    target.send(`🌸 **Mia** — ${reminderMessage(reminder.text, timeLabel)}`).catch((e: unknown) => {
       console.warn("[discord] reminder push failed:", e instanceof Error ? e.message : String(e));
     });
   });
