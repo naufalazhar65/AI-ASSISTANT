@@ -24,7 +24,7 @@
  *   DISCORD_USER                  fallback user key for persona (default "naufal")
  */
 
-import { Client, GatewayIntentBits, Message } from "discord.js";
+import { Client, Events, GatewayIntentBits, Message } from "discord.js";
 import { runAssistantTurn, ChatMessage } from "@/lib/agent";
 import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
@@ -128,7 +128,7 @@ export async function startDiscordBot(): Promise<void> {
     return s;
   };
 
-  client.on("ready", () => {
+  client.on(Events.ClientReady, () => {
     console.log("[discord] logged in as", client.user?.tag);
   });
 
