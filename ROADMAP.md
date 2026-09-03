@@ -19,11 +19,11 @@ Fondasi dari project voice assistant tidak dibuang — menjadi landasan Fase 1�
 [x] Tool calling + konfirmasi risky (web_search, calculate, file_read, notes, remind_me)
 [x] Reminders / scheduler (per-user, disk store, SSE push web)
 [x] Sanitasi user / auth-lite (persona/notes/reminders terisolasi per nama)
-[x] Provider selectable (Groq / OpenCode / 9Router / Mock)
+[x] Provider selectable (Groq / OpenCode / 9Router / OpenRouter / Mock)  — OpenRouter (openai-compatible) + MiniMax model, live test via /provider di Discord
 [x] Voice: ASR/LLM/TTS pipelines, transcript, multilingual detection
 ```
 
- **Node penting:** `packages/state-machine`, `packages/ai-provider`, `packages/mock-provider`, `apps/web/src/ai/*`, `apps/web/src/lib/{tools,persona,autoMemory,sessions,reminders,tasks,uploads,automations,automationRunner,status,assistantError,reminderIntent,reminderMessage,users,opencode}.ts`, `apps/web/src/channels/{telegram,discord,pushTarget}.ts`, `/api/llm` route, `instrumentation-node.ts`.
+ **Node penting:** `packages/state-machine`, `packages/ai-provider`, `packages/mock-provider`, `apps/web/src/ai/*`, `apps/web/src/lib/{tools,persona,autoMemory,sessions,reminders,tasks,uploads,automations,automationRunner,status,assistantError,reminderIntent,reminderMessage,channelMessage,users,opencode}.ts`, `apps/web/src/channels/{telegram,discord,pushTarget}.ts`, `/api/llm` route, `instrumentation-node.ts`.
 
 ---
 
@@ -81,10 +81,10 @@ Memperkuat inti asisten (sudah ~90% dari Fase 0).
 ### 2.4 Message Handling & Command System
 
 ```text
-[ ] Normalisasi input dari tiap channel ke format core (text user)
-[ ] Normalisasi output dari core ke tiap channel (text/format)
-[ ] Unified command parser (prefix per channel)
-[ ] Lintas-channel history opsional (sama session / terpisah)
+[x] Normalisasi input dari tiap channel ke format core (text user)  — `lib/channelMessage.ts`: NormalizedMessage {userKey, text, channel, chatId}; tiap adapter tinggal memetakan ctx/msg ke shape ini
+[x] Normalisasi output dari core ke tiap channel (text/format)  — `replyMia` di Telegram/Discord masing-masing handle markdown/format channel; replyText dikembalikan dari command handler ter-unified
+[x] Unified command parser (prefix per channel)  — `lib/channelMessage.ts` `handleUnifiedCommand(state, text)`; /start /help /reset /provider /model dipusatkan di sini, /status tetap di channel (perlu user+historyLen)
+[x] Lintas-channel history opsional (sama session / terpisah)  — tiap channel punya `state.history` terpisah; sessions server-side `.data/users/<user>/sessions` shared via runAssistantTurn (fase 1.x)
 ```
 
 ---
@@ -154,8 +154,9 @@ MVP personal assistant dianggap berfungsi bila:
 
 1. **Fase 2.1/2.2 — Telegram Bot** (channel ponsel paling bermanfaat & mudah).  — DONE
 2. **Fase 2.3 — Discord Bot** — DONE (adapter + DM partials fix; live-verified DM & guild).
-3. **Fase 3 — Personal Assistant Capabilities** — DONE (notif push, task management, scheduler tahan-restart, uploads, read_upload, scheduled automations, rate-limit resilience, quota alert, /status, web interaction incl. fetch_url). Fase 3 SELESAI; lanjut Fase 4 (Advanced Features).
-4. **Fase 3/5 — Konfirmasi + logging** untuk kenyamanan pribadi.
+3. **Fase 2.4 — Message Handling & Command System** — DONE (unified command parser + normalisasi input/output di lib/channelMessage.ts; wiring Telegram & Discord; live test /provider yang berhasil ganti model).
+4. **Fase 3 — Personal Assistant Capabilities** — DONE (notif push, task management, scheduler tahan-restart, uploads, read_upload, scheduled automations, rate-limit resilience, quota alert, /status, web interaction incl. fetch_url). Fase 3 SELESAI.
+5. **Fase 3/5 — Konfirmasi + logging** untuk kenyamanan pribadi.
 
 ---
 
