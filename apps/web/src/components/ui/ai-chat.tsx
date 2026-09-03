@@ -2,33 +2,244 @@
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, Check, Clock, Mic, MicOff, Send, Settings, Square, Trash, Type, Volume2, X } from "lucide-react";
+import { AlertTriangle, Check, Clock, Copy, Mic, MicOff, Send, Settings, Sparkles, Square, Trash, Type, Volume2, X } from "lucide-react";
 import { ConfirmationRequest } from "@voice/ai-provider";
 import { cn } from "@/lib/utils";
 
 /**
- * Lightweight renderer for FR-012 (code input): splits text on fenced code
- * blocks (```lang ... ```) and renders code as a styled <pre>, keeping the
- * rest as inline text. No dependency on a full markdown/Prism pipeline.
+ * Lightweight markdown renderer for chat bubbles (no third-party markdown dep).
+ * Supports the block forms the assistant actually emits: fenced code, headings,
+ * unordered/ordered lists, blockquotes, horizontal rules and paragraphs; plus
+ * inline emphasis (bold/italic), inline code and links. Everything is rendered
+ * as React elements (never dangerouslySetInnerHTML), so it is XSS-safe by
+ * construction. It is intentionally not a full CommonMark parser — output is
+ * short voice-assistant prose, not documents.
  */
-function renderContent(text: string): ReactNode {
-  const parts = text.split(/(```[\s\S]*?```)/g);
-  return parts.map((part, i) => {
-    if (!part.startsWith("```")) return <Fragment key={i}>{part}</Fragment>;
-    const inner = part.slice(3, -3);
-    const langMatch = inner.match(/^([^\n]*)\n/);
-    const lang = langMatch ? langMatch[1].trim() : "";
-    const code = langMatch ? inner.slice(langMatch[0].length) : inner;
-    return (
-      <pre
-        key={i}
-        className="my-1.5 overflow-x-auto rounded-lg border border-white/10 bg-black/50 p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words"
-      >
-        {lang && <span className="mb-1 block text-[9px] uppercase tracking-wide text-white/40">{lang}</span>}
+function renderInline(text: string, keyBase: string): ReactNode {
+  // Split on inline-code first so we never try to emphasize code contents.
+  const codeParts = text.split(/(`[^`]*`)/g);
+  const out: ReactNode[] = [];
+  codeParts.forEach((seg, idx) => {
+    if (seg.startsWith("`") && seg.endsWith("`")) {
+      out.push(
+        <code
+          key={`${keyBase}-c${idx}`}
+          className="rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em] text-cyan-100"
+        >
+          {seg.slice(1, -1)}
+        </code>
+      );
+      return;
+    }
+    // Bold + italic + links. Keep it simple and robust: split by inline delimiters.
+    const inlineParts = seg.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|\[[^\]]+\]\([^)\s]+\))/g);
+    inlineParts.forEach((part, j) => {
+      if (!part) return;
+      const bold = part.match(/^\*\*([^*]+)\*\*$/);
+      if (bold) {
+        out.push(
+          <strong key={`${keyBase}-b${idx}-${j}`} className="font-semibold text-white">
+            {bold[1]}
+          </strong>
+        );
+        return;
+      }
+      const italic = part.match(/^\*([^*]+)\*$/);
+      if (italic) {
+        out.push(
+          <em key={`${keyBase}-i${idx}-${j}`} className="italic text-white/85">
+            {italic[1]}
+          </em>
+        );
+        return;
+      }
+      const link = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+      if (link) {
+        out.push(
+          <a
+            key={`${keyBase}-l${idx}-${j}`}
+            href={link[2]}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-cyan-300 underline decoration-cyan-300/40 underline-offset-2 hover:text-cyan-200"
+          >
+            {link[1]}
+          </a>
+        );
+        return;
+      }
+      out.push(<Fragment key={`${keyBase}-t${idx}-${j}`}>{part}</Fragment>);
+    });
+  });
+  return out;
+}
+
+/** Fenced code block with a copy-to-clipboard button. */
+function CodeBlock({ lang, code }: { lang: string; code: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard may be unavailable; ignore (button does nothing harmful).
+    }
+  };
+  return (
+    <div className="group my-1.5 relative overflow-hidden rounded-lg border border-white/10 bg-black/50">
+      <div className="flex items-center justify-between border-b border-white/10 px-2 py-1">
+        <span className="text-[9px] uppercase tracking-wide text-white/40">{lang || "code"}</span>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+          aria-label="Copy code"
+          title="Copy code"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3 w-3 text-emerald-300" /> copied
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" /> copy
+            </>
+          )}
+        </button>
+      </div>
+      <pre className="overflow-x-auto p-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words">
         {code}
       </pre>
-    );
+    </div>
+  );
+}
+
+function renderContent(text: string): ReactNode {
+  // Fenced code blocks are hoisted out first and rendered as <pre>.
+  const blocks = text.split(/(```[\s\S]*?```)/g);
+  const output: ReactNode[] = [];
+  blocks.forEach((block, bi) => {
+    if (block.startsWith("```")) {
+      const inner = block.slice(3, -3);
+      const langMatch = inner.match(/^([^\n]*)\n/);
+      const lang = langMatch ? langMatch[1].trim() : "";
+      const code = langMatch ? inner.slice(langMatch[0].length) : inner;
+      output.push(<CodeBlock key={`pre-${bi}`} lang={lang} code={code} />);
+      return;
+    }
+    // Block-level pass over the remaining prose, line by line.
+    const lines = block.split("\n");
+    const para: string[] = [];
+    let listKind: "ul" | "ol" | null = null;
+    const listItems: ReactNode[] = [];
+    const flushPara = (key: string) => {
+      if (!para.length) return;
+      output.push(
+        <p key={key} className="my-0.5">
+          {renderInline(para.join(" "), key)}
+        </p>
+      );
+      para.length = 0;
+    };
+    const flushList = (key: string) => {
+      if (!listKind) return;
+      output.push(
+        listKind === "ul" ? (
+          <ul key={key} className="my-1 list-disc space-y-0.5 pl-4 marker:text-white/50">
+            {listItems}
+          </ul>
+        ) : (
+          <ol key={key} className="my-1 list-decimal space-y-0.5 pl-4 marker:text-white/50">
+            {listItems}
+          </ol>
+        )
+      );
+      listKind = null;
+      listItems.length = 0;
+    };
+    lines.forEach((line, li) => {
+      const key = `${bi}-${li}`;
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushPara(`p${key}`);
+        flushList(`l${key}`);
+        return;
+      }
+      // Horizontal rule ---
+      if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(trimmed)) {
+        flushPara(`p${key}`);
+        flushList(`l${key}`);
+        output.push(<hr key={`hr${key}`} className="my-2 border-white/10" />);
+        return;
+      }
+      // Heading (# .. ######)
+      const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
+      if (heading) {
+        flushPara(`p${key}`);
+        flushList(`l${key}`);
+        const level = heading[1].length;
+        const size =
+          level === 1
+            ? "text-[15px] font-bold"
+            : level === 2
+              ? "text-[13.5px] font-semibold"
+              : "text-[12.5px] font-semibold text-white/90";
+        output.push(
+          <div key={`h${key}`} className={`mt-1.5 ${size}`}>
+            {renderInline(heading[2], key)}
+          </div>
+        );
+        return;
+      }
+      // Blockquote
+      if (trimmed.startsWith("> ")) {
+        flushPara(`p${key}`);
+        flushList(`l${key}`);
+        output.push(
+          <blockquote
+            key={`q${key}`}
+            className="my-1 border-l-2 border-white/20 pl-2 italic text-white/70"
+          >
+            {renderInline(trimmed.replace(/^>\s*/, ""), key)}
+          </blockquote>
+        );
+        return;
+      }
+      // Unordered list item
+      const ul = trimmed.match(/^\s*[-*+]\s+(.*)$/);
+      if (ul) {
+        if (listKind !== "ul") {
+          flushPara(`p${key}`);
+          flushList(`l${key}`);
+          listKind = "ul";
+        }
+        listItems.push(
+          <li key={`il${key}`}>{renderInline(ul[1], key)}</li>
+        );
+        return;
+      }
+      // Ordered list item
+      const ol = trimmed.match(/^\s*(\d+)[.)]\s+(.*)$/);
+      if (ol) {
+        if (listKind !== "ol") {
+          flushPara(`p${key}`);
+          flushList(`l${key}`);
+          listKind = "ol";
+        }
+        listItems.push(
+          <li key={`il${key}`}>{renderInline(ol[2], key)}</li>
+        );
+        return;
+      }
+      // Regular prose line — accumulate into a paragraph.
+      flushList(`l${key}`);
+      para.push(trimmed);
+    });
+    flushPara(`p${bi}-end`);
+    flushList(`l${bi}-end`);
   });
+  return output.length ? <Fragment>{output}</Fragment> : text;
 }
 
 export interface AIChatMessage {
@@ -144,23 +355,24 @@ export default function AIChatCard({
   };
 
   return (
-    <div className={cn("relative h-full w-[min(520px,94vw)] rounded-2xl overflow-hidden p-[2px]", className)}>
-      {/* Animated Outer Border */}
-      <motion.div
-        className="absolute inset-0 rounded-2xl border-2 border-white/20"
-        animate={{ rotate: [0, 360] }}
-        transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-      />
+    <div className={cn("group/card relative h-full w-[min(520px,94vw)] rounded-3xl overflow-hidden p-px", className)}>
+      {/* Soft aurora border */}
+      <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-white/25 via-primary/30 to-white/10 transition-opacity duration-500 group-hover/card:opacity-100 opacity-70" />
+
+      {/* Ambient glow ring (calm brand cyan) */}
+      <div className="pointer-events-none absolute -inset-px rounded-3xl bg-primary/15 blur-2xl animate-glow-pulse" />
 
       {/* Inner Card */}
-      <div className="relative flex flex-col w-full h-full rounded-xl border border-white/10 overflow-hidden bg-black/90 backdrop-blur-xl">
+      <div className="relative flex flex-col w-full h-full rounded-[calc(1.5rem-1px)] overflow-hidden glass-strong">
         {/* Inner Animated Background */}
         <motion.div
-          className="absolute inset-0 bg-gradient-to-br from-gray-800 via-black to-gray-900"
+          className="absolute inset-0 bg-gradient-to-br from-gray-800/70 via-black to-gray-900/70"
           animate={{ backgroundPosition: ["0% 0%", "100% 100%", "0% 0%"] }}
           transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
           style={{ backgroundSize: "200% 200%" }}
         />
+        {/* Top sheen */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/10 to-transparent" />
 
         {/* Floating Particles */}
         {CARD_PARTICLES.map((p, i) => (
@@ -183,8 +395,13 @@ export default function AIChatCard({
         ))}
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 relative z-10">
-          <h2 className="text-lg font-semibold text-white">AI Assistant</h2>
+        <div className="flex items-center justify-between px-4 pt-4 pb-3 relative z-10">
+          <div>
+            <h2 className="text-lg font-bold leading-tight bg-gradient-to-r from-white via-white to-primary bg-clip-text text-transparent">
+              AI Assistant
+            </h2>
+            <p className="text-[10px] font-medium uppercase tracking-widest text-white/35">Real-time voice</p>
+          </div>
           <div className="flex items-center gap-2">
             {onToggleVoiceOutput && (
               <div className="flex items-center rounded-lg bg-white/10 p-0.5" role="group" aria-label="Output mode">
@@ -224,30 +441,6 @@ export default function AIChatCard({
                 <Square className="w-3.5 h-3.5" />
               </button>
             )}
-            {onToggleMic && (
-              <button
-                type="button"
-                onClick={onToggleMic}
-                className={cn(
-                  "p-1.5 rounded-lg transition-colors",
-                  micActive
-                    ? "bg-rose-500/15 text-rose-300 hover:bg-rose-500/25"
-                    : "bg-white/10 text-white/60 hover:bg-white/20"
-                )}
-                aria-label={micActive ? "Stop voice" : "Start voice"}
-              >
-                {micActive ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
-              </button>
-            )}
-            {isListening && (
-              <span className="flex items-center gap-1.5 rounded-full border border-rose-500/40 bg-rose-500/15 px-2.5 py-1 text-[10px] font-medium text-rose-300">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75"></span>
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-400"></span>
-                </span>
-                Listening…
-              </span>
-            )}
             {onVoiceChange && (
               <button
                 type="button"
@@ -264,13 +457,6 @@ export default function AIChatCard({
             )}
           </div>
         </div>
-
-        {/* Orb */}
-        {orb && (
-          <div className="relative z-10 flex flex-col items-center gap-1 px-4 py-4 border-b border-white/10">
-            {orb}
-          </div>
-        )}
 
         {/* Settings panel (FR-009) — extensible for provider/model config. */}
         {settingsOpen && onVoiceChange && (
@@ -333,7 +519,7 @@ export default function AIChatCard({
                   </div>
                   <p className="text-[10px] text-white/35">
                     {providers.find((p) => p.id === provider)?.id === "opencode"
-                      ? "Requires the local opencode proxy to be running."
+                      ? "Native local opencode agent — requires `opencode serve` running."
                       : "Endpoints & API keys stay server-side (invariant 5)."}
                   </p>
                 </div>
@@ -430,27 +616,48 @@ export default function AIChatCard({
         )}
 
         {/* Messages */}
-        <div ref={scrollRef} className="flex-1 px-4 py-3 overflow-y-auto scroll-smooth space-y-3 text-sm flex flex-col relative z-10">
+        <div ref={scrollRef} className="flex-1 min-h-0 px-4 py-3 overflow-y-auto scroll-smooth space-y-3 text-sm flex flex-col relative z-10">
           {messages.length === 0 ? (
-            <p className="m-auto text-white/30 text-center max-w-[200px]">
-              Ask anything — type below or use the mic.
-            </p>
+            <div className="m-auto flex flex-col items-center gap-3 text-center text-white/30">
+              <motion.div
+                className="flex h-16 w-16 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary/70 animate-float"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+              >
+                <Sparkles className="h-7 w-7" />
+              </motion.div>
+              <p className="max-w-[220px] text-sm leading-relaxed">
+                Ask anything — type below or tap the mic to talk.
+              </p>
+            </div>
           ) : (
             messages.map((msg, i) => (
               <motion.div
                 key={i}
-                initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                initial={{ opacity: 0, y: 8, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 transition={{ type: "spring", stiffness: 320, damping: 28, mass: 0.8 }}
                 className={cn(
-                  "px-3 py-2 rounded-xl max-w-[80%] shadow-md backdrop-blur-md",
-                  msg.partial && "opacity-60",
-msg.sender === "ai"
-                      ? "bg-gradient-to-br from-white/15 via-white/[0.07] to-white/[0.03] border border-white/10 text-white self-start shadow-lg"
-                      : "bg-white/30 text-white font-semibold self-end"
+                  "flex w-full",
+                  msg.sender === "ai" ? "justify-start items-end gap-2" : "justify-end"
                 )}
               >
-                {renderContent(msg.text)}
+                {msg.sender === "ai" && (
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/40 to-primary/10 border border-primary/30">
+                    <Sparkles className="h-3 w-3 text-primary/80" />
+                  </span>
+                )}
+                <motion.div
+                  className={cn(
+                    "px-3 py-2 rounded-2xl max-w-[80%] shadow-md backdrop-blur-md leading-relaxed",
+                    msg.partial && "opacity-60",
+                    msg.sender === "ai"
+                      ? "bg-gradient-to-br from-white/15 via-white/[0.07] to-white/[0.03] border border-white/10 text-white shadow-lg"
+                      : "bg-gradient-to-br from-primary/40 to-primary/20 border border-primary/20 text-white"
+                  )}
+                >
+                  {renderContent(msg.text)}
+                </motion.div>
               </motion.div>
             ))
           )}
@@ -545,23 +752,84 @@ msg.sender === "ai"
           )}
         </div>
 
-        {/* Input */}
-        <div className="flex items-center gap-2 p-3 border-t border-white/10 relative z-10">
-          <input
-            className="flex-1 px-3 py-2 text-sm bg-black/50 rounded-lg border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-white/50"
-            placeholder="Type a message..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
-            aria-label="Send"
-          >
-            <Send className="w-4 h-4 text-white" />
-          </button>
+        {/* Input + mic */}
+        <div className="relative z-10 flex flex-col items-center gap-2.5 p-3 border-t border-white/10">
+          {onToggleMic && orb && (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] font-medium",
+                isListening
+                  ? "border-rose-500/40 bg-rose-500/15 text-rose-300"
+                  : "border-white/15 bg-white/5 text-white/45"
+              )}
+            >
+              {isListening && (
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-rose-400"></span>
+                </span>
+              )}
+              {isListening ? "Listening…" : micActive ? "Tap to stop" : "Tap to talk"}
+            </span>
+          )}
+          {onToggleMic &&
+            (orb ? (
+              <button
+                type="button"
+                onClick={onToggleMic}
+                title={micActive ? "Stop voice" : "Start voice"}
+                aria-label={micActive ? "Stop voice" : "Start voice"}
+                aria-pressed={micActive}
+                className={cn(
+                  "group/mic relative h-16 w-16 cursor-pointer rounded-full transition-all duration-300",
+                  micActive
+                    ? "shadow-[0_0_40px_-6px] shadow-rose-500/60"
+                    : "shadow-[0_0_32px_-8px] shadow-primary/40 hover:scale-105 hover:shadow-[0_0_40px_-6px] hover:shadow-primary/60"
+                )}
+              >
+                {micActive && (
+                  <span className="pointer-events-none absolute inset-0 rounded-full animate-ping bg-rose-500/20" />
+                )}
+                {orb}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onToggleMic}
+                title={micActive ? "Stop voice" : "Start voice"}
+                aria-label={micActive ? "Stop voice" : "Start voice"}
+                className={cn(
+                  "relative flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-300",
+                  micActive
+                    ? "border-rose-500/60 bg-gradient-to-br from-rose-500/30 to-rose-600/20 text-rose-300 shadow-[0_0_40px_-8px] shadow-rose-500/60"
+                    : "border-white/20 bg-gradient-to-br from-primary/25 to-primary/10 text-white shadow-[0_0_40px_-10px] shadow-primary/40 hover:scale-105 hover:border-white/30"
+                )}
+              >
+                {micActive && (
+                  <span className="absolute inset-0 rounded-full animate-ping bg-rose-500/20" />
+                )}
+                {micActive ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+              </button>
+            ))}
+
+          <div className="flex items-center gap-2 w-full rounded-full glass px-2.5 py-1.5">
+            <input
+              className="flex-1 bg-transparent px-2 py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none"
+              placeholder="Type a message…"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+              aria-label="Message"
+            />
+            <button
+              type="button"
+              onClick={handleSend}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/60 text-white shadow-lg shadow-primary/30 transition-transform duration-200 hover:scale-105 active:scale-95"
+              aria-label="Send"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

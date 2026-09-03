@@ -7,16 +7,6 @@ import AIChatCard from "@/components/ui/ai-chat";
 import { VoicePoweredOrb } from "@/components/ui/voice-powered-orb";
 import { useVoice } from "@/hooks/useVoice";
 
-const STATE_LABELS: Record<string, string> = {
-  IDLE: "Ready",
-  LISTENING: "Listening…",
-  PROCESSING: "Thinking…",
-  SPEAKING: "Speaking…",
-  INTERRUPTED: "Interrupted",
-  ERROR: "Error",
-  RECONNECTING: "Reconnecting…",
-};
-
 const STATE_HUES: Record<string, number> = {
   IDLE: 220,
   LISTENING: 140,
@@ -35,6 +25,7 @@ export default function Home() {
     micState,
     transcripts,
     isMicrophoneActive,
+    mediaStream,
     useRealProvider,
     voiceOutput,
     toggleVoiceOutput,
@@ -66,7 +57,7 @@ export default function Home() {
   }
 
   return (
-    <main className="relative h-dvh w-full overflow-hidden bg-black">
+    <main className="relative h-dvh w-full flex flex-col overflow-hidden bg-black safe-top safe-bottom">
       {/* Animated gradient background */}
       <div className="absolute inset-0 bg-gradient-to-br from-gray-950 via-black to-gray-950 animate-gradient-shift" />
 
@@ -77,7 +68,7 @@ export default function Home() {
       <div className="absolute top-0 left-1/2 -translate-x-1/2 h-48 w-96 rounded-full bg-primary/5 blur-[120px]" />
 
       {/* Header - pinned top */}
-      <header className="absolute top-0 inset-x-0 z-20 flex w-full items-center justify-between px-4 py-4">
+      <header className="relative z-20 flex w-full items-center justify-between px-4 py-3 shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 border border-white/10">
             <Sparkles className="h-4 w-4 text-white/60" />
@@ -106,8 +97,8 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Center: chat card fills height between header and bottom */}
-      <div className="absolute inset-0 z-10 flex flex-col items-center px-4 pt-16 pb-3">
+      {/* Chat card fills remaining space */}
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center px-3 pb-3">
         <AIChatCard
           className="shadow-2xl"
           messages={transcripts.map((t) => ({
@@ -118,17 +109,15 @@ export default function Home() {
           isTyping={state === "PROCESSING"}
           onSend={(text) => sendText(text)}
           orb={
-            <>
-              <div className="h-24 w-24">
-                <VoicePoweredOrb
-                  enableVoiceControl={isMicrophoneActive}
-                  hue={STATE_HUES[state]}
-                  voiceSensitivity={1.5}
-                  className="h-full w-full"
-                />
-              </div>
-              <span className="text-xs font-medium text-white/40">{STATE_LABELS[state]}</span>
-            </>
+            <div className="h-16 w-16">
+              <VoicePoweredOrb
+                enableVoiceControl={isMicrophoneActive}
+                stream={mediaStream}
+                hue={STATE_HUES[state]}
+                voiceSensitivity={1.5}
+                className="h-full w-full"
+              />
+            </div>
           }
           micActive={isMicrophoneActive}
           onToggleMic={toggleMic}
@@ -156,18 +145,19 @@ export default function Home() {
           onNewSession={newSession}
           onDeleteSession={(id) => void deleteSession(id)}
         />
-
-        {micState.status === "denied" && (
-          <p className="mt-4 text-center text-xs text-rose-400/80">
-            Microphone access is required. Enable it in your browser settings.
-          </p>
-        )}
-        {useRealProvider && !isMicrophoneActive && micState.status !== "denied" && (
-          <p className="mt-4 max-w-sm text-center text-xs text-white/25">
-            Start voice, then just talk. The AI listens and answers by voice.
-          </p>
-        )}
       </div>
+
+      {/* Status messages below card */}
+      {micState.status === "denied" && (
+        <p className="relative z-10 shrink-0 px-4 pb-2 text-center text-xs text-rose-400/80">
+          Microphone access is required. Enable it in your browser settings.
+        </p>
+      )}
+      {useRealProvider && !isMicrophoneActive && micState.status !== "denied" && (
+        <p className="relative z-10 shrink-0 px-4 pb-2 max-w-sm mx-auto text-center text-xs text-white/25">
+          Start voice, then just talk. The AI listens and answers by voice.
+        </p>
+      )}
     </main>
   );
 }

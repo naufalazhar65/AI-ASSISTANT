@@ -7,8 +7,8 @@
 // produces, so a saved conversation can be resumed exactly. The index lets the
 // UI list sessions without loading every transcript.
 
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
 
 /** Serializable conversation (matches ConversationManager.serialize()). */
@@ -49,6 +49,37 @@ function sanitizeId(id: unknown): string | null {
   return id;
 }
 
+/** Atomic write (temp file + rename) so a crash never leaves a truncated file. */
+function writeJson(file: string, data: unknown): void {
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(data, null, 2));
+  renameSync(tmp, file);
+}
+
+/**
+ * Remove session files missing from the index, so capping/pruning does not
+ * leave orphan .json files on disk forever. Errors are swallowed (best-effort).
+ */
+function pruneOrphans(userKey: string, keep: string[]): void {
+  let names: string[] = [];
+  try {
+    names = readdirSync(sessionsDir(userKey)).filter((n) => n.endsWith(".json") && n !== "index.json");
+  } catch {
+    return;
+  }
+  const keepSet = new Set(keep);
+  for (const name of names) {
+    const id = basename(name, ".json");
+    if (!keepSet.has(id)) {
+      try {
+        rmSync(join(sessionsDir(userKey), name), { force: true });
+      } catch {
+        /* swallowed */
+      }
+    }
+  }
+}
+
 /** Read the saved sessions index for a user (empty/missing → nothing). */
 export function listSessions(rawUser?: unknown): SessionMeta[] {
   const userKey = sanitizeUser(rawUser);
@@ -74,7 +105,10 @@ export function loadSession(rawUser?: unknown, id?: unknown): Session | null {
   if (!userKey || !sessionId) return null;
   try {
     const parsed = JSON.parse(readFileSync(sessionPath(userKey, sessionId), "utf8")) as unknown;
-    if (!parsed || typeof (parsed as Session).conversation !== "object") return null;
+    const conv = (parsed as Session)?.conversation;
+    if (!conv || typeof conv !== "object" || !Array.isArray((conv as SerializedConversation).transcripts)) {
+      return null;
+    }
     return parsed as Session;
   } catch {
     return null;
@@ -99,17 +133,23 @@ export function upsertSession(
   mkdirSync(dir, { recursive: true });
 
   const now = Date.now();
+  // A "turn" is a user utterance — count final user transcripts, not every
+  // final entry (which would double-count each exchange).
   const turns = Array.isArray(conversation.transcripts)
-    ? conversation.transcripts.filter((t) => t.state === "final").length
+    ? conversation.transcripts.filter((t) => t.state === "final" && t.role === "user").length
     : 0;
 
-  writeFileSync(sessionPath(userKey, sessionId), JSON.stringify({ id: sessionId, title: sessionTitle, updatedAt: now, turns, conversation }, null, 2));
+  writeJson(
+    sessionPath(userKey, sessionId),
+    { id: sessionId, title: sessionTitle, updatedAt: now, turns, conversation }
+  );
 
   const index = listSessions(rawUser).filter((s) => s.id !== sessionId);
   index.push({ id: sessionId, title: sessionTitle, updatedAt: now, turns });
   index.sort(sortById);
   const trimmed = index.slice(0, MAX_SESSIONS);
-  writeFileSync(indexPath(userKey), JSON.stringify(trimmed, null, 2));
+  writeJson(indexPath(userKey), trimmed);
+  pruneOrphans(userKey, trimmed.map((s) => s.id));
   return { id: sessionId };
 }
 
@@ -124,7 +164,7 @@ export function deleteSession(rawUser?: unknown, id?: unknown): boolean {
     /* file may not exist */
   }
   const index = listSessions(rawUser).filter((s) => s.id !== sessionId);
-  writeFileSync(indexPath(userKey), JSON.stringify(index, null, 2));
+  writeJson(indexPath(userKey), index);
   return true;
 }
 

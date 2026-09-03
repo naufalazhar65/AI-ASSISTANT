@@ -21,9 +21,17 @@ export async function POST(request: NextRequest) {
   if (bytes.byteLength === 0) {
     return NextResponse.json({ error: "empty audio" }, { status: 400 });
   }
+  console.log("[stt] receive", bytes.byteLength, "bytes");
+
+  // Preserve the upload's declared format so Groq can decode it. MediaRecorder
+  // sends WebM/Opus; other clients may send WAV/MP3. The filename + content
+  // type must both match — Groq rejects a mismatched or unnamed audio part.
+  const contentType = request.headers.get("content-type") ?? "audio/webm";
+  const ext = contentType.includes("wav") ? "wav" : contentType.includes("mp3") ? "mp3" : "webm";
 
   const upstream = new FormData();
-  upstream.append("file", new Blob([bytes], { type: "audio/webm" }), "audio.webm");
+  const blob = new Blob([bytes], { type: contentType });
+  upstream.append("file", blob, `recording.${ext}`);
   upstream.append("model", MODEL);
 
   try {

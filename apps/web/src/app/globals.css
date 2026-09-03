@@ -84,3 +84,51 @@
 .animate-glow-pulse { animation: glow-pulse 3s ease-in-out infinite; }
 .animate-gradient-shift { animation: gradient-shift 20s ease infinite; background-size: 200% 200%; }
 .animate-border-rotate { animation: border-rotate 25s linear infinite; }
+
+/* ── Mobile: prevent iOS zoom on input focus ── */
+@supports (-webkit-touch-callout: none) {
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="url"],
+  input[type="tel"],
+  input[type="number"],
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* ── Safe area padding for notched devices ── */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* ── Prevent mobile scroll bounce / double scrollbars ── */
+html {
+  overflow: hidden;
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+  height: 100%;
+}
+
+/* ── Touch optimizations ── */
+button, a, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* ── Scrollbar: thin on mobile ── */
+@media (max-width: 640px) {
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+}

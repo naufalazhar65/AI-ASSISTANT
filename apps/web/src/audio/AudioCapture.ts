@@ -124,11 +124,14 @@ export class AudioCapture {
     });
   }
 
-  stop(): void {
-    this.stopRecording().catch(() => {});
-    this.stream?.getTracks().forEach((t) => t.stop());
-    this.stream = null;
-    this.setState({ status: "idle" });
+  async stop(): Promise<void> {
+    try {
+      await this.stopRecording();
+    } finally {
+      this.stream?.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+      this.setState({ status: "idle" });
+    }
   }
 
   on(fn: AudioCaptureListener): void {

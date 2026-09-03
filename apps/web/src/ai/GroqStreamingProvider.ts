@@ -10,6 +10,19 @@ import {
 const CONFIRM_FRAME_PREFIX = "@@CONFIRM ";
 
 /**
+ * Removes emoji and other pictographic characters before sending text to TTS.
+ * The assistant may render a signature emoji (e.g. 🌸) in text bubbles, but
+ * speech synthesis should never vocalize it — strip it for the audio path
+ * while leaving the text UI untouched.
+ */
+const EMOJI_OR_PICTO_RE =
+  /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}]/gu;
+
+function stripEmojiForSpeech(text: string): string {
+  return text.replace(EMOJI_OR_PICTO_RE, "").replace(/[ \t]+/g, " ").trim();
+}
+
+/**
  * GroqStreamingProvider — real ASR/LLM/TTS over the free Groq tier.
  *
  * Pipeline per user turn (PRD §14):
@@ -324,11 +337,13 @@ async sendAudio(audio: ArrayBuffer): Promise<void> {
    */
   private async speak(sentence: string, generation: number, signal: AbortSignal): Promise<void> {
     try {
+      const speech = stripEmojiForSpeech(sentence);
+      if (!speech) return; // sentence was only emoji — nothing to vocalize
       const res = await fetch("/api/tts", {
         method: "POST",
         signal,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: sentence, voice: this.ttsVoice }),
+        body: JSON.stringify({ text: speech, voice: this.ttsVoice }),
       });
       if (!res.ok) return; // 429/5xx: skip audio, keep streaming text
       const audio = await res.arrayBuffer();

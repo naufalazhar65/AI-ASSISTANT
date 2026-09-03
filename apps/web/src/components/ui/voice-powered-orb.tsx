@@ -8,6 +8,11 @@ interface VoicePoweredOrbProps {
   className?: string;
   hue?: number;
   enableVoiceControl?: boolean;
+  /** Live mic stream to analyze, instead of opening a second getUserMedia grab.
+   *  Reusing the app's single capture stream avoids competing mic consumers
+   *  (which can mute one of them) and guarantees the browser mic indicator
+   *  turns off the moment the shared stream stops. */
+  stream?: MediaStream | null;
   voiceSensitivity?: number;
   maxRotationSpeed?: number;
   maxHoverIntensity?: number;
@@ -179,6 +184,7 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
   className,
   hue = 0,
   enableVoiceControl = true,
+  stream = null,
   voiceSensitivity = 1.5,
   maxRotationSpeed = 1.2,
   maxHoverIntensity = 0.8,
@@ -191,6 +197,11 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
   const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  // Guards the async microphone init so a stale in-flight getUserMedia cannot
+  // reopen the mic after voice control has been turned off (which would keep
+  // the browser's mic-in-use indicator lit).
+  const micEnabledRef = useRef(false);
+  const micInitTokenRef = useRef(0);
 
   // Voice analysis function
   const analyzeAudio = () => {
@@ -214,14 +225,14 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
 
   // Stop microphone and cleanup
   const stopMicrophone = () => {
+    // Invalidate any in-flight init so it won't reopen after we've stopped.
+    micEnabledRef.current = false;
+    micInitTokenRef.current += 1;
     try {
-      // Stop all tracks in the media stream
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => {
-          track.stop();
-        });
-        mediaStreamRef.current = null;
-      }
+      // The stream is a SHARED reference owned by the app's AudioCapture (the
+      // orb never opens its own getUserMedia anymore). Do NOT stop its tracks
+      // here — stopping would kill the live mic for everyone. Just drop it.
+      mediaStreamRef.current = null;
 
       // Disconnect and cleanup audio nodes
       if (microphoneRef.current) {
@@ -247,23 +258,26 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
     }
   };
 
-  // Initialize microphone access
-  const initMicrophone = async () => {
+  // Initialize microphone access. Prefers an existing `src` stream (the app's
+  // shared capture) so we never open a second competing getUserMedia grab.
+  const initMicrophone = async (src: MediaStream | null) => {
     try {
       // Clean up any existing microphone first
       stopMicrophone();
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false, // Better for voice analysis
-          noiseSuppression: false, // Better for voice analysis
-          autoGainControl: false, // Better for voice analysis
-          sampleRate: 44100,
-        },
-      });
+      if (!src) return false;
 
-      // Store the stream reference for cleanup
-      mediaStreamRef.current = stream;
+      // Back to listening; keep the flag/token valid for this session.
+      micEnabledRef.current = true;
+      const token = (micInitTokenRef.current += 1);
+
+      // Respect the guard even for a shared stream: if voice control was turned
+      // off while an effect re-ran, don't start analysis.
+      if (!micEnabledRef.current || token !== micInitTokenRef.current) return false;
+
+      // Reference the shared stream, but do NOT own its tracks (the app's
+      // capture stops them). We only store it for wiring the audio graph.
+      mediaStreamRef.current = src;
 
       const AudioCtx =
         window.AudioContext ||
@@ -276,7 +290,7 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
       }
 
       analyserRef.current = audioContextRef.current.createAnalyser();
-      microphoneRef.current = audioContextRef.current.createMediaStreamSource(stream);
+      microphoneRef.current = audioContextRef.current.createMediaStreamSource(src);
 
       // Optimize for voice detection
       analyserRef.current.fftSize = 512; // Higher resolution
@@ -373,18 +387,9 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
       let currentRot = 0;
       let voiceLevel = 0;
       const baseRotationSpeed = 0.3;
-      let isMicrophoneInitialized = false;
 
-      // Initialize or stop microphone based on voice control setting
-      if (enableVoiceControl) {
-        initMicrophone().then((success) => {
-          isMicrophoneInitialized = success;
-        });
-      } else {
-        // Stop microphone when voice control is disabled
-        stopMicrophone();
-        isMicrophoneInitialized = false;
-      }
+      // Mic lifecycle is owned by the dedicated [enableVoiceControl, stream]
+      // effect below; it sets micEnabledRef. This render loop only reads it.
 
       const update = (t: number) => {
         rafId = requestAnimationFrame(update);
@@ -396,7 +401,7 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
         program.uniforms.hue.value = hue;
 
         // Handle voice input
-        if (enableVoiceControl && isMicrophoneInitialized) {
+        if (enableVoiceControl && micEnabledRef.current) {
           voiceLevel = analyzeAudio();
 
           // Notify parent component about voice detection
@@ -453,8 +458,8 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
           }
         }
 
-        // Stop microphone and clean up audio resources
-        stopMicrophone();
+        // CANVAS ONLY — mic lifecycle is owned by the dedicated
+        // [enableVoiceControl, stream] effect below.
 
         if (glContext) {
           glContext.getExtension("WEBGL_lose_context")?.loseContext();
@@ -476,8 +481,8 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
     let isMounted = true;
 
     const handleMicrophoneState = async () => {
-      if (enableVoiceControl) {
-        await initMicrophone();
+      if (enableVoiceControl && stream) {
+        await initMicrophone(stream);
         if (!isMounted) return;
       } else {
         stopMicrophone();
@@ -488,9 +493,11 @@ export const VoicePoweredOrb: FC<VoicePoweredOrbProps> = ({
 
     return () => {
       isMounted = false;
-      // Don't stop microphone here as it will be handled by the main cleanup
+      // Sole owner of the mic graph: tear it down on unmount or when the
+      // stream / voice-control binding changes to a non-listening state.
+      stopMicrophone();
     };
-  }, [enableVoiceControl]);
+  }, [enableVoiceControl, stream]);
 
   return (
     <div ref={ctnDom} className={cn("w-full h-full relative", className)}></div>

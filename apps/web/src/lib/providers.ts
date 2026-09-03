@@ -37,14 +37,23 @@ export const PROVIDER_SPECS: ProviderSpec[] = [
   {
     id: "opencode",
     label: "OpenCode (local)",
-    description: "Free via the local opencode proxy. Requires the proxy to be running.",
-    models: [{ id: "open-code", label: "OpenCode base" }],
+    description: "Native local opencode agent (opencode serve). Requires the server to be running.",
+    models: [{ id: "open-code", label: "Auto (server default)" }],
   },
   {
     id: "9router",
     label: "9Router",
     description: "OpenAI-compatible gateway. Requires LLM_API_KEY.",
-    models: [{ id: "auto", label: "Auto (dashboard default)" }],
+    models: [
+      { id: "auto", label: "Auto (server default)" },
+      { id: "ngoding", label: "ngoding" },
+      { id: "open-code", label: "open-code" },
+      { id: "gemini/gemini-3.5-flash-lite", label: "Gemini 3.5 Flash Lite" },
+      { id: "gemini/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" },
+      { id: "gemini/gemma-4-31b-it", label: "Gemma 4 31B" },
+      { id: "ps/laguna-s-2.1", label: "Laguna S 2.1" },
+      { id: "ps/laguna-xs-2.1", label: "Laguna XS 2.1" },
+    ],
   },
 ];
 

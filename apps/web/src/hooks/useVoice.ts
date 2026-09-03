@@ -9,7 +9,7 @@ import { AudioPlayer } from "@/audio/AudioPlayer";
 import { AIProvider, ConfirmationRequest, ProviderEvent } from "@voice/ai-provider";
 import { State } from "@voice/state-machine";
 import { MockProvider } from "@ai-provider/mock";
-import { PUBLIC_PROVIDERS, ProviderId } from "@/lib/providers";
+import { findPublicProvider, PUBLIC_PROVIDERS, ProviderId } from "@/lib/providers";
 import { SessionMeta } from "@/lib/sessions";
 
 export interface UseVoiceResult {
@@ -18,6 +18,7 @@ export interface UseVoiceResult {
   transcripts: TranscriptEntry[];
   isMicrophoneActive: boolean;
   isRecording: boolean;
+  mediaStream: MediaStream | null;
   useRealProvider: boolean;
   voiceOutput: boolean;
   toggleVoiceOutput: () => void;
@@ -74,6 +75,21 @@ function saveSettings(settings: PersistedSettings): void {
   } catch {
     // Best-effort: storage failures must not break the conversation.
   }
+}
+
+/**
+ * Reconcile a persisted model with the active provider's allowed models.
+ * A model that doesn't belong to the current provider (e.g. a stale "open-code"
+ * saved while on OpenCode, then used with Groq) would make the Groq route 404
+ * and leave the typing bubble stuck forever. Returning undefined (Auto) when
+ * the model is not valid for the provider prevents that by construction, using
+ * the same PUBLIC_PROVIDERS list the Settings dropdown reads.
+ */
+function reconcileModel(provider: string, model: string | undefined): string | undefined {
+  if (model == null) return undefined;
+  const spec = findPublicProvider(provider);
+  if (!spec) return undefined;
+  return spec.models.includes(model) ? model : undefined;
 }
 
 function historyUser(): string | null {
@@ -155,8 +171,13 @@ export function useVoice(): UseVoiceResult {
   const [voiceOutput, setVoiceOutput] = useState(true);
   const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationRequest[] | null>(null);
   const [voice, setVoiceState] = useState<string>(() => loadSettings()?.voice ?? "hannah");
-  const [model, setModelState] = useState<string | undefined>(() => loadSettings()?.model);
   const [provider, setProviderState] = useState<string>(() => loadSettings()?.provider ?? "groq");
+  const [model, setModelState] = useState<string | undefined>(() => {
+    const s = loadSettings();
+    // Only keep a persisted model if it is valid for the persisted provider
+    // (stale models from another provider would make the LLM route 404).
+    return reconcileModel(s?.provider ?? "groq", s?.model);
+  });
   const [lastError, setLastError] = useState<string | null>(null);
   const voiceOutputRef = useRef(true);
   const hadAudioRef = useRef(false);
@@ -205,11 +226,12 @@ export function useVoice(): UseVoiceResult {
 
   // Persist settings and sync the hydrated values onto the provider instance.
   useEffect(() => {
-    saveSettings({ provider, model, voice });
+    const reconciled = reconcileModel(provider, model);
+    saveSettings({ provider, model: reconciled, voice });
     const p = providerRef.current;
     if (p instanceof GroqStreamingProvider) {
       p.setProvider(provider);
-      p.setModel(model);
+      p.setModel(reconciled);
       p.setTtsSettings(voice);
       p.setUser(historyUser() ?? undefined);
     }
@@ -428,13 +450,18 @@ export function useVoice(): UseVoiceResult {
 
   // Autosave the active session after a turn advances (debounced), so a reload
   // between turns leaves nothing unsaved. `autosave` is cheap + idempotent.
+  // A brand-new chat (currentSessionId === null) is autosaved once it has real
+  // content, which creates its session server-side (multi-session resume).
   useEffect(() => {
-    if (currentSessionId === null) return;
+    const user = historyUser();
+    const hasContent = transcripts.some((t) => t.state === "final");
+    if (!user) return;
+    if (currentSessionId === null && !hasContent) return;
     const t = setTimeout(() => {
       void autosave(currentSessionId);
     }, 1500);
     return () => clearTimeout(t);
-  }, [currentSessionId, autosave, transcripts.length]);
+  }, [currentSessionId, autosave, transcripts]);
 
   const start = useCallback(async () => {
     await capture.start();
@@ -444,21 +471,22 @@ export function useVoice(): UseVoiceResult {
     }
   }, [capture, manager, autoTurn]);
 
-  const stop = useCallback(() => {
+  const stop = useCallback(async () => {
     autoTurn.stop();
-    capture.stop();
+    await capture.stop();
     player.stop();
   }, [autoTurn, capture, player]);
 
   const toggleMic = useCallback(async () => {
-    if (capture.isActive()) {
+    const active = micState.status === "active";
+    if (active) {
       autoTurn.stop();
-      capture.stop();
+      await capture.stop();
       player.stop();
     } else {
       await start();
     }
-  }, [capture, autoTurn, player, start]);
+  }, [micState.status, capture, autoTurn, player, start]);
 
   const sendText = useCallback(
     (text: string) => {
@@ -489,6 +517,7 @@ export function useVoice(): UseVoiceResult {
 
   const isMicrophoneActive = micState.status === "active";
   const isRecording = micState.status === "active" && state !== "IDLE";
+  const mediaStream = isMicrophoneActive ? capture.mediaStream : null;
 
   return {
     state,
@@ -496,6 +525,7 @@ export function useVoice(): UseVoiceResult {
     transcripts,
     isMicrophoneActive,
     isRecording,
+    mediaStream,
     useRealProvider: process.env.NEXT_PUBLIC_AI_PROVIDER === "groq",
     voiceOutput,
     toggleVoiceOutput,
