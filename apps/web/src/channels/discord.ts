@@ -63,10 +63,14 @@ function pushTargetChannel(): SendableChannel | null {
   return lastSeenOwnerChannel;
 }
 
+function isAllowedUser(msg: Message): boolean {
+  return !ALLOWED_USER_IDS.length || ALLOWED_USER_IDS.includes(msg.author.id);
+}
+function isAllowedChannel(msg: Message): boolean {
+  return !ALLOWED_CHANNEL_IDS.length || ALLOWED_CHANNEL_IDS.includes(msg.channelId);
+}
 function isAllowedMessage(msg: Message): boolean {
-  if (ALLOWED_USER_IDS.length && !ALLOWED_USER_IDS.includes(msg.author.id)) return false;
-  if (ALLOWED_CHANNEL_IDS.length && !ALLOWED_CHANNEL_IDS.includes(msg.channelId)) return false;
-  return true;
+  return isAllowedUser(msg) && isAllowedChannel(msg);
 }
 
 /** User key for per-user persona/memory; falls back to the owner id slug. */
@@ -131,11 +135,25 @@ export async function startDiscordBot(): Promise<void> {
   client.on(Events.ClientReady, () => {
     console.log("[discord] logged in as", client.user?.tag);
   });
+  // Surface gateway/connection problems that would otherwise silently drop
+  // inbound messages (a zombie gateway is the #1 "bot doesn't respond" cause).
+  client.on(Events.Error, (e) => console.error("[discord] client error:", e.message));
+  client.on(Events.Warn, (w) => console.warn("[discord] client warn:", w));
+  client.on(Events.Invalidated, () => console.warn("[discord] session invalidated"));
+  // Raw gateway watcher: proves whether Discord is delivering events at all
+  // (zombie/undelivered gateway is indistinguishable from a broken handler).
+  client.on("raw", (packet) => {
+    const t = (packet as { t?: string }).t;
+    if (t === "MESSAGE_CREATE" || t === "MESSAGE_UPDATE" || t === "READY" || t === "RESUMED") {
+      console.log(`[discord] raw event ${t} (counts confirm delivery)`);
+    }
+  });
 
   client.on("messageCreate", async (msg: Message) => {
     try {
       // Ignore the bot's own messages and (optionally) non-allow-listed channels.
       if (msg.author.bot) return;
+      console.log(`[discord] msg author=${msg.author.id} channel=${msg.channelId} allowedUser=${isAllowedUser(msg)} allowedChannel=${isAllowedChannel(msg)}`);
       if (!isAllowedMessage(msg)) return;
       // Only react to text content (skip slash-command payloads / embeds-only).
       const text = (msg.content || "").trim();
