@@ -24,7 +24,7 @@
  *   DISCORD_USER                  fallback user key for persona (default "naufal")
  */
 
-import { Client, Events, GatewayIntentBits, Message } from "discord.js";
+import { Client, Events, GatewayIntentBits, Message, Partials } from "discord.js";
 import { runAssistantTurn, ChatMessage } from "@/lib/agent";
 import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
@@ -120,6 +120,10 @@ export async function startDiscordBot(): Promise<void> {
       GatewayIntentBits.DirectMessages,
       GatewayIntentBits.MessageContent,
     ],
+    // Allow DM channels / messages that aren't fully cached yet (a first-ever
+    // DM arrives as a bare packet; without these partials discord.js drops the
+    // messageCreate event even though the raw MESSAGE_CREATE is received).
+    partials: [Partials.Channel, Partials.Message],
   });
   const sessions = new Map<string, ChatState>();
 
@@ -140,19 +144,19 @@ export async function startDiscordBot(): Promise<void> {
   client.on(Events.Error, (e) => console.error("[discord] client error:", e.message));
   client.on(Events.Warn, (w) => console.warn("[discord] client warn:", w));
   client.on(Events.Invalidated, () => console.warn("[discord] session invalidated"));
-  // Raw gateway watcher: proves whether Discord is delivering events at all
-  // (zombie/undelivered gateway is indistinguishable from a broken handler).
-  client.on("raw", (packet) => {
-    const t = (packet as { t?: string }).t;
-    if (t === "MESSAGE_CREATE" || t === "MESSAGE_UPDATE" || t === "READY" || t === "RESUMED") {
-      console.log(`[discord] raw event ${t} (counts confirm delivery)`);
-    }
-  });
 
   client.on("messageCreate", async (msg: Message) => {
     try {
+      // Unwrap a partial message (first-ever DM arrives partly cached).
+      if (msg.partial) {
+        try {
+          await msg.fetch();
+        } catch {
+          return;
+        }
+      }
       // Ignore the bot's own messages and (optionally) non-allow-listed channels.
-      if (msg.author.bot) return;
+      if (!msg.author || msg.author.bot) return;
       console.log(`[discord] msg author=${msg.author.id} channel=${msg.channelId} allowedUser=${isAllowedUser(msg)} allowedChannel=${isAllowedChannel(msg)}`);
       if (!isAllowedMessage(msg)) return;
       // Only react to text content (skip slash-command payloads / embeds-only).
