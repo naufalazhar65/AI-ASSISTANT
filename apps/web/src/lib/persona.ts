@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeUser, appRoot, userDataRoot } from "./users";
+import { loadDailyMemoryPrompt } from "./dailyMemory";
 
 /**
  * Loads the assistant's persona files (IDENTITY/DREAMS/SOUL/USER) at request
@@ -64,6 +65,10 @@ export function loadPersonaPrompt(rawUser?: unknown): string {
       // Unreadable persona file: ignore rather than break every turn.
     }
   }
+  // Recent daily-memory context (today + yesterday) so fresh sessions recall
+  // what was discussed recently, without bloat. Best effort.
+  const recent = loadDailyMemoryPrompt(userKey);
+  if (recent) sections.push(recent);
   return sections.join("\n\n");
 }
 

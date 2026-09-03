@@ -17,6 +17,7 @@
  */
 
 import { upsertPersonaFact } from "./persona";
+import { appendDailyMemory } from "./dailyMemory";
 import { runOpenCodeTurn, OpenCodeChatMessage } from "./opencode";
 
 export type FactEntry = { target: "USER" | "SOUL"; key: string; value: string };
@@ -163,6 +164,16 @@ export async function captureFactsFromTurn(args: CaptureArgs): Promise<number> {
 
     for (const f of facts) {
       upsertPersonaFact(f.target, f.key, f.value, args.rawUser);
+    }
+    // Also record today's new facts in the daily memory log (time-bucketed
+    // context for fresh sessions) — mirrors OpenClaw's memory/YYYY-MM-DD.md.
+    try {
+      appendDailyMemory(
+        facts.map((f) => ({ target: f.target, key: f.key, value: f.value })),
+        args.rawUser
+      );
+    } catch {
+      /* best effort, never breaks a turn */
     }
     console.log(`[autoMemory] persisted ${facts.length} fact(s):`, facts.map((f) => `${f.target}.${f.key}=${f.value}`).join(", "));
     return facts.length;
