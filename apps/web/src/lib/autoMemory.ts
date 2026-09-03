@@ -45,7 +45,7 @@ export function parsePersonaTag(text: string): FactEntry[] {
 }
 
 const EXTRACT_PROMPT = [
-  "You are the memory layer of a voice assistant. Below is a short transcript of ",
+  "You are the memory layer of a personal AI assistant. Below is a short transcript of ",
   "the user's latest turn and your answer.",
   "Report ONLY stable facts about the user that are NEW (not already known) and ",
   "worth remembering: identity/language/location/preferences, and how I should ",
