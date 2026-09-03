@@ -60,7 +60,9 @@ export function loadPersonaPrompt(rawUser?: unknown): string {
     if (!existsSync(path)) continue;
     try {
       const body = readFileSync(path, "utf8").trim();
-      if (body) sections.push(`${file.replace(".md", "")}:\n${body}`);
+      // Trim oversized persona files (OpenClaw-style truncation-with-marker) so
+      // a growing lived persona never bloats the prompt or TTFT budget.
+      sections.push(`${file.replace(".md", "")}:\n${truncateWithMarker(body, PERSONA_MAX_CHARS)}`);
     } catch {
       // Unreadable persona file: ignore rather than break every turn.
     }
@@ -68,7 +70,15 @@ export function loadPersonaPrompt(rawUser?: unknown): string {
   // Recent daily-memory context (today + yesterday) so fresh sessions recall
   // what was discussed recently, without bloat. Best effort.
   const recent = loadDailyMemoryPrompt(userKey);
-  if (recent) sections.push(recent);
+  if (recent) {
+    // Keep the two most recent days but trim each day's log (daily logs grow).
+    sections.push(
+      recent
+        .split("\n\n")
+        .map((block) => truncateWithMarker(block, DAY_LOG_MAX_CHARS))
+        .join("\n\n")
+    );
+  }
   return sections.join("\n\n");
 }
 
@@ -126,4 +136,22 @@ export function upsertPersonaFact(
   const newBlock = block === "" ? `\n${header}\n\n${insertion}\n\n` : `${lines.join("\n").replace(/\s*$/, "")}\n${insertion}\n\n`;
 
   writeFileSync(path, `${head}${newBlock}${tail.replace(/^\n+/, "").trimStart()}`, "utf8");
+}
+
+// --- Truncation-with-marker (OpenClaw-style prompt hygiene) ---
+//
+// Lived persona facts and daily logs grow as the assistant remembers more, so
+// cap each injected section to keep the prompt lean (invariant: latency). When
+// a section exceeds its cap, keep the leading content (the durable heading +
+// earliest facts), append a marker that tells the model it can read the file
+// itself rather than rely on the shortened preview.
+
+/** Per-section caps (characters). Keep them modest. */
+export const PERSONA_MAX_CHARS = 4000;
+export const DAY_LOG_MAX_CHARS = 2000;
+
+/** Clip `text` to `maxChars`, appending a marker when anything was dropped. */
+export function truncateWithMarker(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n… (truncated — file has more; ask to read it if needed)`;
 }
