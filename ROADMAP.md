@@ -72,7 +72,7 @@ Memperkuat inti asisten (sudah ~90% dari Fase 0).
 
 ```text
 [x] Setup bot di Discord Developer Portal, simpan token di env  — DISCORD_BOT_TOKEN (git-ignored .env.local); serverExternalPackages di next.config.js
-[x] Adapter Discord: terima text di DM/channel allow-list → core → balas  — apps/web/src/channels/discord.ts (discord.js/WebSocket gateway)
+[x] Adapter Discord: terima text di DM/channel allow-list → core → balas  — apps/web/src/channels/discord.ts (discord.js/WebSocket gateway); DM butuh partials:[Channel,Message] + prefetch (fix "DM tidak merespon", 2026-09-03)
 [x] Command system (slash commands)  — prefix "/" (start/help/reset/provider/model)
 [x] Per-user conversation session  — in-memory per-channel history; user key dari discord username
 [x] Konfirmasi risky tool via Discord  — "Balas ya / tidak" (sama pola Telegram)

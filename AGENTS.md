@@ -17,6 +17,8 @@ Personal AI assistant "Mia" — a command center for personal tasks, reachable f
 
 Architectural principle (new in v2.0): **Channel Adapter abstraction** — each platform (web/telegram/discord) is an adapter that forwards text/voice to the SAME core Conversation Manager; the core never knows the platform. Adding a channel = adding an adapter, no core change.
 
+Discord gotcha (2026-09-03): a first-ever **DM** arrives as a bare packet that discord.js can't map to a full `Message`, so `messageCreate` never fires even though the gateway receives raw `MESSAGE_CREATE` — symptom: **DM doesn't respond while guild chats work**. Fix: client must set `partials:[Partials.Channel, Partials.Message]` and the handler must `await msg.fetch()` when `msg.partial`. Both are present in `apps/web/src/channels/discord.ts.` Keep them when refactoring.
+
 ## Repo layout
 
 - `apps/web` — Next.js app (UI, hooks, audio, ConversationManager, provider, `/api/*` proxy routes). `src/audio`, `src/ai`, `src/components`, `src/hooks`, `src/app`, `src/lib`, `persona/`.
