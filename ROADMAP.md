@@ -98,8 +98,8 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [ ] File handling: kirim/terima file (via Telegram/Discord) → file_read/file_ref tool
 [ ] Web interaction: web_search lebih kuat (navigasi, ambil konten)
 [x] Notifications: reminder/notif proaktif push ke channel aktif (Telegram/Discord)  — pushTarget Telegram + pushTargetChannel Discord (live-verified)
-[ ] Scheduling/task management: daftar task, reschedule, cancel via chat
-[ ] Scheduler yang tahan restart (replay dari disk)
+[x] Scheduling/task management: daftar task, reschedule, cancel via chat  — tasks.ts + tools (add/list/complete/cancel/reschedule_task), insertion-order numbering
+[x] Scheduler yang tahan restart (replay dari disk)  — reminders.json unfired persist; SSE re-play on connect (survives restart/closed tab)
 [ ] Konfirmasi risky tool secara penuh di semua channel  — Telegram ya/tidak ✓; Discord ya/tidak ✓ (Fase 2.2/2.3)
 ```
 
