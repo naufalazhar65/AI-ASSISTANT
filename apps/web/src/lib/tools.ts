@@ -317,6 +317,25 @@ export const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    risk: "read",
+    function: {
+      name: "fetch_url",
+      description:
+        "Fetch and read the text content of a public web page URL (scrape article text or HTML summary). Use when the user asks you to read or summarize a specific web link.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "The full http:// or https:// URL to fetch.",
+          },
+        },
+        required: ["url"],
+      },
+    },
+  },
 ];
 
 export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<string> {
@@ -415,6 +434,12 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
         return readUpload(rawUser, typeof args.name === "string" ? args.name : "");
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid upload"}`;
+      }
+    case "fetch_url":
+      try {
+        return await fetchUrl(typeof args.url === "string" ? args.url : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid fetch"}`;
       }
     default:
       return `Error: unknown tool "${call.name}"`;
@@ -622,6 +647,89 @@ function cleanUrl(href: string): string {
   const match = href.match(/uddg=([^&]+)/);
   const raw = match ? decodeURIComponent(match[1]) : href;
   return raw.startsWith("//") ? `https:${raw}` : raw;
+}
+
+// ---- fetch_url tool (Web interaction: read a public page by URL) ----
+
+const FETCH_MAX_BYTES = 120_000; // ~ cap we feed to the LLM
+const FETCH_TIMEOUT_MS = 12_000;
+
+/** SSRF guard: refuse internal/loopback/private addresses and non-http schemes. */
+function assertPublicUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("invalid URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("only http/https URLs are allowed");
+  const host = url.hostname.toLowerCase();
+  // Block obvious internal targets (server environment, LAN, metadata).
+  if (host === "localhost" || host === "0.0.0.0" || host === "[::1]" || host.endsWith(".localhost")) {
+    throw new Error("internal addresses are not fetchable");
+  }
+  if (host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("0.")) {
+    throw new Error("private network addresses are not fetchable");
+  }
+  if (host.startsWith("172.")) {
+    const seg = Number(host.split(".")[1]);
+    if (seg >= 16 && seg <= 31) throw new Error("private network addresses are not fetchable");
+  }
+  if (host.startsWith("169.254.") || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80")) {
+    throw new Error("private network addresses are not fetchable");
+  }
+  if (!host.includes(".")) throw new Error("host does not look public"); // crude TLD sanity
+  return url;
+}
+
+/** Fetch a page and return its dominant article/summary text (bounded). */
+async function fetchUrl(urlStr: string): Promise<string> {
+  const url = assertPublicUrl(urlStr);
+  const res = await fetch(url.toString(), {
+    headers: { "User-Agent": USER_AGENT, Accept: "text/html,application/xhtml+xml" },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`fetch failed: ${res.status} ${res.statusText}`);
+  const ct = res.headers.get("content-type") || "";
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.byteLength > FETCH_MAX_BYTES) throw new Error("page too large to read");
+  const html = buf.toString("utf8", 0, FETCH_MAX_BYTES);
+
+  if (ct.includes("text/html") || html.toLowerCase().includes("<!doctype html") || html.toLowerCase().includes("<html")) {
+    return extractArticleText(html, url.toString()).slice(0, 2000);
+  }
+  // Non-HTML: return as-is (truncated).
+  return html.slice(0, 2000);
+}
+
+/**
+ * Best-effort article-text extraction without a DOM (no extra deps).
+ * Prefers <article>/<main>/<og:description>; falls back to visible text.
+ */
+function extractArticleText(html: string, _pageUrl: string): string {
+  const og = html.match(/<meta\s+(?:name|property)=["']?og:description["'][^>]*content=["']([^"']*)["']/i);
+  if (og?.[1]) return `Judul/Deskripsi: ${og[1].replace(/\s+/g, " ")}`;
+
+  const title = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+  const t = title ? title[1].trim() : "";
+
+  // Try <article> then <main> then <body>.
+  let block: string | null = null;
+  const art = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
+  if (art) block = art[1];
+  if (!block) {
+    const main = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+    if (main) block = main[1];
+  }
+  if (!block) {
+    const body = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    if (body) block = body[1];
+  }
+  if (!block) return `${t}\n${stripTags(html)}`.slice(0, 2000);
+
+  // Drop navigation/ads boilerplate heuristically: keep text nodes, strip nav/script/style.
+  const cleaned = stripTags(block).replace(/^[\s\n]+|[ \t]{2,}/g, " ").replace(/\n{2,}/g, "\n").trim();
+  return `${t ? `${t}\n` : ""}${cleaned || stripTags(html)}`.slice(0, 2000);
 }
 
 function evaluateArithmetic(expr: string): number {

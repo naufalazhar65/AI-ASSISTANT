@@ -102,7 +102,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [x] Scheduling/task management: daftar task, reschedule, cancel via chat  — tasks.ts + tools (add/list/complete/cancel/reschedule_task), insertion-order numbering
 [x] Scheduler yang tahan restart (replay dari disk)  — reminders.json/automations.json unfired persist; SSE re-play on connect (survives restart/closed tab)
 [x] Konfirmasi risky tool secara penuh di semua channel  — Telegram ya/tidak ✓; Discord ya/tidak ✓; automation create_automation juga via gate FR-014
-[ ] Web interaction: web_search lebih kuat (navigasi, ambil konten)  — SATU-SATUNYA ITEM CAPABILITY TERSISA di Fase 3
+[x] Web interaction: web_search lebih kuat (navigasi, ambil konten)  — web_search (DuckDuckGo instant+HTML) + tool baru fetch_url (scrape teks artikel by URL, SSRF-guard: blok localhost/private/metadata, htst HTTTP(S), size/timeout cap; ekstraksi article/main/og:description); live-verified 404 + example.com
 ```
 
 ---
@@ -154,7 +154,7 @@ MVP personal assistant dianggap berfungsi bila:
 
 1. **Fase 2.1/2.2 — Telegram Bot** (channel ponsel paling bermanfaat & mudah).  — DONE
 2. **Fase 2.3 — Discord Bot** — DONE (adapter + DM partials fix; live-verified DM & guild).
-3. **Fase 3 — Automation + Notification + File Handling + Status** — DONE (notif push, task management, scheduler tahan-restart, uploads, read_upload, scheduled automations, rate-limit resilience, quota alert, /status). Tersisa: **Web interaction** (web_search lebih kuat).
+3. **Fase 3 — Personal Assistant Capabilities** — DONE (notif push, task management, scheduler tahan-restart, uploads, read_upload, scheduled automations, rate-limit resilience, quota alert, /status, web interaction incl. fetch_url). Fase 3 SELESAI; lanjut Fase 4 (Advanced Features).
 4. **Fase 3/5 — Konfirmasi + logging** untuk kenyamanan pribadi.
 
 ---
