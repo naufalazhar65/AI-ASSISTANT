@@ -6,7 +6,7 @@
  * its endpoint + key + default model, resolved from server env at request time.
  */
 
-export type ProviderId = "mock" | "groq" | "opencode" | "9router";
+export type ProviderId = "mock" | "groq" | "opencode" | "9router" | "openrouter";
 
 export interface ProviderSpec {
   id: ProviderId;
@@ -55,6 +55,18 @@ export const PROVIDER_SPECS: ProviderSpec[] = [
       { id: "ps/laguna-xs-2.1", label: "Laguna XS 2.1" },
     ],
   },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    description: "OpenAI-compatible model router. Requires OPENROUTER_API_KEY.",
+    models: [
+      { id: "dots-studio/dots-3-note-preview:free", label: "Dots 3 Note (free)" },
+      { id: "deepseek/deepseek-chat", label: "DeepSeek Chat" },
+      { id: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },
+      { id: "openai/gpt-4o-mini", label: "GPT-4o Mini" },
+      { id: "google/gemini-2.0-flash-001", label: "Gemini 2.0 Flash" },
+    ],
+  },
 ];
 
 export function isProviderId(value: string): value is ProviderId {
@@ -97,12 +109,19 @@ export function resolveProvider(
         apiKey: process.env.OPENCODE_LLM_KEY || "EMPTY",
         defaultModel: process.env.OPENCODE_LLM_MODEL || "open-code",
       };
-    case "9router":
+     case "9router":
       if (!process.env.LLM_API_KEY) return null;
       return {
         url: process.env.LLM_API_BASE || "https://api.9router.ai/v1/chat/completions",
         apiKey: process.env.LLM_API_KEY,
         defaultModel: process.env.LLM_MODEL || "",
+      };
+    case "openrouter":
+      if (!process.env.OPENROUTER_API_KEY) return null;
+      return {
+        url: process.env.OPENROUTER_API_BASE || "https://openrouter.ai/api/v1/chat/completions",
+        apiKey: process.env.OPENROUTER_API_KEY,
+        defaultModel: process.env.OPENROUTER_MODEL || "dots-studio/dots-3-note-preview:free",
       };
   }
 }

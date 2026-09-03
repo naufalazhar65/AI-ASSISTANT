@@ -92,7 +92,7 @@ const HELP_TEXT = [
   "  `/help` — bantuan ini",
   "  `/reset` — hapus riwayat percakapan ini",
   "  `/provider` — lihat provider AI",
-  "  `/provider <id>` — ganti provider (groq | opencode | 9router | mock)",
+  "  `/provider <id>` — ganti provider (groq | opencode | 9router | openrouter | mock)",
   "  `/model <id>` — set model (default Auto)",
   "  `/status` — status sistem (waktu, uptime, provider, data)",
   "",
@@ -268,13 +268,13 @@ async function handleCommand(msg: Message, state: ChatState, text: string, user:
     case "/provider": {
       const next = rest.join(" ").trim();
       if (next) {
-        if (["groq", "opencode", "9router", "mock"].includes(next.toLowerCase())) {
+        if (["groq", "opencode", "9router", "openrouter", "mock"].includes(next.toLowerCase())) {
           state.provider = next.toLowerCase();
           state.history = [];
           state.pending = null;
           await replyMia(msg, `Provider diganti ke **${state.provider}**.`);
         } else {
-          await replyMia(msg, "Provider tidak dikenal. Pilih: `groq`, `opencode`, `9router`, `mock`.");
+          await replyMia(msg, "Provider tidak dikenal. Pilih: `groq`, `opencode`, `9router`, `openrouter`, `mock`.");
         }
       } else {
         await replyMia(msg, `Provider saat ini: **${state.provider}**${state.model ? ` (model: \`${state.model}\`)` : ""}`);
