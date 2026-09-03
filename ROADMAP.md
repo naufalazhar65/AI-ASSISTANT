@@ -23,7 +23,7 @@ Fondasi dari project voice assistant tidak dibuang — menjadi landasan Fase 1�
 [x] Voice: ASR/LLM/TTS pipelines, transcript, multilingual detection
 ```
 
-**Node penting:** `packages/state-machine`, `packages/ai-provider`, `packages/mock-provider`, `apps/web/src/ai/*`, `apps/web/src/lib/{tools,persona,autoMemory,sessions,reminders,users,opencode}.ts`, `/api/llm` route.
+ **Node penting:** `packages/state-machine`, `packages/ai-provider`, `packages/mock-provider`, `apps/web/src/ai/*`, `apps/web/src/lib/{tools,persona,autoMemory,sessions,reminders,tasks,uploads,automations,automationRunner,status,assistantError,reminderIntent,reminderMessage,users,opencode}.ts`, `apps/web/src/channels/{telegram,discord,pushTarget}.ts`, `/api/llm` route, `instrumentation-node.ts`.
 
 ---
 
@@ -94,13 +94,15 @@ Memperkuat inti asisten (sudah ~90% dari Fase 0).
 Mia benar-benar berguna sebagai asisten pribadi.
 
 ```text
-[ ] Automation: task terprogram / workflow yang dijadwalkan atau dipicu dari channel
-[ ] File handling: kirim/terima file (via Telegram/Discord) → file_read/file_ref tool
-[ ] Web interaction: web_search lebih kuat (navigasi, ambil konten)
-[x] Notifications: reminder/notif proaktif push ke channel aktif (Telegram/Discord)  — pushTarget Telegram + pushTargetChannel Discord (live-verified)
+[x] Automation: task terprogram / workflow yang dijadwalkan atau dipicu dari channel  — automations.ts (disk store + scheduler: daily/hourly) + automationRunner.ts (satu runAssistantTurn per due, push ke channel aktif) + tool create_automation (FR-014 confirm); pushTarget.ts sink bersama Telegram/Discord (live-verified: lapor cuaca tiap 12 jam)
+[x] File handling: kirim/terima file (via Telegram/Discord) → file_read/file_ref tool  — uploads.ts (per-user disk store, dedup, text/image detection) + Telegram document/photo + Discord attachments; tools list_uploads + read_upload; file otomatis tersimpan (SISTEM), model dilarang save_note ulang
+[x] Rate-limit / quota resilience  — runOneCompletion retry sekali saat 429 (honor Retry-After); runAssistantTurn balas graceful jika tool sudah jalan tapi follow-up gagal; assistantError.ts klasifikasi rate_limit/quota/provider/other + pesan jelas di web banner, Telegram, Discord (mis. "kuota token habis") + /api/llm status 429/402
+[x] /status command (Telegram & Discord)  — status.ts buildStatusReport: waktu (Asia/Jakarta + UTC), uptime server, provider/model, history, data per-user (tasks/reminders/automations/notes/uploads); hanya data nyata yang ditampilkan (tanpa angka token/cost palsu)
+[x] Notifications: reminder/notif proaktif push ke channel aktif (Telegram/Discord)  — pushTarget Telegram + pushTargetChannel Discord + reminderMessage ala Mia (live-verified)
 [x] Scheduling/task management: daftar task, reschedule, cancel via chat  — tasks.ts + tools (add/list/complete/cancel/reschedule_task), insertion-order numbering
-[x] Scheduler yang tahan restart (replay dari disk)  — reminders.json unfired persist; SSE re-play on connect (survives restart/closed tab)
-[ ] Konfirmasi risky tool secara penuh di semua channel  — Telegram ya/tidak ✓; Discord ya/tidak ✓ (Fase 2.2/2.3)
+[x] Scheduler yang tahan restart (replay dari disk)  — reminders.json/automations.json unfired persist; SSE re-play on connect (survives restart/closed tab)
+[x] Konfirmasi risky tool secara penuh di semua channel  — Telegram ya/tidak ✓; Discord ya/tidak ✓; automation create_automation juga via gate FR-014
+[ ] Web interaction: web_search lebih kuat (navigasi, ambil konten)  — SATU-SATUNYA ITEM CAPABILITY TERSISA di Fase 3
 ```
 
 ---
@@ -152,7 +154,7 @@ MVP personal assistant dianggap berfungsi bila:
 
 1. **Fase 2.1/2.2 — Telegram Bot** (channel ponsel paling bermanfaat & mudah).  — DONE
 2. **Fase 2.3 — Discord Bot** — DONE (adapter + DM partials fix; live-verified DM & guild).
-3. **Fase 3 — Automation + Notification** (— notif push Telegram/Discord DONE; selanjutnya scheduler tahan-restart, file handling, task management).
+3. **Fase 3 — Automation + Notification + File Handling + Status** — DONE (notif push, task management, scheduler tahan-restart, uploads, read_upload, scheduled automations, rate-limit resilience, quota alert, /status). Tersisa: **Web interaction** (web_search lebih kuat).
 4. **Fase 3/5 — Konfirmasi + logging** untuk kenyamanan pribadi.
 
 ---
