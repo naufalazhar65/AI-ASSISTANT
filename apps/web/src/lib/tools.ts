@@ -654,6 +654,39 @@ function cleanUrl(href: string): string {
 const FETCH_MAX_BYTES = 120_000; // ~ cap we feed to the LLM
 const FETCH_TIMEOUT_MS = 12_000;
 
+/**
+ * Canonicalize common "human page" URLs into plain-text/raw counterparts so the
+ * scraper fetches clean content instead of heavy HTML wrappers.
+ *   - GitHub blob → raw.githubusercontent (lightweight raw file)
+ *   - GitHub tree → not a file (throw)
+ *   - raw.githubusercontent already fine
+ */
+function canonicalizeUrl(raw: string): string {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return raw;
+  }
+  const host = u.hostname.toLowerCase();
+
+  // github.com/<owner>/<repo>/blob/<ref>/<path>  -> raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>
+  if ((host === "github.com" || host.endsWith(".github.com")) && u.pathname.includes("/blob/")) {
+    const parts = u.pathname.replace(/^\/+|\/+$/g, "").split("/");
+    // parts = [owner, repo, "blob", ref, ...path]
+    if (parts.length >= 5 && parts[2] === "blob") {
+      const [owner, repo, , ref, ...rest] = parts;
+      const rawPath = [owner, repo, ref, ...rest].join("/");
+      return `https://raw.githubusercontent.com/${rawPath}`;
+    }
+  }
+  // github.com/.../tree/<ref> is a directory view — not fetchable as a file.
+  if (host === "github.com" && u.pathname.includes("/tree/")) {
+    throw new Error("GitHub tree links point to a directory; provide a blob (file) link or use file_read for local files");
+  }
+  return raw;
+}
+
 /** SSRF guard: refuse internal/loopback/private addresses and non-http schemes. */
 function assertPublicUrl(raw: string): URL {
   let url: URL;
@@ -684,7 +717,8 @@ function assertPublicUrl(raw: string): URL {
 
 /** Fetch a page and return its dominant article/summary text (bounded). */
 async function fetchUrl(urlStr: string): Promise<string> {
-  const url = assertPublicUrl(urlStr);
+  const canonical = canonicalizeUrl(urlStr);
+  const url = assertPublicUrl(canonical);
   const res = await fetch(url.toString(), {
     headers: { "User-Agent": USER_AGENT, Accept: "text/html,application/xhtml+xml" },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
