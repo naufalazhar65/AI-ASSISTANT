@@ -31,6 +31,7 @@ import { saveUpload } from "@/lib/uploads";
 import { registerPushTarget } from "@/channels/pushTarget";
 import { classifyAssistantError } from "@/lib/assistantError";
 import { buildStatusReport } from "@/lib/status";
+import { handleUnifiedCommand, ChatSessionState } from "@/lib/channelMessage";
 
 /**
  * Escape helper for Telegram legacy Markdown (parse_mode="Markdown"), which only
@@ -157,20 +158,6 @@ function userKeyFor(ctx: Context): string {
   const fromUsername = (ctx.from?.username || "").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 60);
   return fromUsername || process.env.TELEGRAM_USER || "naufal";
 }
-
-const HELP_TEXT = [
-  "Hi! Aku Mia, asisten pribadimu. 🌸",
-  "",
-  "Command:",
-  "  /start — mulai",
-  "  /help — bantuan ini",
-  "  /reset — hapus riwayat percakapan ini",
-  "  /provider — lihat provider AI",
-  "  /provider <id> — ganti provider (groq | opencode | 9router | openrouter | mock)",
-  "  /status — status sistem (waktu, uptime, provider, data)",
-  "",
-  "Kamu bisa minta aku menyetel reminder (mis. 'bangunin aku jam 7 pagi'), menyimpan catatan, mencari di web, atau menghitung.",
-].join("\n");
 
 export function isValidTelegramConfig(): boolean {
   return !!process.env.TELEGRAM_BOT_TOKEN && (ALLOWED_USER_IDS.length > 0 || ALLOWED_USERNAMES.length > 0 || !!process.env.TELEGRAM_USER);
@@ -336,50 +323,20 @@ export async function startTelegramBot(): Promise<void> {
 }
 
 async function handleCommand(ctx: Context, state: ChatState, text: string, user: string): Promise<void> {
-  const [cmd, ...rest] = text.split(/\s+/);
-  switch (cmd) {
-    case "/start":
-    case "/help":
-      await replyMia(ctx, HELP_TEXT);
-      return;
-    case "/reset":
-      state.history = [];
-      state.pending = null;
-      await replyMia(ctx, "Riwayat percakapan sudah direset.");
-      return;
-    case "/provider": {
-      const next = rest.join(" ").trim();
-      if (next) {
-        if (["groq", "opencode", "9router", "openrouter", "mock"].includes(next.toLowerCase())) {
-          state.provider = next.toLowerCase();
-          state.history = [];
-          state.pending = null;
-          await replyMia(ctx, `Provider diganti ke *${state.provider}*.`);
-        } else {
-          await replyMia(ctx, "Provider tidak dikenal. Pilih: `groq`, `opencode`, `9router`, `openrouter`, `mock`.");
-        }
-      } else {
-        await replyMia(ctx, `Provider saat ini: *${state.provider}*${state.model ? ` (model: \`${state.model}\`)` : ""}`);
-      }
-      return;
-    }
-    case "/model": {
-      const next = rest.join(" ").trim();
-      state.model = next || undefined;
-      await replyMia(ctx, next ? `Model diset: \`${next}\`` : "Model direset ke default provider.");
-      return;
-    }
-    case "/status":
-      await replyMia(
-        ctx,
-        buildStatusReport(
-          { provider: state.provider, model: state.model, historyLen: state.history.length, user },
-          "Mia 2026.9 (scheduled automation)"
-        )
-      );
-      return;
-    default:
-      await replyMia(ctx, "Command tidak dikenal. Ketik /help.");
+  if (text.startsWith("/status")) {
+    await replyMia(
+      ctx,
+      buildStatusReport(
+        { provider: state.provider, model: state.model, historyLen: state.history.length, user },
+        "Mia 2026.9 (scheduled automation)"
+      )
+    );
+    return;
+  }
+  const res = handleUnifiedCommand(state as ChatSessionState, text);
+  if (res.handled) {
+    await replyMia(ctx, res.replyText || "…");
+    return;
   }
 }
 

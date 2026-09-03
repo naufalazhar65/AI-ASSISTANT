@@ -60,6 +60,8 @@ export const PROVIDER_SPECS: ProviderSpec[] = [
     label: "OpenRouter",
     description: "OpenAI-compatible model router. Requires OPENROUTER_API_KEY.",
     models: [
+      { id: "minimax/minimax-01", label: "MiniMax 01" },
+      { id: "minimax/minimax-m3:free", label: "MiniMax M3 (free)" },
       { id: "dots-studio/dots-3-note-preview:free", label: "Dots 3 Note (free)" },
       { id: "deepseek/deepseek-chat", label: "DeepSeek Chat" },
       { id: "anthropic/claude-3.5-sonnet", label: "Claude 3.5 Sonnet" },

@@ -33,6 +33,7 @@ import { saveUpload } from "@/lib/uploads";
 import { registerPushTarget } from "@/channels/pushTarget";
 import { classifyAssistantError } from "@/lib/assistantError";
 import { buildStatusReport } from "@/lib/status";
+import { handleUnifiedCommand, ChatSessionState } from "@/lib/channelMessage";
 
 /** Minimal sendable text surface we rely on (any discord.js text channel). */
 type SendableChannel = { send: (content: string) => Promise<Message> };
@@ -83,21 +84,6 @@ function userKeyFor(msg: Message): string {
   const slug = (msg.author.username || msg.author.id).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 60);
   return slug || process.env.DISCORD_USER || "naufal";
 }
-
-const HELP_TEXT = [
-  "Hi! Aku Mia, asisten pribadimu. 🌸",
-  "",
-  "Command:",
-  "  `/start` — mulai",
-  "  `/help` — bantuan ini",
-  "  `/reset` — hapus riwayat percakapan ini",
-  "  `/provider` — lihat provider AI",
-  "  `/provider <id>` — ganti provider (groq | opencode | 9router | openrouter | mock)",
-  "  `/model <id>` — set model (default Auto)",
-  "  `/status` — status sistem (waktu, uptime, provider, data)",
-  "",
-  "Kamu bisa minta aku menyetel reminder (mis. 'bangunin aku jam 7 pagi'), menyimpan catatan, mencari di web, atau menghitung.",
-].join("\n");
 
 export function isValidDiscordConfig(): boolean {
   return !!process.env.DISCORD_BOT_TOKEN && (ALLOWED_USER_IDS.length > 0 || !!process.env.DISCORD_USER);
@@ -254,50 +240,20 @@ async function replyMia(msg: Message, text: string): Promise<Message> {
 }
 
 async function handleCommand(msg: Message, state: ChatState, text: string, user: string): Promise<void> {
-  const [cmd, ...rest] = text.split(/\s+/);
-  switch (cmd) {
-    case "/start":
-    case "/help":
-      await replyMia(msg, HELP_TEXT);
-      return;
-    case "/reset":
-      state.history = [];
-      state.pending = null;
-      await replyMia(msg, "Riwayat percakapan sudah direset.");
-      return;
-    case "/provider": {
-      const next = rest.join(" ").trim();
-      if (next) {
-        if (["groq", "opencode", "9router", "openrouter", "mock"].includes(next.toLowerCase())) {
-          state.provider = next.toLowerCase();
-          state.history = [];
-          state.pending = null;
-          await replyMia(msg, `Provider diganti ke **${state.provider}**.`);
-        } else {
-          await replyMia(msg, "Provider tidak dikenal. Pilih: `groq`, `opencode`, `9router`, `openrouter`, `mock`.");
-        }
-      } else {
-        await replyMia(msg, `Provider saat ini: **${state.provider}**${state.model ? ` (model: \`${state.model}\`)` : ""}`);
-      }
-      return;
-    }
-    case "/model": {
-      const next = rest.join(" ").trim();
-      state.model = next || undefined;
-      await replyMia(msg, next ? `Model diset: \`${next}\`` : "Model direset ke default provider.");
-      return;
-    }
-    case "/status":
-      await replyMia(
-        msg,
-        buildStatusReport(
-          { provider: state.provider, model: state.model, historyLen: state.history.length, user },
-          "Mia 2026.9 (scheduled automation)"
-        )
-      );
-      return;
-    default:
-      await replyMia(msg, "Command tidak dikenal. Ketik /help.");
+  if (text.startsWith("/status")) {
+    await replyMia(
+      msg,
+      buildStatusReport(
+        { provider: state.provider, model: state.model, historyLen: state.history.length, user },
+        "Mia 2026.9 (scheduled automation)"
+      )
+    );
+    return;
+  }
+  const res = handleUnifiedCommand(state as ChatSessionState, text);
+  if (res.handled) {
+    await replyMia(msg, res.replyText || "…");
+    return;
   }
 }
 
