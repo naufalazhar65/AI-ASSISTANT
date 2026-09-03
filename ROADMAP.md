@@ -97,10 +97,10 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [ ] Automation: task terprogram / workflow yang dijadwalkan atau dipicu dari channel
 [ ] File handling: kirim/terima file (via Telegram/Discord) → file_read/file_ref tool
 [ ] Web interaction: web_search lebih kuat (navigasi, ambil konten)
-[ ] Notifications: reminder/notif proaktif push ke channel aktif (Telegram/Discord)
+[x] Notifications: reminder/notif proaktif push ke channel aktif (Telegram/Discord)  — pushTarget Telegram + pushTargetChannel Discord (live-verified)
 [ ] Scheduling/task management: daftar task, reschedule, cancel via chat
 [ ] Scheduler yang tahan restart (replay dari disk)
-[ ] Konfirmasi risky tool secara penuh di semua channel
+[ ] Konfirmasi risky tool secara penuh di semua channel  — Telegram ya/tidak ✓; Discord ya/tidak ✓ (Fase 2.2/2.3)
 ```
 
 ---
@@ -139,8 +139,8 @@ MVP personal assistant dianggap berfungsi bila:
 ```text
 [ ] Web chat + voice berfungsi (sudah)
 [ ] Telegram Bot berfungsi (chat text dari ponsel)  — @inimiaku_bot
-[x] Discord Bot berfungsi (chat text)  — adapter + lifecycle siap; butuh token + allow-list untuk aktif
-[ ] Memory konsisten lintas channel (fakta di web → teringat di Telegram)
+[x] Discord Bot berfungsi (chat text)  — adapter + lifecycle + DM partials fix (2026-09-03); live-verified DM & guild
+[x] Memory konsisten lintas channel (fakta di web → teringat di Telegram/Discord)  — persona/notes/reminders per-user disk store dibagi semua channel via runAssistantTurn
 [ ] Reminder bisa disetel & dipicu (setidaknya di web; ideal via semua channel)
 [ ] Tool risky memerlukan konfirmasi di semua channel
 [ ] Menambah channel baru tidak mengubah core
@@ -151,8 +151,8 @@ MVP personal assistant dianggap berfungsi bila:
 ## Prioritas Kerja (urutan terdekat)
 
 1. **Fase 2.1/2.2 — Telegram Bot** (channel ponsel paling bermanfaat & mudah).  — DONE
-2. **Fase 2.3 — Discord Bot** — DONE (adapter siap; aktifkan dgn token + allow-list).
-3. **Fase 3 — Automation + Notification** (reminder push ke channel).  — aktifkan Discord push; scheduler tahan-restart.
+2. **Fase 2.3 — Discord Bot** — DONE (adapter + DM partials fix; live-verified DM & guild).
+3. **Fase 3 — Automation + Notification** (— notif push Telegram/Discord DONE; selanjutnya scheduler tahan-restart, file handling, task management).
 4. **Fase 3/5 — Konfirmasi + logging** untuk kenyamanan pribadi.
 
 ---
