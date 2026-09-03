@@ -6,6 +6,7 @@
 
 import { Channel } from "./agent";
 import { ToolCall } from "./tools";
+import { backupNow } from "./backup";
 
 export interface NormalizedMessage {
   /** Sanitized user key for per-user persona/memory isolation. */
@@ -36,6 +37,7 @@ export const HELP_TEXT = [
   "  `/provider <id>` — ganti provider (groq | opencode | 9router | openrouter | mock)",
   "  `/model <id>` — set model (default Auto)",
   "  `/status` — status sistem (waktu, uptime, provider, data)",
+  "  `/backup` — backup data user ke .data/backups/<ts>/",
   "",
   "Kamu bisa minta aku menyetel reminder, menyimpan catatan, mencari di web, membaca file/link, atau menghitung.",
 ].join("\n");
@@ -76,6 +78,10 @@ export function handleUnifiedCommand(state: ChatSessionState, text: string): { h
       const next = rest.join(" ").trim();
       state.model = next || undefined;
       return { handled: true, replyText: next ? `Model diset: \`${next}\`` : "Model direset ke default provider." };
+    }
+    case "/backup": {
+      const result = backupNow();
+      return { handled: true, replyText: `Backup dibuat di \`${result}\`.` };
     }
     default:
       if (lower.startsWith("/")) {

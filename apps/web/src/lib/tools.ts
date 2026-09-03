@@ -6,6 +6,7 @@ import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addAutomation, describeSchedule } from "./automations";
+import { searchMemory } from "./rag";
 
 export interface ToolCall {
   id: string;
@@ -336,6 +337,25 @@ export const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    risk: "read",
+    function: {
+      name: "search_memory",
+      description:
+        "Search through long-term memory, personal notes, uploaded files, tasks, and persona files for information relevant to a query. Use when asked about past knowledge or files.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Search keywords or question to look up in long-term memory.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ];
 
 export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<string> {
@@ -441,6 +461,8 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid fetch"}`;
       }
+    case "search_memory":
+      return searchMemory(typeof args.query === "string" ? args.query : "", rawUser);
     default:
       return `Error: unknown tool "${call.name}"`;
   }
@@ -730,7 +752,7 @@ async function fetchUrl(urlStr: string): Promise<string> {
   const html = buf.toString("utf8", 0, FETCH_MAX_BYTES);
 
   if (ct.includes("text/html") || html.toLowerCase().includes("<!doctype html") || html.toLowerCase().includes("<html")) {
-    return extractArticleText(html, url.toString()).slice(0, 2000);
+    return extractArticleText(html).slice(0, 2000);
   }
   // Non-HTML: return as-is (truncated).
   return html.slice(0, 2000);
@@ -740,7 +762,7 @@ async function fetchUrl(urlStr: string): Promise<string> {
  * Best-effort article-text extraction without a DOM (no extra deps).
  * Prefers <article>/<main>/<og:description>; falls back to visible text.
  */
-function extractArticleText(html: string, _pageUrl: string): string {
+function extractArticleText(html: string): string {
   const og = html.match(/<meta\s+(?:name|property)=["']?og:description["'][^>]*content=["']([^"']*)["']/i);
   if (og?.[1]) return `Judul/Deskripsi: ${og[1].replace(/\s+/g, " ")}`;
 
