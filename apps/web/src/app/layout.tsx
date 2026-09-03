@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Voice AI Assistant",
-  description: "Talk to your AI assistant naturally.",
+  title: "Mia — Personal AI Assistant",
+  description: "Your personal AI assistant — web, voice, Telegram, and Discord.",
 };
 
 export const viewport: Viewport = {
@@ -21,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="Voice AI" />
+        <meta name="apple-mobile-web-app-title" content="Mia" />
       </head>
       <body className="min-h-dvh bg-background text-foreground antialiased">
         {children}

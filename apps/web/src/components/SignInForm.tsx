@@ -69,7 +69,7 @@ export default function SignInForm({ onSignIn }: { onSignIn: (name: string) => v
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20 border border-primary/30">
                 <LogIn className="h-4 w-4 text-primary" />
               </div>
-              <h1 className="text-xl font-bold tracking-tight text-white">Voice AI</h1>
+              <h1 className="text-xl font-bold tracking-tight text-white">Mia</h1>
             </div>
             <p className="text-sm text-white/40">
               Enter a name to start. This is a local stand-in for full authentication.

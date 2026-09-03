@@ -400,7 +400,7 @@ export default function AIChatCard({
             <h2 className="text-lg font-bold leading-tight bg-gradient-to-r from-white via-white to-primary bg-clip-text text-transparent">
               AI Assistant
             </h2>
-            <p className="text-[10px] font-medium uppercase tracking-widest text-white/35">Real-time voice</p>
+            <p className="text-[10px] font-medium uppercase tracking-widest text-white/35">Personal AI Assistant</p>
           </div>
           <div className="flex items-center gap-2">
             {onToggleVoiceOutput && (

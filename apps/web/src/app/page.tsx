@@ -73,7 +73,7 @@ export default function Home() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 border border-white/10">
             <Sparkles className="h-4 w-4 text-white/60" />
           </div>
-          <h1 className="text-lg font-bold tracking-tight text-white/90">Voice AI</h1>
+          <h1 className="text-lg font-bold tracking-tight text-white/90">Mia</h1>
         </div>
 
         <div className="flex items-center gap-3">
