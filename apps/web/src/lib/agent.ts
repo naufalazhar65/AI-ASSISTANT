@@ -28,6 +28,10 @@ export type ChatMessage = {
   tool_call_id?: string;
 };
 
+/** Channel kinds the shared core can be invoked from. "voice" keeps replies plain
+ *  (TTS-friendly); "text" (Telegram) and "discord" allow platform markdown. */
+export type Channel = "voice" | "text" | "discord";
+
 export const MAX_TOOL_ROUNDS = 3;
 
 /** Control frame that marks a turn paused for user confirmation (FR-014). */
@@ -76,6 +80,33 @@ function textFormatInstruction(): string {
     "not use markdown characters in normal prose (they would show literally). If ",
     "there is nothing worth stressing, just answer in plain text.",
   ].join(" ");
+}
+
+/**
+ * Formatting guidance for a Discord text channel. Discord renders
+ * GitHub-flavoured Markdown natively (`**bold**`, `_italic_`, `` `code` ``,
+ * ```code block```, `[link](url)`), so the syntax differs from Telegram's legacy
+ * method: bold uses double asterisks, not single. Kept separate so Mia doesn't
+ * emit Telegram's `*bold*` (which Discord would render as *italic*).
+ */
+function discordFormatInstruction(): string {
+  return [
+    "You are chatting on a DISCORD text channel, not a voice interface, so you ",
+    "MAY use light Discord Markdown to make your reply clearer: use **bold** only ",
+    "for a key word/phrase you want to stress, _italics_ for a term, and `code` ",
+    "(or a ```code block```) for commands, file paths, provider/model names, or ",
+    "steps. Keep every reply short and natural; do NOT wrap whole paragraphs in ",
+    "bold, do NOT invent heading levels, and do not use markdown characters in ",
+    "normal prose (they would show literally). If there is nothing worth ",
+    "stressing, just answer in plain text.",
+  ].join(" ");
+}
+
+/** Select the formatting hint for the channel; undefined for voice (plain). */
+function formatInstructionFor(channel?: Channel): string | undefined {
+  if (channel === "text") return textFormatInstruction();
+  if (channel === "discord") return discordFormatInstruction();
+  return undefined;
 }
 
 /** User-local timezone; defaults to the server zone when unset. */
@@ -134,7 +165,7 @@ function openCodeSystemPromptParts(): string {
  * which are the single source of truth for stable user facts and style.
  * Per-user isolation is keyed by the sanitized `user`.
  */
-export function buildSystemPrompt(rawUser?: unknown, channel?: "voice" | "text"): string {
+export function buildSystemPrompt(rawUser?: unknown, channel?: Channel): string {
   const parts = [SYSTEM_PROMPT];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
@@ -146,7 +177,8 @@ export function buildSystemPrompt(rawUser?: unknown, channel?: "voice" | "text")
       "greeting the user — never shorten or drop the honorific."
   );
   parts.push(currentTimeLine());
-  if (channel === "text") parts.push(textFormatInstruction());
+  const fmt = formatInstructionFor(channel);
+  if (fmt) parts.push(fmt);
   return parts.join("\n\n");
 }
 
@@ -158,7 +190,7 @@ export function buildSystemPrompt(rawUser?: unknown, channel?: "voice" | "text")
  * prompt with no confirmation UI. So it is constrained to a conversational
  * answer (plain short sentences, TTS-friendly).
  */
-export function buildOpenCodeSystemPrompt(rawUser?: unknown, channel?: "voice" | "text"): string {
+export function buildOpenCodeSystemPrompt(rawUser?: unknown, channel?: Channel): string {
   const parts = [openCodeSystemPromptParts()];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
@@ -171,7 +203,8 @@ export function buildOpenCodeSystemPrompt(rawUser?: unknown, channel?: "voice" |
   // The local model has no real-time clock; give it the current local time so it
   // can answer "what time is it?" / schedule-aware questions factually.
   parts.push(currentTimeLine());
-  if (channel === "text") parts.push(textFormatInstruction());
+  const fmt = formatInstructionFor(channel);
+  if (fmt) parts.push(fmt);
   return parts.join("\n\n");
 }
 
@@ -370,8 +403,8 @@ export async function runAssistantTurn(opts: {
   model?: string;
   user?: unknown;
   confirm_call?: { call: ToolCall; allow: boolean };
-  /** Voice (default) keeps replies plain for TTS; "text" allows Telegram markdown. */
-  channel?: "voice" | "text";
+  /** Voice (default) keeps replies plain for TTS; "text"/"discord" allow markdown. */
+  channel?: Channel;
 }): Promise<TurnResult> {
   const { messages } = opts;
   const model = opts.model?.trim() || undefined;

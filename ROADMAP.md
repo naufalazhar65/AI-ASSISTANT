@@ -71,11 +71,11 @@ Memperkuat inti asisten (sudah ~90% dari Fase 0).
 ### 2.3 Discord Bot
 
 ```text
-[ ] Setup bot di Discord Developer Portal, simpan token di env
-[ ] Adapter Discord: terima text di DM/channel allow-list → core → balas
-[ ] Command system (slash commands)
-[ ] Per-user conversation session
-[ ] Konfirmasi risky tool via Discord
+[x] Setup bot di Discord Developer Portal, simpan token di env  — DISCORD_BOT_TOKEN (git-ignored .env.local); serverExternalPackages di next.config.js
+[x] Adapter Discord: terima text di DM/channel allow-list → core → balas  — apps/web/src/channels/discord.ts (discord.js/WebSocket gateway)
+[x] Command system (slash commands)  — prefix "/" (start/help/reset/provider/model)
+[x] Per-user conversation session  — in-memory per-channel history; user key dari discord username
+[x] Konfirmasi risky tool via Discord  — "Balas ya / tidak" (sama pola Telegram)
 ```
 
 ### 2.4 Message Handling & Command System
@@ -138,8 +138,8 @@ MVP personal assistant dianggap berfungsi bila:
 
 ```text
 [ ] Web chat + voice berfungsi (sudah)
-[ ] Telegram Bot berfungsi (chat text dari ponsel)
-[ ] Discord Bot berfungsi (chat text)
+[ ] Telegram Bot berfungsi (chat text dari ponsel)  — @inimiaku_bot
+[x] Discord Bot berfungsi (chat text)  — adapter + lifecycle siap; butuh token + allow-list untuk aktif
 [ ] Memory konsisten lintas channel (fakta di web → teringat di Telegram)
 [ ] Reminder bisa disetel & dipicu (setidaknya di web; ideal via semua channel)
 [ ] Tool risky memerlukan konfirmasi di semua channel
@@ -150,9 +150,9 @@ MVP personal assistant dianggap berfungsi bila:
 
 ## Prioritas Kerja (urutan terdekat)
 
-1. **Fase 2.1/2.2 — Telegram Bot** (channel ponsel paling bermanfaat & mudah).
-2. **Fase 2.3 — Discord Bot**.
-3. **Fase 3 — Automation + Notification** (reminder push ke channel).
+1. **Fase 2.1/2.2 — Telegram Bot** (channel ponsel paling bermanfaat & mudah).  — DONE
+2. **Fase 2.3 — Discord Bot** — DONE (adapter siap; aktifkan dgn token + allow-list).
+3. **Fase 3 — Automation + Notification** (reminder push ke channel).  — aktifkan Discord push; scheduler tahan-restart.
 4. **Fase 3/5 — Konfirmasi + logging** untuk kenyamanan pribadi.
 
 ---

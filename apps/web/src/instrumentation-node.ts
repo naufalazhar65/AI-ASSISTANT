@@ -15,4 +15,14 @@ export async function registerNode(): Promise<void> {
   } catch (err) {
     console.error("[telegram] failed to start bot:", err instanceof Error ? err.message : String(err));
   }
+  try {
+    const { isValidDiscordConfig, startDiscordBot } = await import("@/channels/discord");
+    if (isValidDiscordConfig()) {
+      await startDiscordBot();
+    } else {
+      console.log("[discord] not configured — skipping bot start");
+    }
+  } catch (err) {
+    console.error("[discord] failed to start bot:", err instanceof Error ? err.message : String(err));
+  }
 }

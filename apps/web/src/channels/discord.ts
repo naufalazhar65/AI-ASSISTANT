@@ -1,0 +1,301 @@
+/**
+ * Discord channel adapter (PRD v2.0 §8.1 FR-101 / ROADMAP Fase 2.3).
+ *
+ * Connects Mia to a private Discord bot via discord.js (WebSocket gateway — the
+ * platform equivalent of Telegram's long-polling). Every incoming text in an
+ * allow-listed DM/channel is pushed through the SAME shared core
+ * (`runAssistantTurn` in `@/lib/agent`), so memory, persona, tools, and risky-tool
+ * confirmation behave identically here. Discord renders GitHub-flavoured Markdown
+ * natively (**bold**, *italic*, `code`, ```code block```), so we give the model a
+ * Discord-flavoured formatting hint and send the text as-is (no escape/markup
+ * transformation like Telegram needs).
+ *
+ * Started from Next.js `instrumentation.ts` so the whole assistant runs as ONE
+ * process (single-instance personal deploy), mirroring the Telegram adapter.
+ *
+ * Security (invariant 5 / trust boundary): only an allow-listed owner is served
+ * (from env), and the bot token lives server-side only.
+ *
+ * Env (apps/web/.env.local):
+ *   DISCORD_BOT_TOKEN             required
+ *   DISCORD_ALLOWED_USER_ID       owner discord user id (snowflake string, or comma list)
+ *   DISCORD_ALLOWED_CHANNEL_ID    optional: only serve this channel id (or comma list)
+ *   DISCORD_PROVIDER              default AI provider (default "groq")
+ *   DISCORD_USER                  fallback user key for persona (default "naufal")
+ */
+
+import { Client, GatewayIntentBits, Message } from "discord.js";
+import { runAssistantTurn, ChatMessage } from "@/lib/agent";
+import { ToolCall } from "@/lib/tools";
+import { subscribeReminders, Reminder } from "@/lib/reminders";
+
+/** Minimal sendable text surface we rely on (any discord.js text channel). */
+type SendableChannel = { send: (content: string) => Promise<Message> };
+
+type ChatState = {
+  provider: string;
+  model?: string;
+  /** Persistent text-only conversation (user/assistant) used as LLM context. */
+  history: ChatMessage[];
+  /** Waiting for a yes/no confirmation of a risky tool (FR-014). */
+  pending: { messages: ChatMessage[]; call: ToolCall } | null;
+};
+
+const PROVIDER_DEFAULT = process.env.DISCORD_PROVIDER || "groq";
+
+const ALLOWED_USER_IDS = (process.env.DISCORD_ALLOWED_USER_ID || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const ALLOWED_CHANNEL_IDS = (process.env.DISCORD_ALLOWED_CHANNEL_ID || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+/** Owner DM/channel for proactive reminder pushes; recorded from any owner msg
+ *  (the object itself has `.send`, so no cache/id resolution needed — and when a
+ *  `DISCORD_ALLOWED_CHANNEL_ID` is set, that channel IS what the owner messages
+ *  land in). */
+let lastSeenOwnerChannel: SendableChannel | null = null;
+
+/** Best-effort target for proactive pushes: the owner's last-seen channel. */
+function pushTargetChannel(): SendableChannel | null {
+  return lastSeenOwnerChannel;
+}
+
+function isAllowedMessage(msg: Message): boolean {
+  if (ALLOWED_USER_IDS.length && !ALLOWED_USER_IDS.includes(msg.author.id)) return false;
+  if (ALLOWED_CHANNEL_IDS.length && !ALLOWED_CHANNEL_IDS.includes(msg.channelId)) return false;
+  return true;
+}
+
+/** User key for per-user persona/memory; falls back to the owner id slug. */
+function userKeyFor(msg: Message): string {
+  const slug = (msg.author.username || msg.author.id).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 60);
+  return slug || process.env.DISCORD_USER || "naufal";
+}
+
+const HELP_TEXT = [
+  "Hi! Aku Mia, asisten pribadimu. 🌸",
+  "",
+  "Command:",
+  "  `/start` — mulai",
+  "  `/help` — bantuan ini",
+  "  `/reset` — hapus riwayat percakapan ini",
+  "  `/provider` — lihat provider AI",
+  "  `/provider <id>` — ganti provider (groq | opencode | 9router | mock)",
+  "  `/model <id>` — set model (default Auto)",
+  "",
+  "Kamu bisa minta aku menyetel reminder (mis. 'bangunin aku jam 7 pagi'), menyimpan catatan, mencari di web, atau menghitung.",
+].join("\n");
+
+export function isValidDiscordConfig(): boolean {
+  return !!process.env.DISCORD_BOT_TOKEN && (ALLOWED_USER_IDS.length > 0 || !!process.env.DISCORD_USER);
+}
+
+/** Singleton guard: only one client per process (Next invokes register twice). */
+let startAttempted = false;
+
+export async function startDiscordBot(): Promise<void> {
+  if (startAttempted) return;
+  startAttempted = true;
+  const token = process.env.DISCORD_BOT_TOKEN;
+  if (!token) {
+    console.log("[discord] DISCORD_BOT_TOKEN not set — bot not started");
+    return;
+  }
+  if (!ALLOWED_USER_IDS.length && !process.env.DISCORD_USER) {
+    console.log("[discord] no owner allow-list configured (DISCORD_ALLOWED_USER_ID) — bot not started");
+    return;
+  }
+
+  const client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.MessageContent,
+    ],
+  });
+  const sessions = new Map<string, ChatState>();
+
+  const getState = (channelKey: string): ChatState => {
+    let s = sessions.get(channelKey);
+    if (!s) {
+      s = { provider: PROVIDER_DEFAULT, history: [], pending: null };
+      sessions.set(channelKey, s);
+    }
+    return s;
+  };
+
+  client.on("ready", () => {
+    console.log("[discord] logged in as", client.user?.tag);
+  });
+
+  client.on("messageCreate", async (msg: Message) => {
+    try {
+      // Ignore the bot's own messages and (optionally) non-allow-listed channels.
+      if (msg.author.bot) return;
+      if (!isAllowedMessage(msg)) return;
+      // Only react to text content (skip slash-command payloads / embeds-only).
+      const text = (msg.content || "").trim();
+      if (!text) return;
+
+      lastSeenOwnerChannel = msg.channel as unknown as SendableChannel;
+      const chatId = msg.channelId;
+      const state = getState(chatId);
+      const user = userKeyFor(msg);
+
+      if (text.startsWith("/")) {
+        await handleCommand(msg, state, text);
+        return;
+      }
+
+      if (state.pending) {
+        await handleConfirmation(msg, state, user, text);
+        return;
+      }
+
+      await runTurn(msg, state, user, undefined, text);
+    } catch (err) {
+      console.error("[discord] handler error:", err instanceof Error ? (err.stack || err.message) : String(err));
+      await msg.reply("Maaf, ada kendala internal. Coba lagi ya.").catch(() => {});
+    }
+  });
+
+  // Proactive reminder push: deliver due reminders to the owner's channel/dm.
+  subscribeReminders((reminder: Reminder) => {
+    const target = pushTargetChannel();
+    if (target == null) return;
+    const at = new Date(reminder.at);
+    const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    target.send(`🔔 **Reminder**: ${reminder.text} (pukul ${timeLabel})`).catch((e: unknown) => {
+      console.warn("[discord] reminder push failed:", e instanceof Error ? e.message : String(e));
+    });
+  });
+
+  console.log("[discord] connecting gateway…");
+  // Login is one-shot; do NOT block readiness (reflects telegram's fire-and-forget).
+  void client.login(token).catch((err) => {
+    console.error("[discord] login failed:", err instanceof Error ? err.message : String(err));
+  });
+}
+
+async function replyMia(msg: Message, text: string): Promise<Message> {
+  const safe = text ?? "";
+  // Discord renders GitHub-flavoured Markdown natively; send as-is. We reply to
+  // the triggering message; fall back to a plain channel send on any error.
+  return msg.reply(safe).catch(() => (msg.channel as unknown as SendableChannel).send(`> ${safe}`) as Promise<Message>);
+}
+
+async function handleCommand(msg: Message, state: ChatState, text: string): Promise<void> {
+  const [cmd, ...rest] = text.split(/\s+/);
+  switch (cmd) {
+    case "/start":
+    case "/help":
+      await replyMia(msg, HELP_TEXT);
+      return;
+    case "/reset":
+      state.history = [];
+      state.pending = null;
+      await replyMia(msg, "Riwayat percakapan sudah direset.");
+      return;
+    case "/provider": {
+      const next = rest.join(" ").trim();
+      if (next) {
+        if (["groq", "opencode", "9router", "mock"].includes(next.toLowerCase())) {
+          state.provider = next.toLowerCase();
+          state.history = [];
+          state.pending = null;
+          await replyMia(msg, `Provider diganti ke **${state.provider}**.`);
+        } else {
+          await replyMia(msg, "Provider tidak dikenal. Pilih: `groq`, `opencode`, `9router`, `mock`.");
+        }
+      } else {
+        await replyMia(msg, `Provider saat ini: **${state.provider}**${state.model ? ` (model: \`${state.model}\`)` : ""}`);
+      }
+      return;
+    }
+    case "/model": {
+      const next = rest.join(" ").trim();
+      state.model = next || undefined;
+      await replyMia(msg, next ? `Model diset: \`${next}\`` : "Model direset ke default provider.");
+      return;
+    }
+    default:
+      await replyMia(msg, "Command tidak dikenal. Ketik /help.");
+  }
+}
+
+async function handleConfirmation(msg: Message, state: ChatState, user: string, text: string): Promise<void> {
+  const pending = state.pending!;
+  const yes = /^(ya|yes|y|setuju|lanjut|ok|oke)$/i.test(text);
+  const no = /^(tidak|no|n|gak|nggak|skip|cancel|batal)$/i.test(text);
+  if (!yes && !no) {
+    await replyMia(msg, "Balas `ya` untuk melanjutkan, atau `tidak` untuk membatalkan.");
+    return;
+  }
+  state.pending = null;
+  await replyMia(msg, "Oke, sebentar ya…");
+  const result = await runAssistantTurn({
+    messages: pending.messages,
+    provider: state.provider,
+    model: state.model,
+    user,
+    channel: "discord",
+    confirm_call: { call: pending.call, allow: yes },
+  });
+  state.history.push({ role: "assistant", content: result.text });
+  await replyMia(msg, result.text || "Selesai.");
+}
+
+async function runTurn(
+  msg: Message,
+  state: ChatState,
+  user: string,
+  confirmCall: { call: ToolCall; allow: boolean } | undefined,
+  userText: string | undefined
+): Promise<void> {
+  const turnMessages = [...state.history];
+  if (userText) {
+    turnMessages.push({ role: "user", content: userText });
+    state.history.push({ role: "user", content: userText });
+  }
+
+  let result: Awaited<ReturnType<typeof runAssistantTurn>>;
+  try {
+    console.log(`[discord] turn start (provider=${state.provider})`);
+    result = await runAssistantTurn({
+      messages: turnMessages,
+      provider: state.provider,
+      model: state.model,
+      user,
+      channel: "discord",
+      confirm_call: confirmCall,
+    });
+    console.log(`[discord] turn done (text len=${(result.text || "").length})`);
+  } catch (err) {
+    console.error("[discord] turn failed:", err instanceof Error ? err.message : String(err));
+    await replyMia(msg, `Maaf, ada kendala: ${err instanceof Error ? err.message : "gagal"} `);
+    return;
+  }
+
+  if (result.needsConfirmation?.length) {
+    state.pending = { messages: turnMessages, call: result.needsConfirmation[0] };
+    const call = result.needsConfirmation[0];
+    let args = "";
+    try {
+      args = JSON.stringify(JSON.parse(call.arguments || "{}"));
+    } catch {
+      /* ignore */
+    }
+    await replyMia(
+      msg,
+      `Mia ingin melakukan aksi berikut: **${call.name}**${args ? ` — \`${args}\`` : ""}\nBalas \`ya\` untuk lanjut, atau \`tidak\` untuk membatalkan.`
+    );
+    return;
+  }
+
+  state.history.push({ role: "assistant", content: result.text });
+  await replyMia(msg, result.text || "…");
+}
