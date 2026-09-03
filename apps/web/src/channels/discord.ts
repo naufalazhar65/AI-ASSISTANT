@@ -30,6 +30,9 @@ import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
 import { reminderMessage } from "@/lib/reminderMessage";
 import { saveUpload } from "@/lib/uploads";
+import { registerPushTarget } from "@/channels/pushTarget";
+import { classifyAssistantError } from "@/lib/assistantError";
+import { buildStatusReport } from "@/lib/status";
 
 /** Minimal sendable text surface we rely on (any discord.js text channel). */
 type SendableChannel = { send: (content: string) => Promise<Message> };
@@ -91,6 +94,7 @@ const HELP_TEXT = [
   "  `/provider` — lihat provider AI",
   "  `/provider <id>` — ganti provider (groq | opencode | 9router | mock)",
   "  `/model <id>` — set model (default Auto)",
+  "  `/status` — status sistem (waktu, uptime, provider, data)",
   "",
   "Kamu bisa minta aku menyetel reminder (mis. 'bangunin aku jam 7 pagi'), menyimpan catatan, mencari di web, atau menghitung.",
 ].join("\n");
@@ -201,7 +205,7 @@ export async function startDiscordBot(): Promise<void> {
       }
 
       if (text.startsWith("/")) {
-        await handleCommand(msg, state, text);
+        await handleCommand(msg, state, text, user);
         return;
       }
 
@@ -228,6 +232,13 @@ export async function startDiscordBot(): Promise<void> {
     });
   });
 
+  // Register this bot as the proactive-output sink (scheduled automation results).
+  registerPushTarget("discord", async (content: string) => {
+    const target = pushTargetChannel();
+    if (target == null) throw new Error("no discord owner channel seen");
+    return target.send(content);
+  });
+
   console.log("[discord] connecting gateway…");
   // Login is one-shot; do NOT block readiness (reflects telegram's fire-and-forget).
   void client.login(token).catch((err) => {
@@ -242,7 +253,7 @@ async function replyMia(msg: Message, text: string): Promise<Message> {
   return msg.reply(safe).catch(() => (msg.channel as unknown as SendableChannel).send(`> ${safe}`) as Promise<Message>);
 }
 
-async function handleCommand(msg: Message, state: ChatState, text: string): Promise<void> {
+async function handleCommand(msg: Message, state: ChatState, text: string, user: string): Promise<void> {
   const [cmd, ...rest] = text.split(/\s+/);
   switch (cmd) {
     case "/start":
@@ -276,6 +287,15 @@ async function handleCommand(msg: Message, state: ChatState, text: string): Prom
       await replyMia(msg, next ? `Model diset: \`${next}\`` : "Model direset ke default provider.");
       return;
     }
+    case "/status":
+      await replyMia(
+        msg,
+        buildStatusReport(
+          { provider: state.provider, model: state.model, historyLen: state.history.length, user },
+          "Mia 2026.9 (scheduled automation)"
+        )
+      );
+      return;
     default:
       await replyMia(msg, "Command tidak dikenal. Ketik /help.");
   }
@@ -291,14 +311,21 @@ async function handleConfirmation(msg: Message, state: ChatState, user: string, 
   }
   state.pending = null;
   await replyMia(msg, "Oke, sebentar ya…");
-  const result = await runAssistantTurn({
-    messages: pending.messages,
-    provider: state.provider,
-    model: state.model,
-    user,
-    channel: "discord",
-    confirm_call: { call: pending.call, allow: yes },
-  });
+  let result: Awaited<ReturnType<typeof runAssistantTurn>>;
+  try {
+    result = await runAssistantTurn({
+      messages: pending.messages,
+      provider: state.provider,
+      model: state.model,
+      user,
+      channel: "discord",
+      confirm_call: { call: pending.call, allow: yes },
+    });
+  } catch (err) {
+    console.error("[discord] confirm failed:", err instanceof Error ? err.message : String(err));
+    await replyMia(msg, classifyAssistantError(err).userMessage);
+    return;
+  }
   state.history.push({ role: "assistant", content: result.text });
   await replyMia(msg, result.text || "Selesai.");
 }
@@ -330,7 +357,7 @@ async function runTurn(
     console.log(`[discord] turn done (text len=${(result.text || "").length})`);
   } catch (err) {
     console.error("[discord] turn failed:", err instanceof Error ? err.message : String(err));
-    await replyMia(msg, `Maaf, ada kendala: ${err instanceof Error ? err.message : "gagal"} `);
+    await replyMia(msg, classifyAssistantError(err).userMessage);
     return;
   }
 

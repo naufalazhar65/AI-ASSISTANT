@@ -216,7 +216,13 @@ async sendAudio(audio: ArrayBuffer): Promise<void> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(`LLM failed (${res.status})`);
+      if (!res.ok) {
+        // Surface the server's user-facing message (e.g. a clear "token/quota
+        // exhausted" notice from /api/llm) instead of a bare status code.
+        const detail = await res.text().catch(() => "");
+        const clean = detail.replace(/^LLM error:\s*/, "").trim();
+        throw new Error(clean || `LLM failed (${res.status})`);
+      }
       if (!res.body) throw new Error("LLM returned no body");
 
       const reader = res.body.getReader();

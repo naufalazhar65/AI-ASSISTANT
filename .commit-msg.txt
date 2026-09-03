@@ -1,0 +1,35 @@
+feat(Fase 3): scheduled automation, rate-limit resilience, quota alert, /status
+
+Scheduled Automation:
+- New automations.ts (per-user disk store + scheduler, reuses the reminders
+  pattern): daily "setiap pagi jam 8" / hourly "setiap N jam" schedules,
+  parseSchedule, takeDueAutomations (fires once, rolls nextAt forward).
+- New automationRunner.ts subscribes to due automations, runs ONE runAssistantTurn
+  per occurrence in the background, pushes the answer to the owner's active
+  channel via the new shared channels/pushTarget.ts sink (both bots register;
+  turn runs exactly once, adapter abstraction intact).
+- New write tool create_automation in tools.ts + SYSTEM_PROMPT wiring; confirmed
+  via the existing FR-014 yes/no gate.
+- instrumentation-node.ts starts the runner; telegram.ts and discord.ts register
+  their push targets. Live-verified: creating "lapor cuaca Jakarta" every 12h.
+
+Rate-limit resilience:
+- runOneCompletion retries once on 429 (honors Retry-After, ~6s backoff).
+- runAssistantTurn: if a confirmed tool already executed but the follow-up
+  completion fails, return a graceful "access sudah dijalankan" notice instead
+  of a bare internal error.
+
+Token/quota alert:
+- New assistantError.ts classifies errors -> rate_limit | quota | provider |
+  other with clear Indonesian user-facing messages. Wired into /api/llm (429/402
+  status + clear body), GroqStreamingProvider (surfaces the clear message to the
+  web error banner), and Telegram/Discord turn+confirmation catches.
+
+/status command:
+- New lib/status.ts buildStatusReport(): time (Asia/Jakarta + UTC), server
+  uptime, provider/model, history length, per-user data counts (tasks/reminders/
+  automations/notes/uploads). Added to Telegram & Discord command handlers +
+  /help. Reports only data Mia actually tracks (no fabricated token/cost/cache).
+
+Verified: tsx probes (automations store, error classifier, status report),
+typecheck, lint, vitest (9), verify.ts. Cleaned up a leftover test automation.

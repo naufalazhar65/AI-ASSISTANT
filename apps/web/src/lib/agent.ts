@@ -44,7 +44,7 @@ const SYSTEM_PROMPT = [
   "same person everywhere. Answer concisely and naturally. Never use markdown. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, and read_upload. ",
+  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, and create_automation. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
   "show saved notes, delete_note to remove one, file_read to read a project ",
@@ -59,7 +59,8 @@ const SYSTEM_PROMPT = [
   "Prefer add_task over remind_me when the user wants an ongoing task to track, ",
   "not just a one-time nudge. Use list_uploads to show files the user uploaded via Telegram or Discord, and read_upload to read a saved upload's text content when asked about its contents. ",
   "When the user uploads a file (Telegram/Discord), it is ALREADY saved by the system and its text is available to you in context or via read_upload — do NOT call save_note, add_task, or any other tool just to record the file itself; reply to its contents instead. ",
-  "save_note, delete_note, remind_me, add_task, complete_task, cancel_task, and reschedule_task ",
+  "When the user wants a recurring action on a schedule ('setiap pagi jam 8', 'setiap 2 jam', 'lapor cuaca tiap pagi'), call create_automation with the action as `prompt` and a human `schedule` string.",
+  "save_note, delete_note, remind_me, add_task, complete_task, cancel_task, reschedule_task, and create_automation ",
   "will pause for the user's confirmation before they run; do not claim the ",
   "note was saved/deleted or the reminder set yet.",
   "Tool results come from the server and should be trusted as fresh information.",
@@ -217,6 +218,37 @@ export function buildOpenCodeSystemPrompt(rawUser?: unknown, channel?: Channel):
 
 /** One streamed completion; returns accumulated text + any requested tool calls. */
 export async function runOneCompletion(
+  messages: ChatMessage[],
+  url: string,
+  apiKey: string,
+  systemPrompt: string,
+  model: string,
+  withTools: boolean
+): Promise<{ text: string; toolCalls: ToolCall[] }> {
+  // Retry once on rate-limit (429) so a transient Groq TPM cap — which can hit
+  // right after a confirmed tool runs — doesn't fail the whole turn. We back off
+  // briefly, honoring a Retry-After header when present.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await runOneCompletionOnce(messages, url, apiKey, systemPrompt, model, withTools);
+    } catch (err) {
+      const isRateLimit = err instanceof Error && /429/.test(err.message);
+      if (!isRateLimit || attempt >= 1) throw err;
+      const retryAfter = extractRetryAfterMs(err as Error);
+      await new Promise((r) => setTimeout(r, retryAfter));
+    }
+  }
+}
+
+/** Best-effort Retry-After (seconds) → ms, defaulting to 6s. */
+function extractRetryAfterMs(err: Error): number {
+  const m = err.message.match(/(?:Please try again in)\s+([\d.]+)s/);
+  const secs = m ? Number(m[1]) : NaN;
+  if (!Number.isFinite(secs) || secs <= 0) return 6000;
+  return Math.min(30000, Math.round(secs * 1000));
+}
+
+async function runOneCompletionOnce(
   messages: ChatMessage[],
   url: string,
   apiKey: string,
@@ -491,17 +523,33 @@ export async function runAssistantTurn(opts: {
   let text = "";
   let needsConfirmation: ToolCall[] | null = null;
   const collector = { collect: (t: string) => (text += t) };
-  const result = await runAgent(
-    messages,
-    resolved.url,
-    resolved.apiKey,
-    resolved.defaultModel,
-    systemPrompt,
-    collector,
-    1,
-    model,
-    opts.user
-  );
+  let result: { needsConfirmation: ToolCall[] | null };
+  try {
+    result = await runAgent(
+      messages,
+      resolved.url,
+      resolved.apiKey,
+      resolved.defaultModel,
+      systemPrompt,
+      collector,
+      1,
+      model,
+      opts.user
+    );
+  } catch (err) {
+    // A confirmed tool (e.g. create_automation) may have already been executed
+    // above before the follow-up completion failed (e.g. a transient rate
+    // limit). Don't hide that the action succeeded — surface a graceful notice
+    // instead of a bare internal-error, so the user isn't left guessing.
+    if (opts.confirm_call?.allow) {
+      console.error("[agent] confirmed tool ran but follow-up failed:", err instanceof Error ? err.message : String(err));
+      return {
+        text: "Aksimu sudah dijalankan. Sayangnya balasan detailnya tersendat karena layanan sedang sibuk — coba tanya lagi sebentar lagi ya. 🌸",
+        needsConfirmation: null,
+      };
+    }
+    throw err;
+  }
   needsConfirmation = result.needsConfirmation;
 
   // Automatic memory capture in the background (never delays the turn).

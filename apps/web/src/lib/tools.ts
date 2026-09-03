@@ -5,6 +5,7 @@ import { addReminder } from "./reminders";
 import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
+import { addAutomation, describeSchedule } from "./automations";
 
 export interface ToolCall {
   id: string;
@@ -293,6 +294,29 @@ export const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    risk: "write",
+    function: {
+      name: "create_automation",
+      description:
+        "Schedule a recurring automation: the assistant runs the `prompt` on the given schedule and pushes the result to the user's active channel without the user prompting it. schedule examples: \"setiap pagi jam 8\", \"setiap hari 08:30\", \"setiap 2 jam\".",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: {
+            type: "string",
+            description: "What to do each run, e.g. \"lapor cuaca hari ini\".",
+          },
+          schedule: {
+            type: "string",
+            description: "Human schedule spec, e.g. \"setiap pagi jam 8\" or \"setiap 3 jam\".",
+          },
+        },
+        required: ["prompt", "schedule"],
+      },
+    },
+  },
 ];
 
 export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<string> {
@@ -342,6 +366,16 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid reminder"}`;
       }
+    case "create_automation": {
+      try {
+        const prompt = typeof args.prompt === "string" ? args.prompt : "";
+        const schedule = typeof args.schedule === "string" ? args.schedule : "";
+        const auto = addAutomation(prompt, schedule, rawUser);
+        return `Automation created: "${auto.prompt}" runs ${describeSchedule(auto.schedule)}.`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid automation"}`;
+      }
+    }
     case "add_task":
       try {
         const text = typeof args.text === "string" ? args.text.trim() : "";

@@ -25,4 +25,10 @@ export async function registerNode(): Promise<void> {
   } catch (err) {
     console.error("[discord] failed to start bot:", err instanceof Error ? err.message : String(err));
   }
+  try {
+    const { startAutomationRunner } = await import("@/lib/automationRunner");
+    startAutomationRunner();
+  } catch (err) {
+    console.error("[automation] failed to start runner:", err instanceof Error ? err.message : String(err));
+  }
 }

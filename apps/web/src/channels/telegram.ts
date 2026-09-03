@@ -28,6 +28,9 @@ import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
 import { reminderMessage } from "@/lib/reminderMessage";
 import { saveUpload } from "@/lib/uploads";
+import { registerPushTarget } from "@/channels/pushTarget";
+import { classifyAssistantError } from "@/lib/assistantError";
+import { buildStatusReport } from "@/lib/status";
 
 /**
  * Escape helper for Telegram legacy Markdown (parse_mode="Markdown"), which only
@@ -164,6 +167,7 @@ const HELP_TEXT = [
   "  /reset — hapus riwayat percakapan ini",
   "  /provider — lihat provider AI",
   "  /provider <id> — ganti provider (groq | opencode | 9router | mock)",
+  "  /status — status sistem (waktu, uptime, provider, data)",
   "",
   "Kamu bisa minta aku menyetel reminder (mis. 'bangunin aku jam 7 pagi'), menyimpan catatan, mencari di web, atau menghitung.",
 ].join("\n");
@@ -215,7 +219,7 @@ export async function startTelegramBot(): Promise<void> {
       const user = userKeyFor(ctx);
 
       if (text.startsWith("/")) {
-        await handleCommand(ctx, state, text);
+        await handleCommand(ctx, state, text, user);
         return;
       }
 
@@ -309,6 +313,13 @@ export async function startTelegramBot(): Promise<void> {
       });
   });
 
+  // Register this bot as the proactive-output sink (scheduled automation results).
+  registerPushTarget("telegram", async (content: string) => {
+    const target = pushTarget();
+    if (target == null) throw new Error("no telegram owner chat seen");
+    return bot.api.sendMessage(target, toTelegramMarkdown(content), { parse_mode: "Markdown" });
+  });
+
   console.log("[telegram] starting long-polling bot…");
   // Surface every per-update / middleware error so a broken reply is diagnosable
   // (grammY swallows these without an explicit catch handler).
@@ -324,7 +335,7 @@ export async function startTelegramBot(): Promise<void> {
   });
 }
 
-async function handleCommand(ctx: Context, state: ChatState, text: string): Promise<void> {
+async function handleCommand(ctx: Context, state: ChatState, text: string, user: string): Promise<void> {
   const [cmd, ...rest] = text.split(/\s+/);
   switch (cmd) {
     case "/start":
@@ -358,6 +369,15 @@ async function handleCommand(ctx: Context, state: ChatState, text: string): Prom
       await replyMia(ctx, next ? `Model diset: \`${next}\`` : "Model direset ke default provider.");
       return;
     }
+    case "/status":
+      await replyMia(
+        ctx,
+        buildStatusReport(
+          { provider: state.provider, model: state.model, historyLen: state.history.length, user },
+          "Mia 2026.9 (scheduled automation)"
+        )
+      );
+      return;
     default:
       await replyMia(ctx, "Command tidak dikenal. Ketik /help.");
   }
@@ -373,14 +393,21 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
   }
   state.pending = null;
   await replyMia(ctx, "Oke, sebentar ya…");
-  const result = await runAssistantTurn({
-    messages: pending.messages,
-    provider: state.provider,
-    model: state.model,
-    user,
-    channel: "text",
-    confirm_call: { call: pending.call, allow: yes },
-  });
+  let result: Awaited<ReturnType<typeof runAssistantTurn>>;
+  try {
+    result = await runAssistantTurn({
+      messages: pending.messages,
+      provider: state.provider,
+      model: state.model,
+      user,
+      channel: "text",
+      confirm_call: { call: pending.call, allow: yes },
+    });
+  } catch (err) {
+    console.error("[telegram] confirm failed:", err instanceof Error ? err.message : String(err));
+    await replyMia(ctx, classifyAssistantError(err).userMessage);
+    return;
+  }
   state.history.push({ role: "assistant", content: result.text });
   await replyMia(ctx, result.text || "Selesai.");
 }
@@ -414,7 +441,7 @@ async function runTurn(
     console.log(`[telegram] turn done (text len=${(result.text || "").length})`);
   } catch (err) {
     console.error("[telegram] turn failed:", err instanceof Error ? err.message : String(err));
-    await replyMia(ctx, `Maaf, ada kendala: ${err instanceof Error ? err.message : "gagal"} `);
+    await replyMia(ctx, classifyAssistantError(err).userMessage);
     return;
   }
 

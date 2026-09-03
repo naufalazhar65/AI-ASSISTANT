@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { ToolCall } from "@/lib/tools";
+import { classifyAssistantError } from "@/lib/assistantError";
 import {
   runAssistantTurn,
   CONFIRM_FRAME_PREFIX,
@@ -51,8 +52,16 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Assistant failed";
-    const status = message.includes("is not available for provider") ? 400 : message.includes("is not configured") ? 500 : 502;
-    return new Response(`LLM error: ${message}`, {
+    const cls = classifyAssistantError(err);
+    // Return the user-facing message so the web UI can surface a clear
+    // "token/quota exhausted" alert instead of a generic failure.
+    const status =
+      cls.kind === "rate_limit" ? 429
+      : cls.kind === "quota" ? 402
+      : message.includes("is not available for provider") ? 400
+      : message.includes("is not configured") ? 500
+      : 502;
+    return new Response(`LLM error: ${cls.userMessage}`, {
       status,
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
