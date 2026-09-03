@@ -1,76 +1,75 @@
 # Graph Report - ai-assistant  (2026-09-03)
 
 ## Corpus Check
-- 720 files · ~0 words
-- Verdict: corpus is large enough that graph structure adds value.
+- cluster-only mode — file stats not available
 
 ## Summary
-- 720 nodes · 1055 edges · 61 communities (47 shown, 14 thin omitted)
-- Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS
+- 723 nodes · 1056 edges · 61 communities (44 shown, 12 thin omitted)
+- Extraction: 82% EXTRACTED · 18% INFERRED · 0% AMBIGUOUS · INFERRED: 192 edges (avg confidence: 0.99)
 - Token cost: 0 input · 0 output
 
+## Graph Freshness
+- Built from commit: `51677550`
+- Run `git rev-parse HEAD` and compare to check if the graph is stale.
+- Run `graphify update .` after code changes (no API cost).
+
 ## Community Hubs (Navigation)
-- Audio & Turn Pipeline
-- Persona & Memory Types
-- Tools & Reminders
-- AI Provider Package
-- Chat Input & Attachments
-- PRD Architecture & Transport
-- Web Runtime Dependencies
-- Web DevDependencies
-- Web TypeScript Config
-- Groq Streaming Provider
-- Conversation Manager
-- LLM Agent & Automemory
-- Sessions & Persistence
-- State Machine
-- Test Tooling (vitest)
-- Provider Event Types
-- Mock Provider tsconfig
-- AI Provider tsconfig
-- State Machine tsconfig
-- Project Docs (AGENTS)
-- AIProvider Abstraction
-- Chat Card UI
-- Mock Provider
-- PRD User Stories
-- PRD Acceptance Criteria
-- PRD Edge Cases
-- PRD Product Goals
-- PRD UI/UX
-- PRD Risks
-- Transcript UI
-- TTS Route & Voices
-- PRD Error Handling
-- PRD QA Strategy
-- PRD Roadmap
-- PRD Future Features
-- ESLint Config
-- Root Layout & Viewport
-- PRD Tech Stack
-- PRD Analytics
-- PRD MVP Scope
-- PRD Memory
-- PRD Success Criteria
-- Next.js Config
-- Persona Identity
-- STT Route
-- PRD Latency
-- PRD Privacy
-- PRD Overview
-- PRD AI Quality
-- PRD Target Users
-- PRD Conversation Model
-- Next Env Types
-- Persona Dreams
-- Persona Soul
-- Persona User Data
-- PostCSS Config
-- PRD Audio Testing
-- README
-- Tailwind Config JS
-- Tailwind Config TS
-- Vitest Config
+- useVoice.ts
+- llm/route.ts
+- dependencies
+- ai-chat-input.tsx
+- sessions.ts
+- devDependencies
+- compilerOptions
+- GroqStreamingProvider
+- PRD_Real-Time_Voice_AI_Assistant.md
+- ConversationManager
+- tools.ts
+- 8. Functional Requirements
+- state-machine/src/index.ts
+- AIProvider
+- package.json
+- MockProvider
+- compilerOptions
+- compilerOptions
+- compilerOptions
+- AGENTS.md
+- 23. User Stories
+- 24. Acceptance Criteria
+- 31. Edge Cases
+- 3.1 Primary Goals
+- 9.2 Voice Orb
+- 41. Risks
+- ConversationManager.ts
+- tts/route.ts
+- 17. Error Handling
+- 25.2 Compatibility Testing
+- 36. Development Roadmap
+- 40. Future Feature Roadmap
+- extends
+- layout.tsx
+- 12. Recommended Technology Stack
+- 21. Analytics
+- 22. MVP Scope
+- 33. Memory Architecture
+- 38. Product Success Criteria
+- next.config.js
+- IDENTITY.md
+- postcss.config.js
+- stt/route.ts
+- 16. Latency Requirements
+- 19. Privacy Requirements
+- 1. Product Overview
+- 30. AI Quality Testing
+- 5. Target Users
+- 7. Conversation Model
+- next-env.d.ts
+- DREAMS.md
+- SOUL.md
+- USER.md
+- 10. Conversation State Machine
+- 13. Real-Time Transport
+- README.md
 
 ## God Nodes (most connected - your core abstractions)
 1. `GroqStreamingProvider` - 29 edges
@@ -80,9 +79,9 @@
 5. `useVoice()` - 20 edges
 6. `sanitizeUser()` - 18 edges
 7. `MockProvider` - 17 edges
-8. `8. Functional Requirements` - 17 edges
-9. `compilerOptions` - 16 edges
-10. `executeTool()` - 14 edges
+8. `compilerOptions` - 16 edges
+9. `executeTool()` - 14 edges
+10. `AutoTurnManager` - 13 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `UseVoiceResult` --references--> `ConfirmationRequest`  [EXTRACTED]
@@ -99,213 +98,203 @@
 ## Import Cycles
 - None detected.
 
-## Communities (61 total, 14 thin omitted)
+## Communities (61 total, 12 thin omitted)
 
-### Community 0 - "Audio & Turn Pipeline"
+### Community 0 - "useVoice.ts"
 Cohesion: 0.06
-Nodes (31): AutoTurnManager.ts, AutoTurnManager, VADMode, AudioCapture.ts, AudioCapture, AudioCaptureListener, AudioCaptureState, AudioPlayer.ts (+23 more)
+Nodes (26): AutoTurnManager, VADMode, AudioCapture, AudioCaptureListener, AudioCaptureState, AudioPlayer, VADCallbacks, VADOptions (+18 more)
 
-### Community 1 - "Persona & Memory Types"
+### Community 1 - "llm/route.ts"
 Cohesion: 0.07
-Nodes (54): llm/route.ts, buildOpenCodeSystemPrompt(), buildSystemPrompt(), ChatMessage, OPENCODE_SYSTEM_PROMPT, POST(), runAgent(), runOneCompletion() (+46 more)
+Nodes (47): buildOpenCodeSystemPrompt(), buildSystemPrompt(), ChatMessage, OPENCODE_SYSTEM_PROMPT, POST(), runAgent(), runOneCompletion(), runtime (+39 more)
 
-### Community 2 - "Tools & Reminders"
-Cohesion: 0.10
-Nodes (45): stream/route.ts, dynamic, GET(), runtime, reminders.ts, addReminder(), broadcastDue(), ensureTimer() (+37 more)
+### Community 2 - "dependencies"
+Cohesion: 0.04
+Nodes (47): @ai-provider/mock, dependencies, @ai-provider/mock, class-variance-authority, clsx, framer-motion, lucide-react, next (+39 more)
 
-### Community 3 - "AI Provider Package"
-Cohesion: 0.06
-Nodes (36): @voice/ai-provider, typescript, typescript, @voice/ai-provider, ai-provider/package.json, devDependencies, typescript, main (+28 more)
-
-### Community 4 - "Chat Input & Attachments"
-Cohesion: 0.09
-Nodes (29): page.tsx, Home(), STATE_HUES, FloatingParticles.tsx, FloatingParticles(), mulberry32(), PARTICLE_CONFIGS, SignInForm.tsx (+21 more)
-
-### Community 5 - "PRD Architecture & Transport"
+### Community 3 - "ai-chat-input.tsx"
 Cohesion: 0.07
-Nodes (28): PRD_Real-Time_Voice_AI_Assistant.md, 10. Conversation State Machine, 11. Technical Architecture, 13. Real-Time Transport, 14. Audio Pipeline, 15. Audio Requirements, 18. Security Requirements, 20. Observability (+20 more)
+Nodes (29): Home(), STATE_HUES, FloatingParticles(), mulberry32(), PARTICLE_CONFIGS, SignInForm(), useAuth(), AIChatCard() (+21 more)
 
-### Community 6 - "Web Runtime Dependencies"
+### Community 4 - "sessions.ts"
+Cohesion: 0.12
+Nodes (36): dynamic, GET(), runtime, DELETE(), dynamic, GET(), POST(), runtime (+28 more)
+
+### Community 5 - "devDependencies"
+Cohesion: 0.05
+Nodes (39): devDependencies, autoprefixer, eslint, eslint-config-next, postcss, tailwindcss, @types/node, @types/react (+31 more)
+
+### Community 6 - "compilerOptions"
 Cohesion: 0.07
-Nodes (27): @ai-provider/mock, dependencies, @ai-provider/mock, class-variance-authority, clsx, framer-motion, lucide-react, next (+19 more)
+Nodes (26): compilerOptions, allowJs, esModuleInterop, incremental, isolatedModules, jsx, lib, module (+18 more)
 
-### Community 7 - "Web DevDependencies"
-Cohesion: 0.07
-Nodes (27): web/package.json, devDependencies, autoprefixer, eslint, eslint-config-next, postcss, tailwindcss, @types/node (+19 more)
+### Community 7 - "GroqStreamingProvider"
+Cohesion: 0.15
+Nodes (4): GroqStreamingProvider, stripEmojiForSpeech(), AIChatCardProps, ConfirmationRequest
 
-### Community 8 - "Web TypeScript Config"
-Cohesion: 0.07
-Nodes (27): web/tsconfig.json, compilerOptions, allowJs, esModuleInterop, incremental, isolatedModules, jsx, lib (+19 more)
+### Community 8 - "PRD_Real-Time_Voice_AI_Assistant.md"
+Cohesion: 0.08
+Nodes (26): PRD_Real-Time_Voice_AI_Assistant.md, 11. Technical Architecture, 14. Audio Pipeline, 15. Audio Requirements, 18. Security Requirements, 20. Observability, 26. Audio Testing, 27. Interrupt Testing (+18 more)
 
-### Community 10 - "Conversation Manager"
-Cohesion: 0.17
-Nodes (5): ConversationManager, nextId(), web/verify.ts, delay(), main()
+### Community 9 - "ConversationManager"
+Cohesion: 0.16
+Nodes (5): ConversationManager, nextId(), delay(), main(), ConversationMessage
 
-### Community 11 - "LLM Agent & Automemory"
+### Community 10 - "tools.ts"
+Cohesion: 0.16
+Nodes (22): cleanUrl(), deleteNote(), DENY_PATTERNS, DENY_SEGMENTS, evaluateArithmetic(), executeTool(), fetchInstantAnswer(), FILE_ROOT() (+14 more)
+
+### Community 11 - "8. Functional Requirements"
 Cohesion: 0.10
 Nodes (22): 8. Functional Requirements, Acceptance Requirement, FR-001 — Voice Input, FR-002 — Voice Activity Detection, FR-003 — Streaming Speech-to-Text, FR-004 — LLM Processing, FR-005 — Streaming AI Response, FR-006 — Streaming Text-to-Speech (+14 more)
 
-### Community 12 - "Sessions & Persistence"
-Cohesion: 0.27
-Nodes (19): sessions/route.ts, DELETE(), dynamic, GET(), POST(), runtime, sessions.ts, deleteSession() (+11 more)
-
-### Community 13 - "State Machine"
+### Community 12 - "state-machine/src/index.ts"
 Cohesion: 0.14
-Nodes (13): state-machine/src/index.ts, ConversationStateMachine, Event, State, STATES, index.test.ts, Transition, TRANSITIONS (+5 more)
+Nodes (10): ConversationStateMachine, Event, State, STATES, Transition, TRANSITIONS, cycle, ILLEGAL (+2 more)
 
-### Community 14 - "Test Tooling (vitest)"
+### Community 13 - "AIProvider"
+Cohesion: 0.13
+Nodes (6): AIProvider, MessageRole, MockProviderLike, ProviderEvent, SendResult, ToolDefinition
+
+### Community 14 - "package.json"
 Cohesion: 0.12
-Nodes (16): package.json, devDependencies, vitest, name, private, scripts, build, dev (+8 more)
+Nodes (15): devDependencies, vitest, name, private, scripts, build, dev, lint (+7 more)
 
-### Community 15 - "Provider Event Types"
-Cohesion: 0.21
-Nodes (9): GroqStreamingProvider.ts, ai-provider/src/index.ts, ConversationMessage, MessageRole, ProviderEvent, ProviderEventListener, SendResult, ToolDefinition (+1 more)
-
-### Community 16 - "Mock Provider tsconfig"
+### Community 16 - "compilerOptions"
 Cohesion: 0.14
-Nodes (14): mock-provider/tsconfig.json, compilerOptions, esModuleInterop, lib, module, moduleResolution, noEmit, skipLibCheck (+6 more)
+Nodes (13): compilerOptions, esModuleInterop, lib, module, moduleResolution, noEmit, skipLibCheck, strict (+5 more)
 
-### Community 17 - "AI Provider tsconfig"
+### Community 17 - "compilerOptions"
 Cohesion: 0.15
-Nodes (13): ai-provider/tsconfig.json, compilerOptions, esModuleInterop, lib, module, moduleResolution, noEmit, skipLibCheck (+5 more)
+Nodes (12): compilerOptions, esModuleInterop, lib, module, moduleResolution, noEmit, skipLibCheck, strict (+4 more)
 
-### Community 18 - "State Machine tsconfig"
+### Community 18 - "compilerOptions"
 Cohesion: 0.15
-Nodes (13): state-machine/tsconfig.json, compilerOptions, esModuleInterop, lib, module, moduleResolution, noEmit, skipLibCheck (+5 more)
+Nodes (12): compilerOptions, esModuleInterop, lib, module, moduleResolution, noEmit, skipLibCheck, strict (+4 more)
 
-### Community 19 - "Project Docs (AGENTS)"
+### Community 19 - "AGENTS.md"
 Cohesion: 0.17
 Nodes (12): AGENTS.md, Commands (npm workspaces at repo root), Critical architecture decisions (from PRD), Gotchas, Key invariants to preserve, Persona & long-term memory, Project status, Provider (free Groq tier) (+4 more)
 
-### Community 21 - "Chat Card UI"
-Cohesion: 0.25
-Nodes (10): ai-chat.tsx, AIChatCard(), AIChatCardProps, AIChatMessage, CARD_PARTICLES, mulberry32(), renderContent(), renderInline() (+2 more)
-
-### Community 23 - "PRD User Stories"
+### Community 20 - "23. User Stories"
 Cohesion: 0.20
 Nodes (10): 23. User Stories, US-001 — Voice Input, US-002 — Streaming Response, US-003 — Interrupt, US-004 — Context, US-005 — Transcript, US-006 — Voice, US-007 — Text Fallback (+2 more)
 
-### Community 24 - "PRD Acceptance Criteria"
+### Community 21 - "24. Acceptance Criteria"
 Cohesion: 0.25
 Nodes (8): 24. Acceptance Criteria, AC-001 — Voice Input, AC-002 — Voice Turn Completion, AC-003 — AI Response, AC-004 — Interrupt, AC-005 — Context, AC-006 — Text Fallback, AC-007 — Privacy
 
-### Community 25 - "PRD Edge Cases"
+### Community 22 - "31. Edge Cases"
 Cohesion: 0.25
 Nodes (8): 31.1 User Says Nothing, 31.2 Very Short Utterance, 31.3 User Speaks While AI Speaks, 31.4 Rapid Corrections, 31.5 Network Disconnect, 31.6 AI Generates Too Much Text, 31.7 User Changes Topic, 31. Edge Cases
 
-### Community 26 - "PRD Product Goals"
+### Community 23 - "3.1 Primary Goals"
 Cohesion: 0.25
 Nodes (8): 3.1 Primary Goals, 3.2 Secondary Goals, 3. Product Goals, Context-aware, Fast, Interactive, Natural, Reliable
 
-### Community 27 - "PRD UI/UX"
+### Community 24 - "9.2 Voice Orb"
 Cohesion: 0.25
 Nodes (8): 9.1 Main Screen, 9.2 Voice Orb, 9.3 UI State Labels, 9. UI/UX Requirements, Idle, Listening, Speaking, Thinking
 
-### Community 28 - "PRD Risks"
+### Community 25 - "41. Risks"
 Cohesion: 0.29
 Nodes (7): 41. Risks, R-001 — High Latency, R-002 — Bad Speech Recognition, R-003 — Poor Interruption, R-004 — Cost, R-005 — Privacy, R-006 — Tool Abuse
 
-### Community 29 - "Transcript UI"
+### Community 26 - "ConversationManager.ts"
 Cohesion: 0.40
-Nodes (5): ConversationManager.ts, ConversationEvent, ConversationListener, TranscriptEntry, Transcript.tsx
+Nodes (3): ConversationEvent, ConversationListener, TranscriptEntry
 
-### Community 30 - "TTS Route & Voices"
+### Community 27 - "tts/route.ts"
 Cohesion: 0.40
-Nodes (6): tts/route.ts, detectModel(), GROQ_VOICES_AR, GROQ_VOICES_EN, POST(), runtime
+Nodes (5): detectModel(), GROQ_VOICES_AR, GROQ_VOICES_EN, POST(), runtime
 
-### Community 31 - "PRD Error Handling"
+### Community 28 - "17. Error Handling"
 Cohesion: 0.33
 Nodes (6): 17.1 Microphone Denied, 17.2 Connection Lost, 17.3 AI Timeout, 17.4 TTS Failure, 17.5 Invalid Audio Device, 17. Error Handling
 
-### Community 32 - "PRD QA Strategy"
+### Community 29 - "25.2 Compatibility Testing"
 Cohesion: 0.33
 Nodes (6): 25.1 Functional Testing, 25.2 Compatibility Testing, 25. QA Test Strategy, Audio Devices, Desktop, Mobile
 
-### Community 33 - "PRD Roadmap"
+### Community 30 - "36. Development Roadmap"
 Cohesion: 0.33
 Nodes (6): 36. Development Roadmap, Phase 1 — Foundation, Phase 2 — Real-Time Voice, Phase 3 — Natural Conversation, Phase 4 — Assistant Capabilities, Phase 5 — AI Agent
 
-### Community 34 - "PRD Future Features"
+### Community 31 - "40. Future Feature Roadmap"
 Cohesion: 0.33
 Nodes (6): 40. Future Feature Roadmap, Computer Control, Developer Tools, Productivity, Smart Environment, Voice Intelligence
 
-### Community 35 - "ESLint Config"
+### Community 32 - "extends"
 Cohesion: 0.50
-Nodes (4): .eslintrc.json, extends, next/core-web-vitals, next/typescript
+Nodes (3): extends, next/core-web-vitals, next/typescript
 
-### Community 36 - "Root Layout & Viewport"
-Cohesion: 0.50
-Nodes (3): layout.tsx, metadata, viewport
-
-### Community 37 - "PRD Tech Stack"
+### Community 34 - "12. Recommended Technology Stack"
 Cohesion: 0.50
 Nodes (4): 12.1 Frontend, 12.2 Backend, 12.3 AI Layer, 12. Recommended Technology Stack
 
-### Community 38 - "PRD Analytics"
+### Community 35 - "21. Analytics"
 Cohesion: 0.50
 Nodes (4): 21.1 Engagement Metrics, 21.2 Voice Metrics, 21.3 Performance Metrics, 21. Analytics
 
-### Community 39 - "PRD MVP Scope"
+### Community 36 - "22. MVP Scope"
 Cohesion: 0.50
 Nodes (4): 22.1 Must Have, 22.2 Nice to Have, 22.3 Future, 22. MVP Scope
 
-### Community 40 - "PRD Memory"
+### Community 37 - "33. Memory Architecture"
 Cohesion: 0.50
 Nodes (4): 33. Memory Architecture, Conversation Memory, Long-term Memory, Short-term Context
 
-### Community 41 - "PRD Success Criteria"
+### Community 38 - "38. Product Success Criteria"
 Cohesion: 0.50
 Nodes (4): 38. Product Success Criteria, Product, Technical, User Experience
 
-### Community 42 - "Next.js Config"
-Cohesion: 0.67
-Nodes (3): next.config.js, nextConfig, path
-
-### Community 43 - "Persona Identity"
+### Community 40 - "IDENTITY.md"
 Cohesion: 0.67
 Nodes (3): IDENTITY.md, How I introduce myself, Personality
 
-### Community 45 - "PRD Latency"
+### Community 43 - "16. Latency Requirements"
 Cohesion: 0.67
 Nodes (3): 16. Latency Requirements, Long-Term Target, MVP Targets
 
-### Community 46 - "PRD Privacy"
+### Community 44 - "19. Privacy Requirements"
 Cohesion: 0.67
 Nodes (3): 19. Privacy Requirements, Privacy Principles, Privacy Settings
 
-### Community 47 - "PRD Overview"
+### Community 45 - "1. Product Overview"
 Cohesion: 0.67
 Nodes (3): 1. Product Overview, Product Vision, Real-Time Voice AI Assistant
 
-### Community 48 - "PRD AI Quality"
+### Community 46 - "30. AI Quality Testing"
 Cohesion: 0.67
 Nodes (3): 30. AI Quality Testing, Example, Test dimensions
 
-### Community 49 - "PRD Target Users"
+### Community 47 - "5. Target Users"
 Cohesion: 0.67
 Nodes (3): 5.1 Primary Users, 5.2 Secondary Users, 5. Target Users
 
-### Community 50 - "PRD Conversation Model"
+### Community 48 - "7. Conversation Model"
 Cohesion: 0.67
 Nodes (3): 7.1 Conversation Structure, 7.2 Message Structure, 7. Conversation Model
 
 ## Knowledge Gaps
-- **14 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **148 isolated node(s):** `VADMode`, `AudioCaptureListener`, `VADCallbacks`, `VADOptions`, `PersistedSettings` (+143 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 380 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **12 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Should `Audio & Turn Pipeline` be split into smaller, more focused modules?**
+- **Why does `GroqStreamingProvider` connect `GroqStreamingProvider` to `useVoice.ts`, `ConversationManager`, `AIProvider`, `MockProvider`?**
+  _High betweenness centrality (0.025) - this node is a cross-community bridge._
+- **Why does `ConversationManager` connect `ConversationManager` to `useVoice.ts`, `ConversationManager.ts`, `state-machine/src/index.ts`, `AIProvider`?**
+  _High betweenness centrality (0.024) - this node is a cross-community bridge._
+- **Are the 47 inferred relationships involving `PRD_Real-Time_Voice_AI_Assistant.md` (e.g. with `10. Conversation State Machine` and `11. Technical Architecture`) actually correct?**
+  _`PRD_Real-Time_Voice_AI_Assistant.md` has 47 INFERRED edges - model-reasoned connections that need verification._
+- **What connects `VADMode`, `AudioCaptureListener`, `VADCallbacks` to the rest of the system?**
+  _148 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `useVoice.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.05734767025089606 - nodes in this community are weakly interconnected._
-- **Should `Persona & Memory Types` be split into smaller, more focused modules?**
+- **Should `llm/route.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.06568832983927324 - nodes in this community are weakly interconnected._
-- **Should `Tools & Reminders` be split into smaller, more focused modules?**
-  _Cohesion score 0.09565217391304348 - nodes in this community are weakly interconnected._
-- **Should `AI Provider Package` be split into smaller, more focused modules?**
-  _Cohesion score 0.05555555555555555 - nodes in this community are weakly interconnected._
-- **Should `Chat Input & Attachments` be split into smaller, more focused modules?**
-  _Cohesion score 0.08571428571428572 - nodes in this community are weakly interconnected._
-- **Should `PRD Architecture & Transport` be split into smaller, more focused modules?**
-  _Cohesion score 0.07142857142857142 - nodes in this community are weakly interconnected._
-- **Should `Web Runtime Dependencies` be split into smaller, more focused modules?**
-  _Cohesion score 0.07407407407407407 - nodes in this community are weakly interconnected._
+- **Should `dependencies` be split into smaller, more focused modules?**
+  _Cohesion score 0.04081632653061224 - nodes in this community are weakly interconnected._

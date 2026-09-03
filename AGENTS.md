@@ -2,15 +2,20 @@
 
 ## Project status
 
-Phase 1 (Foundation) + Phase 2 (real voice over the free Groq tier) + Phase 3 core (auto turn-taking via VAD, barge-in, TURN_END state) implemented. Streaming-STT partials and WebRTC transport are Phase 3+/4.
+Project evolved (2026-09-03) from a **voice-first public app** to a **Personal AI Assistant (Mia)** — a multi-platform, OpenClaw-style personal assistant. Voice/web foundation from v1.0 is retained and becomes the core; the new target is connecting to **Telegram & Discord** as channels around the same core. See `PRD_Real-Time_Voice_AI_Assistant.md` (v2.0) + `ROADMAP.md`.
+
+Phase status: Fase 0 foundation (web text+voice, memory/persona, tools, reminders, sessions, provider abstraction) DONE. Next: **Fase 2 — Communication Layer** (Telegram Bot → Discord Bot → channel adapter architecture).
 
 ## What this is
 
-Real-time voice AI assistant. User speaks → ASR → LLM → TTS → speaks back. Must support interrupt/barge-in and conversation context. Inspired by Siri / ChatGPT Voice / Gemini Live.
+Personal AI assistant "Mia" — a command center for personal tasks, reachable from multiple channels (web text+voice, Telegram bot, Discord bot, more later) sharing ONE memory, ONE persona, and ONE tool set. Both a real-time voice assistant (from v1.0) AND a multi-platform chat/automation assistant. Inspired by OpenClaw + Siri/ChatGPT Voice.
 
-## Read the PRD first
+## Read the PRD & ROADMAP first
 
-`PRD_Real-Time_Voice_AI_Assistant.md` is the source of truth for requirements, architecture, data models, state machine, acceptance criteria, and MVP scope (§22.1 must-haves, §4 non-goals).
+- `PRD_Real-Time_Voice_AI_Assistant.md` (v2.0) — source of truth: requirements, architecture (AI Provider + Channel Adapter abstraction), conversation model, state machine, security/test model, MVP scope, user stories, acceptance criteria.
+- `ROADMAP.md` — phase-by-phase development guide (Fase 0 foundation → Fase 1 Core → Fase 2 Channels (Telegram/Discord) → Fase 3 Personal capabilities → Fase 4 Advanced → Fase 5 Stability/Security). Update checkboxes as features land.
+
+Architectural principle (new in v2.0): **Channel Adapter abstraction** — each platform (web/telegram/discord) is an adapter that forwards text/voice to the SAME core Conversation Manager; the core never knows the platform. Adding a channel = adding an adapter, no core change.
 
 ## Repo layout
 

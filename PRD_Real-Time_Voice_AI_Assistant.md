@@ -1,2246 +1,417 @@
 # Product Requirements Document (PRD)
-# Real-Time Voice AI Assistant
+# Personal AI Assistant (Mia)
 
-**Product Name:** Voice AI Assistant  
-**Document Version:** 1.0  
-**Status:** Draft  
-**Document Type:** Product Requirements Document  
-**Target Platforms:** Web, Desktop, Mobile-ready  
-**Primary Interaction:** Real-time voice conversation  
-**Product Inspiration:** Siri, ChatGPT Voice, Google Gemini Live
-
----
-
-## 1. Product Overview
-
-Voice AI Assistant adalah aplikasi asisten AI berbasis suara yang memungkinkan pengguna berinteraksi secara natural menggunakan percakapan dua arah secara real-time.
-
-Pengguna tidak perlu mengetik. Mereka cukup berbicara, dan sistem akan:
-
-> 🎙️ Listen → 🧠 Understand → 🤖 Think → 🔊 Speak
-
-Sistem harus mendukung percakapan yang terasa natural, termasuk:
-
-- Streaming audio secara real-time
-- Automatic Speech Recognition (ASR)
-- AI response streaming
-- Text-to-Speech (TTS)
-- Interrupt / barge-in
-- Conversation context
-- Voice Activity Detection (VAD)
-- Follow-up questions
-- Tool/function calling
-- Conversation history
-- Transcript
-
-### Product Vision
-
-> **"An AI assistant you can talk to naturally, just like talking to another person."**
+**Nama Produk:** Mia — Asisten AI Pribadi
+**Versi Dokumen:** 2.0 (revisi besar dari v1.0 "Real-Time Voice AI Assistant")
+**Status:** Draft
+**Jenis Dokumen:** Product Requirements Document
+**Target Platform:** Web (voice + text), Telegram Bot, Discord Bot, (future: channel lain)
+**Interaksi Utama:** Multi-channel — chat text real-time, voice conversation, task automation
+**Inspirasi Produk:** OpenClaw, Siri, ChatGPT Voice, Gemini Live
 
 ---
 
-# 2. Problem Statement
+## 1. Ringkasan Produk ("What & Why")
 
-Interaksi dengan AI saat ini masih banyak menggunakan text input. Hal ini memiliki beberapa masalah:
+Mia adalah **Personal AI Assistant** yang menjadi pusat kendali (command center) untuk berbagai aktivitas pribadi pengguna. Berbeda dari versi 1.0 yang berfokus pada voice-first untuk publik, Mia dirancang khusus sebagai asisten pribadi **single-user** yang hidup di berbagai channel komunikasi.
 
-1. Mengetik lebih lambat dibanding berbicara.
-2. Percakapan terasa seperti komunikasi satu arah.
-3. Chatbot sering menunggu pengguna selesai sebelum memproses.
-4. Tidak adanya interrupt membuat interaksi terasa kaku.
-5. Pengguna harus terus berpindah antara keyboard, mouse, dan aplikasi.
-6. Chatbot tradisional tidak memberikan pengalaman conversational yang benar-benar natural.
+Tujuan utama:
 
-Produk ini bertujuan membuat AI yang terasa seperti **teman bicara digital**.
+> **"Membangun Personal AI Assistant yang dapat menjadi pusat kendali untuk berbagai aktivitas pribadi, dengan kemampuan berkomunikasi melalui berbagai platform seperti Telegram dan Discord serta dapat menjalankan berbagai task secara otomatis."**
 
----
+### Perubahan dari v1.0
 
-# 3. Product Goals
-
-## 3.1 Primary Goals
-
-### Fast
-
-Response dimulai dalam waktu sesingkat mungkin setelah pengguna selesai berbicara.
-
-### Natural
-
-Percakapan terasa seperti berbicara dengan manusia.
-
-### Interactive
-
-Pengguna dapat menyela AI kapan saja.
-
-### Context-aware
-
-AI memahami percakapan sebelumnya.
-
-### Reliable
-
-Audio, transcription, AI response, dan TTS harus stabil.
-
-## 3.2 Secondary Goals
-
-Produk juga harus memiliki fondasi untuk:
-
-- AI tools
-- Web search
-- Calendar
-- Reminder
-- Smart home
-- Productivity
-- Personal assistant
-- Third-party integrations
-- Autonomous agent capabilities
+| Aspek | v1.0 (lama) | v2.0 (baru) |
+|---|---|---|
+| Audiens | Publik (banyak user) | Personal (single user) |
+| Interaksi utama | Voice real-time | Multi-channel (web/voice + bot) |
+| Deployment | Multi-tenant/skalabel | Single-instance pribadi (VPS/Docker) |
+| Target | Product kepada publik | Asisten pribadi sehari-hari |
+| Kunci sukses | Voice realism + latency | Integrasi channel + task execution |
+| Auth | Multi-user auth | Identity ringan (auth-lite per user) |
 
 ---
 
-# 4. Non-Goals
+## 2. Product Vision
 
-Untuk MVP, sistem **tidak wajib** memiliki:
+> **"Sebuah asisten AI pribadi yang selalu ada, di channel mana pun kamu berada — mengetik di Telegram, berbicara di web, atau mengobrol di Discord — dan bisa mengerjakan hal-hal untukmu secara otomatis."**
 
-- Full autonomous agent
-- Smart home control
-- Phone calling
-- Complex personal automation
-- Face recognition
-- Always-on microphone
-- Wake-word detection seperti "Hey Siri"
-- Computer control
-
-Fitur tersebut dapat masuk ke fase berikutnya.
+Filosofi OpenClaw: asisten tidak terikat pada satu platform. Ia hadir di channel yang penggunanya pakai, menggunakan memory dan tools yang sama di semua channel, sehingga pengalaman konsisten di mana pun.
 
 ---
 
-# 5. Target Users
+## 3. Problem Statement
 
-## 5.1 Primary Users
+Interaksi dengan AI saat ini terbelah di banyak tempat: chatbot di satu aplikasi, asisten suara di aplikasi lain, reminder di aplikasi lain lagi. Masalahnya:
 
-Pengguna yang ingin berinteraksi dengan AI tanpa harus mengetik.
+1. Tidak ada satu asisten yang konsisten di semua tempat.
+2. Memory dan konteks hilang setiap ganti platform.
+3. Pengguna harus mengulang identitas/preferensi di tiap alat.
+4. Automation (reminder, task, notifikasi) tidak terpusat.
+5. Tidak bisa berinteraksi dari mana pun pengguna berada (mis. dari ponsel via Telegram).
 
-Contoh penggunaan:
-
-> "Bantu saya memahami kode ini."
-
-> "Apa perbedaan Playwright dan Selenium?"
-
-> "Buatkan test case untuk fitur login."
-
-> "Saya sedang coding, bantu debug error ini."
-
-## 5.2 Secondary Users
-
-Produk juga cocok untuk:
-
-- Developer
-- QA Engineer
-- Student
-- Researcher
-- Content Creator
-- Knowledge Worker
-- Product Manager
-- Business User
+Tujuan: satu asisten (Mia) dengan satu memory & satu set tools, diakses dari banyak channel.
 
 ---
 
-# 6. Core User Experience
+## 4. Product Goals
 
-Flow utama:
+### 4.1 Primary Goals
+
+- **Multi-channel** — dapat diakses via web (text + voice) dan bot Telegram/Discord.
+- **Konsisten** — memory, persona, dan tools sama di semua channel.
+- **Bermanfaat sehari-hari** — mampu menjalankan task (reminder, catatan, pencarian, file) sebagai asisten pribadi.
+- **Extensible** — arsitektur memungkinkan penambahan channel/platform baru dengan mudah.
+- **Reliable** — stabil untuk penggunaan harian single-user.
+
+### 4.2 Secondary Goals
+
+- Voice conversation (sudah dibangun di v1.0) tetap berjalan sebagai salah satu channel.
+- Automation & scheduling.
+- Notifikasi push (via channel).
+- Arah ke multi-agent / specialized agents di fase lanjut.
+
+---
+
+## 5. Non-Goals (bukan fokus sekarang)
+
+Karena ini asisten pribadi (bukan SaaS publik), hal berikut secara eksplisit **tidak** diprioritaskan:
+
+- Multi-tenant SaaS / billing / subscription.
+- OAuth kompleks & manajemen ribuan user.
+- Analitik produk publik (DAU/WAU, funnel).
+- Mobile native app (web cukup; bot menangani mobile).
+- Smart home / IoT / computer control (fase jauh di depan).
+- Wake word "Hey Mia".
+- Skalabilitas horizontal multi-instance (cukup single instance).
+
+---
+
+## 6. Target User
+
+### 6.1 Primary User
+
+Naufal (developer) — pengguna tunggal. Kebutuhan:
+
+- Mengobrol dengan AI kapan saja (chat text di web / Telegram / Discord).
+- Voice conversation untuk kebutuhan hands-free / natural.
+- Mengatur reminder, catatan, pencarian web, akses file.
+- Mengontrol asisten dari ponsel (Telegram) maupun desktop (web/Discord).
+
+Bahasa interaksi: **Bahasa Indonesia** (santai), disapa "Mas Naufal".
+
+### 6.2 Persona
+
+- Nama: **Mia** (lihat `apps/web/persona/IDENTITY.md`).
+- Sifat: ramah, sopan, rajin, menyenangkan.
+- Emoji khas: 🌸 (boleh di teks, tidak pernah diucapkan TTS).
+- Memory pribadi di `apps/web/persona/*.md` (USER.md, SOUL.md, DREAMS.md) yang di-update otomatis.
+
+---
+
+## 7. Konsep Arsitektur (Core Principle)
+
+~Prinsip yang sama dari v1.0 dipertahankan dan diperluas~
+
+### 7.1 AI Provider Abstraction (invariant)
+
+AI Provider diabstraksikan (`AIProvider`) — UI/audio/channel tidak pernah terikat ke satu provider. Swap provider dengan mengganti instance.
+
+### 7.2 Channel Abstraction (baru)
+
+Diperkenalkan **Channel Adapter** — abstraksi untuk tiap platform:
 
 ```text
-User
-  │
-  ▼
-🎙️ Microphone
-  │
-  ▼
-Voice Activity Detection
-  │
-  ▼
-Speech-to-Text
-  │
-  ▼
-Conversation Manager
-  │
-  ▼
-LLM
-  │
-  ▼
-Streaming Response
-  │
-  ▼
-Text-to-Speech
-  │
-  ▼
-🔊 Speaker
-  │
-  └───────────────┐
-                  │
-             User interrupts
-                  │
-                  ▼
-             Stop AI Audio
+ChannelAdapter (interface)
+├── WebAdapter
+├── TelegramAdapter
+├── DiscordAdapter
+└── (future) WhatsAppAdapter / EmailAdapter / dll
 ```
 
-Target pengalaman:
+Setiap adapter menerima input (text/voice) dari platformnya, meneruskan ke **core Conversation Manager** yang sama, dan mengirim balasan kembali ke platform. **Core tidak tahu platform** — hanya tahu "kami menerima pesan text" / "kirim balasan".
+
+Ini memastikan extensibility: menambah channel = menambah adapter, tanpa menyentuh core.
+
+### 7.3 Core (dipakai bersama semua channel)
 
 ```text
-Speak
-  ↓
-Understand
-  ↓
-Think
-  ↓
-Respond
-  ↓
-Listen again
+┌─────────────────────────────────────────────┐
+│                 CHANNELS                     │
+│  Web (voice+text)  Telegram  Discord  ...    │
+└───────────────┬─────────────────────────────┘
+                ▼
+        Channel Adapters
+                ▼
+┌─────────────────────────────────────────────┐
+│         CORE CONVERSATION LAYER              │
+│  Conversation Manager + State Machine        │
+│  Memory / Persona                            │
+│  Tools / Tool calling + confirmation         │
+│  Reminders / Scheduler                       │
+│  AI Provider abstraction (LLM/STT/TTS)       │
+└───────────────┬─────────────────────────────┘
+                ▼
+          Provider (Groq/OpenCode/9Router/Mock)
 ```
 
-Percakapan harus dapat berlangsung terus tanpa pengguna harus memulai sesi baru untuk setiap pertanyaan.
+Semua channel berbagi memory/persona/tools yang sama → konsistensi.
 
 ---
 
-# 7. Conversation Model
+## 8. Functional Requirements
 
-Satu voice session terdiri dari beberapa turn percakapan.
+> Catatan: FR-001 s.d. FR-016 dari v1.0 (voice pipeline, VAD, barge-in, transcript, dll) **tetap berlaku** untuk channel Web/voice dan tidak dihapus. Bagian di bawah menambahkan/menyesuaikan FR untuk arah multi-platform & personal assistant. Pranala silang ke v1.0 ditandai.
 
-Contoh:
+### 8.1 Multi-Channel (baru)
 
-**User**
+**FR-100 — Web Channel** (ada dari v1.0, dipertahankan)
+User dapat mengobrol via web (text `PromptInput`) dan mode voice (mic + hands-free VAD).
 
-> "Apa itu Playwright?"
+**FR-101 — Telegram Bot Channel**
+User dapat mengobrol dengan Mia melalui bot Telegram pribadi. Pesan text bot diterima, diproses oleh core yang sama, balasan dikirim balik ke chat Telegram.
 
-**AI**
+Autentikasi bot: hanya chat/owner dalam allow-list tertentu yang dilayani (single-user trust boundary).
 
-> "Playwright adalah framework automation..."
+**FR-102 — Discord Bot Channel**
+User dapat mengobrol dengan Mia melalui bot Discord. Mendukung text di channel/DM. (Voice di Discord = fase lanjut, FR-10x nanti.)
 
-**User**
+**FR-103 — Extensible Channel Registry**
+Arsitektur channel berbasis registry/adapter sehingga menambah platform (WhatsApp, Email, dsb) tidak mengubah core. Daftar channel aktif dari config.
 
-> "Apakah lebih bagus daripada Selenium?"
+### 8.2 Personal Assistant Capabilities (memperluas v1.0 FR-013/FR-014)
 
-AI harus mengetahui bahwa:
+**FR-200 — Tool Calling** (dari v1.0 FR-013)
+AI dapat memanggil tool server-side (web_search, calculate, file_read, list_notes, save_note, delete_note, remind_me).
 
-> "lebih bagus" = Playwright vs Selenium
+**FR-201 — Tool Confirmation / Risky Actions** (v1.0 FR-014)
+Tool berisiko (write/delete/transaction/external) memerlukan konfirmasi user sebelum dijalankan. Di web ada banner UI; di Telegram/Discord, konfirmasi berupa prompt balasan (mis. "Balas 'ya' untuk melanjutkan").
 
-dan bukan pertanyaan baru yang berdiri sendiri.
+**FR-202 — Reminders / Scheduler** (dari "Schedulers & reminders" yang sudah dibangun)
+User dapat menyetel reminder ("bangunin aku jam 9 pagi"). Scheduler in-process memicu notifikasi ke channel yang aktif (ada SSE web + akan diperluas ke push Telegram/Discord).
 
-## 7.1 Conversation Structure
+**FR-203 — Memory / Persona** (dari "Automatic persona memory" yang sudah dibangun)
+Fakta/identitas user secara otomatis di-capture dan disimpan per-user di persona markdown. Konsisten lintas channel.
+
+**FR-204 — Notes & File** (dari "Persistent notes" + "File access tool" yang sudah dibangun)
+Catatan persisten per-user; baca file dalam sandbox repo.
+
+**FR-205 — Web Search** (dari v1.0 FR-013)
+Tool web_search via DuckDuckGo Instant Answer + HTML scrape fallback.
+
+### 8.3 Automation & Task (arah fase lanjut)
+
+**FR-300 — Task Execution** (fase Personal Assistant Capabilities)
+Menjalankan task terprogram: automation yang dapat dijadwalkan/dipicu dari channel.
+
+**FR-301 — Notifications**
+Mia dapat mengirim notifikasi proaktif (mis. reminder due) ke channel yang aktif, tidak hanya menunggu user bertanya.
+
+---
+
+## 9. Conversation Model
+
+Sama dengan v1.0, diperluas dengan metadata channel:
 
 ```text
 Conversation
 ├── conversation_id
-├── user_id
+├── user_id           (sanitized, auth-lite per user)
+├── channel           (web | telegram | discord | ...)
 ├── created_at
 ├── updated_at
 ├── system_context
 └── messages[]
 ```
 
-## 7.2 Message Structure
+Channel direkam supaya session per channel dapat dipertahankan dan disambung lagi.
 
-```text
-Message
-├── id
-├── conversation_id
-├── role
-├── transcript
-├── audio_reference
-├── timestamp
-├── duration
-└── metadata
-```
-
-Role yang didukung:
-
-```text
-system
-user
-assistant
-tool
-```
+Message model dipertahankan dari v1.0 (role: system/user/assistant/tool).
 
 ---
 
-# 8. Functional Requirements
+## 10. State Machine
 
-## FR-001 — Voice Input
-
-User dapat menekan tombol microphone untuk memulai percakapan.
-
-Contoh UI:
-
-```text
-┌─────────────┐
-│             │
-│  🎙️ Speak   │
-│             │
-└─────────────┘
-```
-
-### Microphone States
-
-```text
-IDLE
-LISTENING
-PROCESSING
-SPEAKING
-INTERRUPTED
-ERROR
-```
+State machine dari v1.0 (IDLE → LISTENING → PROCESSING → SPEAKING → TURN_END/INTERRUPTED) tetap berlaku untuk channel voice. Untuk channel text (web/telgram/discord), state disederhanakan: PROCESSING → (reply) → IDLE — karena tidak ada audio pipeline. Core Conversation Manager memegang transisi valid yang mustahil invalid.
 
 ---
 
-## FR-002 — Voice Activity Detection
-
-Sistem harus mendeteksi kapan pengguna mulai dan berhenti berbicara.
-
-Flow:
+## 11. Technical Architecture
 
 ```text
-silence
-   ↓
-speech detected
-   ↓
-capture audio
-   ↓
-speech continues
-   ↓
-silence detected
-   ↓
-end turn
-```
-
-Sistem sebaiknya tidak mengharuskan pengguna menekan tombol stop secara manual.
-
-### Requirements
-
-- Mendeteksi speech start.
-- Mendeteksi speech end.
-- Mengabaikan silence pendek.
-- Mengurangi false trigger.
-- Dapat berjalan secara streaming.
-- Mendukung noisy environment secara wajar.
-
----
-
-## FR-003 — Streaming Speech-to-Text
-
-Audio pengguna harus diproses secara streaming.
-
-Contoh:
-
-```text
-User speaks:
-
-"What is Playwright"
-
-         ↓
-
-"What"
-"What is"
-"What is Playwright"
-```
-
-Transcription sementara dapat ditampilkan secara real-time.
-
-### Transcript States
-
-```text
-PARTIAL
-FINAL
-```
-
----
-
-## FR-004 — LLM Processing
-
-Setelah user turn selesai atau cukup stabil, sistem mengirimkan context ke LLM.
-
-Contoh:
-
-```json
-{
-  "conversation_id": "conv_123",
-  "messages": [
-    {
-      "role": "user",
-      "content": "What is Playwright?"
-    }
-  ]
-}
-```
-
-LLM menghasilkan response secara streaming.
-
----
-
-## FR-005 — Streaming AI Response
-
-AI tidak boleh menunggu seluruh response selesai sebelum mengirim hasil.
-
-Contoh:
-
-```text
-Playwright...
-       ↓
-Playwright is...
-       ↓
-Playwright is a framework...
-```
-
-Tujuannya mengurangi perceived latency.
-
----
-
-## FR-006 — Streaming Text-to-Speech
-
-Response AI harus langsung dikonversi menjadi audio ketika potongan teks tersedia.
-
-```text
-LLM
- ↓
-"Playwright is..."
- ↓
-TTS
- ↓
-🔊 Speak
-```
-
-Tidak perlu menunggu seluruh jawaban selesai.
-
-### Requirements
-
-- Audio playback dapat dimulai sebelum seluruh response selesai.
-- Audio chunk harus dapat diputar secara berurutan.
-- TTS harus dapat dihentikan kapan saja.
-- TTS harus mendukung queue atau buffer yang aman.
-
----
-
-## FR-007 — Interrupt / Barge-In
-
-Ini adalah fitur inti untuk membuat pengalaman seperti Siri atau ChatGPT Voice.
-
-Contoh:
-
-AI:
-
-> "Playwright adalah framework yang digunakan untuk—"
-
-User:
-
-> "Tunggu, bagaimana dengan Selenium?"
-
-Sistem harus:
-
-```text
-AI SPEAKING
-     ↓
-USER SPEAKS
-     ↓
-DETECT INTERRUPTION
-     ↓
-STOP AUDIO
-     ↓
-CANCEL CURRENT TTS
-     ↓
-CANCEL/UPDATE GENERATION
-     ↓
-PROCESS NEW INPUT
-```
-
-### Acceptance Requirement
-
-AI tidak boleh terus melanjutkan kalimat lama setelah user mengambil turn.
-
----
-
-## FR-008 — Conversation Context
-
-Sistem harus mempertahankan konteks percakapan.
-
-Contoh:
-
-```text
-User:
-Apa itu Selenium?
-
-AI:
-Selenium adalah...
-
-User:
-Siapa pembuatnya?
-
-AI:
-Selenium awalnya dikembangkan oleh Jason Huggins.
-```
-
-AI harus memahami referensi seperti:
-
-- "itu"
-- "dia"
-- "yang tadi"
-- "yang kedua"
-- "lebih bagus"
-- "lanjut"
-- "jelaskan lagi"
-- "yang sebelumnya"
-
----
-
-## FR-009 — Voice Selection
-
-User dapat memilih voice.
-
-Contoh:
-
-```text
-Voice
-├── Female 01
-├── Female 02
-├── Male 01
-├── Male 02
-└── Neutral
-```
-
-Pengaturan voice:
-
-```text
-Voice
-Speed
-Pitch
-Language
-```
-
-Voice list dapat berkembang di masa depan.
-
----
-
-## FR-010 — Multilingual
-
-MVP minimal:
-
-```text
-English
-Bahasa Indonesia
-```
-
-Future:
-
-```text
-Japanese
-Korean
-Chinese
-Spanish
-French
-German
-```
-
-AI harus dapat memahami code-switching.
-
-Contoh:
-
-> "Tolong explain this error, kenapa `useEffect`-nya infinite loop?"
-
----
-
-## FR-011 — Text Fallback
-
-Meskipun produk berorientasi voice, user harus dapat mengetik.
-
-```text
-🎙️ Voice Input
-
-atau
-
-┌───────────────────────────────┐
-│ Type a message...             │
-└───────────────────────────────┘
-```
-
-Use cases:
-
-- Lingkungan berisik
-- Microphone bermasalah
-- User tidak ingin bicara
-- Membutuhkan input code
-- Membutuhkan input panjang
-
----
-
-## FR-012 — Code Input
-
-Karena developer merupakan salah satu target user, sistem harus mendukung code.
-
-Contoh:
-
-```text
-User:
-Kenapa kode ini error?
-
-[code]
-
-AI:
-Karena `await` digunakan di luar async function...
-```
-
-Untuk developer mode, voice dapat digunakan untuk menjelaskan problem sementara code tetap berada dalam text editor atau editor input.
-
----
-
-## FR-013 — Tool Calling
-
-AI harus memiliki kemampuan memanggil tool.
-
-Contoh:
-
-```text
-User
- │
- ▼
-LLM
- │
- ├── Calculator
- ├── Web Search
- ├── Weather
- ├── Calendar
- ├── Files
- └── Custom APIs
-```
-
-Contoh:
-
-> "Berapa 15% dari 2 juta?"
-
-LLM dapat memanggil:
-
-```text
-calculator(2000000 * 0.15)
-```
-
----
-
-## FR-014 — Tool Confirmation
-
-Untuk tindakan sensitif, AI harus meminta confirmation.
-
-Contoh:
-
-> "Saya akan menghapus file tersebut. Apakah Anda yakin?"
-
-User:
-
-> "Yes."
-
-Baru kemudian action dijalankan.
-
-### Tool Risk Categories
-
-```text
-READ
-WRITE
-DELETE
-TRANSACTION
-EXTERNAL_ACTION
-```
-
-Tindakan berisiko tinggi harus memerlukan konfirmasi eksplisit.
-
----
-
-## FR-015 — Conversation History
-
-User dapat melihat history.
-
-```text
-Today
-├── Playwright discussion
-├── Debug React issue
-└── Test case generation
-
-Yesterday
-├── API testing
-└── GitHub Actions
-```
-
-User dapat:
-
-- Rename conversation
-- Delete conversation
-- Search conversation
-- Continue conversation
-
----
-
-## FR-016 — Transcript
-
-Selama percakapan, user dapat melihat transcript.
-
-```text
-You
-"What is Playwright?"
-
-AI
-"Playwright is an end-to-end testing framework..."
-```
-
-Transcript harus mendukung:
-
-- Partial transcript
-- Final transcript
-- Speaker identification
-- Timestamp
-- Future transcript correction
-
----
-
-# 9. UI/UX Requirements
-
-## 9.1 Main Screen
-
-Konsep interface minimal:
-
-```text
-┌─────────────────────────────────────────────┐
-│ Voice AI                              ⚙️   │
-├─────────────────────────────────────────────┤
-│                                             │
-│                                             │
-│               ●                             │
-│                                             │
-│            Listening...                     │
-│                                             │
-│       "What can I help you with?"           │
-│                                             │
-│                                             │
-├─────────────────────────────────────────────┤
-│                                             │
-│       🎙️          Type a message...         │
-│                                             │
-└─────────────────────────────────────────────┘
-```
-
----
-
-## 9.2 Voice Orb
-
-UI utama dapat menggunakan animated orb.
-
-### Idle
-
-```text
-     ◯
-```
-
-### Listening
-
-```text
-    ◉)))
-```
-
-### Thinking
-
-```text
-    ◌ ◌ ◌
-```
-
-### Speaking
-
-```text
-   ≋ ◉ ≋
-```
-
-Orb dapat menggunakan audio amplitude untuk menghasilkan visual yang mengikuti suara.
-
----
-
-## 9.3 UI State Labels
-
-UI dapat menampilkan:
-
-```text
-"Ready"
-"Listening..."
-"Thinking..."
-"Speaking..."
-"Interrupted"
-"Reconnecting..."
-"Error"
-```
-
----
-
-# 10. Conversation State Machine
-
-Sangat disarankan menggunakan state machine eksplisit.
-
-```text
-          ┌─────────┐
-          │  IDLE   │
-          └────┬────┘
-               │
-               ▼
-       ┌──────────────┐
-       │ LISTENING    │
-       └──────┬───────┘
-              │
-              ▼
-       ┌──────────────┐
-       │ PROCESSING   │
-       └──────┬───────┘
-              │
-              ▼
-       ┌──────────────┐
-       │  SPEAKING    │
-       └──────┬───────┘
-              │
-       interruption
-              │
-              ▼
-       ┌──────────────┐
-       │ INTERRUPTED  │
-       └──────┬───────┘
-              │
-              ▼
-          LISTENING
-```
-
-### State Definitions
-
-| State | Description |
-|---|---|
-| IDLE | Tidak ada sesi aktif |
-| LISTENING | Sistem sedang mendengarkan user |
-| PROCESSING | Sistem memproses transcript |
-| SPEAKING | AI sedang menghasilkan audio |
-| INTERRUPTED | AI dihentikan karena user mengambil turn |
-| ERROR | Terjadi error |
-| RECONNECTING | Sedang membangun ulang koneksi |
-
----
-
-# 11. Technical Architecture
-
-Recommended architecture:
-
-```text
-                  CLIENT
-              ┌───────────────┐
-              │ Web / Mobile  │
-              └───────┬───────┘
-                      │
-                   WebRTC
-                      │
+                     CHANNEL LAYER
+   ┌─────────────┬───────────────┬───────────────┐
+   │ Web (Next)  │  Telegram Bot │  Discord Bot  │
+   │ voice+text  │  (long-poll)  │  (gateway)    │
+   └──────┬──────┴───────┬───────┴───────┬───────┘
+          │              │               │
+          ▼              ▼               ▼
+   ┌─────────────────────────────────────────┐
+   │        CHANNEL ADAPTERS (interface)      │
+   └──────────────────┬──────────────────────┘
                       ▼
-              REAL-TIME SERVER
-              ┌───────────────┐
-              │ Audio Gateway │
-              └───────┬───────┘
-                      │
-          ┌───────────┼────────────┐
-          │           │            │
-          ▼           ▼            ▼
-       VAD/ASR       LLM          TTS
-          │           │            │
-          └───────────┼────────────┘
-                      │
+   ┌─────────────────────────────────────────┐
+   │           CORE SERVICE (Node)            │
+   │  ConversationManager  StateMachine       │
+   │  Memory/Persona  Tools  Reminders        │
+   │  AIProvider abstraction                  │
+   └──────────────────┬──────────────────────┘
                       ▼
-               Conversation
-                  Service
+            Provider (Groq/OpenCode/9Router/Mock)
                       │
-                      ▼
-                  Database
+            ┌─────────┴─────────┐
+            ▼                   ▼
+         (STT/TTS)            (LLM)
+```
+
+### Stack yang sudah dipakai (dari repo existing)
+
+- `apps/web` — Next.js (frontend web + `/api/*` route handlers sebagai server backend).
+- `packages/state-machine` — explicit conversation state machine.
+- `packages/ai-provider` — `AIProvider` abstraction + event types.
+- `packages/mock-provider` — deterministic no-network provider.
+- Provider: `GroqStreamingProvider` (Whisper → Qwen SSE → Orpheus TTS), `opencode` native transport (`apps/web/src/lib/opencode.ts`), OpenCode/9Router/Mock.
+
+Channel adapter Telegram/Discord akan diletakkan di lapisan yang sama dengan `/api/*` route handlers (Node runtime) sehingga memakai core yang sama.
+
+---
+
+## 12. Security & Trust Boundary
+
+Wolf pertahanan dari v1.0 tetap dipertahankan & diperluas:
+
+- **Invariant 5** — API keys/endpoint hanya di server; client (web) hanya kirim `{provider, model}`, channel adapter juga hanya untuk chat text ke core.
+- **Sanitasi user** — `sanitizeUser()` mencegah path traversal pada persona/notes/reminders (auth-lite).
+- **Tool validation server-side** — tool call dicek & risiko (read/write/delete/transaction/external) → read auto-run, sisanya konfirmasi.
+- **File sandbox** — `file_read` terbatas pada repo root + deny-list segmen/filename sensitif.
+- **Bot trust boundary** — Telegram/Discord hanya melayani owner/allow-list (single-user), bukan publik.
+- **Credential handling** — token bot (Telegram/Discord) disimpan di env server-side, tidak pernah ke browser.
+
+---
+
+## 13. Non-Functional Requirements
+
+- **Latency** — target v1.0 tetap: first audio <1.5s untuk voice. Untuk text bot, target TTFT <~2s.
+- **Reliability** — single instance; background scheduler in-process (reminder). Catatan: lama akan bertahan selama instance hidup; untuk restart, uses disk store.
+- **Cost** — asisten pribadi, budget kecil. Gunakan free tier Groq + local OpenCode bila memungkinkan.
+- **Observability** — logging error/state cukup (tidak butuh analytics publik).
+
+---
+
+## 14. MVP Scope (Baru)
+
+### 14.1 Must Have
+
+```text
+✅ Web chat text (ada)
+✅ Web voice conversation (ada)
+✅ Conversation context & history (ada)
+✅ Memory/persona otomatis (ada)
+✅ Tool calling + confirmation (ada)
+✅ Reminders/Scheduler (ada, di web)
+✅ Telegram Bot chat text          (BARU)
+✅ Discord Bot chat text           (BARU)
+✅ Sanitasi user / auth-lite       (ada)
+✅ Server-side keys                (ada)
+```
+
+### 14.2 Nice to Have
+
+```text
+🟡 Notifikasi reminder ke Telegram/Discord (push)
+🟡 Konfirmasi risky tool via bot (balas 'ya')
+🟡 Per-konversasi di bot memakai session server-side
+🟡 Voice di Discord
+```
+
+### 14.3 Future
+
+```text
+🔵 Task automation terprogram
+🔵 Multi-agent / specialized agents
+🔵 Long-term memory (RAG)
+🔵 Channel baru (WhatsApp, Email)
+🔵 Plugin/tool system
+🔵 Auth penuh, permission management, logging/audit
 ```
 
 ---
 
-# 12. Recommended Technology Stack
+## 15. User Stories (baru)
 
-## 12.1 Frontend
-
-```text
-Next.js
-React
-TypeScript
-Web Audio API
-WebRTC
-Tailwind CSS
-Framer Motion
-```
-
-## 12.2 Backend
-
-```text
-Node.js
-TypeScript
-Fastify / Express
-WebSocket
-WebRTC
-```
-
-## 12.3 AI Layer
-
-AI provider harus diabstraksikan:
-
-```text
-AI Provider
-├── Realtime Model
-├── Speech-to-Text
-├── LLM
-└── Text-to-Speech
-```
-
-Contoh interface:
-
-```typescript
-interface AIProvider {
-  connect(): Promise<void>;
-
-  sendAudio(audio: ArrayBuffer): void;
-
-  sendText(text: string): void;
-
-  interrupt(): void;
-
-  disconnect(): void;
-}
-```
-
-Dengan abstraction ini, provider AI dapat diganti tanpa mengubah seluruh aplikasi.
+- **US-100** — Sebagai Mas Naufal, aku bisa kirim pesan via Telegram dan Mia membalas dengan memory yang sama seperti di web.
+- **US-101** — Sebagai Mas Naufal, aku bisa kirim pesan via Discord DM dan mendapat balasan.
+- **US-102** — Sebagai Mas Naufal, aku bisa bilang "bangunin aku jam 7" dan Mia benar-benar menyetelnya lalu mengingatkanku.
+- **US-103** — Sebagai Mas Naufal, bila Mia mau menghapus catatanku, dia minta konfirmasi dulu (bisa lewat Telegram).
+- **US-104** — Sebagai Mas Naufal, menambah platform baru tidak mengubah cara core bekerja.
 
 ---
 
-# 13. Real-Time Transport
+## 16. Acceptance Criteria
 
-Untuk pengalaman seperti ChatGPT Voice, **WebRTC** menjadi kandidat utama untuk audio real-time.
-
-Alternatif:
-
+**AC-100 — Telegram Chat**
 ```text
-WebSocket
+GIVEN bot Telegram dikonfigurasi dengan token owner
+WHEN user mengirim pesan text ke bot
+THEN pesan dip roses oleh core yang sama dengan web
+AND balasan Mia terkirim kembali sebagai chat text
 ```
 
-WebSocket lebih sederhana pada beberapa use case, tetapi untuk audio bidirectional real-time WebRTC memberikan fondasi yang lebih natural.
-
-### Recommended Design
-
+**AC-101 — Discord Chat**
 ```text
-Browser
-   │
-   │ WebRTC
-   ▼
-Realtime Gateway
-   │
-   ├── Audio
-   ├── Session Events
-   └── Control Events
+GIVEN bot Discord dikonfigurasi
+WHEN user mengirim pesan di DM/channel allow-list
+THEN Mia membalas dengan core yang sama
+```
+
+**AC-102 — Memory Konsisten**
+```text
+GIVEN user menyebutkan fakta (mis. "nama kucingku Milo") di web
+WHEN user bertanya hal terkait di Telegram
+THEN Mia masih ingat fakta tersebut (memory per-user dibagikan)
+```
+
+**AC-103 — Reminder via Bot**
+```text
+GIVEN user menyetel reminder di Telegram
+WHEN waktu tiba dan bot aktif
+THEN bot mengirim notifikasi reminder
+AND reminder ditandai fired (tidak dobel)
+```
+
+**AC-104 — Tool Confirmation via Bot**
+```text
+GIVEN Mia meminta tool berisiko di Telegram
+WHEN user membalas 'ya'
+THEN tool dijalankan
+AND hasil dikirim balik
+```
+
+**AC-105 — Extensibility**
+```text
+GIVEN ada 2 channel (telegram, discord)
+WHEN developer menambahkan channel ketiga via adapter baru
+THEN core tidak berubah
 ```
 
 ---
 
-# 14. Audio Pipeline
+## 17. Risks
 
-```text
-Microphone
-    │
-    ▼
-Audio Capture
-    │
-    ▼
-Noise Suppression
-    │
-    ▼
-Voice Activity Detection
-    │
-    ▼
-Audio Streaming
-    │
-    ▼
-Speech Recognition
-    │
-    ▼
-Conversation Manager
-    │
-    ▼
-LLM
-    │
-    ▼
-TTS
-    │
-    ▼
-Audio Streaming
-    │
-    ▼
-Speaker
-```
+| ID | Risiko | Mitigasi |
+|---|---|---|
+| R-100 | Scheduler in-process hilang saat restart | Simpan reminder di disk; replay saat start |
+| R-101 | Bot terpapar publik (spam/abuse) | Allow-list owner saja, non-publik |
+| R-102 | Token bot bocor | Simpan di env server, tak pernah ke client |
+| R-103 | Latency bot tinggi (OpenCode/9router down) | Fallback ke Groq (cepat); monitoring port |
+| R-104 | Cost (LLM pribadi) | Free tier + local provider + cache |
+| R-105 | Tool salah eksekusi via bot | Risk gate + konfirmasi eksplisit |
 
 ---
 
-# 15. Audio Requirements
-
-MVP:
-
-```text
-Sample Rate: 16 kHz / 24 kHz
-Channels: Mono
-Encoding: Provider-compatible streaming format
-```
-
-Sistem harus menangani:
-
-- Microphone permission
-- Device switching
-- Headset
-- Bluetooth audio
-- Microphone disconnect
-- Speaker disconnect
-- Permission changes
-- Browser audio restrictions
-
----
-
-# 16. Latency Requirements
-
-Latency adalah KPI utama produk.
-
-## MVP Targets
-
-| Metric | Target |
-|---|---:|
-| Mic → audio processing | <100 ms |
-| User stops → AI processing begins | <500 ms |
-| First AI audio response | <1.5 sec |
-| Interruption detection | <200 ms |
-| TTS playback start | <500 ms after usable text chunk |
-| UI state update | <100 ms |
-
-## Long-Term Target
-
-> **~300–800 ms perceived response latency**
-
-Semakin rendah latency, semakin "alive" AI terasa.
-
----
-
-# 17. Error Handling
-
-## 17.1 Microphone Denied
-
-```text
-Microphone access is required
-
-[Enable microphone]
-```
-
-## 17.2 Connection Lost
-
-```text
-Connection lost.
-Reconnecting...
-```
-
-## 17.3 AI Timeout
-
-```text
-Sorry, I couldn't process that.
-Try again.
-```
-
-## 17.4 TTS Failure
-
-Fallback:
-
-```text
-Show text response
-```
-
-## 17.5 Invalid Audio Device
-
-```text
-Selected microphone is unavailable.
-Please choose another device.
-```
-
----
-
-# 18. Security Requirements
-
-Sistem harus:
-
-- Meminta microphone permission secara eksplisit.
-- Menggunakan HTTPS.
-- Mengenkripsi communication.
-- Tidak menyimpan audio tanpa consent.
-- Menjaga API key tetap berada di server.
-- Membatasi akses conversation berdasarkan user ID.
-- Memvalidasi tool calls di server.
-- Mencegah client memanggil privileged tool secara langsung.
-- Memiliki rate limiting.
-- Memiliki authentication dan authorization.
-
----
-
-# 19. Privacy Requirements
-
-User harus mengetahui kapan microphone aktif.
-
-Contoh:
-
-```text
-Microphone
-✓ Active
-✓ Audio streaming
-```
-
-Saat berhenti:
-
-```text
-Microphone
-○ Inactive
-```
-
-### Privacy Settings
-
-```text
-Save conversations
-Save transcripts
-Improve AI
-Voice data retention
-Delete audio history
-Delete conversation history
-```
-
-### Privacy Principles
-
-- Collect only what is required.
-- Make storage behavior visible.
-- Give users deletion controls.
-- Separate audio retention from transcript retention.
-- Avoid storing raw audio unless necessary.
-
----
-
-# 20. Observability
-
-Backend harus mengukur:
-
-```text
-Session ID
-User ID
-Connection duration
-Audio latency
-ASR latency
-LLM latency
-TTS latency
-First token latency
-First audio latency
-Interruption count
-Error count
-Token usage
-```
-
-Contoh event:
-
-```text
-voice.session.started
-voice.session.ended
-voice.user.started_speaking
-voice.user.stopped_speaking
-voice.user.interrupted
-voice.asr.started
-voice.asr.completed
-voice.llm.started
-voice.llm.first_token
-voice.tts.started
-voice.tts.first_audio
-voice.error
-```
-
----
-
-# 21. Analytics
-
-## 21.1 Engagement Metrics
-
-```text
-Daily Active Users
-Weekly Active Users
-Sessions per User
-Conversation Duration
-Messages per Session
-Sessions per Day
-```
-
-## 21.2 Voice Metrics
-
-```text
-Average speaking duration
-Average AI speaking duration
-Interruption rate
-Voice session completion rate
-Voice session abandonment rate
-```
-
-## 21.3 Performance Metrics
-
-```text
-Median first audio latency
-P95 first audio latency
-ASR error rate
-TTS error rate
-Connection failure rate
-Average session latency
-```
-
----
-
-# 22. MVP Scope
-
-## 22.1 Must Have
-
-```text
-✅ Microphone input
-✅ Real-time speech recognition
-✅ LLM response
-✅ Streaming TTS
-✅ Interrupt AI
-✅ Conversation context
-✅ Transcript
-✅ Conversation history
-✅ Voice selection
-✅ Text fallback
-✅ Error handling
-✅ Basic authentication
-✅ Privacy controls
-```
-
-## 22.2 Nice to Have
-
-```text
-🟡 Web search
-🟡 Calculator
-🟡 File upload
-🟡 Code understanding
-🟡 Multiple voice personalities
-🟡 Basic tool calling
-```
-
-## 22.3 Future
-
-```text
-🔵 Wake word
-🔵 Personal memory
-🔵 Calendar
-🔵 Email
-🔵 Smart home
-🔵 Computer control
-🔵 Autonomous agents
-🔵 Multi-agent workflows
-```
-
----
-
-# 23. User Stories
-
-## US-001 — Voice Input
-
-**As a user**, I want to talk to the AI using my microphone so I don't need to type.
-
-## US-002 — Streaming Response
-
-**As a user**, I want the AI to respond while generating the answer so conversations feel fast.
-
-## US-003 — Interrupt
-
-**As a user**, I want to interrupt the AI when it is speaking so I can change or correct my question.
-
-## US-004 — Context
-
-**As a user**, I want the AI to remember what we discussed earlier in the conversation.
-
-## US-005 — Transcript
-
-**As a user**, I want to see the transcript of our conversation.
-
-## US-006 — Voice
-
-**As a user**, I want to switch between different voices.
-
-## US-007 — Text Fallback
-
-**As a user**, I want to type instead of speaking when I'm in a noisy environment.
-
-## US-008 — Tool Usage
-
-**As a user**, I want the AI to use tools when necessary to answer my request.
-
-## US-009 — Confirmation
-
-**As a user**, I want confirmation before an action that can modify or delete data.
-
----
-
-# 24. Acceptance Criteria
-
-## AC-001 — Voice Input
-
-```text
-GIVEN microphone permission is granted
-
-WHEN the user speaks
-
-THEN the system detects speech
-
-AND streams audio
-
-AND displays live transcription.
-```
-
-## AC-002 — Voice Turn Completion
-
-```text
-GIVEN the user is speaking
-
-WHEN speech ends and the configured silence threshold is reached
-
-THEN the system finalizes the turn
-
-AND begins AI processing.
-```
-
-## AC-003 — AI Response
-
-```text
-GIVEN the user finishes speaking
-
-WHEN the transcript is finalized
-
-THEN the AI generates a response
-
-AND response audio begins streaming.
-```
-
-## AC-004 — Interrupt
-
-```text
-GIVEN AI is speaking
-
-WHEN the user starts speaking
-
-THEN AI audio stops within the target interruption latency
-
-AND current TTS playback is cancelled
-
-AND the new user input becomes the active turn.
-```
-
-## AC-005 — Context
-
-```text
-GIVEN the conversation contains previous messages
-
-WHEN the user asks a follow-up question
-
-THEN the AI uses previous conversation context.
-```
-
-## AC-006 — Text Fallback
-
-```text
-GIVEN voice input is unavailable
-
-WHEN the user types a message
-
-THEN the system processes the message as a normal conversation turn.
-```
-
-## AC-007 — Privacy
-
-```text
-GIVEN microphone access is granted
-
-WHEN the microphone is active
-
-THEN the UI clearly indicates microphone activity.
-```
-
----
-
-# 25. QA Test Strategy
-
-Karena produk ini voice-first, QA strategy harus mencakup web, audio, networking, AI behavior, latency, dan interruption.
-
-## 25.1 Functional Testing
-
-Test:
-
-```text
-Microphone permission
-Microphone start/stop
-Recording
-Speech detection
-Transcription
-LLM response
-TTS
-Interruption
-Conversation history
-Voice settings
-Text fallback
-Error handling
-Authentication
-Privacy settings
-Tool confirmation
-```
-
-## 25.2 Compatibility Testing
-
-### Desktop
-
-```text
-Chrome
-Safari
-Edge
-Firefox
-macOS
-Windows
-```
-
-### Mobile
-
-```text
-iOS Safari
-Android Chrome
-```
-
-### Audio Devices
-
-```text
-Built-in microphone
-Bluetooth headset
-USB microphone
-Wired headset
-External speaker
-```
-
----
-
-# 26. Audio Testing
-
-Test pada berbagai kondisi:
-
-```text
-Quiet room
-Noisy room
-Background music
-Low microphone volume
-High microphone volume
-Echo
-Multiple speakers
-Bluetooth headset
-USB microphone
-Built-in microphone
-Network interruption
-```
-
-### Audio Edge Cases
-
-- User whispers.
-- User shouts.
-- User speaks very slowly.
-- User speaks very quickly.
-- User changes microphone while speaking.
-- Bluetooth disconnects mid-session.
-- Browser tab loses audio focus.
-- User switches output device while AI is speaking.
-
----
-
-# 27. Interrupt Testing
-
-Test interruption pada:
-
-```text
-AI starts speaking
-        ↓
-User interrupts after 200 ms
-```
-
-```text
-AI starts speaking
-        ↓
-User interrupts after 1 second
-```
-
-```text
-AI is almost finished
-        ↓
-User interrupts near end
-```
-
-```text
-AI speaks continuously
-        ↓
-User interrupts multiple times
-```
-
-Expected behavior:
-
-- AI audio berhenti cepat.
-- TTS queue dibatalkan.
-- Generation lama tidak mengganggu turn baru.
-- Conversation state tetap konsisten.
-
----
-
-# 28. Performance Testing
-
-Test:
-
-```text
-1 concurrent session
-10 concurrent sessions
-100 concurrent sessions
-1,000 concurrent sessions
-10,000 concurrent sessions
-```
-
-Metric:
-
-```text
-Latency
-CPU
-Memory
-Bandwidth
-Connection count
-WebRTC session count
-LLM concurrency
-TTS concurrency
-ASR concurrency
-Database throughput
-```
-
----
-
-# 29. Security Testing
-
-QA harus menguji:
-
-```text
-Authentication bypass
-Authorization bypass
-Conversation data isolation
-API key exposure
-Tool abuse
-Prompt injection
-Tool injection
-Rate limit bypass
-Session hijacking
-WebSocket/WebRTC session abuse
-Audio data exposure
-Transcript exposure
-```
-
----
-
-# 30. AI Quality Testing
-
-AI harus diuji bukan hanya berdasarkan HTTP 200 atau koneksi berhasil.
-
-### Test dimensions
-
-```text
-Accuracy
-Context retention
-Instruction following
-Interruption handling
-Language detection
-Code understanding
-Tool selection
-Tool arguments
-Safety behavior
-Hallucination
-Response relevance
-```
-
-### Example
-
-User:
-
-> "Tadi kamu bilang Selenium lebih lama. Maksudmu apa?"
-
-AI harus menggunakan konteks percakapan sebelumnya.
-
----
-
-# 31. Edge Cases
-
-## 31.1 User Says Nothing
-
-```text
-🎙️ Listening...
-
-→ timeout
-```
-
-## 31.2 Very Short Utterance
-
-> "Yes."
-
-AI harus memproses berdasarkan context.
-
-## 31.3 User Speaks While AI Speaks
-
-Harus trigger interruption.
-
-## 31.4 Rapid Corrections
-
-User:
-
-> "Open GitHub—actually wait—open Gmail instead."
-
-AI harus memprioritaskan intent terbaru.
-
-## 31.5 Network Disconnect
-
-Session harus dapat reconnect dengan state yang konsisten.
-
-## 31.6 AI Generates Too Much Text
-
-Sistem harus tetap dapat memulai TTS lebih awal.
-
-## 31.7 User Changes Topic
-
-Context lama tidak boleh menyebabkan AI salah memahami topik baru.
-
----
-
-# 32. Tool Calling Architecture
-
-Recommended architecture:
-
-```text
-User Voice
-   │
-   ▼
-Speech-to-Text
-   │
-   ▼
-LLM
-   │
-   ├───────────────┐
-   │               │
-Normal response   Tool call
-                   │
-                   ▼
-             Tool Executor
-                   │
-                   ▼
-             Tool result
-                   │
-                   ▼
-                  LLM
-                   │
-                   ▼
-                  TTS
-```
-
-Tool layer harus dipisahkan dari UI dan audio layer.
-
----
-
-# 33. Memory Architecture
-
-Future personal memory dapat dibagi menjadi:
-
-```text
-Short-term Context
-        │
-        ▼
-Conversation Memory
-        │
-        ▼
-Long-term Memory
-```
-
-### Short-term Context
-
-Percakapan aktif.
-
-### Conversation Memory
-
-History dari conversation.
-
-### Long-term Memory
-
-Informasi yang secara eksplisit disimpan untuk membantu interaksi di masa depan.
-
----
-
-# 34. Recommended Project Structure
-
-```text
-src/
-├── app/
-│
-├── components/
-│   ├── VoiceOrb/
-│   ├── Transcript/
-│   ├── Conversation/
-│   ├── VoiceControls/
-│   └── Settings/
-│
-├── audio/
-│   ├── AudioCapture.ts
-│   ├── AudioPlayer.ts
-│   ├── VoiceActivityDetector.ts
-│   ├── AudioStream.ts
-│   └── AudioDeviceManager.ts
-│
-├── realtime/
-│   ├── RealtimeClient.ts
-│   ├── SessionManager.ts
-│   ├── InterruptManager.ts
-│   └── EventManager.ts
-│
-├── ai/
-│   ├── AIProvider.ts
-│   ├── ConversationManager.ts
-│   ├── ToolManager.ts
-│   ├── MemoryManager.ts
-│   └── PromptManager.ts
-│
-├── hooks/
-│   ├── useVoice.ts
-│   ├── useConversation.ts
-│   ├── useRealtime.ts
-│   └── useAudioDevices.ts
-│
-├── services/
-│   ├── auth/
-│   ├── analytics/
-│   └── api/
-│
-└── types/
-```
-
----
-
-# 35. AI Provider Abstraction
-
-Sistem harus menggunakan abstraction layer.
-
-```typescript
-interface AIProvider {
-  connect(): Promise<void>;
-
-  sendAudio(audio: ArrayBuffer): void;
-
-  sendText(text: string): void;
-
-  interrupt(): void;
-
-  disconnect(): void;
-}
-```
-
-Implementasi dapat berupa:
-
-```text
-AIProvider
-├── RealtimeProvider
-├── StreamingProvider
-└── MockProvider
-```
-
-MockProvider penting untuk QA dan automated testing tanpa harus selalu menggunakan model AI nyata.
-
----
-
-# 36. Development Roadmap
-
-## Phase 1 — Foundation
-
-```text
-Week 1
-
-├── Project setup
-├── UI foundation
-├── Authentication
-├── Microphone access
-├── Audio capture
-└── Basic conversation screen
-```
-
-## Phase 2 — Real-Time Voice
-
-```text
-Week 2
-
-├── Streaming ASR
-├── Streaming LLM
-├── Streaming TTS
-├── Audio playback
-└── Realtime transport
-```
-
-## Phase 3 — Natural Conversation
-
-```text
-Week 3
-
-├── VAD
-├── Interrupt / barge-in
-├── Conversation state machine
-├── Context management
-└── Transcript improvements
-```
-
-## Phase 4 — Assistant Capabilities
-
-```text
-Week 4+
-
-├── Tool calling
-├── Web search
-├── Calculator
-├── File access
-├── Memory
-└── External APIs
-```
-
-## Phase 5 — AI Agent
-
-```text
-Future
-
-├── Planning
-├── Multi-step execution
-├── Computer control
-├── Personal automation
-└── Autonomous workflows
-```
-
----
-
-# 37. MVP Definition of Done
-
-MVP dianggap selesai ketika:
-
-```text
-[✓] User dapat memulai voice session
-[✓] Microphone bekerja
-[✓] Speech dikenali
-[✓] Partial transcript tampil
-[✓] Final transcript tersedia
-[✓] LLM merespons
-[✓] Response di-stream
-[✓] AI berbicara
-[✓] User dapat interrupt AI
-[✓] Context percakapan bekerja
-[✓] History tersimpan
-[✓] Text fallback tersedia
-[✓] Error handling tersedia
-[✓] Authentication tersedia
-[✓] Privacy controls tersedia
-[✓] HTTPS/security diterapkan
-[✓] Performance monitoring tersedia
-[✓] Basic QA coverage tersedia
-```
-
----
-
-# 38. Product Success Criteria
-
-MVP dianggap berhasil jika:
-
-### User Experience
-
-- Percakapan terasa natural.
-- User dapat berbicara tanpa push-to-talk terus menerus.
-- AI dapat diinterupsi.
-- Response dimulai dengan cepat.
-- User memahami kapan AI mendengarkan dan berbicara.
-
-### Technical
-
-- Sistem stabil selama voice session.
-- Reconnect berjalan dengan baik.
-- Audio tidak sering terputus.
-- Transcript cukup akurat.
-- P95 latency berada di target.
-- Tidak terjadi kebocoran data conversation.
-
-### Product
-
-- User kembali menggunakan voice mode.
-- Average session duration meningkat.
-- Interruption tidak menyebabkan conversation corruption.
-- Voice session abandonment rendah.
-
----
-
-# 39. Long-Term Vision — Voice AI Agent
-
-Setelah voice assistant stabil, arsitekturnya dapat berkembang menjadi:
-
-```text
-                   Voice
-                     │
-                     ▼
-              Conversation AI
-                     │
-            ┌────────┴────────┐
-            ▼                 ▼
-          Memory            Tools
-            │                 │
-            │       ┌─────────┼─────────┐
-            │       ▼         ▼         ▼
-            │     Web       Files    Computer
-            │
-            └──────────┬──────────┘
-                       ▼
-                  AI Agent
-```
-
-User kemudian dapat berkata:
-
-> "Tolong buka GitHub, cek repository saya, lihat issue yang belum selesai, lalu rangkum apa yang harus saya kerjakan hari ini."
-
-AI kemudian:
-
-```text
-Understand
-   ↓
-Plan
-   ↓
-Call tools
-   ↓
-Observe
-   ↓
-Reason
-   ↓
-Execute
-   ↓
-Respond by voice
-```
-
-Produk pada tahap ini berubah dari:
-
-> **Voice Chatbot**
-
-menjadi:
-
-> **Voice AI Agent**
-
----
-
-# 40. Future Feature Roadmap
-
-## Voice Intelligence
-
-```text
-Wake word
-Emotion-aware response
-Speaker recognition
-Personalized voices
-Voice cloning with explicit consent
-Natural pauses
-Backchanneling
-```
-
-## Productivity
-
-```text
-Calendar
-Reminder
-Email
-Notes
-Tasks
-Meetings
-```
-
-## Developer Tools
-
-```text
-Repository analysis
-Code explanation
-Terminal tools
-CI/CD integration
-Bug triage
-Test generation
-Log analysis
-```
-
-## Computer Control
-
-```text
-Open application
-Navigate UI
-Click controls
-Type text
-Read screen
-Execute workflow
-```
-
-## Smart Environment
-
-```text
-Smart home
-IoT
-Home automation
-Device control
-```
-
----
-
-# 41. Risks
-
-## R-001 — High Latency
-
-**Risk:** Percakapan terasa lambat.
-
-**Mitigation:**
-
-- Streaming
-- Parallel processing
-- Early TTS
-- Connection reuse
-- Low-latency transport
-- Optimize prompt/context size
-
----
-
-## R-002 — Bad Speech Recognition
-
-**Risk:** AI salah memahami user.
-
-**Mitigation:**
-
-- Noise suppression
-- Better VAD
-- Multiple STT strategies
-- Confidence monitoring
-- Transcript correction
-- Ask clarification when confidence is low
-
----
-
-## R-003 — Poor Interruption
-
-**Risk:** AI berbicara menimpa user.
-
-**Mitigation:**
-
-- Continuous VAD
-- Immediate playback cancellation
-- TTS queue cancellation
-- Explicit conversation state
-- Barge-in testing
-
----
-
-## R-004 — Cost
-
-**Risk:** Voice interaction mahal dibanding text interaction.
-
-**Mitigation:**
-
-- Monitor token usage
-- Limit session duration
-- Compress/optimize context
-- Cache where appropriate
-- Provider abstraction
-- Usage quotas
-
----
-
-## R-005 — Privacy
-
-**Risk:** User tidak nyaman dengan audio retention.
-
-**Mitigation:**
-
-- Clear permission UI
-- Explicit data policy
-- Audio deletion controls
-- Minimal storage
-- Optional audio retention
-
----
-
-## R-006 — Tool Abuse
-
-**Risk:** AI menjalankan action yang tidak diinginkan.
-
-**Mitigation:**
-
-- Tool permission layer
-- Confirmation flow
-- Server-side validation
-- Least-privilege access
-- Audit logs
-
----
-
-# 42. Open Questions
-
-Pertanyaan berikut perlu ditentukan sebelum production:
-
-1. Apakah audio mentah disimpan?
-2. Berapa lama transcript disimpan?
-3. Apakah semua conversation tersimpan secara default?
-4. Apakah user dapat menghapus seluruh data?
-5. Provider AI mana yang menjadi primary provider?
-6. Apakah akan tersedia provider fallback?
-7. Apakah voice session unlimited?
-8. Apakah akan ada usage quota?
-9. Apakah tool calling tersedia di MVP?
-10. Apakah web search tersedia di MVP?
-11. Apakah memory opt-in atau opt-out?
-12. Apakah wake word akan masuk production?
-13. Apakah aplikasi harus mendukung mobile native?
-14. Apakah AI boleh melakukan actions tanpa confirmation untuk low-risk tools?
-
----
-
-# 43. Recommended MVP Product Architecture
-
-```text
-                   ┌─────────────────────┐
-                   │      Next.js        │
-                   │      Frontend       │
-                   └──────────┬──────────┘
-                              │
-                           WebRTC
-                              │
-                              ▼
-                   ┌─────────────────────┐
-                   │   Realtime Gateway  │
-                   │      Node.js        │
-                   └──────────┬──────────┘
-                              │
-              ┌───────────────┼────────────────┐
-              │               │                │
-              ▼               ▼                ▼
-             VAD             ASR              TTS
-              │               │                │
-              └───────────────┼────────────────┘
-                              ▼
-                        ┌───────────┐
-                        │    LLM    │
-                        └─────┬─────┘
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-                 Memory               Tools
-                    │                   │
-                    └─────────┬─────────┘
-                              ▼
-                         PostgreSQL
-```
-
-### Architectural Principle
-
-**AI provider harus interchangeable.**
-
-```text
-Voice Engine
-     │
-     ├── Provider A
-     ├── Provider B
-     └── Provider C
-```
-
-Aplikasi tidak boleh tergantung pada implementasi satu provider.
-
-Hal ini memudahkan perbandingan:
-
-- Latency
-- ASR quality
-- Voice quality
-- Cost
-- Context window
-- Function calling
-- Availability
-- Reliability
-
----
-
-# 44. Final Product Definition
-
-Produk ini bukan sekadar:
-
-> "Chatbot yang mempunyai microphone."
-
-Definisi produk yang lebih tepat adalah:
-
-> **"A low-latency conversational AI that can listen, understand, think, speak, and be interrupted naturally."**
-
-Tiga capability yang paling menentukan kualitas pengalaman adalah:
-
-```text
-1. Streaming audio
-2. Low latency
-3. Interrupt / barge-in
-```
-
-Apabila tiga hal tersebut bekerja dengan baik, produk akan terasa jauh lebih dekat dengan pengalaman Siri atau ChatGPT Voice dibanding chatbot tradisional.
-
----
-
-# 45. Appendix — Example User Session
-
-```text
-[00:00]
-User opens Voice AI.
-
-[00:01]
-System:
-"Hi! What can I help you with?"
-
-[00:03]
-User:
-"Explain Playwright."
-
-[00:03]
-ASR:
-"Explain Playwright."
-
-[00:04]
-LLM starts generating.
-
-[00:04]
-TTS starts speaking:
-"Playwright is an end-to-end testing framework..."
-
-[00:07]
-User interrupts:
-"Is it better than Selenium?"
-
-[00:07]
-AI audio immediately stops.
-
-[00:08]
-ASR:
-"Is it better than Selenium?"
-
-[00:09]
-LLM:
-"It depends on your use case. Playwright..."
-
-[00:09]
-TTS:
-"It depends on your use case..."
-```
-
-Target experience:
-
-> **Fast enough that the user feels they are talking to an AI, not waiting for an API.**
-
----
-
-# 46. Document Status
-
-**Status:** Draft  
-**Version:** 1.0  
-**Next Step:** Technical Design Document (TDD)  
-**Next Implementation Step:** MVP architecture and repository setup
+## 18. Document Status
+
+**Status:** Draft
+**Versi:** 2.0
+**Referensi:** `ROADMAP.md` (panduan fase pengembangan utama)
+**History:** v2.0 merupakan revisi besar dari `PRD_Real-Time_Voice_AI_Assistant.md` v1.0 (voice-first → personal multi-platform assistant).
