@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot } from "./users";
 import { addReminder } from "./reminders";
 import { nextOccurrence } from "./reminderIntent";
+import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 
 export interface ToolCall {
   id: string;
@@ -163,6 +164,101 @@ export const TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    risk: "write",
+    function: {
+      name: "add_task",
+      description:
+        "Create a persistent task in the user's task list. The user must confirm before it runs. Optionally include a `dueAt` ISO-8601 deadline; if given, a reminder is also scheduled.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: {
+            type: "string",
+            description: "The task to do, in the user's own words",
+          },
+          dueAt: {
+            type: "string",
+            description: "Optional concrete ISO-8601 deadline with offset, e.g. '2026-09-02T15:00:00+07:00'",
+          },
+        },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    risk: "read",
+    function: {
+      name: "list_tasks",
+      description: "List the user's tasks (active first, then done/cancelled) with their status and due date.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    risk: "write",
+    function: {
+      name: "complete_task",
+      description: "Mark a task as done by its 1-based number (as shown by list_tasks). The user must confirm before it runs.",
+      parameters: {
+        type: "object",
+        properties: {
+          number: {
+            type: "number",
+            description: "The 1-based task number from list_tasks to complete",
+          },
+        },
+        required: ["number"],
+      },
+    },
+  },
+  {
+    type: "function",
+    risk: "delete",
+    function: {
+      name: "cancel_task",
+      description: "Cancel a task by its 1-based number (as shown by list_tasks), removing it from the active list. Destructive, so the user must confirm before it runs.",
+      parameters: {
+        type: "object",
+        properties: {
+          number: {
+            type: "number",
+            description: "The 1-based task number from list_tasks to cancel",
+          },
+        },
+        required: ["number"],
+      },
+    },
+  },
+  {
+    type: "function",
+    risk: "write",
+    function: {
+      name: "reschedule_task",
+      description:
+        "Change a task's due deadline by its 1-based number (as shown by list_tasks). `dueAt` must be a concrete ISO-8601 timestamp with offset. The user must confirm before it runs.",
+      parameters: {
+        type: "object",
+        properties: {
+          number: {
+            type: "number",
+            description: "The 1-based task number from list_tasks to reschedule",
+          },
+          dueAt: {
+            type: "string",
+            description: "New concrete ISO-8601 deadline with offset, e.g. '2026-09-02T18:00:00+07:00'",
+          },
+        },
+        required: ["number", "dueAt"],
+      },
+    },
+  },
 ];
 
 export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<string> {
@@ -211,6 +307,38 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
         );
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid reminder"}`;
+      }
+    case "add_task":
+      try {
+        const text = typeof args.text === "string" ? args.text.trim() : "";
+        addTask(
+          text,
+          rawUser,
+          typeof args.dueAt === "string" && args.dueAt ? new Date(args.dueAt).getTime() : undefined
+        );
+        return `Task added: "${text}".`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid task"}`;
+      }
+    case "list_tasks":
+      return listTasks(rawUser);
+    case "complete_task":
+      try {
+        return setTaskStatus(Number(args.number), "done", rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid task number"}`;
+      }
+    case "cancel_task":
+      try {
+        return setTaskStatus(Number(args.number), "cancelled", rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid task number"}`;
+      }
+    case "reschedule_task":
+      try {
+        return rescheduleTask(Number(args.number), new Date(String(args.dueAt)).getTime(), rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid reschedule"}`;
       }
     default:
       return `Error: unknown tool "${call.name}"`;
