@@ -36,8 +36,8 @@ Memperkuat inti asisten (sudah ~90% dari Fase 0).
 [x] Memory (persona + auto-capture per-user)
 [x] Context management (conversation history, multi-session resumable)
 [x] Tool/function calling (server-side, risk-gated, confirmation)
-[ ] Basic task execution (integrasi tools menjadi workflow sederhana)
-[ ] Refactor: pisahkan core conversation dari lapisan web (supaya core reusable lintas channel)
+[x] Basic task execution (integrasi tools menjadi workflow sederhana) — via `runAssistantTurn` + `MAX_TOOL_ROUNDS` + `agent.ts` core (dipakai web + Telegram/Discord)
+[x] Refactor: pisahkan core conversation dari lapisan web (supaya core reusable lintas channel) — `lib/agent.ts` `runAssistantTurn` dipakai semua channel, bukan HTTP-to-self
 ```
 
 **Fokus:** memastikan core dapat dipanggil oleh channel apa pun → siap untuk Fase 2.
