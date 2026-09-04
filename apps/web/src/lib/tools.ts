@@ -10,6 +10,7 @@ import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
 import { readDailyMemory } from "./dailyMemory";
 import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate, browserClose } from "./browser";
+import { listDevicesText, deviceExec, deviceScreenshot } from "./devices";
 import { sendToChannel, listChannels } from "../channels/pushTarget";
 
 export interface ToolCall {
@@ -803,6 +804,71 @@ const toolRegistry: ToolPlugin[] = [
         return await browserNavigate(typeof args.action === "string" ? args.action : "");
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "cannot navigate"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "device_list",
+        description: "List paired devices (macos/ios/android) and their capabilities. Use to see available device nodes.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: (_args, ctx) => {
+      try {
+        return listDevicesText(ctx.rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot list devices"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "device_exec",
+        description: "Run a safe command on a paired device (macOS). Requires confirmation. Only allowlisted commands (ls, pwd, cat, git status, etc.). Use device_list to see device IDs.",
+        parameters: {
+          type: "object",
+          properties: {
+            device_id: { type: "string", description: "Device ID from device_list" },
+            command: { type: "string", description: "Command to run, e.g. 'ls', 'pwd'" },
+          },
+          required: ["device_id", "command"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        return await deviceExec(ctx.rawUser, typeof args.device_id === "string" ? args.device_id : "", typeof args.command === "string" ? args.command : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot exec on device"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "device_screenshot",
+        description: "Take a screenshot on a paired macOS device. Requires confirmation. Returns the path where screenshot was saved.",
+        parameters: {
+          type: "object",
+          properties: { device_id: { type: "string", description: "Device ID from device_list" } },
+          required: ["device_id"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        return await deviceScreenshot(ctx.rawUser, typeof args.device_id === "string" ? args.device_id : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot screenshot"}`;
       }
     },
   },

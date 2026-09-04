@@ -206,6 +206,12 @@ async function main() {
   if (!getTool("browser_open") || !getTool("browser_snapshot")) throw new Error("browser tools not registered");
   console.log("browser: OK (tools registered)");
 
+  // --- device nodes — check tools registered and pairing (no real device needed) ---
+  if (!getTool("device_list") || !getTool("device_exec") || !getTool("device_screenshot")) throw new Error("device tools not registered");
+  const devList0 = await executeTool({ id: "t", name: "device_list", arguments: JSON.stringify({}) });
+  if (!devList0.includes("No devices") && !devList0.includes("paired")) throw new Error(`device_list unexpected: ${devList0.slice(0, 100)}`);
+  console.log("device: OK (tools registered)");
+
   // --- multi-root sandbox (ALLOWED_WORKSPACES): path stays inside listed roots ---
   const tmpWs = mkdtempSync(join(tmpdir(), "mia-ws-"));
   writeFileSync(join(tmpWs, "note.txt"), "hi from workspace");
