@@ -116,12 +116,12 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [ ] Integrasi lain: Calendar, Email, Smart home (opsional pribadi)
 [x] Plugin/tool system (daftar tool pluggable)  — tools.ts kini plugin registry: `ToolPlugin { definition, execute }` dalam satu objek, `TOOLS`/`executeTool` diturunkan dari registry (tidak bisa divergen), `registerTool()` untuk tambah tool runtime
 [ ] Channel baru sesuai kebutuhan (WhatsApp, Email, dll) via adapter  — lintas-channel relay via tool `send_channel` (Telegram ↔ Discord) sudah ada (pushTarget registry di globalThis)
-[ ] Shell execution (tool `exec` / process) — jalankan command (npm test, git status, docker) dengan sandbox/allowlist  — gap dari checklist OpenClaw Tier 1 (belum ada; Mia hanya read-only)
-[ ] File system lengkap (write / edit / patch) — lengkapi `file_read` (read-only) jadi read+write+edit dengan sandbox path  — gap checklist OpenClaw Tier 1
+[x] Shell execution (tool `exec` / `exec_write`) — jalankan command dengan sandbox/allowlist  — `exec` read-only (git status/log/diff, ls, pwd, cat, node --version, npm ls; execFile cwd sandboxRoots, timeout 10s, cap 60KB; auto-run); `exec_write` write (git add/commit/push/restore, tokenize quotes, same cwd/sandbox; requires FR-014 confirm); `resolveInSandbox` multi-root (repoRoot + ALLOWED_WORKSPACES); verify.ts OK (2026-09-04)
+[x] File system lengkap (write / edit / patch) — `write_file` (create/overwrite, mkdir -p) + `edit_file` (replace old_string→new_string) — both sandboxed via `resolveInSandbox` + DENY + FR-014 confirm; capped 60KB; verify.ts OK (2026-09-04)
 [ ] Browser automation (interaksi UI, isi form, klik) — beda dari web_search/fetch_url (scrape statis)  — gap checklist OpenClaw Tier 2
 [ ] Webhook trigger untuk automation — memicu task via HTTP POST dari luar  — gap checklist OpenClaw Tier 2
 [ ] Heartbeat / periodic agent check-in — notif periodik (reminder harian, cek state) terpisah dari cron  — gap checklist OpenClaw Tier 2
-[ ] Daily memory (`memory/YYYY-MM-DD.md`) + `memory_get` — log harian bertanggal + ambil memory by id  — gap checklist OpenClaw Workspace & Memory
+[x] Daily memory (`memory/YYYY-MM-DD.md` + `memory_get`) — per-user per-day markdown at `.data/users/<user>/memory/YYYY-MM-DD.md` (`today`/`yesterday` alias) via `dailyMemory.ts`; `agent.ts` appends snippet each turn; `rag.ts` indexes into `search_memory`; tool `memory_get` (read, auto); verify.ts OK (2026-09-04)
 [ ] Media generation (image / video / music) & image/video input understanding  — gap checklist OpenClaw Multimodal (saat ini uploads text-only)
 [ ] Node/device (macOS/iOS/Android: camera, screen, location, device command)  — gap checklist OpenClaw Devices
 [ ] x_search (X/Twitter)  — gap checklist OpenClaw Web (provider tambahan di atas DuckDuckGo)
@@ -169,7 +169,7 @@ MVP personal assistant dianggap berfungsi bila:
 3. **Fase 2.4 — Message Handling & Command System** — DONE (unified command parser + normalisasi input/output di lib/channelMessage.ts; wiring Telegram & Discord; live test /provider yang berhasil ganti model).
 4. **Fase 3 — Personal Assistant Capabilities** — DONE (notif push, task management, scheduler tahan-restart, uploads, read_upload, scheduled automations, rate-limit resilience, quota alert, /status, web interaction incl. fetch_url). Fase 3 SELESAI.
 5. **Fase 3/5 — Konfirmasi + logging** untuk kenyamanan pribadi.
-6. **Gap OpenClaw berikutnya (urutan saran):** 1) `exec` shell tool + sandbox/allowlist, 2) `write`/`edit` file tool melengkapi file_read, 3) Daily memory + `memory_get`, 4) Heartbeat periodic check-in, 5) Webhook trigger automation. Item-item ini dicatat di Fase 4 & 5.
+6. **Gap OpenClaw berikutnya (urutan saran):** 1) `exec` shell tool ✅ DONE, 2) `write`/`edit` file tool ✅ DONE, 3) Daily memory + `memory_get` ✅ DONE, 4) Heartbeat periodic check-in, 5) Webhook trigger automation. Item-item ini dicatat di Fase 4 & 5.
 
 ---
 
@@ -179,14 +179,12 @@ Ringkasan gap agar mudah dipantau (detail lengkap di checklist §24–26 file re
 
 ```text
 SUDAH (Tier 1):  LLM provider, agent runtime, workspace persona (SOUL/IDENTITY/USER/DREAMS),
-                  memory (search_memory RAG + auto-capture), sessions, web/telegram/discord channels,
-                  plugin registry, task/notes/reminders/automations, file_read, web_search, fetch_url,
-                  send_channel, STT/TTS, session management
-SUDAH (Tier 4):   owner allowlist, sandbox file_read, FR-014 konfirmasi, key server-side, backup/recovery
-SEBAGIAN:         cron (scheduler interval, belum sintaks cron), memory (search tapi belum get),
-                  background jobs (in-process), uploads (text-only)
-BELUM (gap):      exec/shell, write/edit/patch file, browser automation, webhook, heartbeat,
-                  daily memory + memory_get, sub-agent/multi-agent, device nodes, media generation,
+                  daily memory (memory/YYYY-MM-DD.md + memory_get + search_memory RAG + auto-capture), sessions, web/telegram/discord channels,
+                  plugin registry, task/notes/reminders/automations, file_read, write_file/edit_file, exec/exec_write, web_search,
+                  fetch_url, send_channel, STT/TTS, session management
+SUDAH (Tier 4):   owner allowlist, sandbox file_read/write/exec, FR-014 konfirmasi, key server-side, backup/recovery
+SEBAGIAN:         cron (scheduler interval, belum sintaks cron), background jobs (in-process), uploads (text-only)
+BELUM (gap):      browser automation, webhook, heartbeat, sub-agent/multi-agent, device nodes, media generation,
                   x_search, audit log, rate-limit app-level, auth penuh, channel lain (WhatsApp/Slack)
 ```
 

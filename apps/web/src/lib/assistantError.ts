@@ -22,11 +22,30 @@ const QUOTA_RE =
 export function classifyAssistantError(err: unknown): ClassifiedError {
   const detail = err instanceof Error ? err.message : String(err ?? "");
   if (RATE_LIMIT_RE.test(detail)) {
+    // Try to surface concise Groq numbers like "TPD 199244/200000 (wait 31m40s)" when present in detail.
+    const mLimit = detail.match(/Limit\s+(\d+)[^0-9]*Used\s+(\d+)/i);
+    const mWait = detail.match(/try again in\s+([\d.]+)s|wait\s+([\dmsh]+)/i);
+    let suffix = "";
+    if (mLimit) {
+      const used = mLimit[2];
+      const limit = mLimit[1];
+      suffix = ` — TPD ${used}/${limit}`;
+      const mWaitFull = detail.match(/try again in\s+([^\n]+?)(?:\.\s|—|$)/i);
+      if (mWaitFull) {
+        let raw = mWaitFull[1].trim();
+        // Shorten "31m40.368s" → "31m40s", "40.500s" → "40s"
+        raw = raw.replace(/\.\d+s$/, "s");
+        suffix += ` (wait ${raw})`;
+      } else if (mWait) {
+        const raw = mWait[1] || mWait[2];
+        suffix += ` (wait ${raw})`;
+      }
+    }
     return {
       kind: "rate_limit",
       detail,
       userMessage:
-        "Jatah token AI (rate limit) sedang habis atau melonjak. Tunggu beberapa saat lalu coba lagi, atau upgrade tier di console Groq kalau sering kena. 🌸",
+        `Jatah token AI (rate limit) habis${suffix}. Tunggu beberapa saat lalu coba lagi, atau upgrade tier di console Groq kalau sering kena. 🌸`,
     };
   }
   if (QUOTA_RE.test(detail)) {

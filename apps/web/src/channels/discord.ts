@@ -24,7 +24,7 @@
  *   DISCORD_USER                  fallback user key for persona (default "naufal")
  */
 
-import { Client, Events, GatewayIntentBits, Message, Partials } from "discord.js";
+import { Client, Events, GatewayIntentBits, Message, Partials, REST, Routes, SlashCommandBuilder } from "discord.js";
 import { runAssistantTurn, ChatMessage } from "@/lib/agent";
 import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
@@ -151,14 +151,121 @@ export async function startDiscordBot(): Promise<void> {
     return s;
   };
 
-  client.on(Events.ClientReady, () => {
+  client.on(Events.ClientReady, async () => {
     console.log("[discord] logged in as", client.user?.tag);
+    // Register slash commands for Mia so "/status" etc. appear under Mia, not just as prefix.
+    // Do it once per startup; Discord dedupes by name. Register both global and per-guild for fast propagation.
+    try {
+      const commands = [
+        new SlashCommandBuilder().setName("status").setDescription("Show Mia status (provider, uptime, counts)").toJSON(),
+        new SlashCommandBuilder().setName("help").setDescription("Show help").toJSON(),
+        new SlashCommandBuilder().setName("reset").setDescription("Clear this chat history").toJSON(),
+        new SlashCommandBuilder()
+          .setName("provider")
+          .setDescription("Switch AI provider")
+          .addStringOption((o) => o.setName("id").setDescription("groq / 9router / openrouter / opencode / mock").setRequired(true))
+          .toJSON(),
+        new SlashCommandBuilder()
+          .setName("model")
+          .setDescription("Set model (empty = Auto)")
+          .addStringOption((o) => o.setName("id").setDescription("model id or empty for Auto").setRequired(false))
+          .toJSON(),
+      ];
+      const rest = new REST({ version: "10" }).setToken(token);
+      await rest.put(Routes.applicationCommands(client.user!.id), { body: commands });
+      console.log("[discord] slash commands registered (global)");
+      // Also register per-guild for instant availability (global can take 1h)
+      for (const guild of client.guilds.cache.values()) {
+        try {
+          await rest.put(Routes.applicationGuildCommands(client.user!.id, guild.id), { body: commands });
+          console.log(`[discord] slash registered for guild ${guild.id}`);
+        } catch (e) {
+          console.warn(`[discord] guild ${guild.id} slash failed:`, e instanceof Error ? e.message : String(e));
+        }
+      }
+    } catch (e) {
+      console.warn("[discord] slash register failed:", e instanceof Error ? e.message : String(e));
+    }
   });
   // Surface gateway/connection problems that would otherwise silently drop
   // inbound messages (a zombie gateway is the #1 "bot doesn't respond" cause).
   client.on(Events.Error, (e) => console.error("[discord] client error:", e.message));
   client.on(Events.Warn, (w) => console.warn("[discord] client warn:", w));
   client.on(Events.Invalidated, () => console.warn("[discord] session invalidated"));
+  // Debug: log every raw gateway event to see why slash shows "did not respond"
+  // with no handler log. Keep it verbose for now.
+  client.on(Events.Raw, (packet: { t: string | null; d: unknown }) => {
+    // Log all packet types briefly, and full for INTERACTION_CREATE
+    if (packet.t) {
+      if (packet.t === "INTERACTION_CREATE") {
+        console.log("[discord] raw INTERACTION_CREATE", JSON.stringify(packet.d).slice(0, 1500));
+      } else if (Math.random() < 0.02) {
+        // Sample other events to confirm raw is firing at all
+        console.log("[discord] raw", packet.t);
+      }
+    }
+  });
+  // Handle slash-command interactions — now that we register them, handle
+  // directly instead of guiding to prefix. Keep prefix "/" messages working too.
+  client.on(Events.InteractionCreate, async (interaction) => {
+    try {
+      console.log(`[discord] interaction type=${interaction.type} id=${interaction.id} ${interaction.isChatInputCommand() ? `cmd=${interaction.commandName}` : interaction.isAutocomplete() ? "autocomplete" : "other"}`);
+      if (interaction.isChatInputCommand()) {
+        const cmd = interaction.commandName;
+        // Allow-list check (same as messageCreate)
+        const userId = interaction.user.id;
+        const channelId = interaction.channelId ?? "dm";
+        if (ALLOWED_USER_IDS.length && !ALLOWED_USER_IDS.includes(userId)) {
+          await interaction.reply({ content: "Maaf, kamu belum di allow-list.", ephemeral: true }).catch(() => {});
+          return;
+        }
+        if (ALLOWED_CHANNEL_IDS.length && channelId && !ALLOWED_CHANNEL_IDS.includes(channelId)) {
+          await interaction.reply({ content: "Channel ini belum di allow-list.", ephemeral: true }).catch(() => {});
+          return;
+        }
+        const deferOk = await interaction.deferReply({ ephemeral: false }).then(() => true).catch((e) => {
+          console.warn("[discord] deferReply failed:", e instanceof Error ? e.message : String(e));
+          return false;
+        });
+        if (!deferOk && !interaction.deferred && !interaction.replied) {
+          await interaction.reply({ content: "Sebentar ya…", ephemeral: false }).catch(() => {});
+          return;
+        }
+        const userKey = (interaction.user.username || interaction.user.id).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 60) || "naufal";
+        const state = getState(channelId);
+        // Track owner channel for pushes (interaction channel)
+        if (interaction.channel && "send" in interaction.channel) {
+          lastSeenOwnerChannel = interaction.channel as unknown as SendableChannel;
+        }
+        let replyText: string;
+        if (cmd === "status") {
+          replyText = buildStatusReport({ provider: state.provider, model: state.model, historyLen: state.history.length, user: userKey }, "Mia 2026.9");
+        } else {
+          // Reuse unified command handler by faking a text like "/provider 9router"
+          const opt = interaction.options.data.map((o) => String(o.value ?? "")).join(" ").trim();
+          const fakeText = `/${cmd}${opt ? ` ${opt}` : ""}`;
+          const res = handleUnifiedCommand(state as ChatSessionState, fakeText);
+          replyText = res.handled ? (res.replyText || "…") : `Perintah /${cmd} tidak dikenal.`;
+        }
+        await interaction.editReply(replyText.slice(0, 1900)).catch((e) => console.warn("[discord] editReply failed:", e instanceof Error ? e.message : String(e)));
+        return;
+      }
+      if (interaction.isAutocomplete()) {
+        await interaction.respond([]).catch(() => {});
+      } else if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "Diterima. Gunakan perintah sebagai pesan biasa ya. 🌸", ephemeral: true }).catch(() => {});
+      }
+    } catch (e) {
+      console.warn("[discord] interaction handling failed:", e instanceof Error ? e.message : String(e));
+      try {
+        if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: "Terjadi kendala. Coba lagi ya. 🌸", ephemeral: true });
+        } else if (interaction.isRepliable() && interaction.deferred) {
+          await interaction.editReply("Terjadi kendala. Coba lagi ya. 🌸");
+        }
+      } catch { /* ignore */ }
+    }
+  });
 
   client.on("messageCreate", async (msg: Message) => {
     try {

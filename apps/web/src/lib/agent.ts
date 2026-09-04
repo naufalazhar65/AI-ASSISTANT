@@ -20,6 +20,8 @@ import { captureFactsFromTurn } from "./autoMemory";
 import { detectReminderIntent } from "./reminderIntent";
 import { addReminder } from "./reminders";
 import { loadPersonaPrompt } from "./persona";
+import { allowedWorkspaces } from "./users";
+import { appendDailyMemory } from "./dailyMemory";
 
 export type ChatMessage = {
   role: string;
@@ -44,11 +46,17 @@ const SYSTEM_PROMPT = [
   "same person everywhere. Answer concisely and naturally. Never use markdown. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, and send_channel. ",
+  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, and send_channel. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
   "show saved notes, delete_note to remove one, file_read to read a project ",
-  "file or list a directory (path relative to the repo root), remind_me when ",
+  "file or list a directory (path inside the repo root or any allowed workspace; ",
+  "e.g. 'README.md' or an absolute path like the flowtest-studio workspace), ",
+  "write_file to create or overwrite a file with given content and edit_file to patch a file by replacing old_string with new_string (both require confirmation), ",
+  "exec to run a safe read-only command (e.g. 'git status', 'ls src', ",
+  "'node --version') whose output answers the user — pass `cwd` to target a ",
+  "different allowed workspace, exec_write to run a write command (git add/commit/push, one command per call — never chain with &&) ",
+  "when the user explicitly asks to commit or push (requires confirmation), remind_me when ",
   "the user asks to be reminded in the future (convert any relative time to a ",
   "concrete ISO-8601 timestamp with offset). For remind_me, ALWAYS use the ",
   "current date given below: a bare time like \"jam 3 sore\" means TODAY (or ",
@@ -62,10 +70,11 @@ const SYSTEM_PROMPT = [
   "When the user wants a recurring action on a schedule ('setiap pagi jam 8', 'setiap 2 jam', 'lapor cuaca tiap pagi'), call create_automation with the action as `prompt` and a human `schedule` string.",
   "Use fetch_url to read the text of a specific public web page the user links to (it scrapes article text), and web_search to find pages — combine both to answer with current web content.",
   "Use search_memory to look up past notes, uploaded documents, tasks, reminders, automations, and persona facts relevant to a question — it uses local BM25 retrieval and runs offline.",
+  "Use memory_get to retrieve a specific day's daily memory log (e.g. 'today', 'yesterday', or '2026-09-04').",
   "Use send_channel with `to` = 'telegram' or 'discord' to relay a message to the other platform when the user asks (e.g. 'kirim ini ke discord'). It sends immediately without needing confirmation.",
-  "save_note, delete_note, remind_me, add_task, complete_task, cancel_task, reschedule_task, and create_automation ",
+  "save_note, delete_note, write_file, edit_file, remind_me, add_task, complete_task, cancel_task, reschedule_task, create_automation, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
-  "note was saved/deleted or the reminder set yet. send_channel does NOT wait for confirmation — send it right away.",
+  "file was written/edited, the note was saved/deleted, the reminder set, or the commit pushed yet. send_channel and exec do NOT wait for confirmation — send/run them right away.",
   "Tool results come from the server and should be trusted as fresh information.",
   " The persona files below (USER, SOUL, IDENTITY, DREAMS) are your persistent ",
   "memory: they already contain what you know about the user and how to speak. ",
@@ -118,6 +127,17 @@ function formatInstructionFor(channel?: Channel): string | undefined {
   if (channel === "text") return textFormatInstruction();
   if (channel === "discord") return discordFormatInstruction();
   return undefined;
+}
+
+function workspaceInfo(): string | null {
+  try {
+    const ws = allowedWorkspaces();
+    if (!ws.length) return null;
+    const lines = ws.map((p) => `- ${p} (use as cwd or path prefix "${p.split("/").pop()}" e.g. cwd: "${p.split("/").pop()}" or file_read path: "${p}/AGENTS.md")`);
+    return `Allowed workspaces you may read/exec in (beyond the repo root):\n${lines.join("\n")}`;
+  } catch {
+    return null;
+  }
 }
 
 /** User-local timezone; defaults to the server zone when unset. */
@@ -188,6 +208,8 @@ export function buildSystemPrompt(rawUser?: unknown, channel?: Channel): string 
       "greeting the user — never shorten or drop the honorific."
   );
   parts.push(currentTimeLine());
+  const ws = workspaceInfo();
+  if (ws) parts.push(ws);
   const fmt = formatInstructionFor(channel);
   if (fmt) parts.push(fmt);
   return parts.join("\n\n");
@@ -488,6 +510,13 @@ export async function runAssistantTurn(opts: {
     // so detect a "remind/bangunin di <waktu>" intent directly and schedule it
     // with the same store the `remind_me` tool uses.
     opencodeText = scheduleReminderFromIntent(messages, opts.user, opencodeText);
+    try {
+      const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() || "";
+      if (lastUser || opencodeText.trim()) {
+        const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", opencodeText.trim() ? `Mia: ${opencodeText.trim().slice(0, 800)}` : ""].filter(Boolean).join("\n");
+        appendDailyMemory(opts.user, snippet);
+      }
+    } catch { /* best-effort */ }
     return { text: opencodeText || "", needsConfirmation: null };
   }
 
@@ -546,8 +575,16 @@ export async function runAssistantTurn(opts: {
     // instead of a bare internal-error, so the user isn't left guessing.
     if (opts.confirm_call?.allow) {
       console.error("[agent] confirmed tool ran but follow-up failed:", err instanceof Error ? err.message : String(err));
+      // If the follow-up failed due to token/quota, show that detail so the
+      // user knows why (e.g. Groq 200k TPD) instead of generic "sibuk".
+      const { classifyAssistantError } = await import("./assistantError");
+      const classified = classifyAssistantError(err);
+      const detail =
+        classified.kind === "rate_limit" || classified.kind === "quota"
+          ? ` ${classified.userMessage}`
+          : " Sayangnya balasan detailnya tersendat karena layanan sedang sibuk — coba tanya lagi sebentar lagi ya. 🌸";
       return {
-        text: "Aksimu sudah dijalankan. Sayangnya balasan detailnya tersendat karena layanan sedang sibuk — coba tanya lagi sebentar lagi ya. 🌸",
+        text: `Aksimu sudah dijalankan.${detail}`,
         needsConfirmation: null,
       };
     }
@@ -571,6 +608,20 @@ export async function runAssistantTurn(opts: {
   // it, to avoid double-scheduling). Mirrors the opencode path.
   if (!remindToolAlreadyHandled(opts, needsConfirmation)) {
     text = scheduleReminderFromIntent(messages, opts.user, text);
+  }
+
+  // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
+  // This provides the YYYY-MM-DD.md files that memory_get reads and that
+  // search_memory indexes via rag.ts.
+  try {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() || "";
+    const lastAssistant = text.trim();
+    if (lastUser || lastAssistant) {
+      const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", lastAssistant ? `Mia: ${lastAssistant.slice(0, 800)}` : ""].filter(Boolean).join("\n");
+      appendDailyMemory(opts.user, snippet);
+    }
+  } catch {
+    /* daily memory is best-effort */
   }
 
   return { text, needsConfirmation };

@@ -168,10 +168,8 @@ export async function captureFactsFromTurn(args: CaptureArgs): Promise<number> {
     // Also record today's new facts in the daily memory log (time-bucketed
     // context for fresh sessions) — mirrors OpenClaw's memory/YYYY-MM-DD.md.
     try {
-      appendDailyMemory(
-        facts.map((f) => ({ target: f.target, key: f.key, value: f.value })),
-        args.rawUser
-      );
+      const snippet = facts.map((f) => `${f.target}.${f.key}=${f.value}`).join(", ");
+      appendDailyMemory(args.rawUser, `[persona] ${snippet}`);
     } catch {
       /* best effort, never breaks a turn */
     }

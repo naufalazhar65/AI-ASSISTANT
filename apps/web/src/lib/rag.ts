@@ -69,6 +69,19 @@ function collectDocs(rawUser?: unknown): DocChunk[] {
     } catch { /* ignore */ }
   }
 
+  try {
+    const memDir = join(root, userKey, "memory");
+    if (existsSync(memDir)) {
+      for (const name of readdirSync(memDir)) {
+        if (!/^\d{4}-\d{2}-\d{2}\.md$/.test(name)) continue;
+        try {
+          const txt = readFileSync(join(memDir, name), "utf8");
+          if (txt.trim()) docs.push({ id: `memory:${name}`, source: "memory", text: txt.slice(0, 4000) });
+        } catch { /* ignore */ }
+      }
+    }
+  } catch { /* ignore */ }
+
   return docs;
 }
 

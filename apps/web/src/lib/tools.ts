@@ -1,12 +1,14 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { sanitizeUser, userDataRoot, appRoot, repoRoot } from "./users";
+import { execFile } from "node:child_process";
+import { dirname, join, resolve, sep } from "node:path";
+import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
 import { addReminder } from "./reminders";
 import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
+import { readDailyMemory } from "./dailyMemory";
 import { sendToChannel, listChannels } from "../channels/pushTarget";
 
 export interface ToolCall {
@@ -136,6 +138,148 @@ const toolRegistry: ToolPlugin[] = [
         return fileRead(typeof args.path === "string" ? args.path : "");
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "cannot read path"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "write_file",
+        description:
+          "Create or overwrite a file in the project (or allowed workspace) with the given text content. Requires confirmation. Paths are inside the repo root or allowed workspace; parent directories are created as needed.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: "File path to write, e.g. 'notes/todo.md' or 'flowtest-studio/src/new.ts' or absolute allowed path",
+            },
+            content: {
+              type: "string",
+              description: "Text content to write to the file",
+            },
+          },
+          required: ["path", "content"],
+        },
+      },
+    },
+    execute: (args) => {
+      try {
+        return fileWrite(typeof args.path === "string" ? args.path : "", typeof args.content === "string" ? args.content : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot write file"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "edit_file",
+        description:
+          "Edit an existing file by replacing the first occurrence of old_string with new_string. Requires confirmation. Use for small patches; for large rewrites use write_file.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: "File path to edit",
+            },
+            old_string: {
+              type: "string",
+              description: "Exact text to find and replace (must appear once)",
+            },
+            new_string: {
+              type: "string",
+              description: "Replacement text",
+            },
+          },
+          required: ["path", "old_string", "new_string"],
+        },
+      },
+    },
+    execute: (args) => {
+      try {
+        return fileEdit(
+          typeof args.path === "string" ? args.path : "",
+          typeof args.old_string === "string" ? args.old_string : "",
+          typeof args.new_string === "string" ? args.new_string : ""
+        );
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot edit file"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "exec",
+        description:
+          "Run a read-only shell command in a project and return its output. Only safe inspection commands are allowed (git status/log/diff/branch, ls, pwd, cat, node --version, npm ls); anything else is rejected. Use cwd (a path relative to the repo root, e.g. '..' is not allowed; to inspect another allowed workspace pass its folder name) to choose the directory; default is the repo root.",
+        parameters: {
+          type: "object",
+          properties: {
+            command: {
+              type: "string",
+              description: "A read-only command from the allowlist, e.g. 'git status' or 'ls src'",
+            },
+            cwd: {
+              type: "string",
+              description: "Optional directory (relative path within an allowed workspace) to run in; defaults to the repo root",
+            },
+          },
+          required: ["command"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        return await execSafe(
+          typeof args.command === "string" ? args.command : "",
+          typeof args.cwd === "string" ? args.cwd : ""
+        );
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot run command"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "exec_write",
+        description:
+          "Run a write shell command (git add/commit/push) that modifies the project. Requires user confirmation. Use only for explicit user requests to commit or push. One command per call — do NOT chain with && or ;, call each git command as a separate tool invocation. cwd works like exec.",
+        parameters: {
+          type: "object",
+          properties: {
+            command: {
+              type: "string",
+              description: "Write command, e.g. 'git add .' , 'git commit -m \"msg\"', 'git push' — one command only, no &&",
+            },
+            cwd: {
+              type: "string",
+              description: "Optional directory (as in exec) to run in; defaults to repo root",
+            },
+          },
+          required: ["command"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        return await execWriteSafe(
+          typeof args.command === "string" ? args.command : "",
+          typeof args.cwd === "string" ? args.cwd : ""
+        );
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot run command"}`;
       }
     },
   },
@@ -527,6 +671,34 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "memory_get",
+        description:
+          "Retrieve the daily memory log for a specific date (YYYY-MM-DD, or 'today'/'yesterday'). Each day's file contains timestamped conversation snippets. Returns the file content or a not-found message.",
+        parameters: {
+          type: "object",
+          properties: {
+            date: {
+              type: "string",
+              description: "Date to retrieve, e.g. '2026-09-04' or 'today' or 'yesterday'",
+            },
+          },
+          required: ["date"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        return readDailyMemory(ctx.rawUser, typeof args.date === "string" ? args.date : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot read memory"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "send_channel",
         description:
           "Forward a message to another registered channel (e.g. Telegram or Discord). Use when the user asks to relay a message to a different platform than the one they are chatting on.",
@@ -677,7 +849,6 @@ function scheduleReminder(text: string, isoWhen: string, rawUser: unknown): stri
 // secrets/build/server directories out of the LLM context:
 //   - .env* / *.local        → API keys, never exposed
 //   - .git, node_modules, .next, .data  → not user-authored material
-const FILE_ROOT = () => repoRoot();
 const FILE_MAX_BYTES = 60000;
 const DENY_SEGMENTS = [".git", "node_modules", ".next", ".data", "dist", "coverage"];
 const DENY_PATTERNS = [/^\.env(\.|$)/i, /.local$/, /\.(key|pem|crt)$/i, /\.(pyc|class|o)$/];
@@ -685,13 +856,12 @@ const DENY_PATTERNS = [/^\.env(\.|$)/i, /.local$/, /\.(key|pem|crt)$/i, /\.(pyc|
 function fileRead(rawPath: string): string {
   const p = (rawPath || "").trim();
   if (!p) throw new Error("empty path");
-  if (isAbsolute(p) || p.includes("~")) throw new Error("path must be relative to the project root");
+  if (p.includes("~")) throw new Error("tilde paths are not allowed");
 
-  const root = FILE_ROOT();
-  const abs = resolve(root, p);
-  if (abs !== root && !abs.startsWith(root + sep)) throw new Error("path escapes the project root");
+  const abs = resolveInSandbox(p);
+  if (!abs) throw new Error("path escapes every allowed sandbox root");
 
-  const rel = abs.slice(root.length).split(sep).filter(Boolean);
+  const rel = abs.split(sep);
   for (const seg of rel) {
     if (DENY_SEGMENTS.includes(seg)) throw new Error(`"${seg}" is not readable`);
     if (DENY_PATTERNS.some((re) => re.test(seg))) throw new Error(`"${seg}" is blocked for security`);
@@ -714,6 +884,240 @@ function fileRead(rawPath: string): string {
 
   if (stat.size > FILE_MAX_BYTES) throw new Error("file too large to read");
   return readFileSync(abs, "utf8").slice(0, FILE_MAX_BYTES);
+}
+
+const FILE_WRITE_MAX_BYTES = 60000;
+
+function fileWrite(rawPath: string, content: string): string {
+  const p = (rawPath || "").trim();
+  if (!p) throw new Error("empty path");
+  if (p.includes("~")) throw new Error("tilde paths are not allowed");
+  if (content.length > FILE_WRITE_MAX_BYTES) throw new Error("content too large");
+  const abs = resolveInSandbox(p);
+  if (!abs) throw new Error("path escapes every allowed sandbox root");
+  const rel = abs.split(sep);
+  for (const seg of rel) {
+    if (DENY_SEGMENTS.includes(seg)) throw new Error(`"${seg}" is not writable`);
+    if (DENY_PATTERNS.some((re) => re.test(seg))) throw new Error(`"${seg}" is blocked for security`);
+  }
+  // Prevent writing directly to a directory path (no extension and exists as dir is handled, but also block bare dir writes)
+  try {
+    if (statSync(abs).isDirectory()) throw new Error("path is a directory, not a file");
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("is a directory")) throw e;
+    // file does not exist yet — ok, will create
+  }
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, content, "utf8");
+  return `Wrote ${content.length} bytes to ${p}`;
+}
+
+function fileEdit(rawPath: string, oldStr: string, newStr: string): string {
+  const p = (rawPath || "").trim();
+  if (!p) throw new Error("empty path");
+  if (!oldStr) throw new Error("old_string is required");
+  const abs = resolveInSandbox(p);
+  if (!abs) throw new Error("path escapes every allowed sandbox root");
+  const rel = abs.split(sep);
+  for (const seg of rel) {
+    if (DENY_SEGMENTS.includes(seg)) throw new Error(`"${seg}" is not writable`);
+    if (DENY_PATTERNS.some((re) => re.test(seg))) throw new Error(`"${seg}" is blocked for security`);
+  }
+  const cur = readFileSync(abs, "utf8");
+  if (!cur.includes(oldStr)) throw new Error("old_string not found in file");
+  // Only replace first occurrence to keep it predictable; use replaceAll if needed via multiple calls
+  const next = cur.replace(oldStr, newStr);
+  if (next.length > FILE_WRITE_MAX_BYTES) throw new Error("result too large");
+  writeFileSync(abs, next, "utf8");
+  return `Edited ${p}: replaced 1 occurrence`;
+}
+
+/**
+ * Read-only shell execution with a strict allowlist (invariant 5: no mutating
+ * commands ever reach the LLM context). The whole command string must match an
+ * allowlisted pattern; args are tokenized and each passed verbatim to execFile
+ * (no shell interpretation), and runs in the project root with a timeout.
+ */
+const EXEC_MAX_OUTPUT = 60000;
+const EXEC_TIMEOUT_MS = 10000;
+/** Allowlisted read-only commands: base binary + (for subcommand tools) allowed
+ *  read-only subcommands. Anything else is rejected. */
+const EXEC_ALLOWLIST: Record<
+  string,
+  { subcommand?: string[]; maxArgs: number } | { maxArgs: number }
+> = {
+  git: { subcommand: ["status", "log", "diff", "branch", "ls-files", "show", "rev-parse", "--version"], maxArgs: 4 },
+  ls: { maxArgs: 4 },
+  pwd: { maxArgs: 0 },
+  cat: { maxArgs: 4 },
+  node: { subcommand: ["--version", "-v"], maxArgs: 2 },
+  npm: { subcommand: ["ls", "--version"], maxArgs: 3 },
+};
+/** Args that are never allowed, even for an allowlisted base command. */
+const EXEC_FORBIDDEN_ARG = ["--", "-a", "--all", "..", "~", ";", "&&", "|", ">", "<", "$(", "`"];
+const EXEC_FORBIDDEN_SRC =
+  /(\.env|\.local|\.key|\.pem|\.crt|node_modules|\.next|\.data|package-lock)/i;
+
+function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const trimmed = (rawCommand || "").trim();
+    if (!trimmed) {
+      rejectPromise(new Error("empty command"));
+      return;
+    }
+    // Resolve the working directory inside an allowed sandbox root. An empty
+    // cwd means the repo root; a relative path may target an allowed workspace.
+    let cwd = repoRoot();
+    if (rawCwd && rawCwd.trim()) {
+      const resolvedCwd = resolveInSandbox(rawCwd.trim());
+      if (!resolvedCwd) {
+        rejectPromise(new Error("cwd escapes every allowed sandbox root"));
+        return;
+      }
+      cwd = resolvedCwd;
+    }
+    const parts = trimmed.split(/\s+/);
+    const [cmd, ...args] = parts;
+    const spec = EXEC_ALLOWLIST[cmd];
+    if (!spec) {
+      rejectPromise(new Error(`command "${cmd}" is not allowed`));
+      return;
+    }
+    if ("subcommand" in spec) {
+      // First arg is the git/node/npm subcommand; must be a read-only one.
+      if (args.length === 0) {
+        rejectPromise(new Error("missing subcommand"));
+        return;
+      }
+      if (!spec.subcommand!.includes(args[0])) {
+        rejectPromise(new Error(`subcommand "${args[0]}" is not allowed`));
+        return;
+      }
+      if (args.length - 1 > spec.maxArgs) {
+        rejectPromise(new Error("too many arguments"));
+        return;
+      }
+    } else if (args.length > spec.maxArgs) {
+      rejectPromise(new Error("too many arguments"));
+      return;
+    }
+    for (const a of args) {
+      if (EXEC_FORBIDDEN_ARG.includes(a)) {
+        const hint = [";", "&&", "|", ">", "<"].includes(a) ? " — do not chain commands, call each separately" : "";
+        rejectPromise(new Error(`argument "${a}" is not allowed${hint}`));
+        return;
+      }
+    }
+    // Refuse reading sensitive/dir-heavy targets (mirrors file_read deny-list).
+    if (EXEC_FORBIDDEN_SRC.test(trimmed)) {
+      rejectPromise(new Error("command targets a blocked path"));
+      return;
+    }
+    execFile(
+      cmd,
+      args,
+      { cwd, timeout: EXEC_TIMEOUT_MS, maxBuffer: EXEC_MAX_OUTPUT * 2 },
+      (err, stdout, stderr) => {
+        if (err) {
+          const code = (err as NodeJS.ErrnoException & { code?: number }).code;
+          const msg = stderr?.trim() || err.message || "command failed";
+          rejectPromise(new Error(`${msg}${typeof code === "number" ? ` (exit ${code})` : ""}`));
+          return;
+        }
+        resolvePromise((stdout || "").trim().slice(0, EXEC_MAX_OUTPUT) || "(no output)");
+      }
+    );
+  });
+}
+
+/** Allowlisted write commands — require FR-014 confirmation (risk: write). */
+const EXEC_WRITE_ALLOWLIST: Record<string, { subcommand: string[]; maxArgs: number }> = {
+  git: { subcommand: ["add", "commit", "push", "restore"], maxArgs: 6 },
+};
+
+/** Tokenize a command string respecting single/double quotes (e.g. git commit -m "msg with spaces"). */
+function tokenizeCommand(raw: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quote: string | null = null;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === " " || ch === "\t") {
+      if (cur) {
+        out.push(cur);
+        cur = "";
+      }
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function execWriteSafe(rawCommand: string, rawCwd = ""): Promise<string> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const trimmed = (rawCommand || "").trim();
+    if (!trimmed) {
+      rejectPromise(new Error("empty command"));
+      return;
+    }
+    let cwd = repoRoot();
+    if (rawCwd && rawCwd.trim()) {
+      const resolvedCwd = resolveInSandbox(rawCwd.trim());
+      if (!resolvedCwd) {
+        rejectPromise(new Error("cwd escapes every allowed sandbox root"));
+        return;
+      }
+      cwd = resolvedCwd;
+    }
+    const parts = tokenizeCommand(trimmed);
+    const [cmd, ...args] = parts;
+    const spec = EXEC_WRITE_ALLOWLIST[cmd];
+    if (!spec) {
+      rejectPromise(new Error(`command "${cmd}" is not allowed for write`));
+      return;
+    }
+    if (args.length === 0) {
+      rejectPromise(new Error("missing subcommand"));
+      return;
+    }
+    if (!spec.subcommand.includes(args[0])) {
+      rejectPromise(new Error(`subcommand "${args[0]}" is not allowed for write`));
+      return;
+    }
+    if (args.length - 1 > spec.maxArgs) {
+      rejectPromise(new Error("too many arguments"));
+      return;
+    }
+    for (const a of args) {
+      if ([";", "&&", "|", ">", "<", "$(", "`", "..", "~"].includes(a)) {
+        rejectPromise(new Error(`argument "${a}" is not allowed — do not chain commands with && or ;, call each command separately`));
+        return;
+      }
+    }
+    if (EXEC_FORBIDDEN_SRC.test(trimmed)) {
+      rejectPromise(new Error("command targets a blocked path"));
+      return;
+    }
+    execFile(cmd, args, { cwd, timeout: EXEC_TIMEOUT_MS, maxBuffer: EXEC_MAX_OUTPUT * 2 }, (err, stdout, stderr) => {
+      if (err) {
+        const code = (err as NodeJS.ErrnoException & { code?: number }).code;
+        const msg = stderr?.trim() || err.message || "command failed";
+        rejectPromise(new Error(`${msg}${typeof code === "number" ? ` (exit ${code})` : ""}`));
+        return;
+      }
+      resolvePromise((stdout || "").trim().slice(0, EXEC_MAX_OUTPUT) || "(no output)");
+    });
+  });
 }
 
 const DDG_INSTANT = "https://api.duckduckgo.com/";

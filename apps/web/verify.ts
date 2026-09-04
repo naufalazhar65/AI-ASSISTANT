@@ -1,6 +1,10 @@
 import { ConversationManager } from "./src/ai/ConversationManager";
 import { MockProvider } from "@ai-provider/mock";
 import { executeTool } from "./src/lib/tools";
+import { resolveInSandbox } from "./src/lib/users";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -121,7 +125,96 @@ async function main() {
     const r = await fr(bad);
     if (!r.startsWith("Error:")) throw new Error(`file_read not guarded: ${bad} -> ${r}`);
   }
+
+  // --- exec tool (read-only, strict allowlist) ---
+  const ex = (c: string) => executeTool({ id: "t", name: "exec", arguments: JSON.stringify({ command: c }) });
+  const gitOut = await ex("git status");
+  if (gitOut.startsWith("Error:")) throw new Error(`exec git status failed: ${gitOut}`);
+  const lsOut = await ex("ls apps");
+  if (lsOut.startsWith("Error:")) throw new Error(`exec ls failed: ${lsOut}`);
+  const catOut = await ex("cat package.json");
+  if (catOut.startsWith("Error:") || !catOut.includes("name")) throw new Error(`exec cat failed: ${catOut}`);
+  const pwdOut = await ex("pwd");
+  if (pwdOut.startsWith("Error:")) throw new Error(`exec pwd failed: ${pwdOut}`);
+  for (const [badCmd, why] of [
+    ["rm -rf .", "mutating command not allowlisted"],
+    ["node -e 'process.exit(1)'", "node subcommand -e not allowed"],
+    ["git push", "mutating git subcommand"],
+    ["cat ../.env.local", "escape + env"],
+    ["ls | head", "pipeline shell operator"],
+    ["cat package-lock.json", "blocked path"],
+    ["unknowncmd", "not allowlisted"],
+    ["git status extra1 extra2 extra3 extra4 extra5", "too many args"],
+  ] as const) {
+    const r = await ex(badCmd);
+    if (!r.startsWith("Error:")) throw new Error(`exec not guarded: ${badCmd} -> ${r}`);
+  }
   console.log("tools (notes + file access): OK");
+  console.log("exec: OK");
+
+  // --- write_file / edit_file (sandboxed, requires write, but executeTool bypasses confirmation) ---
+  const tmpWriteWs = mkdtempSync(join(tmpdir(), "mia-write-"));
+  const prevWriteWs = process.env.ALLOWED_WORKSPACES;
+  process.env.ALLOWED_WORKSPACES = tmpWriteWs;
+  try {
+    const wf = (path: string, content: string) => executeTool({ id: "t", name: "write_file", arguments: JSON.stringify({ path, content }) });
+    const ef = (path: string, old_string: string, new_string: string) => executeTool({ id: "t", name: "edit_file", arguments: JSON.stringify({ path, old_string, new_string }) });
+    const w1 = await wf(join(tmpWriteWs, "hello.txt"), "hello world");
+    if (w1.startsWith("Error:")) throw new Error(`write_file failed: ${w1}`);
+    const r1 = await executeTool({ id: "t", name: "file_read", arguments: JSON.stringify({ path: join(tmpWriteWs, "hello.txt") }) });
+    if (!r1.includes("hello world")) throw new Error(`file_read after write failed: ${r1}`);
+    const e1 = await ef(join(tmpWriteWs, "hello.txt"), "world", "mia");
+    if (e1.startsWith("Error:")) throw new Error(`edit_file failed: ${e1}`);
+    const r2 = await executeTool({ id: "t", name: "file_read", arguments: JSON.stringify({ path: join(tmpWriteWs, "hello.txt") }) });
+    if (!r2.includes("hello mia")) throw new Error(`edit not applied: ${r2}`);
+    // Guarded: write to blocked path should fail
+    const wBad = await wf(join(tmpWriteWs, ".env"), "secret");
+    if (!wBad.startsWith("Error:")) throw new Error(`write_file not guarded for .env: ${wBad}`);
+    const eBad = await ef(join(tmpWriteWs, "hello.txt"), "not-exist-xyz", "x");
+    if (!eBad.startsWith("Error:")) throw new Error(`edit_file not guarded for missing old_string: ${eBad}`);
+  } finally {
+    if (prevWriteWs === undefined) delete process.env.ALLOWED_WORKSPACES;
+    else process.env.ALLOWED_WORKSPACES = prevWriteWs;
+    rmSync(tmpWriteWs, { recursive: true, force: true });
+  }
+  console.log("write_file/edit_file: OK");
+
+  // --- daily memory (memory/YYYY-MM-DD.md + memory_get) ---
+  const memUser = "verify_mem_" + Date.now().toString(36);
+  const noMem = await executeTool({ id: "t", name: "memory_get", arguments: JSON.stringify({ date: "2099-01-01" }) });
+  if (!noMem.includes("No memory")) throw new Error(`memory_get should miss on empty: ${noMem}`);
+  const { appendDailyMemory, todayStr, readDailyMemory } = await import("./src/lib/dailyMemory");
+  appendDailyMemory(memUser, "User: test entry for verify");
+  const today = todayStr();
+  const direct = readDailyMemory(memUser, today);
+  if (!direct.includes("test entry")) throw new Error(`dailyMemory not persisted: ${direct.slice(0, 200)}`);
+  const todayAlias = readDailyMemory(memUser, "today");
+  if (!todayAlias.includes("test entry")) throw new Error(`memory_get today alias failed`);
+  const { userDataRoot } = await import("./src/lib/users");
+  const { rmSync: rm2 } = await import("node:fs");
+  rm2(join(userDataRoot(), memUser), { recursive: true, force: true });
+  console.log("daily memory: OK");
+
+  // --- multi-root sandbox (ALLOWED_WORKSPACES): path stays inside listed roots ---
+  const tmpWs = mkdtempSync(join(tmpdir(), "mia-ws-"));
+  writeFileSync(join(tmpWs, "note.txt"), "hi from workspace");
+  const prevWs = process.env.ALLOWED_WORKSPACES;
+  process.env.ALLOWED_WORKSPACES = tmpWs;
+  try {
+    // Absolute workspace paths resolve inside the allowed root.
+    if (resolveInSandbox(join(tmpWs, "note.txt")) !== join(tmpWs, "note.txt")) throw new Error("workspace absolute resolve failed");
+    // Absolute paths outside every root are rejected.
+    if (resolveInSandbox(join(tmpdir(), "outside-me")) !== null) throw new Error("outside path not blocked");
+    // Relative paths still resolve against the repo root (default sandbox).
+    if (!resolveInSandbox("package.json")?.includes("ai-assistant")) throw new Error("repo relative resolve failed");
+    if (resolveInSandbox("../somewhere") !== null) throw new Error("repo escape not blocked");
+    if (resolveInSandbox("~/.ssh/id_rsa") !== null) throw new Error("tilde path not blocked");
+  } finally {
+    if (prevWs === undefined) delete process.env.ALLOWED_WORKSPACES;
+    else process.env.ALLOWED_WORKSPACES = prevWs;
+    rmSync(tmpWs, { recursive: true, force: true });
+  }
+  console.log("sandbox multi-root: OK");
 }
 
 main().catch((err) => {
