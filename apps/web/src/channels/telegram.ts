@@ -28,7 +28,7 @@ import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
 import { reminderMessage } from "@/lib/reminderMessage";
 import { saveUpload } from "@/lib/uploads";
-import { registerPushTarget } from "@/channels/pushTarget";
+import { registerPushTarget } from "./pushTarget";
 import { classifyAssistantError } from "@/lib/assistantError";
 import { buildStatusReport } from "@/lib/status";
 import { handleUnifiedCommand, ChatSessionState } from "@/lib/channelMessage";

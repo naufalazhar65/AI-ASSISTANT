@@ -30,7 +30,7 @@ import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
 import { reminderMessage } from "@/lib/reminderMessage";
 import { saveUpload } from "@/lib/uploads";
-import { registerPushTarget } from "@/channels/pushTarget";
+import { registerPushTarget } from "./pushTarget";
 import { classifyAssistantError } from "@/lib/assistantError";
 import { buildStatusReport } from "@/lib/status";
 import { handleUnifiedCommand, ChatSessionState } from "@/lib/channelMessage";
@@ -63,10 +63,32 @@ const ALLOWED_CHANNEL_IDS = (process.env.DISCORD_ALLOWED_CHANNEL_ID || "")
  *  `DISCORD_ALLOWED_CHANNEL_ID` is set, that channel IS what the owner messages
  *  land in). */
 let lastSeenOwnerChannel: SendableChannel | null = null;
+// Set once the client is ready so proactive pushes / send_channel can fall back
+// to the owner's DM when no owner message has been seen since server start.
+let activeClient: Client | null = null;
 
-/** Best-effort target for proactive pushes: the owner's last-seen channel. */
-function pushTargetChannel(): SendableChannel | null {
-  return lastSeenOwnerChannel;
+/**
+ * Resolve the owner's DM as a sendable target. Falls back to the first
+ * allow-listed owner user id; returns null when unavailable.
+ */
+async function ownerDmTarget(): Promise<SendableChannel | null> {
+  const client = activeClient;
+  const ownerId = ALLOWED_USER_IDS[0];
+  if (!client || !ownerId) return null;
+  try {
+    const user = await client.users.fetch(ownerId);
+    const dm = await user.createDM();
+    return dm as unknown as SendableChannel;
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort target for proactive pushes: the owner's last-seen channel,
+ *  falling back to the owner's DM so a push never fails just because the owner
+ *  hasn't messaged since restart. */
+async function resolvePushTarget(): Promise<SendableChannel | null> {
+  return lastSeenOwnerChannel ?? (await ownerDmTarget());
 }
 
 function isAllowedUser(msg: Message): boolean {
@@ -117,6 +139,7 @@ export async function startDiscordBot(): Promise<void> {
     // messageCreate event even though the raw MESSAGE_CREATE is received).
     partials: [Partials.Channel, Partials.Message],
   });
+  activeClient = client;
   const sessions = new Map<string, ChatState>();
 
   const getState = (channelKey: string): ChatState => {
@@ -208,8 +231,8 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   // Proactive reminder push: deliver due reminders to the owner's channel/dm.
-  subscribeReminders((reminder: Reminder) => {
-    const target = pushTargetChannel();
+  subscribeReminders(async (reminder: Reminder) => {
+    const target = await resolvePushTarget();
     if (target == null) return;
     const at = new Date(reminder.at);
     const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -220,7 +243,7 @@ export async function startDiscordBot(): Promise<void> {
 
   // Register this bot as the proactive-output sink (scheduled automation results).
   registerPushTarget("discord", async (content: string) => {
-    const target = pushTargetChannel();
+    const target = await resolvePushTarget();
     if (target == null) throw new Error("no discord owner channel seen");
     return target.send(content);
   });

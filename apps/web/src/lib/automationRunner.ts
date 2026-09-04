@@ -9,7 +9,7 @@
 
 import { subscribeAutomations, Automation } from "./automations";
 import { runAssistantTurn } from "./agent";
-import { pushToOwner } from "@/channels/pushTarget";
+import { pushToOwner } from "../channels/pushTarget";
 
 const running = new Set<string>();
 

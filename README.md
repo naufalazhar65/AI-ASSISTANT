@@ -65,6 +65,7 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 | `add_task` `list_tasks` `complete_task` `cancel_task` `reschedule_task` | write | Task list |
 | `remind_me` | write | Schedule a reminder (ISO-8601 with offset; stale clock rebased) |
 | `create_automation` | write | Recurring `prompt` on schedule (`setiap pagi jam 8` / `setiap 2 jam`) |
+| `send_channel` | read* | Relay a message to another registered channel (Telegram ↔ Discord, sends immediately, no confirmation) |
 
 Read-only tools auto-execute. Write/delete/transaction/external tools pause for inline `ya`/`tidak` confirmation (FR-014).
 

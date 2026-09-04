@@ -7,6 +7,7 @@ import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
+import { sendToChannel, listChannels } from "../channels/pushTarget";
 
 export interface ToolCall {
   id: string;
@@ -518,6 +519,41 @@ const toolRegistry: ToolPlugin[] = [
         return searchMemory(typeof args.query === "string" ? args.query : "", ctx.rawUser);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid search"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "send_channel",
+        description:
+          "Forward a message to another registered channel (e.g. Telegram or Discord). Use when the user asks to relay a message to a different platform than the one they are chatting on.",
+        parameters: {
+          type: "object",
+          properties: {
+            to: {
+              type: "string",
+              description: "Target channel label. Use listChannels() to see available targets.",
+            },
+            message: {
+              type: "string",
+              description: "The content to send to the target channel.",
+            },
+          },
+          required: ["to", "message"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const to = typeof args.to === "string" ? args.to.trim() : "";
+        const message = typeof args.message === "string" ? args.message.trim() : "";
+        if (!to || !message) return `Error: both "to" and "message" are required. Available: ${listChannels().join(", ") || "(none)"}`;
+        return await sendToChannel(to, message);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid send"}`;
       }
     },
   },
