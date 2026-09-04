@@ -116,6 +116,15 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [ ] Integrasi lain: Calendar, Email, Smart home (opsional pribadi)
 [x] Plugin/tool system (daftar tool pluggable)  — tools.ts kini plugin registry: `ToolPlugin { definition, execute }` dalam satu objek, `TOOLS`/`executeTool` diturunkan dari registry (tidak bisa divergen), `registerTool()` untuk tambah tool runtime
 [ ] Channel baru sesuai kebutuhan (WhatsApp, Email, dll) via adapter  — lintas-channel relay via tool `send_channel` (Telegram ↔ Discord) sudah ada (pushTarget registry di globalThis)
+[ ] Shell execution (tool `exec` / process) — jalankan command (npm test, git status, docker) dengan sandbox/allowlist  — gap dari checklist OpenClaw Tier 1 (belum ada; Mia hanya read-only)
+[ ] File system lengkap (write / edit / patch) — lengkapi `file_read` (read-only) jadi read+write+edit dengan sandbox path  — gap checklist OpenClaw Tier 1
+[ ] Browser automation (interaksi UI, isi form, klik) — beda dari web_search/fetch_url (scrape statis)  — gap checklist OpenClaw Tier 2
+[ ] Webhook trigger untuk automation — memicu task via HTTP POST dari luar  — gap checklist OpenClaw Tier 2
+[ ] Heartbeat / periodic agent check-in — notif periodik (reminder harian, cek state) terpisah dari cron  — gap checklist OpenClaw Tier 2
+[ ] Daily memory (`memory/YYYY-MM-DD.md`) + `memory_get` — log harian bertanggal + ambil memory by id  — gap checklist OpenClaw Workspace & Memory
+[ ] Media generation (image / video / music) & image/video input understanding  — gap checklist OpenClaw Multimodal (saat ini uploads text-only)
+[ ] Node/device (macOS/iOS/Android: camera, screen, location, device command)  — gap checklist OpenClaw Devices
+[ ] x_search (X/Twitter)  — gap checklist OpenClaw Web (provider tambahan di atas DuckDuckGo)
 ```
 
 ---
@@ -128,6 +137,9 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [ ] Logging & error handling (file log, error surfaces)
 [ ] Config management (env + config file terpusat)
 [ ] Secure credential handling (token, key di env; tak pernah ke client)
+[ ] Audit log — catat setiap tool/command yang dieksekusi (siapa, kapan, arg)  — gap checklist OpenClaw Security (saat ini hanya log konsol)
+[ ] Rate limiting app-level — throttle panggilan LLM/tool per user (kini rely pada 429 provider)  — gap checklist OpenClaw Security
+[ ] Sandbox penuh untuk exec — container/SSH/isolasi bila tool `exec` ditambahkan  — gap checklist OpenClaw Security
 [x] Backup & recovery (memory, notes, reminders, sessions)  — backup.ts (backupNow, listBackups, restoreBackup, auto prune max 5, auto-backup on server boot) + command /backup di Telegram & Discord
 [ ] Observability ringan (log turn, latency, error count)
 ```
@@ -157,7 +169,25 @@ MVP personal assistant dianggap berfungsi bila:
 3. **Fase 2.4 — Message Handling & Command System** — DONE (unified command parser + normalisasi input/output di lib/channelMessage.ts; wiring Telegram & Discord; live test /provider yang berhasil ganti model).
 4. **Fase 3 — Personal Assistant Capabilities** — DONE (notif push, task management, scheduler tahan-restart, uploads, read_upload, scheduled automations, rate-limit resilience, quota alert, /status, web interaction incl. fetch_url). Fase 3 SELESAI.
 5. **Fase 3/5 — Konfirmasi + logging** untuk kenyamanan pribadi.
+6. **Gap OpenClaw berikutnya (urutan saran):** 1) `exec` shell tool + sandbox/allowlist, 2) `write`/`edit` file tool melengkapi file_read, 3) Daily memory + `memory_get`, 4) Heartbeat periodic check-in, 5) Webhook trigger automation. Item-item ini dicatat di Fase 4 & 5.
 
 ---
+
+## Pemetaan Fitur OpenClaw → Mia (dari `openclaw-features-tools-list.md`)
+
+Ringkasan gap agar mudah dipantau (detail lengkap di checklist §24–26 file referensi):
+
+```text
+SUDAH (Tier 1):  LLM provider, agent runtime, workspace persona (SOUL/IDENTITY/USER/DREAMS),
+                  memory (search_memory RAG + auto-capture), sessions, web/telegram/discord channels,
+                  plugin registry, task/notes/reminders/automations, file_read, web_search, fetch_url,
+                  send_channel, STT/TTS, session management
+SUDAH (Tier 4):   owner allowlist, sandbox file_read, FR-014 konfirmasi, key server-side, backup/recovery
+SEBAGIAN:         cron (scheduler interval, belum sintaks cron), memory (search tapi belum get),
+                  background jobs (in-process), uploads (text-only)
+BELUM (gap):      exec/shell, write/edit/patch file, browser automation, webhook, heartbeat,
+                  daily memory + memory_get, sub-agent/multi-agent, device nodes, media generation,
+                  x_search, audit log, rate-limit app-level, auth penuh, channel lain (WhatsApp/Slack)
+```
 
 _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
