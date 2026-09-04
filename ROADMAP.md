@@ -119,7 +119,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [x] Shell execution (tool `exec` / `exec_write`) — jalankan command dengan sandbox/allowlist  — `exec` read-only (git status/log/diff, ls, pwd, cat, node --version, npm ls; execFile cwd sandboxRoots, timeout 10s, cap 60KB; auto-run); `exec_write` write (git add/commit/push/restore, tokenize quotes, same cwd/sandbox; requires FR-014 confirm); `resolveInSandbox` multi-root (repoRoot + ALLOWED_WORKSPACES); verify.ts OK (2026-09-04)
 [x] File system lengkap (write / edit / patch) — `write_file` (create/overwrite, mkdir -p) + `edit_file` (replace old_string→new_string) — both sandboxed via `resolveInSandbox` + DENY + FR-014 confirm; capped 60KB; verify.ts OK (2026-09-04)
 [ ] Browser automation (interaksi UI, isi form, klik) — beda dari web_search/fetch_url (scrape statis)  — gap checklist OpenClaw Tier 2
-[ ] Webhook trigger untuk automation — memicu task via HTTP POST dari luar  — gap checklist OpenClaw Tier 2
+[x] Webhook trigger untuk automation — `POST /api/webhook` dengan `{secret, prompt, user?, provider?}` → `runAssistantTurn` + `pushToOwner` (🔔 webhook); `WEBHOOK_SECRET` env (optional, tapi required jika di-set); `GET` untuk health; verify via curl (2026-09-04)
 [x] Heartbeat / periodic agent check-in — `heartbeat.ts` every `HEARTBEAT_INTERVAL_MINUTES` (default 30m, 0=off) checks active tasks with `dueAt` for overdue/due-soon and pushes via `pushToOwner` (💓 heartbeat); silent when nothing pending; started in `instrumentation-node.ts`; verify.ts `runHeartbeatTick` OK (2026-09-04)
 [x] Daily memory (`memory/YYYY-MM-DD.md` + `memory_get`) — per-user per-day markdown at `.data/users/<user>/memory/YYYY-MM-DD.md` (`today`/`yesterday` alias) via `dailyMemory.ts`; `agent.ts` appends snippet each turn; `rag.ts` indexes into `search_memory`; tool `memory_get` (read, auto); verify.ts OK (2026-09-04)
 [ ] Media generation (image / video / music) & image/video input understanding  — gap checklist OpenClaw Multimodal (saat ini uploads text-only)
@@ -169,7 +169,7 @@ MVP personal assistant dianggap berfungsi bila:
 3. **Fase 2.4 — Message Handling & Command System** — DONE (unified command parser + normalisasi input/output di lib/channelMessage.ts; wiring Telegram & Discord; live test /provider yang berhasil ganti model).
 4. **Fase 3 — Personal Assistant Capabilities** — DONE (notif push, task management, scheduler tahan-restart, uploads, read_upload, scheduled automations, rate-limit resilience, quota alert, /status, web interaction incl. fetch_url). Fase 3 SELESAI.
 5. **Fase 3/5 — Konfirmasi + logging** untuk kenyamanan pribadi.
-6. **Gap OpenClaw berikutnya (urutan saran):** 1) `exec` shell tool ✅ DONE, 2) `write`/`edit` file tool ✅ DONE, 3) Daily memory + `memory_get` ✅ DONE, 4) Heartbeat ✅ DONE, 5) Webhook trigger automation. Item-item ini dicatat di Fase 4 & 5.
+6. **Gap OpenClaw berikutnya (urutan saran):** 1) `exec` shell tool ✅ DONE, 2) `write`/`edit` file tool ✅ DONE, 3) Daily memory + `memory_get` ✅ DONE, 4) Heartbeat ✅ DONE, 5) Webhook ✅ DONE. Item-item ini dicatat di Fase 4 & 5.
 
 ---
 
@@ -181,10 +181,10 @@ Ringkasan gap agar mudah dipantau (detail lengkap di checklist §24–26 file re
 SUDAH (Tier 1):  LLM provider, agent runtime, workspace persona (SOUL/IDENTITY/USER/DREAMS),
                   daily memory (memory/YYYY-MM-DD.md + memory_get + search_memory RAG + auto-capture), sessions, web/telegram/discord channels,
                   plugin registry, task/notes/reminders/automations, file_read, write_file/edit_file, exec/exec_write, web_search,
-                  fetch_url, send_channel, STT/TTS, session management, heartbeat
+                  fetch_url, send_channel, webhook, STT/TTS, session management, heartbeat
 SUDAH (Tier 4):   owner allowlist, sandbox file_read/write/exec, FR-014 konfirmasi, key server-side, backup/recovery
 SEBAGIAN:         cron (scheduler interval, belum sintaks cron), background jobs (in-process), uploads (text-only)
-BELUM (gap):      browser automation, webhook, sub-agent/multi-agent, device nodes, media generation,
+BELUM (gap):      browser automation, sub-agent/multi-agent, device nodes, media generation,
                   x_search, audit log, rate-limit app-level, auth penuh, channel lain (WhatsApp/Slack)
 ```
 

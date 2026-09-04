@@ -38,7 +38,7 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 - **Providers:** `apps/web/src/lib/providers.ts` — `groq` / `openrouter` / `9router` / `opencode (local)` / `mock`. Client sends only `{provider, model}`; server resolves keys/endpoints (Invariant 5).
 - **Channels:** `apps/web/src/channels/{telegram,discord}.ts` + `pushTarget.ts` sink for proactive pushes.
 - **Persistence:** per-user disk store under `apps/web/.data/users/<user>/` — notes, reminders, tasks, uploads, automations, persona, daily memory (`memory/YYYY-MM-DD.md`).
-- **Scheduling:** `lib/reminders.ts` + `lib/automations.ts` (daily / hourly) + `automationRunner.ts` + `heartbeat.ts` (periodic overdue/due-soon check, default 30m via `HEARTBEAT_INTERVAL_MINUTES`) — all started in `instrumentation-node.ts`.
+- **Scheduling:** `lib/reminders.ts` + `lib/automations.ts` (daily / hourly) + `automationRunner.ts` + `heartbeat.ts` (periodic overdue/due-soon check, default 30m) + `POST /api/webhook` (external trigger with `WEBHOOK_SECRET`) — all started in `instrumentation-node.ts`.
 - **Channel adapter policy:** Discord DM requires `partials: [Channel, Message]` + `msg.fetch()` on `msg.partial` (first-ever DM would be dropped otherwise).
 
 ## Commands
