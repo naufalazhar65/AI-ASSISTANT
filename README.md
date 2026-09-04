@@ -66,6 +66,8 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 | `list_uploads` / `read_upload` | read | Files uploaded via Telegram/Discord |
 | `search_memory` | read | Local BM25 over notes/tasks/reminders/automations/uploads/persona + daily memory |
 | `memory_get` | read | Retrieve daily memory log for a date (`YYYY-MM-DD`, `today`, `yesterday`) |
+| `browser_open` / `browser_snapshot` | read | Headless browser (Playwright) — open URL (JS-rendered) / snapshot ARIA tree |
+| `browser_click` / `browser_type` / `browser_navigate` | write | Click/type/navigate in browser (confirmation) |
 | `save_note` / `list_notes` / `delete_note` | write/delete | Quick persistent notes (50 / 80 KB cap, atomic disk write) |
 | `add_task` `list_tasks` `complete_task` `cancel_task` `reschedule_task` | write | Task list |
 | `remind_me` | write | Schedule a reminder (ISO-8601 with offset; stale clock rebased) |

@@ -9,6 +9,7 @@ import { listUploads, readUpload } from "./uploads";
 import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
 import { readDailyMemory } from "./dailyMemory";
+import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate, browserClose } from "./browser";
 import { sendToChannel, listChannels } from "../channels/pushTarget";
 
 export interface ToolCall {
@@ -691,6 +692,117 @@ const toolRegistry: ToolPlugin[] = [
         return readDailyMemory(ctx.rawUser, typeof args.date === "string" ? args.date : "");
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "cannot read memory"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "browser_open",
+        description: "Open a public URL in a headless browser and return the page text (JS-rendered). Use for dashboards/SPAs that fetch_url can't handle. SSRF-guarded.",
+        parameters: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "Public http(s) URL to open" },
+          },
+          required: ["url"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        return await browserOpen(typeof args.url === "string" ? args.url : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot open"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "browser_snapshot",
+        description: "Take an accessibility snapshot of the current browser page (buttons/links/inputs with selectors). Call after browser_open to see what can be clicked/typed.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      try {
+        return await browserSnapshot();
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "no snapshot"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "browser_click",
+        description: "Click an element on the current browser page by CSS selector or text. Requires confirmation.",
+        parameters: {
+          type: "object",
+          properties: { selector: { type: "string", description: "CSS selector or visible text to click" } },
+          required: ["selector"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        return await browserClick(typeof args.selector === "string" ? args.selector : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot click"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "browser_type",
+        description: "Type text into an input on the current browser page. Requires confirmation.",
+        parameters: {
+          type: "object",
+          properties: {
+            selector: { type: "string", description: "CSS selector for the input" },
+            text: { type: "string", description: "Text to type into the input" },
+          },
+          required: ["selector", "text"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        return await browserType(typeof args.selector === "string" ? args.selector : "", typeof args.text === "string" ? args.text : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot type"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "browser_navigate",
+        description: "Navigate the browser history (back/forward/reload).",
+        parameters: {
+          type: "object",
+          properties: { action: { type: "string", description: "\"back\", \"forward\", or \"reload\"" } },
+          required: ["action"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        return await browserNavigate(typeof args.action === "string" ? args.action : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot navigate"}`;
       }
     },
   },

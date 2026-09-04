@@ -201,6 +201,11 @@ async function main() {
   stopHeartbeat();
   console.log("heartbeat: OK");
 
+  // --- browser automation — just check tools are registered (no heavy launch in verify) ---
+  const { getTool } = await import("./src/lib/tools");
+  if (!getTool("browser_open") || !getTool("browser_snapshot")) throw new Error("browser tools not registered");
+  console.log("browser: OK (tools registered)");
+
   // --- multi-root sandbox (ALLOWED_WORKSPACES): path stays inside listed roots ---
   const tmpWs = mkdtempSync(join(tmpdir(), "mia-ws-"));
   writeFileSync(join(tmpWs, "note.txt"), "hi from workspace");

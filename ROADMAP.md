@@ -118,7 +118,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [ ] Channel baru sesuai kebutuhan (WhatsApp, Email, dll) via adapter  — lintas-channel relay via tool `send_channel` (Telegram ↔ Discord) sudah ada (pushTarget registry di globalThis)
 [x] Shell execution (tool `exec` / `exec_write`) — jalankan command dengan sandbox/allowlist  — `exec` read-only (git status/log/diff, ls, pwd, cat, node --version, npm ls; execFile cwd sandboxRoots, timeout 10s, cap 60KB; auto-run); `exec_write` write (git add/commit/push/restore, tokenize quotes, same cwd/sandbox; requires FR-014 confirm); `resolveInSandbox` multi-root (repoRoot + ALLOWED_WORKSPACES); verify.ts OK (2026-09-04)
 [x] File system lengkap (write / edit / patch) — `write_file` (create/overwrite, mkdir -p) + `edit_file` (replace old_string→new_string) — both sandboxed via `resolveInSandbox` + DENY + FR-014 confirm; capped 60KB; verify.ts OK (2026-09-04)
-[ ] Browser automation (interaksi UI, isi form, klik) — beda dari web_search/fetch_url (scrape statis)  — gap checklist OpenClaw Tier 2
+[x] Browser automation (interaksi UI, isi form, klik) — `browser.ts` Playwright headless + 5 tools: `browser_open` (read, JS-rendered, SSRF-guard), `browser_snapshot` (read, ARIA), `browser_click`/`browser_type`/`browser_navigate` (write, FR-014); single page per process; verify.ts `browser: OK` (2026-09-04)
 [x] Webhook trigger untuk automation — `POST /api/webhook` dengan `{secret, prompt, user?, provider?}` → `runAssistantTurn` + `pushToOwner` (🔔 webhook); `WEBHOOK_SECRET` env (optional, tapi required jika di-set); `GET` untuk health; verify via curl (2026-09-04)
 [x] Heartbeat / periodic agent check-in — `heartbeat.ts` every `HEARTBEAT_INTERVAL_MINUTES` (default 30m, 0=off) checks active tasks with `dueAt` for overdue/due-soon and pushes via `pushToOwner` (💓 heartbeat); silent when nothing pending; started in `instrumentation-node.ts`; verify.ts `runHeartbeatTick` OK (2026-09-04)
 [x] Daily memory (`memory/YYYY-MM-DD.md` + `memory_get`) — per-user per-day markdown at `.data/users/<user>/memory/YYYY-MM-DD.md` (`today`/`yesterday` alias) via `dailyMemory.ts`; `agent.ts` appends snippet each turn; `rag.ts` indexes into `search_memory`; tool `memory_get` (read, auto); verify.ts OK (2026-09-04)
@@ -181,11 +181,10 @@ Ringkasan gap agar mudah dipantau (detail lengkap di checklist §24–26 file re
 SUDAH (Tier 1):  LLM provider, agent runtime, workspace persona (SOUL/IDENTITY/USER/DREAMS),
                   daily memory (memory/YYYY-MM-DD.md + memory_get + search_memory RAG + auto-capture), sessions, web/telegram/discord channels,
                   plugin registry, task/notes/reminders/automations, file_read, write_file/edit_file, exec/exec_write, web_search,
-                  fetch_url, send_channel, webhook, STT/TTS, session management, heartbeat
-SUDAH (Tier 4):   owner allowlist, sandbox file_read/write/exec, FR-014 konfirmasi, key server-side, backup/recovery
+                  fetch_url, browser (open/snapshot/click/type/navigate), send_channel, webhook, STT/TTS, session management, heartbeat
+SUDAH (Tier 4):   owner allowlist, sandbox file_read/write/exec/browser, FR-014 konfirmasi, key server-side, backup/recovery
 SEBAGIAN:         cron (scheduler interval, belum sintaks cron), background jobs (in-process), uploads (text-only)
-BELUM (gap):      browser automation, sub-agent/multi-agent, device nodes, media generation,
-                  x_search, audit log, rate-limit app-level, auth penuh, channel lain (WhatsApp/Slack)
+BELUM (gap):      sub-agent/multi-agent, device nodes, media generation, x_search, audit log, rate-limit app-level, auth penuh, channel lain (WhatsApp/Slack)
 ```
 
 _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
