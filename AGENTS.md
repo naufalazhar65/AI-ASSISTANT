@@ -78,6 +78,15 @@ Note: Next.js detected a stray `package-lock.json` in `$HOME`; `outputFileTracin
 - vitest runs the state-machine tests (`npm test` = `vitest run`). The two `verify.ts` proofs are kept and still run via tsx.
 - Next.js route files may only export valid Route fields — do not export helpers/constants from a `route.ts` (build fails).
 
+## Plugin / tool system (Fase 4, 2026-09-04) — typecheck/lint/build/test green
+
+`apps/web/src/lib/tools.ts` is now a **plugin registry** instead of a flat `TOOLS` array + `executeTool` switch that could drift apart. Core types: `ToolDefinition` (schema, unchanged), `ToolRisk` (`read`/`write`/`delete`/`transaction`/`external`), `ToolContext { userKey, rawUser }`, and the new `ToolPlugin { definition, execute(args, ctx) }`. The registry `toolRegistry` bundles each tool's schema + implementation in ONE object. Public exports are all **derived from the registry** so they can't diverge:
+- `TOOLS = toolRegistry.map(p => p.definition)` — what's sent to the model (agent.ts uses `TOOLS`, and `TOOLS.find(t => t.function.name === c.name)` for `requiresConfirmation`).
+- `executeTool(call, rawUser)` — parses JSON args, looks up `getTool(call.name)`, dispatches to `plugin.execute(args, { userKey, rawUser })`, returns `Error: ...` on unknown tool. Per-tool error handling lives inside each plugin's `execute` (preserving the old switch's exact per-case try/catch).
+- `registerTool(plugin)` — add/replace a tool at runtime (idempotent by name).
+
+**Adding a new tool = adding one `ToolPlugin` object** (definition + execute) to `toolRegistry` — no separate switch, no list to keep in sync, and it's automatically visible to the model (`TOOLS`) and dispatchable (`executeTool`). 17 tools currently registered: web_search, calculate, file_read, save_note, list_notes, delete_note, remind_me, create_automation, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, fetch_url, search_memory. Note: module-level helper functions (webSearch, evaluateArithmetic, fileRead, saveNote, listNotes, deleteNote, scheduleReminder, fetchUrl, searchMemory, addAutomation, ...) are declared later in the file and referenced by the plugin closures — fine because they run at call-time. `verify.ts` still exercises `executeTool` for calculate/save_note/list_notes/delete_note/file_read (green). Kept server-side only (imports `node:fs`).
+
 ## Session handoff (2026-09-02) — all 4 features DONE
 
 User selected 4 features in order: FR-015 persisted conversation history (DONE) -> tool calling + web search (DONE) -> partial transcript (DONE) -> barge-in (DONE).

@@ -31,333 +31,524 @@ export interface ToolDefinition {
   };
 }
 
+/**
+ * Execution context handed to a tool plugin. `userKey` is the sanitized per-user
+ * isolation key (already run through `sanitizeUser`); `rawUser` is the original
+ * value the caller supplied, for stores that sanitize themselves.
+ */
+export interface ToolContext {
+  userKey: string | null;
+  rawUser?: unknown;
+}
+
+/** A tool plugin: a schema definition + its implementation, bundled together. */
+export interface ToolPlugin {
+  definition: ToolDefinition;
+  execute: (args: Record<string, unknown>, ctx: ToolContext) => Promise<string> | string;
+}
+
 /** Tools that must wait for explicit user confirmation before running (FR-014). */
 export function requiresConfirmation(tool: ToolDefinition | undefined): boolean {
   return !!tool && tool.risk !== "read";
 }
 
-export const TOOLS: ToolDefinition[] = [
+/**
+ * Tool plugin registry. Each entry bundles its schema (`definition`) and its
+ * implementation (`execute`), so adding a new tool is adding ONE plugin object
+ * here — no separate switch to keep in sync. `TOOLS` (the definitions sent to
+ * the model) and `executeTool` (dispatch) are both derived from this registry,
+ * so they can never drift apart.
+ */
+const toolRegistry: ToolPlugin[] = [
   {
-    type: "function",
-    risk: "read",
-    function: {
-      name: "web_search",
-      description:
-        "Search the web for current or factual information. Use when the user asks about recent events, people, prices, or anything outside your knowledge.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "A short search query, e.g. 'Qwen 3 release date'",
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "web_search",
+        description:
+          "Search the web for current or factual information. Use when the user asks about recent events, people, prices, or anything outside your knowledge.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "A short search query, e.g. 'Qwen 3 release date'",
+            },
           },
+          required: ["query"],
         },
-        required: ["query"],
       },
     },
+    execute: (args) => webSearch(typeof args.query === "string" ? args.query : ""),
   },
   {
-    type: "function",
-    risk: "read",
-    function: {
-      name: "calculate",
-      description: "Evaluate a numeric arithmetic expression, e.g. '2000000 * 0.15'.",
-      parameters: {
-        type: "object",
-        properties: {
-          expression: {
-            type: "string",
-            description: "Arithmetic expression using + - * / % and parentheses",
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "calculate",
+        description:
+          "Evaluate a simple arithmetic expression and return the numeric result.",
+        parameters: {
+          type: "object",
+          properties: {
+            expression: {
+              type: "string",
+              description: 'Arithmetic expression, e.g. "12.5 * 4 + (3 - 1)"',
+            },
           },
+          required: ["expression"],
         },
-        required: ["expression"],
       },
+    },
+    execute: (args) => {
+      try {
+        return String(evaluateArithmetic(typeof args.expression === "string" ? args.expression : ""));
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid expression"}`;
+      }
     },
   },
   {
-    type: "function",
-    risk: "write",
-    function: {
-      name: "save_note",
-      description:
-        "Save a note to the user's notes list. This modifies persistent data, so the user must confirm before it runs.",
-      parameters: {
-        type: "object",
-        properties: {
-          content: {
-            type: "string",
-            description: "The note text to save",
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "file_read",
+        description:
+          "Read a project file or list a directory. Returns file contents (truncated) or a directory listing. Paths are relative to the project root and sandboxed.",
+        parameters: {
+          type: "object",
+          properties: {
+            path: {
+              type: "string",
+              description: "Relative project path, e.g. 'README.md' or 'src'",
+            },
           },
+          required: ["path"],
         },
-        required: ["content"],
       },
+    },
+    execute: (args) => {
+      try {
+        return fileRead(typeof args.path === "string" ? args.path : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot read path"}`;
+      }
     },
   },
   {
-    type: "function",
-    risk: "read",
-    function: {
-      name: "list_notes",
-      description: "List all notes the user has saved, newest last.",
-      parameters: {
-        type: "object",
-        properties: {},
-        required: [],
-      },
-    },
-  },
-  {
-    type: "function",
-    risk: "delete",
-    function: {
-      name: "delete_note",
-      description:
-        "Delete a saved note by number (as shown by list_notes). Destructive, so the user must confirm before it runs.",
-      parameters: {
-        type: "object",
-        properties: {
-          number: {
-            type: "number",
-            description: "The 1-based note number from list_notes to delete",
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "save_note",
+        description:
+          "Save a short personal note to memory. It persists across sessions and can be looked up later with list_notes or search_memory.",
+        parameters: {
+          type: "object",
+          properties: {
+            content: {
+              type: "string",
+              description: "The note content to remember",
+            },
           },
+          required: ["content"],
         },
-        required: ["number"],
       },
+    },
+    execute: (args, ctx) => {
+      try {
+        return saveNote(typeof args.content === "string" ? args.content : "", ctx.userKey);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid note"}`;
+      }
     },
   },
   {
-    type: "function",
-    risk: "read",
-    function: {
-      name: "file_read",
-      description:
-        "Read a file or list a directory inside the project workspace, given a path relative to the repo root (e.g. 'apps/web/src/lib/tools.ts' or 'apps/web'). Returns the file content (or directory listing). Sensitive paths (env files, .git, node_modules, .next, .data) are blocked.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description: "Path relative to the project root, e.g. 'prd' or 'apps/web'",
-          },
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "list_notes",
+        description:
+          "List all saved personal notes, one per line with their index number. Use before delete_note to see the numbering.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
         },
-        required: ["path"],
       },
     },
+    execute: (_args, ctx) => listNotes(ctx.userKey),
   },
   {
-    type: "function",
-    risk: "write",
-    function: {
-      name: "remind_me",
-      description:
-        "Schedule a reminder. This creates a persistent scheduled notification, so the user confirms before it runs. `when` must be a concrete ISO-8601 date-time with timezone offset, e.g. '2026-09-02T15:00:00+07:00'. If the user gives a relative time, first convert it to a concrete ISO-8601 timestamp. The user will be notified when it is due.",
-      parameters: {
-        type: "object",
-        properties: {
-          text: {
-            type: "string",
-            description: "What to be reminded about, in the user's own words",
+    definition: {
+      type: "function",
+      risk: "delete",
+      function: {
+        name: "delete_note",
+        description: "Delete a saved note by its index number from list_notes.",
+        parameters: {
+          type: "object",
+          properties: {
+            number: {
+              type: "string",
+              description: "The note index to delete (1-based, as shown by list_notes)",
+            },
           },
-          when: {
-            type: "string",
-            description: "Concrete ISO-8601 timestamp with offset, e.g. '2026-09-02T15:00:00+07:00'",
-          },
+          required: ["number"],
         },
-        required: ["text", "when"],
       },
+    },
+    execute: (args, ctx) => {
+      try {
+        return deleteNote(Number(args.number), ctx.userKey);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid note number"}`;
+      }
     },
   },
   {
-    type: "function",
-    risk: "write",
-    function: {
-      name: "add_task",
-      description:
-        "Create a persistent task in the user's task list. The user must confirm before it runs. Optionally include a `dueAt` ISO-8601 deadline; if given, a reminder is also scheduled.",
-      parameters: {
-        type: "object",
-        properties: {
-          text: {
-            type: "string",
-            description: "The task to do, in the user's own words",
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "remind_me",
+        description:
+          "Schedule a one-off reminder. The user will be notified at the given time.",
+        parameters: {
+          type: "object",
+          properties: {
+            text: {
+              type: "string",
+              description: "What to remind about, e.g. 'call mom'",
+            },
+            when: {
+              type: "string",
+              description: "When to remind, as ISO-8601 with offset, e.g. '2026-09-04T09:00:00+07:00'",
+            },
           },
-          dueAt: {
-            type: "string",
-            description: "Optional concrete ISO-8601 deadline with offset, e.g. '2026-09-02T15:00:00+07:00'",
-          },
+          required: ["text", "when"],
         },
-        required: ["text"],
       },
+    },
+    execute: (args, ctx) => {
+      try {
+        return scheduleReminder(
+          typeof args.text === "string" ? args.text : "",
+          typeof args.when === "string" ? args.when : "",
+          ctx.rawUser
+        );
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid reminder"}`;
+      }
     },
   },
   {
-    type: "function",
-    risk: "read",
-    function: {
-      name: "list_tasks",
-      description: "List the user's tasks (active first, then done/cancelled) with their status and due date.",
-      parameters: {
-        type: "object",
-        properties: {},
-        required: [],
-      },
-    },
-  },
-  {
-    type: "function",
-    risk: "write",
-    function: {
-      name: "complete_task",
-      description: "Mark a task as done by its 1-based number (as shown by list_tasks). The user must confirm before it runs.",
-      parameters: {
-        type: "object",
-        properties: {
-          number: {
-            type: "number",
-            description: "The 1-based task number from list_tasks to complete",
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "create_automation",
+        description:
+          "Create a recurring automation that runs a prompt on a schedule and pushes the result to the user.",
+        parameters: {
+          type: "object",
+          properties: {
+            prompt: {
+              type: "string",
+              description: "What the automation should do each time it runs",
+            },
+            schedule: {
+              type: "string",
+              description: "Human schedule, e.g. 'setiap pagi jam 8' or 'setiap 2 jam'",
+            },
           },
+          required: ["prompt", "schedule"],
         },
-        required: ["number"],
       },
+    },
+    execute: (args, ctx) => {
+      try {
+        const prompt = typeof args.prompt === "string" ? args.prompt : "";
+        const schedule = typeof args.schedule === "string" ? args.schedule : "";
+        const auto = addAutomation(prompt, schedule, ctx.rawUser);
+        return `Automation created: "${auto.prompt}" runs ${describeSchedule(auto.schedule)}.`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid automation"}`;
+      }
     },
   },
   {
-    type: "function",
-    risk: "delete",
-    function: {
-      name: "cancel_task",
-      description: "Cancel a task by its 1-based number (as shown by list_tasks), removing it from the active list. Destructive, so the user must confirm before it runs.",
-      parameters: {
-        type: "object",
-        properties: {
-          number: {
-            type: "number",
-            description: "The 1-based task number from list_tasks to cancel",
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "add_task",
+        description:
+          "Add a task to the user's task list, optionally with a due date.",
+        parameters: {
+          type: "object",
+          properties: {
+            text: {
+              type: "string",
+              description: "What needs to be done",
+            },
+            dueAt: {
+              type: "string",
+              description: "Optional ISO-8601 due date, e.g. '2026-09-10T17:00:00+07:00'",
+            },
           },
+          required: ["text"],
         },
-        required: ["number"],
       },
+    },
+    execute: (args, ctx) => {
+      try {
+        const text = typeof args.text === "string" ? args.text.trim() : "";
+        addTask(
+          text,
+          ctx.rawUser,
+          typeof args.dueAt === "string" && args.dueAt ? new Date(args.dueAt).getTime() : undefined
+        );
+        return `Task added: "${text}".`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid task"}`;
+      }
     },
   },
   {
-    type: "function",
-    risk: "write",
-    function: {
-      name: "reschedule_task",
-      description:
-        "Change a task's due deadline by its 1-based number (as shown by list_tasks). `dueAt` must be a concrete ISO-8601 timestamp with offset. The user must confirm before it runs.",
-      parameters: {
-        type: "object",
-        properties: {
-          number: {
-            type: "number",
-            description: "The 1-based task number from list_tasks to reschedule",
-          },
-          dueAt: {
-            type: "string",
-            description: "New concrete ISO-8601 deadline with offset, e.g. '2026-09-02T18:00:00+07:00'",
-          },
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "list_tasks",
+        description:
+          "List all tasks in the task list with their index, status, and due date.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
         },
-        required: ["number", "dueAt"],
       },
     },
+    execute: (_args, ctx) => listTasks(ctx.rawUser),
   },
   {
-    type: "function",
-    risk: "read",
-    function: {
-      name: "list_uploads",
-      description:
-        "List files the user has uploaded via Telegram or Discord (text documents, images, etc.)",
-      parameters: {
-        type: "object",
-        properties: {},
-        required: [],
-      },
-    },
-  },
-  {
-    type: "function",
-    risk: "read",
-    function: {
-      name: "read_upload",
-      description:
-        "Read the text content of a file the user previously uploaded via Telegram or Discord. Provide the file name (from list_uploads) or its 1-based list number.",
-      parameters: {
-        type: "object",
-        properties: {
-          name: {
-            type: "string",
-            description: "File name or 1-based list number from list_uploads.",
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "complete_task",
+        description: "Mark a task as done by its index number from list_tasks.",
+        parameters: {
+          type: "object",
+          properties: {
+            number: {
+              type: "string",
+              description: "The task index to complete (1-based)",
+            },
           },
+          required: ["number"],
         },
-        required: ["name"],
       },
+    },
+    execute: (args, ctx) => {
+      try {
+        return setTaskStatus(Number(args.number), "done", ctx.rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid task number"}`;
+      }
     },
   },
   {
-    type: "function",
-    risk: "write",
-    function: {
-      name: "create_automation",
-      description:
-        "Schedule a recurring automation: the assistant runs the `prompt` on the given schedule and pushes the result to the user's active channel without the user prompting it. schedule examples: \"setiap pagi jam 8\", \"setiap hari 08:30\", \"setiap 2 jam\".",
-      parameters: {
-        type: "object",
-        properties: {
-          prompt: {
-            type: "string",
-            description: "What to do each run, e.g. \"lapor cuaca hari ini\".",
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "cancel_task",
+        description: "Cancel a task by its index number from list_tasks.",
+        parameters: {
+          type: "object",
+          properties: {
+            number: {
+              type: "string",
+              description: "The task index to cancel (1-based)",
+            },
           },
-          schedule: {
-            type: "string",
-            description: "Human schedule spec, e.g. \"setiap pagi jam 8\" or \"setiap 3 jam\".",
-          },
+          required: ["number"],
         },
-        required: ["prompt", "schedule"],
       },
+    },
+    execute: (args, ctx) => {
+      try {
+        return setTaskStatus(Number(args.number), "cancelled", ctx.rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid task number"}`;
+      }
     },
   },
   {
-    type: "function",
-    risk: "read",
-    function: {
-      name: "fetch_url",
-      description:
-        "Fetch and read the text content of a public web page URL (scrape article text or HTML summary). Use when the user asks you to read or summarize a specific web link.",
-      parameters: {
-        type: "object",
-        properties: {
-          url: {
-            type: "string",
-            description: "The full http:// or https:// URL to fetch.",
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "reschedule_task",
+        description: "Change the due date of a task by its index number.",
+        parameters: {
+          type: "object",
+          properties: {
+            number: {
+              type: "string",
+              description: "The task index to reschedule (1-based)",
+            },
+            dueAt: {
+              type: "string",
+              description: "New ISO-8601 due date",
+            },
           },
+          required: ["number", "dueAt"],
         },
-        required: ["url"],
       },
+    },
+    execute: (args, ctx) => {
+      try {
+        return rescheduleTask(Number(args.number), new Date(String(args.dueAt)).getTime(), ctx.rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid reschedule"}`;
+      }
     },
   },
   {
-    type: "function",
-    risk: "read",
-    function: {
-      name: "search_memory",
-      description:
-        "Search through long-term memory, personal notes, uploaded files, tasks, and persona files for information relevant to a query. Use when asked about past knowledge or files.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Search keywords or question to look up in long-term memory.",
-          },
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "list_uploads",
+        description:
+          "List files the user has uploaded to the assistant via chat.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
         },
-        required: ["query"],
       },
+    },
+    execute: (_args, ctx) => listUploads(ctx.rawUser),
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "read_upload",
+        description: "Read the text content of a previously uploaded file.",
+        parameters: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "The upload file name, as shown by list_uploads",
+            },
+          },
+          required: ["name"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        return readUpload(ctx.rawUser, typeof args.name === "string" ? args.name : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid upload"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "external",
+      function: {
+        name: "fetch_url",
+        description:
+          "Fetch a public URL and return its main text content. Use for reading a webpage, article, or raw GitHub file.",
+        parameters: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "A public http(s) URL to fetch",
+            },
+          },
+          required: ["url"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        return await fetchUrl(typeof args.url === "string" ? args.url : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid fetch"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "search_memory",
+        description:
+          "Search through long-term memory, personal notes, uploaded files, tasks, and persona files for information relevant to a query. Use when asked about past knowledge or files.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Search keywords or question to look up in long-term memory.",
+            },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        return searchMemory(typeof args.query === "string" ? args.query : "", ctx.rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid search"}`;
+      }
     },
   },
 ];
 
+// Derived getter (not a static snapshot) so a runtime `registerTool` is always
+// reflected in what's sent to the model. agent.ts consumes TOOLS per turn.
+export function getTOOLS(): ToolDefinition[] {
+  return toolRegistry.map((p) => p.definition);
+}
+export const TOOLS: ToolDefinition[] = getTOOLS();
+
+export function getTool(name: string): ToolPlugin | undefined {
+  return toolRegistry.find((p) => p.definition.function.name === name);
+}
+
+/** Register a new tool plugin at runtime (plugin system). */
+export function registerTool(plugin: ToolPlugin): void {
+  const i = toolRegistry.findIndex((p) => p.definition.function.name === plugin.definition.function.name);
+  if (i >= 0) {
+    toolRegistry[i] = plugin;
+  } else {
+    toolRegistry.push(plugin);
+  }
+}
+
+/**
+ * Execute a tool call by dispatching to its registered plugin. Safely parses
+ * the JSON arguments and routes to the plugin's `execute` (which owns its own
+ * per-tool error handling).
+ */
 export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<string> {
   let args: Record<string, unknown>;
   try {
@@ -365,108 +556,13 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   } catch {
     return "Error: invalid tool arguments";
   }
+  const plugin = getTool(call.name);
+  if (!plugin) return `Error: unknown tool "${call.name}"`;
   const userKey = sanitizeUser(rawUser);
-  switch (call.name) {
-    case "web_search":
-      return webSearch(typeof args.query === "string" ? args.query : "");
-    case "calculate":
-      try {
-        return String(evaluateArithmetic(typeof args.expression === "string" ? args.expression : ""));
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid expression"}`;
-      }
-    case "file_read":
-      try {
-        return fileRead(typeof args.path === "string" ? args.path : "");
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "cannot read path"}`;
-      }
-    case "save_note":
-      try {
-        return saveNote(typeof args.content === "string" ? args.content : "", userKey);
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid note"}`;
-      }
-    case "list_notes":
-      return listNotes(userKey);
-    case "delete_note":
-      try {
-        return deleteNote(Number(args.number), userKey);
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid note number"}`;
-      }
-    case "remind_me":
-      try {
-        return scheduleReminder(
-          typeof args.text === "string" ? args.text : "",
-          typeof args.when === "string" ? args.when : "",
-          rawUser
-        );
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid reminder"}`;
-      }
-    case "create_automation": {
-      try {
-        const prompt = typeof args.prompt === "string" ? args.prompt : "";
-        const schedule = typeof args.schedule === "string" ? args.schedule : "";
-        const auto = addAutomation(prompt, schedule, rawUser);
-        return `Automation created: "${auto.prompt}" runs ${describeSchedule(auto.schedule)}.`;
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid automation"}`;
-      }
-    }
-    case "add_task":
-      try {
-        const text = typeof args.text === "string" ? args.text.trim() : "";
-        addTask(
-          text,
-          rawUser,
-          typeof args.dueAt === "string" && args.dueAt ? new Date(args.dueAt).getTime() : undefined
-        );
-        return `Task added: "${text}".`;
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid task"}`;
-      }
-    case "list_tasks":
-      return listTasks(rawUser);
-    case "complete_task":
-      try {
-        return setTaskStatus(Number(args.number), "done", rawUser);
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid task number"}`;
-      }
-    case "cancel_task":
-      try {
-        return setTaskStatus(Number(args.number), "cancelled", rawUser);
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid task number"}`;
-      }
-    case "reschedule_task":
-      try {
-        return rescheduleTask(Number(args.number), new Date(String(args.dueAt)).getTime(), rawUser);
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid reschedule"}`;
-      }
-    case "list_uploads":
-      return listUploads(rawUser);
-    case "read_upload":
-      try {
-        return readUpload(rawUser, typeof args.name === "string" ? args.name : "");
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid upload"}`;
-      }
-    case "fetch_url":
-      try {
-        return await fetchUrl(typeof args.url === "string" ? args.url : "");
-      } catch (err) {
-        return `Error: ${err instanceof Error ? err.message : "invalid fetch"}`;
-      }
-    case "search_memory":
-      return searchMemory(typeof args.query === "string" ? args.query : "", rawUser);
-    default:
-      return `Error: unknown tool "${call.name}"`;
-  }
+  const out = await plugin.execute(args, { userKey, rawUser });
+  return out ?? "";
 }
+
 
 // Persistent notes store (server-side only; `node:fs`). Path is built from a
 // sanitized user key (fallback to a shared file when none) so it is never

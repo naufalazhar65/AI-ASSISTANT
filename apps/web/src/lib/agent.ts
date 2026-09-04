@@ -13,7 +13,7 @@
  * them from server env via `resolveProvider`.
  */
 
-import { TOOLS, ToolCall, executeTool, requiresConfirmation } from "./tools";
+import { getTOOLS, ToolCall, executeTool, requiresConfirmation } from "./tools";
 import { ProviderId, isProviderId, resolveProvider, findPublicProvider } from "./providers";
 import { runOpenCodeTurn, OpenCodeChatMessage } from "./opencode";
 import { captureFactsFromTurn } from "./autoMemory";
@@ -268,7 +268,7 @@ async function runOneCompletionOnce(
       model,
       messages: [{ role: "system", content: systemPrompt }, ...messages],
       stream: true,
-      tools: withTools ? TOOLS : undefined,
+      tools: withTools ? getTOOLS() : undefined,
       tool_choice: withTools ? "auto" : undefined,
     }),
   });
@@ -376,7 +376,7 @@ async function runAgent(
   });
 
   // A fresh turn pausing on a risky tool: hand it back to the caller.
-  const risky = toolCalls.filter((c) => requiresConfirmation(TOOLS.find((t) => t.function.name === c.name)));
+  const risky = toolCalls.filter((c) => requiresConfirmation(getTOOLS().find((t) => t.function.name === c.name)));
   if (risky.length > 0) {
     return { needsConfirmation: risky };
   }

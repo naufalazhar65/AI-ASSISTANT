@@ -114,7 +114,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [ ] Multi-agent / specialized agents (mis. agent web, agent files, agent reminders)
 [ ] Voice interaction (perluas voice ke channel bot bila relevan; DSCORD voice)
 [ ] Integrasi lain: Calendar, Email, Smart home (opsional pribadi)
-[ ] Plugin/tool system (daftar tool pluggable)
+[x] Plugin/tool system (daftar tool pluggable)  — tools.ts kini plugin registry: `ToolPlugin { definition, execute }` dalam satu objek, `TOOLS`/`executeTool` diturunkan dari registry (tidak bisa divergen), `registerTool()` untuk tambah tool runtime
 [ ] Channel baru sesuai kebutuhan (WhatsApp, Email, dll) via adapter
 ```
 
