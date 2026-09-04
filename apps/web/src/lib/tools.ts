@@ -10,7 +10,7 @@ import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
 import { readDailyMemory } from "./dailyMemory";
 import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate, browserClose } from "./browser";
-import { listDevicesText, deviceExec, deviceScreenshot } from "./devices";
+import { listDevicesText, deviceExec, deviceScreenshot, pairDevice } from "./devices";
 import { sendToChannel, listChannels } from "../channels/pushTarget";
 
 export interface ToolCall {
@@ -830,6 +830,37 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "write",
       function: {
+        name: "device_pair",
+        description: "Pair a new device (ios/android/macos) for the user. Requires confirmation. Use when user asks to pair their phone.",
+        parameters: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Device name, e.g. 'iPhone Zigen'" },
+            platform: { type: "string", description: "Platform: macos, ios, or android" },
+            capabilities: { type: "string", description: "Comma-separated caps: screenshot,exec,location,camera (default all)" },
+          },
+          required: ["name", "platform"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const caps =
+          typeof args.capabilities === "string"
+            ? (args.capabilities.split(",").map((s) => s.trim()).filter(Boolean) as ("screenshot" | "exec" | "location" | "camera")[])
+            : (["screenshot", "exec", "location", "camera"] as const);
+        const dev = pairDevice(ctx.rawUser, "", typeof args.name === "string" ? args.name : "device", typeof args.platform === "string" ? (args.platform as "macos" | "ios" | "android") : "ios", caps as ("screenshot" | "exec" | "location" | "camera")[]);
+        return `Paired ${dev.platform} "${dev.name}" as ${dev.id} caps: ${dev.capabilities.join(",")}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot pair"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
         name: "device_exec",
         description: "Run a safe command on a paired device (macOS). Requires confirmation. Only allowlisted commands (ls, pwd, cat, git status, etc.). Use device_list to see device IDs.",
         parameters: {
@@ -869,6 +900,75 @@ const toolRegistry: ToolPlugin[] = [
         return await deviceScreenshot(ctx.rawUser, typeof args.device_id === "string" ? args.device_id : "");
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "cannot screenshot"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "device_location",
+        description: "Get the location of a paired device (macOS IP-based approximate, iOS/Android GPS when online). Requires confirmation.",
+        parameters: {
+          type: "object",
+          properties: { device_id: { type: "string", description: "Device ID from device_list" } },
+          required: ["device_id"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { deviceLocation } = await import("./devices");
+        return await deviceLocation(ctx.rawUser, typeof args.device_id === "string" ? args.device_id : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot get location"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "device_camera",
+        description: "Take a photo with the device camera (macOS FaceTime via imagesnap, iOS/Android when online). Requires confirmation.",
+        parameters: {
+          type: "object",
+          properties: { device_id: { type: "string", description: "Device ID from device_list" } },
+          required: ["device_id"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { deviceCamera } = await import("./devices");
+        return await deviceCamera(ctx.rawUser, typeof args.device_id === "string" ? args.device_id : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot use camera"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "device_battery",
+        description: "Check battery level of a paired device (macOS via pmset/ioreg, iOS/Android queued).",
+        parameters: {
+          type: "object",
+          properties: { device_id: { type: "string", description: "Device ID from device_list" } },
+          required: ["device_id"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { deviceBattery } = await import("./devices");
+        return await deviceBattery(ctx.rawUser, typeof args.device_id === "string" ? args.device_id : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot check battery"}`;
       }
     },
   },

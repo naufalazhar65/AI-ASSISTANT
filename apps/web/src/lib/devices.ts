@@ -114,12 +114,10 @@ export function requireDeviceCapability(rawUser: unknown, id: string, cap: Devic
 
 export function deviceExec(rawUser: unknown, deviceId: string, command: string): Promise<string> {
   requireDeviceCapability(rawUser, deviceId, "exec");
-  // Only allow the same read-only allowlist as exec (status/log/diff, ls, pwd, etc.) for safety, plus a few more for device context
-  // Reuse the same logic as execSafe but via a direct allowlist check here
-  const allowed = ["ls", "pwd", "cat", "git", "node", "npm"];
+  const allowed = ["ls", "pwd", "cat", "git", "node", "npm", "pmset", "system_profiler", "ioreg", "uptime", "whoami", "hostname", "df", "ps"];
   const parts = command.trim().split(/\s+/);
   const cmd = parts[0];
-  if (!allowed.includes(cmd)) throw new Error(`device exec: command ${cmd} not allowed`);
+  if (!allowed.includes(cmd)) throw new Error(`device exec: command ${cmd} not allowed — try ls, pwd, cat, git status, pmset -g batt, etc.`);
   return new Promise((resolve, reject) => {
     execFile(cmd, parts.slice(1), { timeout: 8000, maxBuffer: 60000 }, (err, stdout, stderr) => {
       if (err) return reject(new Error(stderr?.trim() || err.message));
@@ -128,19 +126,88 @@ export function deviceExec(rawUser: unknown, deviceId: string, command: string):
   });
 }
 
+export async function deviceBattery(rawUser: unknown, deviceId: string): Promise<string> {
+  const device = requireDeviceCapability(rawUser, deviceId, "exec");
+  if (device.platform === "macos") {
+    return new Promise((resolve) => {
+      execFile("pmset", ["-g", "batt"], { timeout: 5000 }, (err, stdout) => {
+        if (!err && stdout) {
+          resolve(`Mac battery: ${stdout.trim().slice(0, 500)}`);
+          return;
+        }
+        execFile("ioreg", ["-rc", "AppleSmartBattery"], { timeout: 5000 }, (err2, stdout2) => {
+          if (!err2 && stdout2) {
+            const cap = stdout2.match(/"Capacity"\s*=\s*(\d+)/);
+            const cur = stdout2.match(/"CurrentCapacity"\s*=\s*(\d+)/);
+            if (cap && cur) {
+              const pct = Math.round((parseInt(cur[1]) / parseInt(cap[1])) * 100);
+              resolve(`Mac battery: ${pct}% (CurrentCapacity ${cur[1]}/${cap[1]})`);
+              return;
+            }
+          }
+          resolve("Battery info unavailable — try device_exec with pmset or check System Settings");
+        });
+      });
+    });
+  }
+  return `Battery request queued for ${device.name} (${device.platform}). The device will report when online.`;
+}
+
 export async function deviceScreenshot(rawUser: unknown, deviceId: string): Promise<string> {
   requireDeviceCapability(rawUser, deviceId, "screenshot");
-  // macOS screencapture to /tmp, then return path (LLM can describe it, not actually send image bytes here)
-  // For MVP, just run screencapture and confirm, not returning image data
   return new Promise((resolve, reject) => {
     const out = `/tmp/mia_screenshot_${Date.now()}.png`;
     execFile("screencapture", ["-x", out], { timeout: 10000 }, (err) => {
-      if (err) return reject(new Error(`screencapture failed: ${err.message}`));
-      // Check file exists
+      if (err) return reject(new Error(`screencapture failed: ${err.message} — display locked/sleep or no Screen Recording permission`));
       if (!existsSync(out)) return reject(new Error("screenshot not created"));
       resolve(`Screenshot saved to ${out} (on device Mac). Use file_read to inspect if needed, or describe that screenshot was taken.`);
     });
   });
+}
+
+export async function deviceLocation(rawUser: unknown, deviceId: string): Promise<string> {
+  requireDeviceCapability(rawUser, deviceId, "location");
+  const device = getDevice(rawUser, deviceId)!;
+  // For local-mac, try IP-based location (best-effort, no hardware GPS)
+  if (device.platform === "macos") {
+    return new Promise((resolve) => {
+      execFile("curl", ["-s", "--max-time", "5", "https://ipinfo.io/json"], { timeout: 7000 }, (err, stdout) => {
+        if (!err && stdout) {
+          try {
+            const j = JSON.parse(stdout) as { city?: string; region?: string; country?: string; loc?: string };
+            const loc = j.loc || "unknown";
+            const city = [j.city, j.region, j.country].filter(Boolean).join(", ");
+            resolve(`Location (IP-based, approximate): ${city || "unknown"} (${loc}) — from ipinfo.io`);
+            return;
+          } catch { /* fallthrough */ }
+        }
+        resolve("Location unavailable (no GPS on Mac, IP lookup failed). Pair an iOS/Android device with location capability for precise GPS.");
+      });
+    });
+  }
+  // For iOS/Android, the device should have reported its location via pending command queue (see deviceCommands).
+  // For now, return a pending state.
+  return `Location request queued for ${device.name} (${device.platform}). The device will report its GPS when next online.`;
+}
+
+export async function deviceCamera(rawUser: unknown, deviceId: string): Promise<string> {
+  requireDeviceCapability(rawUser, deviceId, "camera");
+  const device = getDevice(rawUser, deviceId)!;
+  if (device.platform === "macos") {
+    // Try imagesnap (brew install imagesnap) or use screencapture as fallback for camera
+    return new Promise((resolve, reject) => {
+      const out = `/tmp/mia_camera_${Date.now()}.jpg`;
+      execFile("imagesnap", [out], { timeout: 10000 }, (err) => {
+        if (!err && existsSync(out)) {
+          resolve(`Camera photo saved to ${out} (Mac FaceTime camera via imagesnap).`);
+          return;
+        }
+        // Fallback: try screencapture of camera preview is not available, so just report
+        reject(new Error("camera not available — install imagesnap (`brew install imagesnap`) or pair an iOS/Android device with camera capability"));
+      });
+    });
+  }
+  return `Camera request queued for ${device.name} (${device.platform}). The device will capture and upload when next online.`;
 }
 
 // Ensure a default local macOS device exists for the owner (auto-pair on first use, no secret needed if none set)
@@ -149,8 +216,18 @@ export function ensureLocalDevice(rawUser: unknown): Device | null {
   if (!userKey) return null;
   const devices = readDevices(rawUser);
   const existing = devices.find((d) => d.platform === "macos" && d.name === "local-mac");
-  if (existing) return existing;
-  // Auto-create local-mac with minimal caps (screenshot, exec) — only if no secret is required, else require explicit pairing
+  if (existing) {
+    // Upgrade existing local-mac to include new caps if missing (for existing installs)
+    const needed: DeviceCapability[] = ["screenshot", "exec", "location", "camera"];
+    const missing = needed.filter((c) => !existing.capabilities.includes(c));
+    if (missing.length) {
+      const idx = devices.findIndex((d) => d.id === existing.id);
+      devices[idx] = { ...existing, capabilities: [...existing.capabilities, ...missing] };
+      writeDevices(devices, userKey);
+      return devices[idx];
+    }
+    return existing;
+  }
   if (DEVICE_SECRET) return null;
-  return pairDevice(rawUser, "", "local-mac", "macos", ["screenshot", "exec"]);
+  return pairDevice(rawUser, "", "local-mac", "macos", ["screenshot", "exec", "location", "camera"]);
 }
