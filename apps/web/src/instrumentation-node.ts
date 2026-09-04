@@ -32,6 +32,12 @@ export async function registerNode(): Promise<void> {
     console.error("[automation] failed to start runner:", err instanceof Error ? err.message : String(err));
   }
   try {
+    const { startHeartbeat } = await import("@/lib/heartbeat");
+    startHeartbeat();
+  } catch (err) {
+    console.error("[heartbeat] failed to start:", err instanceof Error ? err.message : String(err));
+  }
+  try {
     const { backupNow } = await import("@/lib/backup");
     const dest = backupNow();
     console.log(`[backup] auto backup created at ${dest}`);

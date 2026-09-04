@@ -195,6 +195,12 @@ async function main() {
   rm2(join(userDataRoot(), memUser), { recursive: true, force: true });
   console.log("daily memory: OK");
 
+  // --- heartbeat (periodic check-in, no throw when nothing pending) ---
+  const { runHeartbeatTick, stopHeartbeat } = await import("./src/lib/heartbeat");
+  await runHeartbeatTick();
+  stopHeartbeat();
+  console.log("heartbeat: OK");
+
   // --- multi-root sandbox (ALLOWED_WORKSPACES): path stays inside listed roots ---
   const tmpWs = mkdtempSync(join(tmpdir(), "mia-ws-"));
   writeFileSync(join(tmpWs, "note.txt"), "hi from workspace");
