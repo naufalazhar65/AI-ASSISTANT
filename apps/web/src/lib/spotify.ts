@@ -230,12 +230,45 @@ export async function spotifySearch(rawUser: unknown, query: string): Promise<st
     .join("\n");
 }
 
+/** Score how well a track matches a free-text query: token overlap weighted
+ *  to prefer exact artist and title matches over Spotify's opaque ranking
+ *  (limit=1 hits are unreliable). Returns the best-scoring track. */
+async function searchBestTrack(
+  rawUser: unknown,
+  query: string,
+): Promise<Record<string, unknown> | undefined> {
+  const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", `/search?q=${encodeURIComponent(query)}&type=track&limit=10`);
+  const tracks = ((data.tracks as Record<string, unknown>)?.items as Record<string, unknown>[] | undefined) || [];
+  if (!tracks.length) return undefined;
+  const qTokens = new Set(
+    query.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2),
+  );
+  if (!qTokens.size) return tracks[0];
+  let best = tracks[0];
+  let bestScore = -Infinity;
+  for (const t of tracks) {
+    const title = String(t.name || "").toLowerCase();
+    const artists = ((t.artists as Record<string, string>[]) || []).map((a) => String(a.name || "").toLowerCase());
+    let bonus = 0;
+    for (const tok of qTokens) {
+      if (artists.some((a) => a.includes(tok))) bonus += 3;
+      if (title.includes(tok)) bonus += 2;
+    }
+    const denom = 1 + Math.abs(artists.join(" ").length - String(query).length) / 20;
+    const score = bonus / denom;
+    if (score > bestScore) {
+      bestScore = score;
+      best = t;
+    }
+  }
+  return best;
+}
+
 /** Play a search result (first track) or resume (`query` empty). Returns a short summary. */
 export async function spotifyPlay(rawUser: unknown, query?: string): Promise<string> {
   let track: Record<string, unknown> | undefined;
   if (query && query.trim()) {
-    const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", `/search?q=${encodeURIComponent(query.trim())}&type=track&limit=1`);
-    track = ((data.tracks as Record<string, unknown>)?.items as Record<string, unknown>[] | undefined)?.[0];
+    track = await searchBestTrack(rawUser, query.trim());
     if (!track) return "Tidak ada hasil untuk lagu itu.";
   }
   const start = async (uris?: string[]) => {
@@ -245,10 +278,10 @@ export async function spotifyPlay(rawUser: unknown, query?: string): Promise<str
     if (track) {
       await start([String(track.uri)]);
       const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
-      return `Memutar ${String(track.name)} — ${artists}.`;
+      return `${String(track.name)} — ${artists} sudah mulai diputar.`;
     }
     await start();
-    return "Melanjutkan pemutaran.";
+    return "Pemutaran dilanjutkan.";
   } catch (err) {
     // No active device (404). Two robust fallbacks before giving up:
     //   1. macOS: open `spotify:track:<uri>` through LaunchServices — this
@@ -276,18 +309,18 @@ export async function spotifyPlay(rawUser: unknown, query?: string): Promise<str
           }
         }
         const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
-        if (played) return `Memutar ${String(track.name)} — ${artists}.`;
-        return `Membuka Spotify dan mulai memutar ${String(track.name)} — ${artists}.`;
+        if (played) return `${String(track.name)} — ${artists} sudah mulai diputar.`;
+        return `Spotify terbuka, ${String(track.name)} — ${artists} mulai diputar.`;
       }
       const transferred = await ensureDevice(rawUser);
       if (transferred) {
         if (track) {
           await start([String(track.uri)]);
           const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
-          return `Memutar ${String(track.name)} — ${artists} di ${transferred}.`;
+          return `${String(track.name)} — ${artists} mulai diputar di ${transferred}.`;
         }
         await start();
-        return "Melanjutkan pemutaran di " + transferred + ".";
+        return "Pemutaran dilanjutkan di " + transferred + ".";
       }
     }
     throw err;
@@ -353,12 +386,12 @@ export async function spotifyPause(rawUser: unknown): Promise<string> {
       const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await spotifyRequest<unknown>(rawUser, "PUT", "/me/player/pause");
-        return `⏸ Dipause di ${transferred}.`;
+        return `Pemutarannya dijeda di ${transferred}.`;
       }
     }
     throw err;
   }
-  return "⏸ Spotify dipause.";
+  return "Pemutaran dijeda.";
 }
 
 export async function spotifyNext(rawUser: unknown): Promise<string> {
@@ -369,12 +402,12 @@ export async function spotifyNext(rawUser: unknown): Promise<string> {
       const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await spotifyRequest<unknown>(rawUser, "POST", "/me/player/next");
-        return `⏭ Lagu berikutnya di ${transferred}.`;
+        return `Lagu berikutnya diputar di ${transferred}.`;
       }
     }
     throw err;
   }
-  return "⏭ Lagu berikutnya.";
+  return "Lagu berikutnya diputar.";
 }
 
 export async function spotifyPrevious(rawUser: unknown): Promise<string> {
@@ -385,12 +418,12 @@ export async function spotifyPrevious(rawUser: unknown): Promise<string> {
       const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await spotifyRequest<unknown>(rawUser, "POST", "/me/player/previous");
-        return `⏮ Lagu sebelumnya di ${transferred}.`;
+        return `Lagu sebelumnya diputar di ${transferred}.`;
       }
     }
     throw err;
   }
-  return "⏮ Lagu sebelumnya.";
+  return "Lagu sebelumnya diputar.";
 }
 
 export async function spotifySetVolume(rawUser: unknown, percent: number): Promise<string> {
