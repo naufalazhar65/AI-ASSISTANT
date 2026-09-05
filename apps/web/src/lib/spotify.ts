@@ -258,7 +258,8 @@ export async function spotifyPlay(rawUser: unknown, query?: string): Promise<str
     if (err instanceof Error && err.message === "spotify_no_active_device") {
       if (track && process.platform === "darwin") {
         // Launch via deeplink: this both opens the app and queues the track.
-        await execFileAsync("open", [`spotify:${String(track.uri)}`], { timeout: 4000 });
+        // `track.uri` is already `spotify:track:<id>` — open it verbatim.
+        await execFileAsync("open", [String(track.uri)], { timeout: 4000 });
         // The freshly launched app may resume an old queue; give it a moment to
         // register as a device, then force-play exactly the requested track.
         const deadline = Date.now() + 15000;
