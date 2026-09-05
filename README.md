@@ -34,10 +34,10 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
                              ▲ persona / tools / reminders / tasks / automations / RAG
 ```
 
-- **Core:** `apps/web/src/lib/agent.ts` — single turn implementation for every channel (`streaming → tools → follow-up → auto-memory → reminder intent`).
+- **Core:** `apps/web/src/lib/agent.ts` — single turn implementation for every channel (`streaming → tools → follow-up → auto-memory → reminder intent → mood log`).
 - **Providers:** `apps/web/src/lib/providers.ts` — `groq` / `openrouter` / `9router` / `opencode (local)` / `mock`. Client sends only `{provider, model}`; server resolves keys/endpoints (Invariant 5).
 - **Channels:** `apps/web/src/channels/{telegram,discord}.ts` + `pushTarget.ts` sink for proactive pushes.
-- **Persistence:** per-user disk store under `apps/web/.data/users/<user>/` — notes, reminders, tasks, uploads, automations, persona, daily memory (`memory/YYYY-MM-DD.md`).
+- **Persistence:** per-user disk store under `apps/web/.data/users/<user>/` — notes, reminders, tasks, uploads, automations, mood log (`moods.json`), persona, daily memory (`memory/YYYY-MM-DD.md`).
 - **Scheduling:** `lib/reminders.ts` + `lib/automations.ts` (daily / hourly) + `automationRunner.ts` + `heartbeat.ts` (periodic overdue/due-soon check, default 30m) + `POST /api/webhook` (external trigger with `WEBHOOK_SECRET`) — all started in `instrumentation-node.ts`.
 - **Channel adapter policy:** Discord DM requires `partials: [Channel, Message]` + `msg.fetch()` on `msg.partial` (first-ever DM would be dropped otherwise).
 
@@ -77,6 +77,8 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 | `add_task` `list_tasks` `complete_task` `cancel_task` `reschedule_task` | write | Task list |
 | `remind_me` | write | Schedule a reminder (ISO-8601 with offset; stale clock rebased) |
 | `create_automation` | write | Recurring `prompt` on schedule (`setiap pagi jam 8` / `setiap 2 jam`) |
+| `mood_log` | read | Record current mood (great/good/okay/meh/stressed/anxious/sad/tired/angry, Indonesian accepted & normalized) |
+| `mood_recent` | read | Show mood history / trend ("gimana mood-ku belakangan ini?") |
 | `send_channel` | read* | Relay a message to another registered channel (Telegram ↔ Discord, sends immediately, no confirmation) |
 
 Read-only tools auto-execute. Write/delete/transaction/external tools pause for inline `ya`/`tidak` confirmation (FR-014).
@@ -91,7 +93,8 @@ Hands-free voice via the same core: browser mic → energy VAD → Whisper ASR �
 apps/web                  Next.js app (UI, hooks, audio, persona, /api/* proxies)
   src/ai                  ConversationManager, GroqStreamingProvider, VAD helpers
   src/lib                 tools, agent, providers, persona, autoMemory, sessions,
-                          reminders, tasks, uploads, automations, rag, status, backup, ...
+                          reminders, tasks, uploads, automations, mood, rag,
+                          status, backup, ...
   src/channels            telegram.ts, discord.ts, pushTarget.ts
   persona/                IDENTITY.md, SOUL.md, USER.md, DREAMS.md (template)
 packages/state-machine    Conversation state machine (invalid transitions impossible)

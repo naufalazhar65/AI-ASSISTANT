@@ -12,6 +12,7 @@ import { readDailyMemory } from "./dailyMemory";
 import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate, browserClose } from "./browser";
 import { listDevicesText, deviceExec, deviceScreenshot, pairDevice } from "./devices";
 import { listCalText, addCalEvent, checkCalAvailability } from "./calendar";
+import { addMood, listMoods, moodTrend } from "./mood";
 import { sendToChannel, listChannels } from "../channels/pushTarget";
 
 export interface ToolCall {
@@ -1157,6 +1158,62 @@ const toolRegistry: ToolPlugin[] = [
         return await sendToChannel(to, message);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid send"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "mood_log",
+        description:
+          "Record the user's current mood. Use when the user tells you how they feel (e.g. \"aku lagi stres\", \"hari ini bahagia\"). Supports great/good/okay/meh/stressed/anxious/sad/tired/angry in English or Indonesian.",
+        parameters: {
+          type: "object",
+          properties: {
+            mood: {
+              type: "string",
+              description: "The mood. One of: great, good, okay, meh, stressed, anxious, sad, tired, angry. Accepts Indonesian (bahagia, stres, capek, sedih, ...) and normalizes them.",
+            },
+            note: {
+              type: "string",
+              description: "Optional short reason/detail, e.g. 'kerjaan numpuk banget'",
+            },
+          },
+          required: ["mood"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const entry = addMood(args.mood, ctx.rawUser, args.note);
+        return `Mood tercatat: ${entry.mood}${entry.note ? ` (${entry.note})` : ""}. Kalau kamu butuh pelarian atau pengalihan asik, bilang aja ya 🌸`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid mood"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "mood_recent",
+        description:
+          "Show the user's recent mood history / trend. Use when asked \"gimana mood-ku belakangan ini\", \"aku sering sedih gak\", or to check if the user has been stressed lately.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    execute: (_, ctx) => {
+      try {
+        return `Mood kamu:\n${moodTrend(ctx.rawUser)}\n\nRiwayat:\n${listMoods(ctx.rawUser)}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid mood query"}`;
       }
     },
   },

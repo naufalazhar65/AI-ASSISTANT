@@ -19,6 +19,7 @@ import { runOpenCodeTurn, OpenCodeChatMessage } from "./opencode";
 import { captureFactsFromTurn } from "./autoMemory";
 import { detectReminderIntents } from "./reminderIntent";
 import { addReminder } from "./reminders";
+import { logDetectedMood } from "./moodIntent";
 import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
 import { appendDailyMemory } from "./dailyMemory";
@@ -110,7 +111,7 @@ const SYSTEM_PROMPT = [
   "same woman everywhere. Answer concisely and naturally as a woman, with warm feminine presence. Never use markdown. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, and send_channel. ",
+  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, and send_channel. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
   "show saved notes, delete_note to remove one, file_read to read a project ",
@@ -141,6 +142,7 @@ const SYSTEM_PROMPT = [
   "Use device_list to see paired devices, device_pair to pair a new phone (ios/android) when asked, device_exec to run a safe command on a device, device_screenshot to capture the Mac screen, device_location for location, device_camera for photos, and device_battery to check battery (pair/exec/screenshot/location/camera require confirmation except device_list and device_battery).",
   "Use calendar_list to see upcoming events, calendar_check to check a slot, calendar_add to create an event (requires confirmation), and calendar_mac_add/calendar_mac_list to sync with the Mac's Calendar.app via AppleScript. If the user says 'dikalender' / 'di kalender' / 'Mac Calendar' / 'Calendar.app', use calendar_mac_add so it lands on the Mac. After an event is confirmed and created, do NOT ask 'lanjut?' or create a second event.",
   "Use send_channel with `to` = 'telegram' or 'discord' to relay a message to the other platform when the user asks (e.g. 'kirim ini ke discord'). It sends immediately without needing confirmation.",
+  "Use mood_log to record how the user is feeling when they share their mood or state (e.g. 'aku stres', 'hari ini bahagia', 'capek banget') — it stores a mood entry (great/good/okay/meh/stressed/anxious/sad/tired/angry) with an optional note and helps you tailor replies and support later. Use mood_recent to show their mood history/trend when asked (e.g. 'gimana mood-ku belakangan ini'). Both run immediately without confirmation.",
   "save_note, delete_note, write_file, edit_file, browser_click, browser_type, browser_navigate, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, remind_me, add_task, complete_task, cancel_task, reschedule_task, create_automation, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
   "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, device_list, device_battery, calendar_list, calendar_check and calendar_mac_list do NOT wait for confirmation — send/run them right away.",
@@ -254,6 +256,9 @@ function openCodeSystemPromptParts(): string {
     "politely decline. You can remind the user or wake them at a time: when asked ",
     "to remind/bangunin at a specific hour, say you'll set it (the system handles ",
     "the scheduling for you). ",
+    "When the user shares how they feel (stressed, sedih, capek, bahagia, ...), ",
+    "acknowledge it warmly — the system also records their mood automatically, ",
+    "so there's no need to store or repeat it.",
     "The persona files below (USER, SOUL, IDENTITY, DREAMS) are your persistent ",
     "memory: they already contain what you know about the user and how to speak. ",
     "Do NOT append any <persona> tag or hidden metadata to your answer — new ",
@@ -551,6 +556,20 @@ function remindToolAlreadyHandled(opts: {
 }
 
 /**
+ * Best-effort mood capture: if the user's latest message states how they feel
+ * ("aku lagi stres", "hari ini bahagia"), log it to their mood store via
+ * `logDetectedMood` (fire-and-forget, never throws). Complements the
+ * `mood_log` tool for models that answer verbally without a tool call.
+ */
+function logMoodFromMessages(messages: ChatMessage[], user: unknown): void {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content || typeof lastUser.content !== "string") return;
+  try {
+    logDetectedMood(lastUser.content, user);
+  } catch { /* best-effort */ }
+}
+
+/**
  * Run one full assistant turn for a user across any provider (mock / opencode /
  * groq / 9router), including server-side read-only tools, risky-tool pausing,
  * automatic persona memory capture, and reminder scheduling on the opencode
@@ -606,6 +625,9 @@ export async function runAssistantTurn(opts: {
     // so detect a "remind/bangunin di <waktu>" intent directly and schedule it
     // with the same store the `remind_me` tool uses.
     opencodeText = scheduleReminderFromIntent(messages, opts.user, opencodeText);
+    // Mood tracking: register "aku lagi stres/capek/.." statements even when
+    // the model never emits a tool call (deterministic, fire-and-forget).
+    logMoodFromMessages(messages, opts.user);
     try {
       const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() || "";
       if (lastUser || opencodeText.trim()) {
@@ -705,6 +727,9 @@ export async function runAssistantTurn(opts: {
   if (!remindToolAlreadyHandled(opts, needsConfirmation)) {
     text = scheduleReminderFromIntent(messages, opts.user, text);
   }
+  // Mood tracking: log state-of-mind statements (fire-and-forget) so Mia knows
+  // how the user is feeling and can tailor replies / offer support.
+  logMoodFromMessages(messages, opts.user);
 
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
   // This provides the YYYY-MM-DD.md files that memory_get reads and that

@@ -4,6 +4,7 @@ import { sanitizeUser, userDataRoot } from "./users";
 import { readTasks } from "./tasks";
 import { readReminders } from "./reminders";
 import { readAutomations } from "./automations";
+import { readMoods } from "./mood";
 
 export interface DocChunk {
   id: string;
@@ -44,6 +45,14 @@ function collectDocs(rawUser?: unknown): DocChunk[] {
   try {
     const autos = readAutomations(rawUser);
     for (let i = 0; i < autos.length; i++) docs.push({ id: `automation:${i}`, source: "automations", text: autos[i].prompt });
+  } catch { /* ignore */ }
+
+  try {
+    const moods = readMoods(rawUser);
+    for (let i = 0; i < moods.length; i++) {
+      const when = new Date(moods[i].at).toISOString().slice(0, 10);
+      docs.push({ id: `mood:${i}`, source: "moods", text: `${moods[i].mood} ${moods[i].note ?? ""} (${when})` });
+    }
   } catch { /* ignore */ }
 
   try {
