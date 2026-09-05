@@ -37,7 +37,7 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 - **Core:** `apps/web/src/lib/agent.ts` — single turn implementation for every channel (`streaming → tools → follow-up → auto-memory → reminder intent → mood log`).
 - **Providers:** `apps/web/src/lib/providers.ts` — `groq` / `openrouter` / `9router` / `opencode (local)` / `mock`. Client sends only `{provider, model}`; server resolves keys/endpoints (Invariant 5).
 - **Channels:** `apps/web/src/channels/{telegram,discord}.ts` + `pushTarget.ts` sink for proactive pushes.
-- **Persistence:** per-user disk store under `apps/web/.data/users/<user>/` — notes, reminders, tasks, uploads, automations, mood log (`moods.json`), persona, daily memory (`memory/YYYY-MM-DD.md`).
+- **Persistence:** per-user disk store under `apps/web/.data/users/<user>/` — notes, reminders, tasks, uploads, automations, mood log (`moods.json`), Spotify token (`spotify.json`), persona, daily memory (`memory/YYYY-MM-DD.md`).
 - **Scheduling:** `lib/reminders.ts` + `lib/automations.ts` (daily / hourly) + `automationRunner.ts` + `heartbeat.ts` (periodic overdue/due-soon check, default 30m) + `POST /api/webhook` (external trigger with `WEBHOOK_SECRET`) — all started in `instrumentation-node.ts`.
 - **Channel adapter policy:** Discord DM requires `partials: [Channel, Message]` + `msg.fetch()` on `msg.partial` (first-ever DM would be dropped otherwise).
 
@@ -73,6 +73,9 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 | `device_pair` | write | Pair new device (ios/android/macos) |
 | `calendar_list` / `calendar_check` | read | List events / check availability |
 | `calendar_add` | write | Add calendar event (confirmation) |
+| `spotify_link` | read | Return Spotify authorization link (one-time connect, opens in browser) |
+| `spotify_status` / `spotify_search` / `spotify_devices` | read | Now playing / search tracks / list playback devices |
+| `spotify_play` / `spotify_pause` / `spotify_next` / `spotify_previous` / `spotify_volume` | write | Control Spotify playback (confirmation; requires Spotify Premium) |
 | `save_note` / `list_notes` / `delete_note` | write/delete | Quick persistent notes (50 / 80 KB cap, atomic disk write) |
 | `add_task` `list_tasks` `complete_task` `cancel_task` `reschedule_task` | write | Task list |
 | `remind_me` | write | Schedule a reminder (ISO-8601 with offset; stale clock rebased) |

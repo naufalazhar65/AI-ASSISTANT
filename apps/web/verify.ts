@@ -212,6 +212,15 @@ async function main() {
   if (!devList0.includes("No devices") && !devList0.includes("paired")) throw new Error(`device_list unexpected: ${devList0.slice(0, 100)}`);
   console.log("device: OK (tools registered)");
 
+  // --- Spotify — tools registered; not-connected path returns the auth link ---
+  const spTools = ["spotify_link", "spotify_status", "spotify_search", "spotify_play", "spotify_pause", "spotify_next", "spotify_previous", "spotify_volume", "spotify_devices"];
+  for (const name of spTools) if (!getTool(name)) throw new Error(`spotify tool not registered: ${name}`);
+  const spLink = await executeTool({ id: "t", name: "spotify_link", arguments: "{}" }, "spotifyprobe");
+  if (!spLink.includes("Spotify") || (!spLink.includes("dikonfigurasi") && !spLink.includes("Hubungkan"))) throw new Error(`spotify_link unexpected: ${spLink.slice(0, 120)}`);
+  const spStatus = await executeTool({ id: "t", name: "spotify_status", arguments: "{}" }, "spotifyprobe");
+  if (!spStatus.includes("Spotify" )) throw new Error(`spotify_status unexpected: ${spStatus.slice(0, 120)}`);
+  console.log("spotify: OK (tools registered, not-connected path)");
+
   // --- multi-root sandbox (ALLOWED_WORKSPACES): path stays inside listed roots ---
   const tmpWs = mkdtempSync(join(tmpdir(), "mia-ws-"));
   writeFileSync(join(tmpWs, "note.txt"), "hi from workspace");

@@ -14,6 +14,19 @@ import { listDevicesText, deviceExec, deviceScreenshot, pairDevice } from "./dev
 import { listCalText, addCalEvent, checkCalAvailability } from "./calendar";
 import { addMood, listMoods, moodTrend } from "./mood";
 import { sendToChannel, listChannels } from "../channels/pushTarget";
+import {
+  spotifyAuthUrl,
+  spotifyConfigured,
+  spotifyConnected,
+  spotifyNowPlaying,
+  spotifySearch,
+  spotifyPlay,
+  spotifyPause,
+  spotifyNext,
+  spotifyPrevious,
+  spotifySetVolume,
+  spotifyDevices,
+} from "./spotify";
 
 export interface ToolCall {
   id: string;
@@ -1217,6 +1230,213 @@ const toolRegistry: ToolPlugin[] = [
       }
     },
   },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "spotify_link",
+        description:
+          "Return the Spotify authorization link for the user to open in a browser (one-time connection). Use when the user asks to play/control music and Spotify is not connected yet.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    execute: (_, ctx) => {
+      if (!spotifyConfigured()) return "Spotify belum dikonfigurasi (SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET).";
+      if (spotifyConnected(ctx.rawUser)) return "Spotify sudah terhubung.";
+      return `Hubungkan Spotify dulu: ${spotifyAuthUrl(ctx.rawUser)}`;
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "spotify_status",
+        description:
+          "Show what's currently playing on Spotify (song, artist, progress, device) or state that nothing is playing.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    execute: async (_, ctx) => {
+      try {
+        return await spotifyNowPlaying(ctx.rawUser);
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "spotify_search",
+        description: "Search Spotify for tracks by title/artist and list the top results.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Song title and/or artist to search, e.g. 'Taylor Swift blank space'" },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        return await spotifySearch(ctx.rawUser, typeof args.query === "string" ? args.query : "");
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "spotify_play",
+        description:
+          "Play a song on Spotify. Provide `query` to search and play the top result; omit `query` to resume paused playback. Requires confirmation.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Optional title/artist to play, e.g. 'Harry Styles as it was'. Omit to resume." },
+          },
+          required: [],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        return await spotifyPlay(ctx.rawUser, typeof args.query === "string" ? args.query : "");
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "spotify_pause",
+        description: "Pause Spotify playback. Requires confirmation.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    execute: async (_, ctx) => {
+      try {
+        return await spotifyPause(ctx.rawUser);
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "spotify_next",
+        description: "Skip to the next track on Spotify. Requires confirmation.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    execute: async (_, ctx) => {
+      try {
+        return await spotifyNext(ctx.rawUser);
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "spotify_previous",
+        description: "Go back to the previous track on Spotify. Requires confirmation.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    execute: async (_, ctx) => {
+      try {
+        return await spotifyPrevious(ctx.rawUser);
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "spotify_volume",
+        description: "Set Spotify volume to a percentage (0–100). Requires confirmation.",
+        parameters: {
+          type: "object",
+          properties: {
+            percent: { type: "string", description: "Volume 0–100, e.g. '40'" },
+          },
+          required: ["percent"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const p = parseInt(typeof args.percent === "string" ? args.percent : "", 10);
+        if (!Number.isFinite(p)) throw new Error("invalid percent");
+        return await spotifySetVolume(ctx.rawUser, p);
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "spotify_devices",
+        description: "List Spotify playback devices (active device is marked ✓). Use when playback fails or to check where music will play.",
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    execute: async (_, ctx) => {
+      try {
+        return await spotifyDevices(ctx.rawUser);
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always
@@ -1257,6 +1477,20 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   const userKey = sanitizeUser(rawUser);
   const out = await plugin.execute(args, { userKey, rawUser });
   return out ?? "";
+}
+
+/** Map a Spotify API error to a user-facing message; append the auth link when
+ *  the user isn't connected yet. Shared by the spotify_* tool plugins. */
+function spotifyToolError(err: unknown, rawUser?: unknown): string {
+  const msg = err instanceof Error ? err.message : "Spotify error";
+  if (msg === "spotify_not_connected") {
+    if (!spotifyConfigured()) return "Spotify belum dikonfigurasi (SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET).";
+    return `Koneksi Spotify belum dibuat. Buka link ini sekali untuk menghubungkan: ${spotifyAuthUrl(rawUser)}`;
+  }
+  if (msg === "spotify_no_active_device") {
+    return "Tidak ada perangkat Spotify aktif — buka aplikasi Spotify di perangkatmu dulu, lalu coba lagi.";
+  }
+  return `Error: ${msg}`;
 }
 
 
