@@ -24,13 +24,22 @@ async function runOne(automation: Automation, user: string): Promise<void> {
   if (running.has(automation.id)) return;
   running.add(automation.id);
   try {
+    const prompt =
+      "Ini laporan terjadwal (automation). Tugasmu: jawab langsung dari pengetahuanmu, " +
+      "atau pakai web_search/calculate kalau butuh data baru. JANGAN pakai tool yang butuh " +
+      "persetujuan (fetch_url, create_automation, dsb) — tool itu otomatis ditolak. " +
+      `[Scheduled automation] ${automation.prompt}`;
     const result = await runAssistantTurn({
-      messages: [{ role: "user", content: `[Scheduled automation] ${automation.prompt}` }],
+      messages: [{ role: "user", content: prompt }],
       provider: process.env.AUTOMATION_PROVIDER ?? defaultProviderId(),
       user,
       channel: "discord",
+      // No human is watching an automation run, so risky tools (save_note,
+      // remind_me, fetch_url, ...) must be auto-denied instead of pausing for a
+      // confirmation nobody can answer — which previously produced empty replies.
+      autoDenyRisky: true,
     });
-    const text = (result.text || "").trim() || `(tidak ada jawaban untuk " ${automation.prompt}")`;
+    const text = (result.text || "").trim() || "Maaf, aku belum bisa menjawab permintaan ini pada jadwal otomatis. Coba minta langsung ya. 🌸";
     const delivered = await pushToOwner(`🌸 *Automation* — ${automation.prompt}\n${text}`);
     if (!delivered) {
       console.warn(`[automation] no active channel to deliver "${automation.prompt}"`);

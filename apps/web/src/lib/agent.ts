@@ -473,7 +473,8 @@ async function runAgent(
   collector: { collect: (text: string) => void },
   round: number,
   model?: string,
-  user?: unknown
+  user?: unknown,
+  autoDenyRisky = false
 ): Promise<{ needsConfirmation: ToolCall[] | null }> {
   const withTools = round <= MAX_TOOL_ROUNDS;
   const { text, toolCalls } = await runOneCompletion(
@@ -510,10 +511,34 @@ async function runAgent(
     })),
   });
 
-  // A fresh turn pausing on a risky tool: hand it back to the caller.
+  // A fresh turn pausing on a risky tool: hand it back to the caller, unless
+  // this is a headless/automated turn (no human to confirm) — then decline the
+  // risky calls automatically and continue so the model must produce a text
+  // answer instead of stalling on an unattended confirmation.
   const risky = toolCalls2.filter((c) => requiresConfirmation(getTOOLS().find((t) => t.function.name === c.name)));
   if (risky.length > 0) {
-    return { needsConfirmation: risky };
+    if (!autoDenyRisky) {
+      return { needsConfirmation: risky };
+    }
+    for (const call of risky) {
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        content:
+          "Auto-declined: this is a scheduled/automated turn with no user to " +
+          "confirm. Do NOT execute this action; if the request depends on it, " +
+          "say you couldn't complete it.",
+      });
+    }
+    const autoDenied = toolCalls2.filter((c) => !risky.includes(c));
+    for (const call of autoDenied) {
+      messages.push({ role: "tool", tool_call_id: call.id, content: await executeTool(call, user) });
+    }
+    if (round < MAX_TOOL_ROUNDS) {
+      return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
+    }
+    collector.collect("");
+    return { needsConfirmation: null };
   }
 
   // All read-only tools: execute them server-side and continue (FR-013).
@@ -521,7 +546,7 @@ async function runAgent(
     for (const call of toolCalls2) {
       messages.push({ role: "tool", tool_call_id: call.id, content: await executeTool(call, user) });
     }
-    return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user);
+    return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
   }
 
   throw new Error("too many tool rounds");
@@ -600,6 +625,8 @@ export async function runAssistantTurn(opts: {
   model?: string;
   user?: unknown;
   confirm_call?: { call: ToolCall; allow: boolean };
+  /** Headless/automated turns (no human to approve risky tools): auto-denied. */
+  autoDenyRisky?: boolean;
   /** Voice (default) keeps replies plain for TTS; "text"/"discord" allow markdown. */
   channel?: Channel;
 }): Promise<TurnResult> {
@@ -702,7 +729,8 @@ export async function runAssistantTurn(opts: {
       collector,
       1,
       model,
-      opts.user
+      opts.user,
+      Boolean(opts.autoDenyRisky)
     );
   } catch (err) {
     // A confirmed tool (e.g. create_automation) may have already been executed
@@ -761,6 +789,16 @@ export async function runAssistantTurn(opts: {
     }
   } catch {
     /* daily memory is best-effort */
+  }
+
+  // Headless auto-deny fallback: if the model only ever proposed risky tools
+  // (auto-denied) and never produced a text reply, say so gracefully instead of
+  // returning an empty string (which the caller would render as "no answer").
+  if (opts.autoDenyRisky && !text.trim()) {
+    return {
+      text: "Aku tidak bisa menyelesaikan permintaan ini pada jadwal otomatis karena butuh persetujuanmu. Coba minta langsung ya. 🌸",
+      needsConfirmation: null,
+    };
   }
 
   return { text, needsConfirmation };
