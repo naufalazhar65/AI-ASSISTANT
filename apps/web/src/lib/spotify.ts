@@ -13,7 +13,11 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
 import { sanitizeUser, userDataRoot } from "./users";
+
+const execFileAsync = promisify(execFileCb);
 
 export const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID || "";
 export const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET || "";
@@ -191,19 +195,26 @@ export function spotifyConnected(rawUser?: unknown): boolean {
   return !!readSpotifyToken(rawUser);
 }
 
-/** Current playback: song, artist, device, progress. `null` when nothing playing. */
+/** Current playback as a natural Indonesian sentence. `null` item → "terbuka tapi tidak memutar". */
 export async function spotifyNowPlaying(rawUser?: unknown): Promise<string> {
   const player = await spotifyRequest<Record<string, unknown> | null>(rawUser, "GET", "/me/player");
-  if (!player || !player.item) return "Spotify terbuka tapi tidak sedang memutar apa pun.";
-  const item = player.item as Record<string, unknown>;
+  const item = player?.item as Record<string, unknown> | undefined;
+  if (!player || !item) return "Spotify terbuka tapi belum ada yang diputar.";
   const artists = ((item.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
   const name = String(item.name ?? "(unknown)");
   const device = (player.device as Record<string, unknown>) || {};
-  const progress = (Number(player.progress_ms) || 0) / 1000;
-  const duration = (Number(item.duration_ms) || 0) / 1000;
-  const state = player.is_playing ? "▶ playing" : "⏸ paused";
-  const deviceName = String(device.name ?? "?");
-  return `${state} · ${name} — ${artists}${progress ? ` (${Math.floor(progress / 60)}:${String(Math.floor(progress % 60)).padStart(2, "0")}/${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, "0")})` : ""} · device: ${deviceName}`;
+  const deviceName = String(device.name ?? "Spotify");
+  if (player.is_playing) {
+    const progress = (Number(player.progress_ms) || 0) / 1000;
+    const duration = (Number(item.duration_ms) || 0) / 1000;
+    if (progress && duration) {
+      const p = `${Math.floor(progress / 60)} menit ${Math.floor(progress % 60)} detik`;
+      const d = `${Math.floor(duration / 60)} menit ${Math.floor(duration % 60)} detik`;
+      return `${name} — ${artists} sedang diputar, sudah jalan ${p} dari total ${d}, di perangkat ${deviceName}.`;
+    }
+    return `${name} — ${artists} sedang diputar di perangkat ${deviceName}.`;
+  }
+  return `${name} — ${artists} sedang dijeda, diputar di perangkat ${deviceName}.`;
 }
 
 export async function spotifySearch(rawUser: unknown, query: string): Promise<string> {
@@ -221,14 +232,17 @@ export async function spotifySearch(rawUser: unknown, query: string): Promise<st
 
 /** Play a search result (first track) or resume (`query` empty). Returns a short summary. */
 export async function spotifyPlay(rawUser: unknown, query?: string): Promise<string> {
+  let track: Record<string, unknown> | undefined;
+  if (query && query.trim()) {
+    const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", `/search?q=${encodeURIComponent(query.trim())}&type=track&limit=1`);
+    track = ((data.tracks as Record<string, unknown>)?.items as Record<string, unknown>[] | undefined)?.[0];
+    if (!track) return "Tidak ada hasil untuk lagu itu.";
+  }
   const start = async (uris?: string[]) => {
     await spotifyRequest<unknown>(rawUser, "PUT", "/me/player/play", uris ? { uris } : {});
   };
   try {
-    if (query && query.trim()) {
-      const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", `/search?q=${encodeURIComponent(query.trim())}&type=track&limit=1`);
-      const track = ((data.tracks as Record<string, unknown>)?.items as Record<string, unknown>[] | undefined)?.[0];
-      if (!track) return "Tidak ada hasil untuk lagu itu.";
+    if (track) {
       await start([String(track.uri)]);
       const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
       return `Memutar ${String(track.name)} — ${artists}.`;
@@ -236,23 +250,43 @@ export async function spotifyPlay(rawUser: unknown, query?: string): Promise<str
     await start();
     return "Melanjutkan pemutaran.";
   } catch (err) {
-    // No active device (404): transfer playback to the first available device
-    // (e.g. a speaker/client in range) then retry once before failing.
+    // No active device (404). Two robust fallbacks before giving up:
+    //   1. macOS: open `spotify:track:<uri>` through LaunchServices — this
+    //      launches the app AND starts playback immediately, no wait for the
+    //      app to register as a device (waiting for registration is flaky).
+    //   2. Transfer playback to a listed device, then retry the play once.
     if (err instanceof Error && err.message === "spotify_no_active_device") {
-      const transferred = await transferPlayback(rawUser);
-      if (transferred) {
-        if (query && query.trim()) {
-          const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", `/search?q=${encodeURIComponent(query.trim())}&type=track&limit=1`);
-          const track = ((data.tracks as Record<string, unknown>)?.items as Record<string, unknown>[] | undefined)?.[0];
-          if (track) {
+      if (track && process.platform === "darwin") {
+        // Launch via deeplink: this both opens the app and queues the track.
+        await execFileAsync("open", [`spotify:${String(track.uri)}`], { timeout: 4000 });
+        // The freshly launched app may resume an old queue; give it a moment to
+        // register as a device, then force-play exactly the requested track.
+        const deadline = Date.now() + 15000;
+        let played = false;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 1500));
+          if (!(await listDevices(rawUser)).length) continue;
+          try {
             await start([String(track.uri)]);
-            const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
-            return `Memutar ${String(track.name)} — ${artists} di ${transferred}.`;
+            played = true;
+            break;
+          } catch {
+            /* device not ready yet; keep polling */
           }
-        } else {
-          await start();
-          return "Melanjutkan pemutaran di " + transferred + ".";
         }
+        const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
+        if (played) return `Memutar ${String(track.name)} — ${artists}.`;
+        return `Membuka Spotify dan mulai memutar ${String(track.name)} — ${artists}.`;
+      }
+      const transferred = await ensureDevice(rawUser);
+      if (transferred) {
+        if (track) {
+          await start([String(track.uri)]);
+          const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
+          return `Memutar ${String(track.name)} — ${artists} di ${transferred}.`;
+        }
+        await start();
+        return "Melanjutkan pemutaran di " + transferred + ".";
       }
     }
     throw err;
@@ -260,19 +294,54 @@ export async function spotifyPlay(rawUser: unknown, query?: string): Promise<str
 }
 
 /**
- * Transfer playback to the first available device. Returns the device name on
- * success or `null` when there's no device to transfer to.
+ * Ensure a reachable Spotify device exists. Returns the device name of the target
+ * on success or `null` when no device exists (e.g. the Spotify app is closed).
+ *
+ * Strategy when playback has no active device (player endpoints return 404):
+ *   1. If any device is listed, transfer playback to it (prefer the active one).
+ *   2. If the device list is empty and we're on macOS, launch the local Spotify
+ *      app (`open -a Spotify`), poll until it registers as a device, then transfer.
+ *   3. Otherwise return null so the caller can give the friendly "buka Spotify dulu".
  */
-async function transferPlayback(rawUser: unknown): Promise<string | null> {
+async function ensureDevice(rawUser: unknown): Promise<string | null> {
+  const devices = await listDevices(rawUser);
+  if (devices.length) {
+    const target = devices.find((d) => d.is_active) || devices[0];
+    await spotifyRequest<unknown>(rawUser, "PUT", "/me/player", { device_ids: [target.id] });
+    return String(target.name ?? "Spotify");
+  }
+  if (process.platform !== "darwin") return null;
+  try {
+    await execFileAsync("open", ["-a", "Spotify"], { timeout: 4000 });
+  } catch {
+    return null;
+  }
+  // Poll up to ~45s for the freshly launched app to register as a device
+  // (cold start on the owner's Mac can take anywhere from ~15s to ~40s).
+  const deadline = Date.now() + 45000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const d = await listDevices(rawUser);
+    if (d.length) {
+      await spotifyRequest<unknown>(rawUser, "PUT", "/me/player", { device_ids: [d[0].id] });
+      return String(d[0].name ?? "Spotify");
+    }
+  }
+  return null;
+}
+
+interface SpotifyDevice {
+  id: string;
+  name?: string;
+  is_active?: boolean;
+}
+
+async function listDevices(rawUser: unknown): Promise<SpotifyDevice[]> {
   const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", "/me/player/devices");
-  const devices = (data.devices as Record<string, unknown>[]) || [];
-  const available = devices.find((d) => typeof d.id === "string" && d.id);
-  if (!available) return null;
-  // Prefer an already-active device; otherwise use the first listed one.
-  const target = devices.find((d) => d.is_active) || available;
-  const targetId = String(target.id);
-  await spotifyRequest<unknown>(rawUser, "PUT", "/me/player", { device_ids: [targetId] });
-  return String(target.name ?? "Spotify");
+  const devices = ((data.devices as Record<string, unknown>[]) || [])
+    .filter((d): d is Record<string, unknown> => typeof d.id === "string" && !!d.id)
+    .map((d) => ({ id: String(d.id), name: String(d.name ?? "Spotify"), is_active: !!d.is_active }));
+  return devices;
 }
 
 export async function spotifyPause(rawUser: unknown): Promise<string> {
@@ -280,7 +349,7 @@ export async function spotifyPause(rawUser: unknown): Promise<string> {
     await spotifyRequest<unknown>(rawUser, "PUT", "/me/player/pause");
   } catch (err) {
     if (err instanceof Error && err.message === "spotify_no_active_device") {
-      const transferred = await transferPlayback(rawUser);
+      const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await spotifyRequest<unknown>(rawUser, "PUT", "/me/player/pause");
         return `⏸ Dipause di ${transferred}.`;
@@ -296,7 +365,7 @@ export async function spotifyNext(rawUser: unknown): Promise<string> {
     await spotifyRequest<unknown>(rawUser, "POST", "/me/player/next");
   } catch (err) {
     if (err instanceof Error && err.message === "spotify_no_active_device") {
-      const transferred = await transferPlayback(rawUser);
+      const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await spotifyRequest<unknown>(rawUser, "POST", "/me/player/next");
         return `⏭ Lagu berikutnya di ${transferred}.`;
@@ -312,7 +381,7 @@ export async function spotifyPrevious(rawUser: unknown): Promise<string> {
     await spotifyRequest<unknown>(rawUser, "POST", "/me/player/previous");
   } catch (err) {
     if (err instanceof Error && err.message === "spotify_no_active_device") {
-      const transferred = await transferPlayback(rawUser);
+      const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await spotifyRequest<unknown>(rawUser, "POST", "/me/player/previous");
         return `⏮ Lagu sebelumnya di ${transferred}.`;
@@ -329,7 +398,7 @@ export async function spotifySetVolume(rawUser: unknown, percent: number): Promi
     await spotifyRequest<unknown>(rawUser, "PUT", `/me/player/volume?volume_percent=${p}`);
   } catch (err) {
     if (err instanceof Error && err.message === "spotify_no_active_device") {
-      const transferred = await transferPlayback(rawUser);
+      const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await spotifyRequest<unknown>(rawUser, "PUT", `/me/player/volume?volume_percent=${p}`);
         return `Volume ${p}% di ${transferred}.`;
