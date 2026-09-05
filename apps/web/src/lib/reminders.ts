@@ -24,6 +24,12 @@ export interface Reminder {
   at: number;
   /** True once the reminder has been delivered to an SSE stream. */
   fired: boolean;
+  /** Recurring cadence. "daily" reschedules itself 24h after firing. */
+  repeat?: "daily";
+  /** Optional pool of alternate texts; each delivery rotates to the next. */
+  variants?: string[];
+  /** Index of the variant to deliver next (rotates through `variants`). */
+  variantIdx?: number;
 }
 
 const MAX_REMINDERS = 40;
@@ -120,23 +126,74 @@ function writeReminders(reminders: Reminder[], userKey: string): void {
  * Atomic add of a reminder for a raw (unsanitized) user string. Throws on
  * empty text. `atMs` is an epoch millisecond deadline; any past time fires on
  * the next scheduler pass.
+ *
+ * Options:
+ *  - `repeat: "daily"` → after firing, the reminder reschedules itself 24h
+ *    ahead (still unfired), so a single record fires every day. This is what
+ *    "setiap hari jam 7" should produce — not a fresh one-shot each turn.
+ *  - `variants` → when the user wants the message varied ("ganti ganti
+ *    pesannya"), the reminder rotates through these texts (variantIdx), one
+ *    per delivery, instead of delivering the same `text` every day.
+ *
+ * Dedup: a new reminder merges into an existing UNFIRED reminder for the same
+ * user at the same clock time when the new one is recurring (either is daily),
+ * so repeated "setiap hari jam 7" asks never stack duplicate records.
  */
-export function addReminder(text: string, atMs: number, rawUser?: unknown): Reminder {
+export function addReminder(
+  text: string,
+  atMs: number,
+  rawUser?: unknown,
+  opts: { repeat?: "daily"; variants?: string[] } = {}
+): Reminder {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const trimmed = text.trim().slice(0, 300);
   if (!trimmed) throw new Error("empty reminder text");
   const reminders = readReminders(rawUser);
-  const reminder: Reminder = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, text: trimmed, at: atMs, fired: false };
-  reminders.push(reminder);
+  const { repeat, variants } = opts;
+
+  const atClock = new Date(atMs);
+  // Merge only when the NEW reminder is recurring: a one-shot is an explicit
+  // single event (two distinct one-shots at the same clock must both fire), so
+  // it never merges. A daily ask adopts an existing UNFIRED slot at the same
+  // clock time (overwriting its text/options and converting it to daily) — this
+  // is what collapses repeated "setiap hari jam 7" asks into ONE record and kills
+  // the "notif banyak" stacking flood.
+  const existingIdx = reminders.findIndex((r) => {
+    if (repeat !== "daily" || r.fired) return false;
+    const rAt = new Date(r.at);
+    return rAt.getHours() === atClock.getHours() && rAt.getMinutes() === atClock.getMinutes();
+  });
+
+  let reminder: Reminder;
+  if (existingIdx >= 0) {
+    const existing = { ...reminders[existingIdx], text: trimmed };
+    if (repeat === "daily") existing.repeat = "daily";
+    if (variants?.length) existing.variants = variants;
+    if (variants?.length) existing.variantIdx = existing.variantIdx ?? 0;
+    reminder = existing;
+    reminders[existingIdx] = reminder;
+  } else {
+    reminder = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      text: trimmed,
+      at: atMs,
+      fired: false,
+      ...(repeat ? { repeat } : {}),
+      ...(variants?.length ? { variants, variantIdx: 0 } : {}),
+    };
+    reminders.push(reminder);
+  }
   while (reminders.length > MAX_REMINDERS) reminders.shift();
   writeReminders(reminders, userKey);
   return reminder;
 }
 
 /**
- * Due-and-unfired reminders for one user, marked fired before returning so
- * each reminder is broadcast only once. Invalid users yield none.
+ * Due-and-unfired reminders for one user. Every returned reminder is marked
+ * handled before returning so it's broadcast only once: daily reminders are
+ * rescheduled 24h ahead (still unfired) with their variant index advanced;
+ * one-shot reminders are marked fired. Invalid users yield none.
  */
 export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[] {
   const userKey = sanitizeUser(rawUser);
@@ -145,10 +202,24 @@ export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[
   if (!reminders.length) return [];
   const due = reminders.filter((r) => !r.fired && r.at <= now);
   if (!due.length) return [];
-  const firedIds = new Set(due.map((r) => r.id));
+  const dueIds = new Set(due.map((r) => r.id));
   writeReminders(
-    reminders.map((r) => (firedIds.has(r.id) ? { ...r, fired: true } : r)),
+    reminders.map((r) => {
+      if (!dueIds.has(r.id)) return r;
+      if (r.repeat === "daily") {
+        // Reschedule to the next 24h slot, rotating the variant pool so each
+        // delivery gets a different message when the user asked for variety.
+        const variantIdx = r.variants?.length ? (r.variantIdx ?? 0) + 1 : undefined;
+        return { ...r, at: r.at + 24 * 60 * 60 * 1000, fired: false, variantIdx };
+      }
+      return { ...r, fired: true };
+    }),
     userKey
   );
-  return due;
+  // Deliver the current text (or the next variant) so listeners see one variation.
+  return due.map((r) => {
+    const variantIdx = r.variantIdx ?? 0;
+    const text = r.variants?.length ? r.variants[variantIdx % r.variants.length] : r.text;
+    return { ...r, text };
+  });
 }

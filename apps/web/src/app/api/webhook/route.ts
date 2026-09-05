@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAssistantTurn } from "@/lib/agent";
+import { defaultProviderId } from "@/lib/providers";
 import { pushToOwner } from "@/channels/pushTarget";
 
 export const runtime = "nodejs";
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
   }
 
   const userKey = typeof user === "string" && user.trim() ? user.trim() : process.env.WEBHOOK_USER || "naufal";
-  const providerId = typeof provider === "string" && provider.trim() ? provider.trim() : process.env.WEBHOOK_PROVIDER || "groq";
+  const providerId = typeof provider === "string" && provider.trim() ? provider.trim() : process.env.WEBHOOK_PROVIDER || defaultProviderId();
 
   try {
     const result = await runAssistantTurn({

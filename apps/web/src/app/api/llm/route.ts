@@ -6,6 +6,7 @@ import {
   CONFIRM_FRAME_PREFIX,
   ChatMessage,
 } from "@/lib/agent";
+import { defaultProviderId } from "@/lib/providers";
 
 export const runtime = "nodejs";
 
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
   if (!body.messages?.length) {
     return new Response("missing messages", { status: 400 });
   }
-  console.log("[llm] turn provider=", body.provider ?? "groq", "model=", body.model || "(auto)", "n=", body.messages.length, "last=", body.messages[body.messages.length - 1].role, ":", String(body.messages[body.messages.length - 1].content).slice(0, 40));
+  console.log("[llm] turn provider=", body.provider ?? defaultProviderId(), "model=", body.model || "(auto)", "n=", body.messages.length, "last=", body.messages[body.messages.length - 1].role, ":", String(body.messages[body.messages.length - 1].content).slice(0, 40));
 
   const messages = body.messages as ChatMessage[];
 

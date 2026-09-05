@@ -10,40 +10,61 @@
 
 const INTENT_RE = /\b(bangunin|banguni|bangunkan|bangun|ingetkan|ingatkan|ingetin|ingatkan|ingat|remind|reminder|set( an)? alarm|alarm|wake( me)? up|jangan lupa|kasih tahu|beritahu|bangun aku)\b/i;
 
+// "setiap hari / tiap hari / every day / harian" → recurring daily reminder.
+const REPEAT_RE = /\b(setiap\s*hari|tiap\s*hari|tiap[\s-]*tiap\s*hari|every\s*day|daily|harian)\b/i;
+
+// "ganti ganti pesannya / ganti-ganti / beda-beda / variasi" → rotate the
+// delivered message each day instead of repeating the same line.
+const VARIETY_RE = /\b(ganti[-\s]*ganti|ganti\s*pesan(nya)?|beda[-\s]*beda|variasi|selang[-\s]*seling|ganti[- ]*ganti|jangan\s*sama)\b/i;
+
 type ParsedTime = { hour: number; minute: number };
 
 /**
- * Extract an HH:MM-ish time from text. Returns null when no clear-clock time is
- * found. Supports "jam 9", "9 pagi", "jam 9 pagi", "9:30", "09:30", "9am/pm".
+ * Normalize a clock match ("9", "9:30", suffix pagi/siang/sore/malam/...) to a
+ * 24h {hour, minute}. Returns null for invalid input (hour > 23 etc.).
  */
-export function parseClockTime(text: string): ParsedTime | null {
-  // "9 pagi" / "jam 9 pagi" / "09:30" / "9.40" / "9:00" / "9am"
-  const clockRe = /(\d{1,2})(?:[.:](\d{2}))?\s*(am|pm|\bpagi\b|\bsiang\b|\bsore\b|\bmalam\b|\bsubuh\b|\bdini hari\b)?/i;
-  const m = text.match(clockRe);
-  if (!m) return null;
-  let hour = parseInt(m[1], 10);
-  let minute = m[2] ? parseInt(m[2], 10) : 0;
-  const suffix = (m[3] || "").toLowerCase();
+function normalizeClock(hourStr: string, minuteStr: string | undefined, suffix: string | undefined): ParsedTime | null {
+  let hour = parseInt(hourStr, 10);
+  let minute = minuteStr ? parseInt(minuteStr, 10) : 0;
+  if (hour > 23 || Number.isNaN(hour)) return null;
+  if (minute > 59 || Number.isNaN(minute)) minute = 0;
+  const s = (suffix || "").toLowerCase().trim();
 
-  if (hour > 23) return null;
-  if (minute > 59) minute = 0;
-
-  if (suffix === "pm" || suffix === "malam" || suffix === "sore") {
+  if (s === "pm" || s === "malam" || s === "sore") {
     if (hour < 12) hour += 12;
-  } else if (suffix === "am" && hour === 12) {
+  } else if (s === "am" && hour === 12) {
     hour = 0;
-  } else if (suffix === "pagi") {
-    // 9 pagi → 09 (already morning); keep as-is unless it's 12+ (bad input)
+  } else if (s === "pagi") {
     if (hour >= 12) hour -= 12;
-  } else if (suffix === "siang" && hour <= 11) {
+  } else if (s === "siang" && hour <= 11) {
     hour = 12;
-  } else if (suffix === "subuh" || suffix === "dini hari") {
-    // 5 subuh → 05; 2 dini → 02
+  } else if (s === "subuh" || s === "dini hari") {
     if (hour >= 12) hour -= 12;
   }
-
-  // No suffix: assume 12-hour default. 1–11 is probably morning unless PM hints.
   return { hour, minute };
+}
+
+/**
+ * Extract all HH:MM-ish times from text, in order. Null when none. Supports
+ * "jam 9", "9 pagi", "jam 9 pagi", "9:30", "09:30", "9am/pm".
+ */
+export function parseClockTimes(text: string): ParsedTime[] {
+  const out: ParsedTime[] = [];
+  const re = /(\d{1,2})(?:[.:](\d{2}))?\s*(am|pm|\bpagi\b|\bsiang\b|\bsore\b|\bmalam\b|\bsubuh\b|\bdini\s*hari\b)?/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const t = normalizeClock(m[1], m[2], m[3]);
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Extract the first HH:MM-ish time from text (kept for backward compat with
+ * single-time callers). Returns null when no clear-clock time is found.
+ */
+export function parseClockTime(text: string): ParsedTime | null {
+  return parseClockTimes(text)[0] ?? null;
 }
 
 /**
@@ -58,20 +79,70 @@ export function nextOccurrence(hour: number, minute: number, now = Date.now()): 
   return target.getTime();
 }
 
+/** Mia-style varied morning/wake-up lines for "ganti ganti pesannya". */
+const WAKE_VARIANTS = [
+  "Bangun, hari baru dimulai! Semangat ya 🌸",
+  "Pagi, ayo bangun! Matahari udah naik nih ☀️",
+  "Beb, waktu bangun! Jangan molor terus ya 😄",
+  "Bangun bangun, hari menantimu! Aku tungguin di sini 🌸",
+  "Pagi-pagi, semangat! Udah waktunya bangun lho ⏰",
+];
+
 export type ReminderIntent = {
   text: string;
   atMs: number;
+  /** "daily" when the user wants the reminder to repeat every day. */
+  repeat?: "daily";
+  /** Rotating message pool when the user wants the wording varied each time. */
+  variants?: string[];
 };
 
 /**
- * Detect a reminder request and its target time in one user message. Returns
- * null unless BOTH an intent keyword and a clock time are present.
+ * Split a compound reminder request ("…jam 1 siang ingetin makan siang, dan jam
+ * 8 malam ingetin makan malam…") into per-time segments. Each segment pairs one
+ * clock time with the clause text that mentions it, so the scheduled reminder
+ * and its subsequent push both carry "makan siang" vs "makan malam" instead of
+ * the whole sentence repeated at every time.
+ */
+export function splitReminderRequests(userText: string): Array<{ text: string; hour: number; minute: number }> {
+  const clauseRe = /\s*[,;，]|\s+\band\b|\s+dan\s+|\s+lalu\s+|\s+terus\s+/i;
+  const clauses = userText.split(clauseRe);
+  return clauses.flatMap((clause) => {
+    const times = parseClockTimes(clause);
+    if (!times.length) return [];
+    const text = clause.trim();
+    return times.slice(0, 1).map((t) => ({ text, ...t }));
+  });
+}
+
+/**
+ * Detect a reminder request and ALL its target times in one user message.
+ * Returns null unless BOTH an intent keyword and at least one clock time are
+ * present.
+ *
+ * "setiap hari" → repeat "daily" (one persistent record firing every day).
+ * "ganti ganti pesannya" → a rotating `variants` pool so each day is worded
+ * differently instead of repeating the user's original sentence verbatim.
+ */
+export function detectReminderIntents(userText: string, now = Date.now()): ReminderIntent[] | null {
+  if (!userText || !INTENT_RE.test(userText)) return null;
+  const repeat = REPEAT_RE.test(userText) ? ("daily" as const) : undefined;
+  const variants = VARIETY_RE.test(userText) ? WAKE_VARIANTS : undefined;
+  const normalized = userText.replace(/\s+/g, " ").trim().slice(0, 200);
+  const segments = splitReminderRequests(normalized);
+  if (!segments.length) return null;
+  return segments.map((seg) => ({
+    text: seg.text,
+    atMs: nextOccurrence(seg.hour, seg.minute, now),
+    ...(repeat ? { repeat } : {}),
+    ...(variants?.length ? { variants } : {}),
+  }));
+}
+
+/**
+ * Detect a single reminder intent (first time only). Kept for the single-time
+ * callers; compound asks ("jam 1 siang dan jam 8 malam") use the plural form.
  */
 export function detectReminderIntent(userText: string, now = Date.now()): ReminderIntent | null {
-  if (!userText || !INTENT_RE.test(userText)) return null;
-  const time = parseClockTime(userText);
-  if (!time) return null;
-  const atMs = nextOccurrence(time.hour, time.minute, now);
-  const message = userText.replace(/\s+/g, " ").trim().slice(0, 200);
-  return { text: message, atMs };
+  return detectReminderIntents(userText, now)?.[0] ?? null;
 }

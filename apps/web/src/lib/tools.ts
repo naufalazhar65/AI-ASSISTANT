@@ -11,6 +11,7 @@ import { searchMemory } from "./rag";
 import { readDailyMemory } from "./dailyMemory";
 import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate, browserClose } from "./browser";
 import { listDevicesText, deviceExec, deviceScreenshot, pairDevice } from "./devices";
+import { listCalText, addCalEvent, checkCalAvailability } from "./calendar";
 import { sendToChannel, listChannels } from "../channels/pushTarget";
 
 export interface ToolCall {
@@ -30,7 +31,7 @@ export interface ToolDefinition {
     description: string;
     parameters: {
       type: "object";
-      properties: Record<string, { type: string; description?: string }>;
+      properties: Record<string, { type: string; description?: string; enum?: string[] }>;
       required: string[];
     };
   };
@@ -364,7 +365,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "remind_me",
         description:
-          "Schedule a one-off reminder. The user will be notified at the given time.",
+          "Schedule a reminder notification. Set repeat to \"daily\" for a recurring reminder (e.g. wake-up every day at 7).",
         parameters: {
           type: "object",
           properties: {
@@ -376,6 +377,11 @@ const toolRegistry: ToolPlugin[] = [
               type: "string",
               description: "When to remind, as ISO-8601 with offset, e.g. '2026-09-04T09:00:00+07:00'",
             },
+            repeat: {
+              type: "string",
+              enum: ["daily"],
+              description: "Optional: 'daily' to repeat every day at the same time",
+            },
           },
           required: ["text", "when"],
         },
@@ -383,10 +389,12 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (args, ctx) => {
       try {
+        const repeatArg = args.repeat === "daily" ? "daily" : undefined;
         return scheduleReminder(
           typeof args.text === "string" ? args.text : "",
           typeof args.when === "string" ? args.when : "",
-          ctx.rawUser
+          ctx.rawUser,
+          repeatArg
         );
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid reminder"}`;
@@ -977,6 +985,151 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "calendar_list",
+        description: "List calendar events for the next N days (default 7). Returns events with title and time.",
+        parameters: {
+          type: "object",
+          properties: { days: { type: "string", description: "Number of days to look ahead (default 7)" } },
+          required: [],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const days = typeof args.days === "string" ? parseInt(args.days, 10) : 7;
+        return listCalText(ctx.rawUser, Number.isFinite(days) ? days : 7);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot list calendar"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "calendar_add",
+        description: "Add a calendar event with title and ISO start/end times. Requires confirmation. Use check availability first if needed.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Event title" },
+            start: { type: "string", description: "ISO start time, e.g. 2026-09-05T10:00:00+07:00" },
+            end: { type: "string", description: "ISO end time, e.g. 2026-09-05T11:00:00+07:00" },
+            description: { type: "string", description: "Optional description" },
+          },
+          required: ["title", "start", "end"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const s = Date.parse(typeof args.start === "string" ? args.start : "");
+        const e = Date.parse(typeof args.end === "string" ? args.end : "");
+        if (!Number.isFinite(s) || !Number.isFinite(e)) throw new Error("invalid start/end ISO");
+        // Title is required but LLMs sometimes omit it when user says "tambah event besok jam 10" — default to "Event" or infer from prompt
+        let title = typeof args.title === "string" ? args.title.trim() : "";
+        if (!title) title = "Event";
+        const ev = addCalEvent(title, s, e, ctx.rawUser, typeof args.description === "string" ? args.description : undefined);
+        return `Added "${ev.title}" ${new Date(ev.start).toLocaleString()} → ${new Date(ev.end).toLocaleString()} (id ${ev.id})`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot add event"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "calendar_check",
+        description: "Check if a time slot is free or has conflicts. Give ISO start/end.",
+        parameters: {
+          type: "object",
+          properties: {
+            start: { type: "string", description: "ISO start" },
+            end: { type: "string", description: "ISO end" },
+          },
+          required: ["start", "end"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const s = Date.parse(typeof args.start === "string" ? args.start : "");
+        const e = Date.parse(typeof args.end === "string" ? args.end : "");
+        if (!Number.isFinite(s) || !Number.isFinite(e)) throw new Error("invalid ISO");
+        const { free, conflicts } = checkCalAvailability(ctx.rawUser, s, e);
+        if (free) return "Free — no conflicts.";
+        return `Busy — ${conflicts.length} conflict(s):\n${conflicts.map((c) => `- ${c.title} ${new Date(c.start).toLocaleString()} → ${new Date(c.end).toLocaleString()}`).join("\n")}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot check"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "calendar_mac_add",
+        description: "Add an event to the Mac's Calendar.app via AppleScript. Requires confirmation. Also adds to Mia's local calendar.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Event title" },
+            start: { type: "string", description: "ISO start" },
+            end: { type: "string", description: "ISO end" },
+          },
+          required: ["title", "start", "end"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const s = Date.parse(typeof args.start === "string" ? args.start : "");
+        const e = Date.parse(typeof args.end === "string" ? args.end : "");
+        if (!Number.isFinite(s) || !Number.isFinite(e)) throw new Error("invalid ISO");
+        let title = typeof args.title === "string" ? args.title.trim() : "";
+        if (!title) title = "Event";
+        const ev = addCalEvent(title, s, e, ctx.rawUser);
+        try {
+          const { addToMacCalendar } = await import("./calendar");
+          const macRes = await addToMacCalendar(title, new Date(s), new Date(e));
+          return `Added "${title}" to Mia calendar (id ${ev.id}) and Mac Calendar: ${macRes}`;
+        } catch (macErr) {
+          return `Added "${title}" to Mia calendar (id ${ev.id}) but Mac Calendar failed: ${macErr instanceof Error ? macErr.message : String(macErr)}`;
+        }
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot add"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "calendar_mac_list",
+        description: "List events from the Mac's Calendar.app (next 7 days) via AppleScript.",
+        parameters: { type: "object", properties: { days: { type: "string", description: "Days ahead (default 7)" } }, required: [] },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const days = typeof args.days === "string" ? parseInt(args.days, 10) : 7;
+        const { listMacCalendar } = await import("./calendar");
+        return await listMacCalendar(Number.isFinite(days) ? days : 7);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot list Mac calendar"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "send_channel",
         description:
           "Forward a message to another registered channel (e.g. Telegram or Discord). Use when the user asks to relay a message to a different platform than the one they are chatting on.",
@@ -1105,7 +1258,7 @@ function deleteNote(index: number, userKey: string | null): string {
   return `Deleted note #${index} "${removed.content}".`;
 }
 
-function scheduleReminder(text: string, isoWhen: string, rawUser: unknown): string {
+function scheduleReminder(text: string, isoWhen: string, rawUser: unknown, repeat?: "daily"): string {
   const parsed = new Date(isoWhen);
   if (Number.isNaN(parsed.getTime())) throw new Error(`cannot parse time "${isoWhen}" — use ISO-8601 with offset`);
   // Safety net: a model without a live clock sometimes emits a past/stale date
@@ -1118,8 +1271,9 @@ function scheduleReminder(text: string, isoWhen: string, rawUser: unknown): stri
     dateStyle: "medium",
     timeStyle: "short",
   });
-  const r = addReminder(text, atMs, rawUser);
-  return `Reminder set: "${r.text}" at ${whenText}. The user will be notified then.`;
+  const r = addReminder(text, atMs, rawUser, { repeat });
+  const freq = repeat === "daily" ? "daily" : "once";
+  return `Reminder set (${freq}): "${r.text}" at ${whenText}. The user will be notified then.`;
 }
 
 // File access tool (Phase 4). Read-only, sandboxed to the project root
@@ -1160,7 +1314,10 @@ function fileRead(rawPath: string): string {
     return labeled.length ? `Directory listing (${rel.join("/") || "."}):\n${labeled.join("\n")}` : "(empty directory)";
   }
 
-  if (stat.size > FILE_MAX_BYTES) throw new Error("file too large to read");
+  if (stat.size > FILE_MAX_BYTES) {
+    const content = readFileSync(abs, "utf8").slice(0, FILE_MAX_BYTES);
+    return content + `\n… (truncated — file is ${stat.size} bytes, showing first ${FILE_MAX_BYTES})`;
+  }
   return readFileSync(abs, "utf8").slice(0, FILE_MAX_BYTES);
 }
 

@@ -9,6 +9,7 @@
 
 import { subscribeAutomations, Automation } from "./automations";
 import { runAssistantTurn } from "./agent";
+import { defaultProviderId } from "./providers";
 import { pushToOwner } from "../channels/pushTarget";
 
 const running = new Set<string>();
@@ -25,7 +26,7 @@ async function runOne(automation: Automation, user: string): Promise<void> {
   try {
     const result = await runAssistantTurn({
       messages: [{ role: "user", content: `[Scheduled automation] ${automation.prompt}` }],
-      provider: process.env.AUTOMATION_PROVIDER ?? "groq",
+      provider: process.env.AUTOMATION_PROVIDER ?? defaultProviderId(),
       user,
       channel: "discord",
     });

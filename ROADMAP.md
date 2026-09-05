@@ -38,6 +38,7 @@ Memperkuat inti asisten (sudah ~90% dari Fase 0).
 [x] Tool/function calling (server-side, risk-gated, confirmation)
 [x] Basic task execution (integrasi tools menjadi workflow sederhana) — via `runAssistantTurn` + `MAX_TOOL_ROUNDS` + `agent.ts` core (dipakai web + Telegram/Discord)
 [x] Refactor: pisahkan core conversation dari lapisan web (supaya core reusable lintas channel) — `lib/agent.ts` `runAssistantTurn` dipakai semua channel, bukan HTTP-to-self
+[x] Calendar integration — `calendar.ts` per-user `calendar.json` (add/list/check), tools `calendar_list`/`calendar_add`/`calendar_check`, verify OK
 ```
 
 **Fokus:** memastikan core dapat dipanggil oleh channel apa pun → siap untuk Fase 2.

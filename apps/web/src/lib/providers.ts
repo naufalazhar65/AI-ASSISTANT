@@ -76,6 +76,24 @@ export function isProviderId(value: string): value is ProviderId {
 }
 
 /**
+ * Server default provider when a request doesn't specify one
+ * (env `DEFAULT_AI_PROVIDER`, falls back to "groq"). Server-side only.
+ */
+export function defaultProviderId(): ProviderId {
+  const env = process.env.DEFAULT_AI_PROVIDER;
+  return env && isProviderId(env) ? (env as ProviderId) : "groq";
+}
+
+/**
+ * Client-safe default provider id for the Settings UI. Server env isn't
+ * visible to the browser, so this uses the build-time `NEXT_PUBLIC_DEFAULT_AI_PROVIDER`.
+ */
+export const PUBLIC_DEFAULT_PROVIDER: ProviderId =
+  process.env.NEXT_PUBLIC_DEFAULT_AI_PROVIDER && isProviderId(process.env.NEXT_PUBLIC_DEFAULT_AI_PROVIDER)
+    ? (process.env.NEXT_PUBLIC_DEFAULT_AI_PROVIDER as ProviderId)
+    : "groq";
+
+/**
  * Client-safe provider metadata for the Settings UI. Excludes endpoints/keys
  * and the env-reading `resolveProvider` so this never ships server secrets.
  */

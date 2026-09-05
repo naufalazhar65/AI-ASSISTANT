@@ -9,7 +9,7 @@ import { AudioPlayer } from "@/audio/AudioPlayer";
 import { AIProvider, ConfirmationRequest, ProviderEvent } from "@voice/ai-provider";
 import { State } from "@voice/state-machine";
 import { MockProvider } from "@ai-provider/mock";
-import { findPublicProvider, PUBLIC_PROVIDERS, ProviderId } from "@/lib/providers";
+import { findPublicProvider, PUBLIC_PROVIDERS, ProviderId, PUBLIC_DEFAULT_PROVIDER } from "@/lib/providers";
 import { SessionMeta } from "@/lib/sessions";
 
 export interface UseVoiceResult {
@@ -171,12 +171,12 @@ export function useVoice(): UseVoiceResult {
   const [voiceOutput, setVoiceOutput] = useState(true);
   const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationRequest[] | null>(null);
   const [voice, setVoiceState] = useState<string>(() => loadSettings()?.voice ?? "hannah");
-  const [provider, setProviderState] = useState<string>(() => loadSettings()?.provider ?? "groq");
+  const [provider, setProviderState] = useState<string>(() => loadSettings()?.provider ?? PUBLIC_DEFAULT_PROVIDER);
   const [model, setModelState] = useState<string | undefined>(() => {
     const s = loadSettings();
     // Only keep a persisted model if it is valid for the persisted provider
     // (stale models from another provider would make the LLM route 404).
-    return reconcileModel(s?.provider ?? "groq", s?.model);
+    return reconcileModel(s?.provider ?? PUBLIC_DEFAULT_PROVIDER, s?.model);
   });
   const [lastError, setLastError] = useState<string | null>(null);
   const voiceOutputRef = useRef(true);

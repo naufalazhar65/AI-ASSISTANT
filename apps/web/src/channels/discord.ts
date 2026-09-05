@@ -32,6 +32,7 @@ import { reminderMessage } from "@/lib/reminderMessage";
 import { saveUpload } from "@/lib/uploads";
 import { registerPushTarget } from "./pushTarget";
 import { classifyAssistantError } from "@/lib/assistantError";
+import { defaultProviderId } from "@/lib/providers";
 import { buildStatusReport } from "@/lib/status";
 import { handleUnifiedCommand, ChatSessionState } from "@/lib/channelMessage";
 
@@ -47,7 +48,7 @@ type ChatState = {
   pending: { messages: ChatMessage[]; call: ToolCall } | null;
 };
 
-const PROVIDER_DEFAULT = process.env.DISCORD_PROVIDER || "groq";
+const PROVIDER_DEFAULT = process.env.DISCORD_PROVIDER || defaultProviderId();
 
 const ALLOWED_USER_IDS = (process.env.DISCORD_ALLOWED_USER_ID || "")
   .split(",")

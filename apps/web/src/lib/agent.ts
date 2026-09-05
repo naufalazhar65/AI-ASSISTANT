@@ -14,10 +14,10 @@
  */
 
 import { getTOOLS, ToolCall, executeTool, requiresConfirmation } from "./tools";
-import { ProviderId, isProviderId, resolveProvider, findPublicProvider } from "./providers";
+import { ProviderId, isProviderId, resolveProvider, findPublicProvider, defaultProviderId } from "./providers";
 import { runOpenCodeTurn, OpenCodeChatMessage } from "./opencode";
 import { captureFactsFromTurn } from "./autoMemory";
-import { detectReminderIntent } from "./reminderIntent";
+import { detectReminderIntents } from "./reminderIntent";
 import { addReminder } from "./reminders";
 import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
@@ -39,6 +39,69 @@ export const MAX_TOOL_ROUNDS = 3;
 /** Control frame that marks a turn paused for user confirmation (FR-014). */
 export const CONFIRM_FRAME_PREFIX = "@@CONFIRM ";
 
+const CAL_EVENT_WORDS = /(?:event|meeting|agenda|rapat|pertemuan|janji|jadwal|appointment|acara)/i;
+const CAL_TIME_WORDS = /\b(?:besok|lusa|hari ini|nanti|kemarin|jam|pukul|pagi|siang|sore|malam|tomorrow|today|tonight|next|this|\d{1,2}(?::\d{2})?(?:\s*(?:am|pm))?|at|on|in|morning|afternoon|evening)\b/i;
+/** Words the user (or model) appends that are NOT part of an event title. */
+const CAL_TITLE_STOP_WORDS = new Set([
+  "dong", "deh", "lah", "aja", "ya", "yah", "nanti", "hidden", "note",
+  "besok", "lusa", "hari", "ini", "jam", "pukul", "pagi", "siang", "sore", "malam", "tanggal",
+  "kalender", "dikalender", "dikalender",
+  "tambah", "buat", "bikin", "to", "the", "a", "an", "at", "on", "about", "di",
+]);
+/** Bare ack/confirm words. If the whole user message is just one of these and
+ *  the model still emits a new calendar tool call, drop it (FR double-confirm). */
+const CAL_ACK_ONLY = /^\s*(?:betul|bener|ya|y|yes|ok|oke|okay|siap|setuju|lanjut|benar|okey|yep|yup|gas|go|kabar)\s*[.!]*\s*$/i;
+
+function extractCalendarTitle(prompt: string): string | null {
+  const m = CAL_EVENT_WORDS.exec(prompt);
+  const base = m ? prompt.slice(m.index + m[0].length) : prompt;
+  const t = CAL_TIME_WORDS.exec(base);
+  const raw = (t ? base.slice(0, t.index) : base)
+    .replace(/^[\s\-[;,:"'“”«»]+/, "")
+    .replace(/[.,;:!?"'”»\s\-]+$/, "")
+    .trim();
+  return raw ? raw.slice(0, 60) : null;
+}
+
+function cleanCalendarTitle(title: string): string {
+  let t = title.trim();
+  if (!t) return t;
+  const words = t.split(/\s+/).filter(Boolean);
+  while (words.length > 1 && CAL_TITLE_STOP_WORDS.has(words[words.length - 1]!.toLowerCase())) words.pop();
+  if (words.length === 0) return title.trim();
+  t = words.join(" ").replace(/[.,;:!?"'”»]+$/, "").trim();
+  return t.slice(0, 60);
+}
+
+/** Normalize calendar tool call titles: clean the model's title (it often pads
+ *  with "… dong buat tanggal"), infer a title from the user message when the
+ *  model omitted one or used junk, and drop the call entirely when the user only
+ *  said "betul/ya/ok" (double-confirm ack should not create a second event). */
+function normalizeCalendarCalls(userPrompt: string | null | undefined, calls: ToolCall[]): ToolCall[] {
+  if (typeof userPrompt !== "string") return calls;
+  const ackOnly = CAL_ACK_ONLY.test(userPrompt.replace(/["'“”«»]/g, ""));
+  const inferred = extractCalendarTitle(userPrompt) ?? "Event";
+  return calls.filter((c) => {
+    if (c.name !== "calendar_add" && c.name !== "calendar_mac_add") return true;
+    let args: Record<string, unknown>;
+    try {
+      args = JSON.parse(c.arguments || "{}");
+    } catch {
+      return true;
+    }
+    let title = typeof args.title === "string" ? cleanCalendarTitle(args.title) : "";
+    if (!title && !ackOnly) title = inferred;
+    if (ackOnly) {
+      // User just confirmed — no new event should be created from "betul"/"ok".
+      return false;
+    }
+    if (!title) title = "Event";
+    args.title = title;
+    c.arguments = JSON.stringify(args);
+    return true;
+  });
+}
+
 const SYSTEM_PROMPT = [
   "You are Mia, a woman, female (perempuan, she/her) — unambiguously a woman. This is core identity, never ambiguous. ",
   "You are female/woman (perempuan), she/her, feminine. When asked about gender, answer clearly: 'Aku Mia, perempuan (she/her) 🌸'. ",
@@ -47,7 +110,7 @@ const SYSTEM_PROMPT = [
   "same woman everywhere. Answer concisely and naturally as a woman, with warm feminine presence. Never use markdown. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, device_list, device_exec, device_screenshot, and send_channel. ",
+  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, and send_channel. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
   "show saved notes, delete_note to remove one, file_read to read a project ",
@@ -61,7 +124,9 @@ const SYSTEM_PROMPT = [
   "the user asks to be reminded in the future (convert any relative time to a ",
   "concrete ISO-8601 timestamp with offset). For remind_me, ALWAYS use the ",
   "current date given below: a bare time like \"jam 3 sore\" means TODAY (or ",
-  "TOMORROW if that time has already passed today). Never invent a date.",
+  "TOMORROW if that time has already passed today). Never invent a date. ",
+  "If the user wants a REPEATING reminder (\"setiap hari\", \"tiap pagi\", \"every day\", wake-up daily), pass repeat=\"daily\"; ",
+  "if they want the message varied each day (\"ganti ganti pesannya\"), just schedule the daily reminder — the system rotates messages automatically.",
   "For task management use add_task to create a task (optional dueAt deadline), ",
   "list_tasks to show the task list, complete_task / cancel_task to change a ",
   "task's status by its list number, and reschedule_task to change its dueAt. ",
@@ -74,10 +139,11 @@ const SYSTEM_PROMPT = [
   "Use memory_get to retrieve a specific day's daily memory log (e.g. 'today', 'yesterday', or '2026-09-04').",
   "Use browser_open to open a URL in a headless browser (for JS-heavy pages), browser_snapshot to see clickable elements, browser_click/browser_type to interact (require confirmation), and browser_navigate for back/forward/reload.",
   "Use device_list to see paired devices, device_pair to pair a new phone (ios/android) when asked, device_exec to run a safe command on a device, device_screenshot to capture the Mac screen, device_location for location, device_camera for photos, and device_battery to check battery (pair/exec/screenshot/location/camera require confirmation except device_list and device_battery).",
+  "Use calendar_list to see upcoming events, calendar_check to check a slot, calendar_add to create an event (requires confirmation), and calendar_mac_add/calendar_mac_list to sync with the Mac's Calendar.app via AppleScript. If the user says 'dikalender' / 'di kalender' / 'Mac Calendar' / 'Calendar.app', use calendar_mac_add so it lands on the Mac. After an event is confirmed and created, do NOT ask 'lanjut?' or create a second event.",
   "Use send_channel with `to` = 'telegram' or 'discord' to relay a message to the other platform when the user asks (e.g. 'kirim ini ke discord'). It sends immediately without needing confirmation.",
-  "save_note, delete_note, write_file, edit_file, browser_click, browser_type, browser_navigate, device_pair, device_exec, device_screenshot, device_location, device_camera, remind_me, add_task, complete_task, cancel_task, reschedule_task, create_automation, and exec_write ",
+  "save_note, delete_note, write_file, edit_file, browser_click, browser_type, browser_navigate, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, remind_me, add_task, complete_task, cancel_task, reschedule_task, create_automation, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
-  "file was written/edited, the note was saved/deleted, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot and device_list do NOT wait for confirmation — send/run them right away.",
+  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, device_list, device_battery, calendar_list, calendar_check and calendar_mac_list do NOT wait for confirmation — send/run them right away.",
   "Tool results come from the server and should be trusted as fresh information.",
   " The persona files below (USER, SOUL, IDENTITY, DREAMS) are your persistent ",
   "memory: they already contain what you know about the user and how to speak. ",
@@ -359,6 +425,16 @@ async function runOneCompletionOnce(
   return { text, toolCalls: toolCalls.filter((c): c is ToolCall => !!c) };
 }
 
+/** Last non-empty user content from the conversation (used for title inference). */
+function lastUserContent(messages: ChatMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user" && typeof messages[i]!.content === "string" && messages[i]!.content) {
+      return messages[i]!.content as string;
+    }
+  }
+  return null;
+}
+
 /**
  * Runs the agent loop over one user turn. Streams only the final spoken answer
  * (buffers intermediate tool-call rounds); earlier rounds produce no content.
@@ -392,10 +468,19 @@ async function runAgent(
     return { needsConfirmation: null };
   }
 
+  const lastUser = lastUserContent(messages);
+  const toolCalls2 = normalizeCalendarCalls(lastUser, toolCalls);
+  if (toolCalls2.length === 0 && toolCalls.length > 0) {
+    // The model emitted a calendar call only because the user confirmed
+    // ("betul/ya/ok") — that's a double-confirm, not a new request.
+    if (text) collector.collect(text);
+    return { needsConfirmation: null };
+  }
+
   messages.push({
     role: "assistant",
     content: text || null,
-    tool_calls: toolCalls.map((c) => ({
+    tool_calls: toolCalls2.map((c) => ({
       id: c.id,
       type: "function" as const,
       function: { name: c.name, arguments: c.arguments },
@@ -403,14 +488,14 @@ async function runAgent(
   });
 
   // A fresh turn pausing on a risky tool: hand it back to the caller.
-  const risky = toolCalls.filter((c) => requiresConfirmation(getTOOLS().find((t) => t.function.name === c.name)));
+  const risky = toolCalls2.filter((c) => requiresConfirmation(getTOOLS().find((t) => t.function.name === c.name)));
   if (risky.length > 0) {
     return { needsConfirmation: risky };
   }
 
   // All read-only tools: execute them server-side and continue (FR-013).
   if (round < MAX_TOOL_ROUNDS) {
-    for (const call of toolCalls) {
+    for (const call of toolCalls2) {
       messages.push({ role: "tool", tool_call_id: call.id, content: await executeTool(call, user) });
     }
     return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user);
@@ -437,13 +522,20 @@ export type TurnResult = {
 function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
-  const intent = detectReminderIntent(String(lastUser.content));
-  if (!intent) return text;
+  const intents = detectReminderIntents(String(lastUser.content));
+  if (!intents?.length) return text;
   try {
-    addReminder(intent.text, intent.atMs, user);
-    const at = new Date(intent.atMs);
-    const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const confirmSuffix = ` (Sudah kusetel reminder pukul ${timeLabel}, nanti kubangunkan.)`;
+    for (const intent of intents) {
+      addReminder(intent.text, intent.atMs, user, {
+        repeat: intent.repeat,
+        variants: intent.variants,
+      });
+    }
+    const labels = intents.map((i) =>
+      new Date(i.atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    );
+    const recurring = intents[0].repeat === "daily" ? "setiap hari " : "";
+    const confirmSuffix = ` (Sudah kusetel reminder ${recurring}pukul ${labels.join(" dan ")}, nanti kubangunkan.)`;
     return /remind|ingat|alarm|bangun/i.test(text) ? text : (text || "").trimEnd() + confirmSuffix;
   } catch {
     return text;
@@ -477,7 +569,7 @@ export async function runAssistantTurn(opts: {
   const { messages } = opts;
   const model = opts.model?.trim() || undefined;
   const requested = opts.provider ?? "";
-  const providerId: ProviderId = isProviderId(requested) ? requested : "groq";
+  const providerId: ProviderId = isProviderId(requested) ? requested : defaultProviderId();
   const channel = opts.channel ?? "voice";
   const systemPrompt = buildSystemPrompt(opts.user, channel);
 
