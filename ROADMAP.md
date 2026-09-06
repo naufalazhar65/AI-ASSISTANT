@@ -117,7 +117,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 
 ```text
 [x] Long-term memory (RAG / knowledge retrieval dari catatan & file)  — rag.ts (local BM25 over notes, tasks, reminders, automations, uploads, persona) + tool search_memory; zero API dependency for retrieval, offline-ready
-[ ] Multi-agent / specialized agents (mis. agent web, agent files, agent reminders)
+[ ] Multi-agent / specialized agents (mis. agent web, agent files, agent reminders)  — SKIP: fungsi specialist sudah ada sebagai tool di satu agent (web_search, file_read/exec, remind_me/add_task); multi-agent menambah latensi (> target <1.5s) + complexity tanpa kebutuhan single-owner. Kalau nanti butuh paralel: perkuat loop agent (parallel tool calls) — bukan pecah agent (2026-09-06)
 [ ] Voice interaction (perluas voice ke channel bot bila relevan; DSCORD voice)
 [ ] Integrasi lain: Calendar, Email, Smart home (opsional pribadi)
 [x] Plugin/tool system (daftar tool pluggable)  — tools.ts kini plugin registry: `ToolPlugin { definition, execute }` dalam satu objek, `TOOLS`/`executeTool` diturunkan dari registry (tidak bisa divergen), `registerTool()` untuk tambah tool runtime
@@ -131,7 +131,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [x] Daily memory (`memory/YYYY-MM-DD.md` + `memory_get`) — per-user per-day markdown at `.data/users/<user>/memory/YYYY-MM-DD.md` (`today`/`yesterday` alias) via `dailyMemory.ts`; `agent.ts` appends snippet each turn; `rag.ts` indexes into `search_memory`; tool `memory_get` (read, auto); verify.ts OK (2026-09-04)
 [ ] Media generation (image / video / music) & image/video input understanding  — gap checklist OpenClaw Multimodal (saat ini uploads text-only)
 [ ] Node/device (macOS/iOS/Android: camera, screen, location, device command)  — gap checklist OpenClaw Devices
-[ ] x_search (X/Twitter)  — gap checklist OpenClaw Web (provider tambahan di atas DuckDuckGo)
+[ ] x_search (X/Twitter)  — SKIP: web_search (DuckDuckGo + scrape) sudah menutupi kebutuhan dasar; X API resmi berbayar (Grok/x.ai) + scraping tidak stabil/ToS-risky — tidak sebanding utk asisten pribadi. Revisit jika butuh data post X real-time spesifik (2026-09-06)
 ```
 
 ---
@@ -191,7 +191,9 @@ SUDAH (Tier 1):  LLM provider, agent runtime, workspace persona (SOUL/IDENTITY/U
                   fetch_url, browser (open/snapshot/click/type/navigate), device nodes (macOS local), send_channel, webhook, STT/TTS, session management, heartbeat
 SUDAH (Tier 4):   owner allowlist, sandbox file_read/write/exec/browser/device, FR-014 konfirmasi, key server-side, backup/recovery
 SEBAGIAN:         cron (scheduler interval, belum sintaks cron), background jobs (in-process), uploads (text-only)
-BELUM (gap):      sub-agent/multi-agent, media generation, x_search, audit log, rate-limit app-level, auth penuh, channel lain (WhatsApp/Slack)
+BELUM (gap):      media generation, channel lain (WhatsApp/Slack)
+                  SKIP (tidak penting utk single-owner): multi-agent, x_search
+                  (audit log, rate-limit app-level, auth penuh — sudah DIISI Fase 5, 2026-09-06)
                   (device iOS/Android, camera/location still TODO beyond macOS local)
 ```
 
