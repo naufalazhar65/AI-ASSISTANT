@@ -31,6 +31,7 @@ import { subscribeReminders, Reminder } from "@/lib/reminders";
 import { reminderMessage } from "@/lib/reminderMessage";
 import { saveUpload } from "@/lib/uploads";
 import { transcribeAudio } from "@/lib/stt";
+import { synthesizeSpeech } from "@/lib/tts";
 import { registerPushTarget } from "./pushTarget";
 import { classifyAssistantError } from "@/lib/assistantError";
 import { defaultProviderId } from "@/lib/providers";
@@ -383,7 +384,7 @@ export async function startDiscordBot(): Promise<void> {
         return;
       }
 
-      await runTurn(msg, state, user, undefined, text);
+      await runTurn(msg, state, user, undefined, text, isVoice);
     } catch (err) {
       console.error("[discord] handler error:", err instanceof Error ? (err.stack || err.message) : String(err));
       await msg.reply("Maaf, ada kendala internal. Coba lagi ya.").catch(() => {});
@@ -420,6 +421,27 @@ async function replyMia(msg: Message, text: string): Promise<Message> {
   // Discord renders GitHub-flavoured Markdown natively; send as-is. We reply to
   // the triggering message; fall back to a plain channel send on any error.
   return msg.reply(safe).catch(() => (msg.channel as unknown as SendableChannel).send(`> ${safe}`) as Promise<Message>);
+}
+
+// Optionally reply with a spoken WAV (Groq Orpheus) — used ONLY for voice-note
+// turns. For text turns we send text alone (no audio). On a voice turn the
+// reply is audio-only (no duplicate text, matches the user's preference).
+// Falls back to text on ANY failure (quota 429 / 5xx / network).
+// Enable via DISCORD_VOICE_REPLY=0 / BOT_VOICE_REPLY=0.
+const voiceEnabled =
+  process.env.DISCORD_VOICE_REPLY !== "0" && process.env.BOT_VOICE_REPLY !== "0";
+async function replyMiaVoice(msg: Message, text: string, voiceTurn = false): Promise<void> {
+  if (voiceTurn && voiceEnabled && text) {
+    try {
+      const wav = await synthesizeSpeech({ text });
+      await msg.reply({ files: [{ attachment: wav, name: "mia-voice.wav" }] });
+      return;
+    } catch (err) {
+      console.warn("[discord] voice reply skipped (text fallback):", err instanceof Error ? err.message : String(err));
+      // fall through to text
+    }
+  }
+  await replyMia(msg, text);
 }
 
 async function handleCommand(msg: Message, state: ChatState, text: string, user: string): Promise<void> {
@@ -469,7 +491,7 @@ async function handleConfirmation(msg: Message, state: ChatState, user: string, 
     return;
   }
   state.history.push({ role: "assistant", content: result.text });
-  await replyMia(msg, result.text || "Selesai.");
+  await replyMiaVoice(msg, result.text || "Selesai.");
 }
 
 async function runTurn(
@@ -477,7 +499,8 @@ async function runTurn(
   state: ChatState,
   user: string,
   confirmCall: { call: ToolCall; allow: boolean } | undefined,
-  userText: string | undefined
+  userText: string | undefined,
+  voiceTurn = false
 ): Promise<void> {
   const turnMessages = [...state.history];
   if (userText) {
@@ -522,5 +545,5 @@ async function runTurn(
   }
 
   state.history.push({ role: "assistant", content: result.text });
-  await replyMia(msg, result.text || "…");
+  await replyMiaVoice(msg, result.text || "…", voiceTurn);
 }

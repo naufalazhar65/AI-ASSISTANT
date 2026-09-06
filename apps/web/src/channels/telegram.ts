@@ -22,13 +22,14 @@
  *                                  the telegram username, else "naufal")
  */
 
-import { Bot, Context } from "grammy";
+import { Bot, Context, InputFile } from "grammy";
 import { runAssistantTurn, ChatMessage } from "@/lib/agent";
 import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
 import { reminderMessage } from "@/lib/reminderMessage";
 import { saveUpload } from "@/lib/uploads";
 import { transcribeAudio } from "@/lib/stt";
+import { synthesizeSpeech } from "@/lib/tts";
 import { registerPushTarget } from "./pushTarget";
 import { classifyAssistantError } from "@/lib/assistantError";
 import { defaultProviderId } from "@/lib/providers";
@@ -251,7 +252,7 @@ export async function startTelegramBot(): Promise<void> {
         return;
       }
       console.log(`[telegram] voice transcribed (${text.length} chars)`);
-      await runTurn(ctx, getState(ctx.chat.id), userKeyFor(ctx), undefined, text);
+      await runTurn(ctx, getState(ctx.chat.id), userKeyFor(ctx), undefined, text, true);
     } catch (err) {
       console.error("[telegram] voice handler error:", err instanceof Error ? err.message : String(err));
       await ctx.reply("Maaf, gagal membaca voice-mu. Coba lagi ya.").catch(() => {});
@@ -357,6 +358,25 @@ export async function startTelegramBot(): Promise<void> {
   });
 }
 
+/** Send the assistant's answer as spoken WAV audio (Groq Orpheus; Indonesian
+ *  reads in English pronunciation, same as the web). Audio-only (no text
+ *  caption) — used for voice-note turns so there is no duplicate text. Falls
+ *  back to returning false (caller sends text) on ANY failure, so a throttled
+ *  TTS never blocks the reply. Enable via TELEGRAM_VOICE_REPLY=0. */
+const voiceEnabled =
+  process.env.TELEGRAM_VOICE_REPLY !== "0" && process.env.BOT_VOICE_REPLY !== "0";
+async function sendVoiceReply(ctx: Context, text: string): Promise<boolean> {
+  if (!voiceEnabled || !text) return false;
+  try {
+    const wav = await synthesizeSpeech({ text });
+    await ctx.replyWithAudio(new InputFile(wav, "mia-voice.wav"), { title: "Mia 🌸" });
+    return true;
+  } catch (err) {
+    console.warn("[telegram] voice reply skipped (text fallback):", err instanceof Error ? err.message : String(err));
+    return false;
+  }
+}
+
 async function handleCommand(ctx: Context, state: ChatState, text: string, user: string): Promise<void> {
   if (text.startsWith("/status")) {
     await replyMia(
@@ -401,7 +421,9 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
     return;
   }
   state.history.push({ role: "assistant", content: result.text });
-  await replyMia(ctx, result.text || "Selesai.");
+  if (!(await sendVoiceReply(ctx, result.text))) {
+    await replyMia(ctx, result.text || "Selesai.");
+  }
 }
 
 async function runTurn(
@@ -409,7 +431,8 @@ async function runTurn(
   state: ChatState,
   user: string,
   confirmCall: { call: ToolCall; allow: boolean } | undefined,
-  userText: string | undefined
+  userText: string | undefined,
+  voiceTurn = false
 ): Promise<void> {
   // Append the new user message to the working history (unless this is a
   // confirmation continuation, where the LLM context already has the tool call).
@@ -455,5 +478,11 @@ async function runTurn(
   }
 
   state.history.push({ role: "assistant", content: result.text });
-  await replyMia(ctx, result.text || "…");
+  if (voiceTurn) {
+    if (!(await sendVoiceReply(ctx, result.text))) {
+      await replyMia(ctx, result.text || "…");
+    }
+  } else {
+    await replyMia(ctx, result.text || "…");
+  }
 }
