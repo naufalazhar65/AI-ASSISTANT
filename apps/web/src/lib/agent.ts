@@ -20,6 +20,11 @@ import { captureFactsFromTurn } from "./autoMemory";
 import { detectReminderIntents } from "./reminderIntent";
 import { addReminder } from "./reminders";
 import { logDetectedMood } from "./moodIntent";
+import { detectMonitorIntent, cryptoSubject } from "./monitorIntent";
+import { addMonitor } from "./monitor";
+import { detectSpotifyControl, detectSpotifyIntent, SpotifyControlIntent } from "./spotifyIntent";
+import { detectPriceIntent } from "./priceIntent";
+import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume } from "./spotify";
 import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
 import { appendDailyMemory } from "./dailyMemory";
@@ -599,6 +604,217 @@ function remindToolAlreadyHandled(opts: {
 }
 
 /**
+ * True when this turn already EXECUTED a `monitor_add` via the confirmation
+ * continuation (allow=true). A *pending* confirmation (needsConfirmation) does
+ * NOT count: 9router frequently emits `monitor_add` with empty/{} arguments, so
+ * confirming would error — better to let the deterministic path fill the gap.
+ */
+function monitorAddAlreadyHandled(opts: {
+  confirm_call?: { call: ToolCall; allow: boolean };
+}): boolean {
+  return opts.confirm_call?.call?.name === "monitor_add" && opts.confirm_call.allow === true;
+}
+
+/** True when `spotify_play` already EXECUTED via this turn's confirm continuation. */
+function queryArgOf(call: { arguments?: string }): string | null {
+  try {
+    const q = JSON.parse(call.arguments || "{}")?.query;
+    return typeof q === "string" && q.trim() !== "" ? q : null;
+  } catch {
+    return null;
+  }
+}
+
+function appendTurnResult(text: string, result: string): string {
+  if (!result) return text;
+  const trimmed = (text || "").trim();
+  if (trimmed === "") return result.trim();
+  return /spotify|putar|play|pause|lagu|next|volume/i.test(result.toLowerCase())
+    ? (/spotify|putar|play|pause|lagu|next|volume/i.test(trimmed) ? trimmed : `${trimmed} ${result.trim()}`)
+    : trimmed;
+}
+
+/**
+ * Deterministic watchlist scheduling (feature #6): models (esp. 9router) often
+ * fail to emit `monitor_add` as a real tool call (they answer verbatim, write
+ * "<tool_call>" as prose, or return empty). Detecting the intent here guarantees
+ * "monitorin harga bitcoin" always lands on the watchlist and gets alerts via
+ * the heartbeat. Duplicate rules are merged by `addMonitor`.
+ */
+function scheduleMonitorFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content || typeof lastUser.content !== "string") return text;
+  const intent = detectMonitorIntent(lastUser.content);
+  if (!intent) return text;
+  try {
+    const target = addMonitor({
+      name: intent.name,
+      kind: intent.kind,
+      subject: intent.subject,
+      threshold: intent.threshold,
+      direction: intent.direction,
+      rawUser: user,
+    });
+    const th =
+      intent.threshold !== undefined
+        ? `, alert ${intent.direction === "below" ? "di bawah" : "di atas"} ${intent.threshold.toLocaleString("id-ID")}`
+        : "";
+    const confirmSuffix = ` (Sudah kumasukkan "${target.name}" ke watchlist${th} — bakal kucek berkala dan kubilang kalau ada yang penting.)`;
+    const trimmed = (text || "").trim();
+    const stubOnly = trimmed === "" || /^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(trimmed);
+    if (stubOnly) return confirmSuffix.trim();
+    return /monitor|watchlist|pantau/i.test(text) ? text : (text || "").trimEnd() + confirmSuffix;
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * Immediate Spotify playback (no FR-014 confirm — user preference): ensures
+ * "play lagu X di spotify" actually plays the song right away even when the
+ * model answers verbally without a `spotify_play` tool call, or emits a
+ * malformed/empty-args call. Awaited + rejection-handled so a genuinely failed
+ * playback is reported gracefully (never a thrown 502). If no intent is
+ * detected but `fallbackQuery` is given (from a native spotify_play call the
+ * model DID emit), plays that instead.
+ */
+async function scheduleSpotifyFromIntent(
+  messages: ChatMessage[],
+  user: unknown,
+  text: string,
+  fallbackQuery?: string | null
+): Promise<string> {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content || typeof lastUser.content !== "string") return text;
+  const intent = detectSpotifyIntent(lastUser.content);
+  if (!intent && !fallbackQuery) return text;
+  const query = intent ? intent.query : fallbackQuery;
+  if (!query) return text;
+  let played: string;
+  try {
+    played = await spotifyPlay(user, query, intent?.kind);
+  } catch (err) {
+    return appendSpotifyError(text, err);
+  }
+  const confirmSuffix = ` (Sudah kuputar: ${played})`;
+  const trimmed = (text || "").trim();
+  const stubOnly =
+    trimmed === "" ||
+    /^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(trimmed) ||
+    /^(Error:)?\s*(Unexpected token|Unexpected non-whitespace|No number after minus sign|is not valid JSON)/i.test(trimmed);
+  if (stubOnly) return confirmSuffix.trim();
+  return /spotify|putar|play/i.test(text.toLowerCase()) ? text : trimmed + confirmSuffix;
+}
+
+/**
+ * Deterministic Spotify controls (pause/next/previous/volume): mirrors the play
+ * path so "pause lagu"/"next lagu"/"volume 50" actually execute even when the
+ * model merely promises verbally or streams junk ("Error: Unexpected token…").
+ * Only called when no native spotify_* call already ran this turn.
+ */
+async function scheduleSpotifyControlFromIntent(messages: ChatMessage[], user: unknown, text: string): Promise<string> {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content || typeof lastUser.content !== "string") return text;
+  const ctrl = detectSpotifyControl(lastUser.content);
+  if (!ctrl) return text;
+  let result: string;
+  try {
+    result =
+      ctrl.action === "pause"
+        ? await spotifyPause(user)
+        : ctrl.action === "next"
+          ? await spotifyNext(user)
+          : ctrl.action === "previous"
+            ? await spotifyPrevious(user)
+            : await spotifySetVolume(user, ctrl.value ?? 50);
+  } catch (err) {
+    return appendSpotifyError(text, err);
+  }
+  const trimmed = (text || "").trim();
+  const stubOnly =
+    trimmed === "" ||
+    /^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(trimmed) ||
+    /^(Error:)?\s*(Unexpected token|Unexpected non-whitespace|No number after minus sign|is not valid JSON)/i.test(trimmed);
+  if (stubOnly) return (result || confirmSuffixFor(ctrl)).trim();
+  return /spotify|pause|next|previous|lagu|volume|keras|pelan|suara/i.test(text.toLowerCase())
+    ? text
+    : `${trimmed} ${result || confirmSuffixFor(ctrl)}`.trim();
+}
+
+/**
+ * Map a thrown Spotify API error to a graceful user-facing note appended to the
+ * current text (matching what the spotify_* tool plugins already return), so a
+ * genuinely failed playback/control never surfaces as a raw exception/502.
+ */
+function appendSpotifyError(text: string, err: unknown): string {
+  const msg = err instanceof Error ? err.message : "Spotify error";
+  console.error("[agent] spotify err raw:", msg);
+  const friendly =
+    msg === "spotify_not_connected"
+      ? "Koneksi Spotify belum dibuat — buka link di Menu > Spotify untuk hubungkan dulu ya."
+      : msg === "spotify_no_active_device"
+        ? "Gak ada perangkat Spotify aktif. Buka aplikasi Spotify di perangkatmu dulu, ya."
+        : /(401|403|Forbidden|Unauthorized|Premium)/i.test(msg)
+          ? "Spotify nolak permintaan (coba cek akun Premium atau refresh koneksi di Menu > Spotify)."
+          : /Unexpected token|not valid JSON|non-whitespace/i.test(msg)
+            ? "Spotify balas respons aneh — coba lagi sebentar ya."
+            : `Gagal: ${msg}`;
+  const trimmed = (text || "").trim();
+  if (trimmed === "" || /^Error:/i.test(trimmed)) return friendly;
+  return `${trimmed} ${friendly}`.trim();
+}
+
+function confirmSuffixFor(c: SpotifyControlIntent): string {
+  switch (c.action) {
+    case "pause":
+      return "Udah kupause dulu ya. 🌸";
+    case "next":
+      return "Udah kunext. 🌸";
+    case "previous":
+      return "Udah kuputar lagu sebelumnya. 🌸";
+    default:
+      return c.value !== undefined ? `Volume kuset ke ${c.value}. 🌸` : "Volumenya kubiarin aja kalau gak disebut angka. 🌸";
+  }
+}
+
+/**
+ * Deterministic price check: guarantees "harga bitcoin sekarang berapa?" gets a
+ * price answer even when the model emits a bare web_search prose stub or empty
+ * text. Uses the watchlist fetch (CoinGecko for crypto) or the web monitor
+ * fetch (generic URLs) so the user gets a real number without depending on the
+ * model's nondeterministic tool calling.
+ */
+function fmtPriceLocal(n: number): string {
+  return n >= 1000 ? `USD ${n.toLocaleString("id-ID", { maximumFractionDigits: 0 })}` : `USD ${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+async function schedulePriceFromIntent(messages: ChatMessage[], user: unknown, text: string): Promise<string> {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content || typeof lastUser.content !== "string") return text;
+  const intent = detectPriceIntent(lastUser.content);
+  if (!intent) return text;
+  // If the model already reported a price in its reply, leave it.
+  if (/\$|rm|rp|usd|dolar|[\d,]+\.?\d*\s*(usd|dolar)/i.test(text)) return text;
+  let answer = "";
+  try {
+    const { fetchPrice } = await import("./monitor");
+    const coin = cryptoSubject(intent.subject) ?? cryptoSubject(`harga ${intent.subject}`);
+    const target = coin
+      ? { id: "price", name: coin, kind: "crypto" as const, subject: coin, at: Date.now() }
+      : { id: "price", name: intent.subject, kind: "web" as const, subject: intent.subject, at: Date.now() };
+    const price = await fetchPrice(target);
+    answer = price === null ? "belum bisa kubaca karena butuh akses internet / toko" : fmtPriceLocal(price);
+  } catch {
+    return text;
+  }
+  const confirmSuffix = ` (Harga ${intent.subject}: ${answer})`;
+  const trimmed = (text || "").trim();
+  const stubOnly = trimmed === "" || /^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(trimmed);
+  if (stubOnly) return confirmSuffix.trim();
+  return (text || "").trimEnd() + confirmSuffix;
+}
+
+/**
  * Best-effort mood capture: if the user's latest message states how they feel
  * ("aku lagi stres", "hari ini bahagia"), log it to their mood store via
  * `logDetectedMood` (fire-and-forget, never throws). Complements the
@@ -772,6 +988,77 @@ export async function runAssistantTurn(opts: {
   // it, to avoid double-scheduling). Mirrors the opencode path.
   if (!remindToolAlreadyHandled(opts, needsConfirmation)) {
     text = scheduleReminderFromIntent(messages, opts.user, text);
+  }
+  // Deterministic watchlist scheduling (feature #6): a bare "monitorin harga
+  // bitcoin" must land on the watchlist even when the model answers verbally or
+  // with a "<tool_call>" prose stub instead of a real `monitor_add` tool call.
+  // Skipped when the tool already EXECUTED via confirm; duplicates merge in the
+  // store, and a pending 9router native call (often empty/{} args) is replaced
+  // by the deterministic add below.
+  if (!monitorAddAlreadyHandled(opts)) {
+    if (needsConfirmation?.some((c) => c.name === "monitor_add")) {
+      const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+      if (lastUser?.content && typeof lastUser.content === "string" && detectMonitorIntent(lastUser.content)) {
+        needsConfirmation = needsConfirmation.filter((c) => c.name !== "monitor_add");
+      }
+    }
+    text = scheduleMonitorFromIntent(messages, opts.user, text);
+  }
+  // Spotify: ALL playback controls (play/pause/next/previous/volume) run
+  // IMMEDIATELY with no FR-014 confirmation (user preference, 2026-09-06).
+  // Any native spotify_* pending confirm is dropped and executed right here —
+  // this kills the historical double-play (confirm flow + deterministic autoplay
+  // both firing) and the pre-approval confusion. Skipped on a spotify_* confirm
+  // continuation (the tool already executed above).
+  const spotifyConfirmRan =
+    opts.confirm_call?.call?.name?.startsWith("spotify_") && opts.confirm_call?.allow === true;
+  const pendingSpotify = (needsConfirmation ?? []).filter((c) => c.name.startsWith("spotify_"));
+  if (needsConfirmation) {
+    needsConfirmation = needsConfirmation.filter((c) => !c.name.startsWith("spotify_"));
+  }
+  if (!spotifyConfirmRan) {
+    const playCall = pendingSpotify.find((c) => c.name === "spotify_play");
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content;
+    const ctrl =
+      typeof lastUserMsg === "string" && detectSpotifyControl(lastUserMsg);
+    if (ctrl) {
+      // Deterministic single action from the user's own words — this is the
+      // source of truth. Native spotify_* calls are ignored here so a
+      // duplicated/broken 9router emission can NEVER cause a double next/pause.
+      text = await scheduleSpotifyControlFromIntent(messages, opts.user, text);
+    } else {
+      // No control intent in the message — fall back to executing the native
+      // spotify_* calls the model DID emit, deduped by name (9router has been
+      // seen emitting the same call twice → never double-next).
+      const executedNames = new Set<string>();
+      for (const c of pendingSpotify.filter((c) => c.name !== "spotify_play")) {
+        if (executedNames.has(c.name)) continue;
+        executedNames.add(c.name);
+        try {
+          if ((c.arguments ?? "{}").trim().length > 0) {
+            JSON.parse(c.arguments || "{}");
+          }
+        } catch {
+          c.arguments = "{}"; // 9router hallucinated raw junk (e.g. a bare id) — drop it
+        }
+        try {
+          const r = await executeTool(c, opts.user);
+          text = appendTurnResult(text, r);
+        } catch {
+          /* tool plugins surface errors in their own result text */
+        }
+      }
+    }
+    text = await scheduleSpotifyFromIntent(messages, opts.user, text, playCall ? queryArgOf(playCall) : null);
+  }
+  text = await schedulePriceFromIntent(messages, opts.user, text);
+  if (needsConfirmation?.some((c) => c.name === "fetch_url")) {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+    if (lastUser?.content && typeof lastUser.content === "string" && detectPriceIntent(lastUser.content) && /Harga .*USD/i.test(text)) {
+      // Deterministic price already answered — drop the model's redundant
+      // fetch_url confirm so the user isn't asked twice for the same number.
+      needsConfirmation = needsConfirmation.filter((c) => c.name !== "fetch_url");
+    }
   }
   // Mood tracking: log state-of-mind statements (fire-and-forget) so Mia knows
   // how the user is feeling and can tailor replies / offer support.

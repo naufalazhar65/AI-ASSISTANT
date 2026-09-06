@@ -188,7 +188,16 @@ async function spotifyRequest<T>(rawUser: unknown, method: string, path: string,
   }
   if (!res.ok) throw new Error(`Spotify error ${res.status}`);
   const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  if (!text) return undefined as T;
+  // Player-control endpoints (next/previous/pause/volume) return 200/204 with a
+  // NON-JSON body (e.g. the raw new track id as plain text) on success. Any
+  // body that isn't JSON means "the action succeeded, no structured payload" —
+  // never throw a fake "respons aneh" over it.
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return undefined as T;
+  }
 }
 
 export function spotifyConnected(rawUser?: unknown): boolean {
@@ -239,22 +248,40 @@ async function searchBestTrack(
 ): Promise<Record<string, unknown> | undefined> {
   const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", `/search?q=${encodeURIComponent(query)}&type=track&limit=10`);
   const tracks = ((data.tracks as Record<string, unknown>)?.items as Record<string, unknown>[] | undefined) || [];
-  if (!tracks.length) return undefined;
+  // Hard filter out unwanted versions (karaoke, instrumental, cover, tribute) unless requested
+  const cleanTracks = tracks.filter((t) => {
+    const title = String(t.name || "").toLowerCase();
+    const qLower = query.toLowerCase();
+    if (!qLower.includes("karaoke") && title.includes("karaoke")) return false;
+    if (!qLower.includes("instrumental") && title.includes("instrumental")) return false;
+    if (!qLower.includes("tribute") && title.includes("tribute")) return false;
+    if (!qLower.includes("cover") && title.includes("cover") && !title.includes("discovered")) return false;
+    return true;
+  });
+
+  const candidates = cleanTracks.length ? cleanTracks : tracks;
+  if (!candidates.length) return undefined;
   const qTokens = new Set(
     query.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2),
   );
-  if (!qTokens.size) return tracks[0];
-  let best = tracks[0];
+  if (!qTokens.size) return candidates[0];
+  let best = candidates[0];
   let bestScore = -Infinity;
-  for (const t of tracks) {
+  for (const t of candidates) {
     const title = String(t.name || "").toLowerCase();
     const artists = ((t.artists as Record<string, string>[]) || []).map((a) => String(a.name || "").toLowerCase());
     let bonus = 0;
     for (const tok of qTokens) {
-      if (artists.some((a) => a.includes(tok))) bonus += 3;
-      if (title.includes(tok)) bonus += 2;
+      if (artists.some((a) => a.includes(tok))) bonus += 5; // Artist match is strong
+      if (title.includes(tok)) bonus += 4;                 // Title match is strong
     }
-    const denom = 1 + Math.abs(artists.join(" ").length - String(query).length) / 20;
+    // Boost exact matches and penalize "karaoke" / "live" / "remix" if not in query
+    if (title.includes(query.toLowerCase())) bonus += 10;
+    if (title.includes("karaoke") && !query.toLowerCase().includes("karaoke")) bonus -= 15;
+    if (title.includes("live") && !query.toLowerCase().includes("live")) bonus -= 15;
+    if (title.includes("instrumental") && !query.toLowerCase().includes("instrumental")) bonus -= 15;
+
+    const denom = 1 + Math.abs(artists.join(" ").length - String(query).length) / 50; // Normalize
     const score = bonus / denom;
     if (score > bestScore) {
       bestScore = score;
@@ -265,10 +292,31 @@ async function searchBestTrack(
 }
 
 /** Play a search result (first track) or resume (`query` empty). Returns a short summary. */
-export async function spotifyPlay(rawUser: unknown, query?: string): Promise<string> {
+export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "playlist" | "album" | "track"): Promise<string> {
   let track: Record<string, unknown> | undefined;
+  let contextUri: string | undefined;
   if (query && query.trim()) {
-    track = await searchBestTrack(rawUser, query.trim());
+    const q = query.trim();
+    // Playlist/album requests resolve via their own search type (context play).
+    if (kind === "playlist" || /playlist/i.test(q)) {
+      const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", `/search?q=${encodeURIComponent(q)}&type=playlist&limit=5`);
+      const playlists = ((data.playlists as Record<string, unknown>)?.items as Record<string, unknown>[] | undefined) || [];
+      if (playlists.length && playlists[0].uri) {
+        contextUri = String(playlists[0].uri);
+        return await playContext(rawUser, contextUri, String(playlists[0].name || "playlist"));
+      }
+      return "Tidak ada playlist dengan nama itu.";
+    }
+    if (kind === "album" || /album/i.test(q)) {
+      const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", `/search?q=${encodeURIComponent(q)}&type=album&limit=5`);
+      const albums = ((data.albums as Record<string, unknown>)?.items as Record<string, unknown>[] | undefined) || [];
+      if (albums.length && albums[0].uri) {
+        contextUri = String(albums[0].uri);
+        return await playContext(rawUser, contextUri, String(albums[0].name || "album"));
+      }
+      return "Tidak ada album dengan nama itu.";
+    }
+    track = await searchBestTrack(rawUser, q);
     if (!track) return "Tidak ada hasil untuk lagu itu.";
   }
   const start = async (uris?: string[]) => {
@@ -321,6 +369,29 @@ export async function spotifyPlay(rawUser: unknown, query?: string): Promise<str
         }
         await start();
         return "Pemutaran dilanjutkan di " + transferred + ".";
+      }
+    }
+    throw err;
+  }
+}
+
+/**
+ * Play a context (playlist/album) via its `context_uri`, with the same
+ * no-active-device fallback as `spotifyPlay` (device transfer / app launch).
+ */
+async function playContext(rawUser: unknown, contextUri: string, label: string): Promise<string> {
+  const start = async () => {
+    await spotifyRequest<unknown>(rawUser, "PUT", "/me/player/play", { context_uri: contextUri });
+  };
+  try {
+    await start();
+    return `${label} sudah mulai diputar, beb 🌸`;
+  } catch (err) {
+    if (err instanceof Error && err.message === "spotify_no_active_device") {
+      const transferred = await ensureDevice(rawUser);
+      if (transferred) {
+        await start();
+        return `${label} diputar di ${transferred}.`;
       }
     }
     throw err;

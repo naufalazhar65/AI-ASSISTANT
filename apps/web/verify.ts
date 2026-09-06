@@ -219,7 +219,19 @@ async function main() {
   if (!spLink.includes("Spotify") || (!spLink.includes("dikonfigurasi") && !spLink.includes("Hubungkan"))) throw new Error(`spotify_link unexpected: ${spLink.slice(0, 120)}`);
   const spStatus = await executeTool({ id: "t", name: "spotify_status", arguments: "{}" }, "spotifyprobe");
   if (!spStatus.includes("Spotify" )) throw new Error(`spotify_status unexpected: ${spStatus.slice(0, 120)}`);
-  console.log("spotify: OK (tools registered, not-connected path)");
+  // Intent detectors (deterministic play/price route, feature "no more …"):
+  const { detectSpotifyIntent } = await import("./src/lib/spotifyIntent");
+  const { detectPriceIntent } = await import("./src/lib/priceIntent");
+  const { cryptoSubject } = await import("./src/lib/monitorIntent");
+  const spYes = detectSpotifyIntent("Mia play lagu mr big nothing but love dong di spotify");
+  if (!spYes || !/mr big nothing but love/i.test(spYes.query) || spYes.kind !== "track") throw new Error(`spotifyIntent mismatch: ${JSON.stringify(spYes)}`);
+  const spPlay = detectSpotifyIntent("coba play playlist M.Y di spotify");
+  if (!spPlay || spPlay.kind !== "playlist") throw new Error(`spotifyIntent playlist mismatch: ${JSON.stringify(spPlay)}`);
+  if (detectSpotifyIntent("apa kabar banyak bug?") !== null) throw new Error("spotifyIntent false positive");
+  const priceYes = detectPriceIntent("harga bitcoin sekarang berapa?");
+  if (!priceYes || cryptoSubject(priceYes.subject) !== "bitcoin") throw new Error(`priceIntent mismatch: ${JSON.stringify(priceYes)}`);
+  if (detectPriceIntent("halo apa kabar") !== null) throw new Error("priceIntent false positive");
+  console.log("spotify: OK (tools registered, not-connected path, intent detectors)");
 
   // --- multi-root sandbox (ALLOWED_WORKSPACES): path stays inside listed roots ---
   const tmpWs = mkdtempSync(join(tmpdir(), "mia-ws-"));
