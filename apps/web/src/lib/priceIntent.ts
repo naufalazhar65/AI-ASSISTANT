@@ -18,7 +18,7 @@ export function detectPriceIntent(text: string): PriceIntent | null {
   const match = text.match(PRICE_RE);
   if (!match) return null;
 
-  let subject = text
+  const subject = text
     .slice(match.index! + match[0].length)
     .trim()
     .replace(/\b(?:sekarang|saat\s+ini|hari\s+ini|berapa|harganya|dong|ya|beb|mas|bang|kak|sih|a)\b.*$/i, "")

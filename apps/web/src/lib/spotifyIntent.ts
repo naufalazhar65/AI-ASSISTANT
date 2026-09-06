@@ -26,7 +26,7 @@ export function detectSpotifyIntent(text: string): SpotifyIntent | null {
     noun === "playlist" ? "playlist" : noun === "album" ? "album" : "track";
 
   const afterVerb = text.slice(m.index! + m[0].length).trim();
-  let cleaned = afterVerb
+  const cleaned = afterVerb
     .replace(/\s+(?:di|on|ke|untuk|pake|pakai)\s+spotify\b.*$/i, "")
     .replace(/\b(?:dong|ya|yuk|deh|donk|lah|beb|mas|bang|kak|plis|please|a|nya|sih|coba|tolong|bantu|aku|gue|saya|kan)\b.*$/i, "")
     .trim()
