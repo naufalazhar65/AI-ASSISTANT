@@ -107,6 +107,22 @@ export function heartbeatMinutes(): number {
   return cfgInt("HEARTBEAT_INTERVAL_MINUTES", 30);
 }
 
+export function contextSampleSeconds(): number {
+  return cfgInt("CONTEXT_SAMPLE_SECONDS", 15);
+}
+
+export function proactiveEnabled(): boolean {
+  return cfgBool("PROACTIVE_ENABLED", true);
+}
+
+export function proactiveHourStart(): number {
+  return cfgInt("PROACTIVE_HOUR_START", 8);
+}
+
+export function proactiveHourEnd(): number {
+  return cfgInt("PROACTIVE_HOUR_END", 22);
+}
+
 export function appLogEnabled(): boolean {
   return cfgBool("APP_LOG_ENABLED", true);
 }

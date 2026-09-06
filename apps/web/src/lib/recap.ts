@@ -108,9 +108,13 @@ function allUserKeys(): string[] {
 async function tick(): Promise<void> {
   const now = new Date();
   const day = localDay(now);
-  const hour = Number(now.toLocaleString("en-US", { hour12: false, timeZone: "Asia/Jakarta" }).split(":")[0]);
+  let hour = NaN;
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", { hour12: false, hour: "2-digit", timeZone: "Asia/Jakarta" });
+    hour = Number(fmt.format(now));
+  } catch { /* fall through */ }
   const target = recapHour();
-  if (!target || hour !== target || lastRecapDay === day) return;
+  if (Number.isNaN(hour) || !target || hour !== target || lastRecapDay === day) return;
   lastRecapDay = day;
   for (const user of allUserKeys()) {
     try {

@@ -2,7 +2,7 @@ import { ConversationManager } from "./src/ai/ConversationManager";
 import { MockProvider } from "@ai-provider/mock";
 import { executeTool } from "./src/lib/tools";
 import { resolveInSandbox, appRoot } from "./src/lib/users";
-import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -231,6 +231,69 @@ async function main() {
   await runHeartbeatTick();
   stopHeartbeat();
   console.log("heartbeat: OK");
+
+  // --- knowledge consolidation (monthly summary, marker-gated, idempotent) ---
+  const conUser = "verify_con_" + Date.now().toString(36);
+  const { consolidateUser, listSummariesForUser } = await import("./src/lib/consolidate");
+  const memRoot = join(userDataRoot(), conUser, "memory");
+  mkdirSync(memRoot, { recursive: true });
+  writeFileSync(join(memRoot, "2026-07-01.md"), "# Memory 2026-07-01\n\n## t\nUser: Naufal suka kopi americano\n");
+  writeFileSync(join(memRoot, "2026-07-02.md"), "## t\nUser: rencana main badminton Sabtu\n");
+  const made = await consolidateUser(conUser, async (month, days) => `SUMMARY(${month},${days.length}): kopi + badminton`);
+  if (made.length !== 1 || made[0].month !== "2026-07") throw new Error(`consolidate should summarize 2026-07: ${JSON.stringify(made)}`);
+  if (!existsSync(join(memRoot, "2026-07-summary.md"))) throw new Error("summary file missing");
+  if (!readFileSync(join(memRoot, "2026-07-summary.md"), "utf8").includes("kopi + badminton")) throw new Error("summary content wrong");
+  const again = await consolidateUser(conUser, async () => {
+    throw new Error("should NOT re-summarize");
+  });
+  if (again.length !== 0) throw new Error("consolidate should be idempotent");
+  if (!listSummariesForUser(conUser).includes("2026-07-summary.md")) throw new Error("listSummaries should find summary");
+  rm2(join(userDataRoot(), conUser), { recursive: true, force: true });
+  console.log("consolidate: OK");
+
+  // --- context awareness: parser + tool does not throw ---
+  const { parseActiveOutput } = await import("./src/lib/context");
+  const parsed = parseActiveOutput("Code\nai-assistant - main.ts");
+  if (parsed.app !== "Code" || parsed.window !== "ai-assistant - main.ts") throw new Error(`parseActiveOutput failed: ${JSON.stringify(parsed)}`);
+  const ctxText = await executeTool({ id: "t", name: "context_active", arguments: "{}" });
+  if (!ctxText || /^Error:/.test(ctxText)) throw new Error(`context_active should not error: ${ctxText.slice(0, 80)}`);
+  console.log("context: OK");
+
+  // --- proactive nudge: silent tanpa sinyal, muncul saat mood negatif kemarin ---
+  const proUser = "verify_pro_" + Date.now().toString(36);
+  const { buildProactiveMessage } = await import("./src/lib/proactive");
+  const jktDay = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  const writeMood = (mood: string, note: string, atMs: number) => {
+    mkdirSync(join(userDataRoot(), proUser), { recursive: true });
+    writeFileSync(join(userDataRoot(), proUser, "moods.json"), JSON.stringify([{ id: "t", mood, note, at: atMs }]));
+  };
+  const yday = new Date();
+  yday.setDate(yday.getDate() - 1);
+  yday.setUTCHours(5, 0, 0, 0);
+  if (buildProactiveMessage(proUser) !== "") throw new Error("proactive should be silent with no signal");
+  const prevStart = process.env.PROACTIVE_HOUR_START;
+  const prevEnd = process.env.PROACTIVE_HOUR_END;
+  process.env.PROACTIVE_HOUR_START = "0";
+  process.env.PROACTIVE_HOUR_END = "24";
+  try {
+    const hut = new Date();
+    const yInJkt = jktDay(yday);
+    if (jktDay(hut) === yInJkt) throw new Error("test setup: today !== yesterday");
+    writeMood("stressed", "kerjaan numpuk", yday.getTime());
+    const msg = buildProactiveMessage(proUser, hut);
+    if (msg === "") throw new Error("proactive should fire after a negative mood yesterday");
+    if (!msg.includes("berat")) throw new Error("proactive message should mention heavy day");
+    writeMood("great", "happy", yday.getTime());
+    if (buildProactiveMessage(proUser, hut) !== "") throw new Error("proactive should stay silent after a positive-only day");
+  } finally {
+    if (prevStart === undefined) delete process.env.PROACTIVE_HOUR_START;
+    else process.env.PROACTIVE_HOUR_START = prevStart;
+    if (prevEnd === undefined) delete process.env.PROACTIVE_HOUR_END;
+    else process.env.PROACTIVE_HOUR_END = prevEnd;
+    rm2(join(userDataRoot(), proUser), { recursive: true, force: true });
+  }
+  console.log("proactive: OK");
 
   // --- browser automation — just check tools are registered (no heavy launch in verify) ---
   const { getTool } = await import("./src/lib/tools");

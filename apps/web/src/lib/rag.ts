@@ -101,7 +101,7 @@ function collectDocs(rawUser?: unknown): DocChunk[] {
     const memDir = join(root, userKey, "memory");
     if (existsSync(memDir)) {
       for (const name of readdirSync(memDir)) {
-        if (!/^\d{4}-\d{2}-\d{2}\.md$/.test(name)) continue;
+        if (!/^\d{4}-\d{2}-\d{2}\.md$/.test(name) && !/^\d{4}-\d{2}-summary\.md$/.test(name)) continue;
         try {
           const txt = readFileSync(join(memDir, name), "utf8");
           if (txt.trim()) docs.push({ id: `memory:${name}`, source: "memory", text: txt.slice(0, 4000) });

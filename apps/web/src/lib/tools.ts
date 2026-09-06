@@ -702,6 +702,26 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "context_active",
+        description:
+          "Report what the user is currently doing on their Mac: the active app and window title (privacy-safe — never screen content or keystrokes). Use when the user asks 'lagi ngapain', 'sedang di aplikasi apa', or to tailor help/answers to the app they are in.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      try {
+        const mod = await import("./context");
+        return (await mod.currentContextTextFresh()) || "Konteks tidak tersedia — sampler/pengambilan app aktif belum berjalan atau izin Accessibility belum diberikan.";
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "context unavailable"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "memory_get",
         description:
           "Retrieve the daily memory log for a specific date (YYYY-MM-DD, or 'today'/'yesterday'). Each day's file contains timestamped conversation snippets. Returns the file content or a not-found message.",

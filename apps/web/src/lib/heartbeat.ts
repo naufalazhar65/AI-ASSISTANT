@@ -69,6 +69,21 @@ async function tick(): Promise<void> {
       logError("heartbeat", `check failed for ${user}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  // Intelligence passes riding the heartbeat loop (all guarded/deduped:
+  // proactive = once/day + no signal → silent; consolidation = once per past
+  // month + marker file). Both best-effort; failures never break the tick.
+  try {
+    const { runProactiveNudge } = await import("./proactive");
+    await runProactiveNudge();
+  } catch (e) {
+    logError("proactive", `pass failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  try {
+    const { runConsolidationForAllUsers } = await import("./consolidate");
+    await runConsolidationForAllUsers();
+  } catch (e) {
+    logError("consolidate", `pass failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 /** Start the heartbeat loop. Idempotent — safe to call twice (Next may invoke twice). */

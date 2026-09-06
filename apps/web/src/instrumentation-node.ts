@@ -45,6 +45,12 @@ export async function registerNode(): Promise<void> {
     logError("recap", `failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
+    const { startContextSampler } = await import("@/lib/context");
+    startContextSampler();
+  } catch (err) {
+    logError("context", `failed to start: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
     const { backupNow } = await import("@/lib/backup");
     const dest = backupNow();
     logInfo("backup", `auto backup created at ${dest}`);
