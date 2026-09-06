@@ -24,12 +24,13 @@
  *   DISCORD_USER                  fallback user key for persona (default "naufal")
  */
 
-import { Client, Events, GatewayIntentBits, Message, Partials, REST, Routes, SlashCommandBuilder } from "discord.js";
+import { Client, Events, GatewayIntentBits, Message, Partials, REST, Routes, SlashCommandBuilder} from "discord.js";
 import { runAssistantTurn, ChatMessage } from "@/lib/agent";
 import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
 import { reminderMessage } from "@/lib/reminderMessage";
 import { saveUpload } from "@/lib/uploads";
+import { transcribeAudio } from "@/lib/stt";
 import { registerPushTarget } from "./pushTarget";
 import { classifyAssistantError } from "@/lib/assistantError";
 import { defaultProviderId } from "@/lib/providers";
@@ -307,25 +308,56 @@ export async function startDiscordBot(): Promise<void> {
       let text = (msg.content || "").trim();
       const atts = msg.attachments ? [...msg.attachments.values()] : [];
       const fileContexts: string[] = [];
-      for (const att of atts) {
+
+      // Voice note (Discord native voice messages arrive as an OGG/Opus attachment)
+      // → transcribe to text via the shared STT pipeline, then continue as a
+      // normal message turn.
+      let isVoice = false;
+      const voiceAtt = atts.find((a) => (a.contentType || "").toLowerCase().includes("ogg"));
+      if (voiceAtt) {
+        isVoice = true;
         try {
-          const res = await fetch(att.url);
-          if (!res.ok) continue;
-          const buf = Buffer.from(await res.arrayBuffer());
-          const meta = saveUpload(
-            user,
-            att.name || "file.bin",
-            att.contentType || "application/octet-stream",
-            buf
-          );
-          const kb = (meta.size / 1024).toFixed(1);
-          if (meta.isText && meta.textContent !== undefined) {
-            fileContexts.push(`[The user uploaded file "${meta.name}" (${kb} KB). It is already saved by the system; do not save it again. Its text content:\n${meta.textContent.slice(0, 6000)}\n]`);
-          } else {
-            fileContexts.push(`[The user uploaded file "${meta.name}" (${kb} KB). It is already saved by the system; do not save it again.]`);
+          const res = await fetch(voiceAtt.url);
+          if (res.ok) {
+            const buf = Buffer.from(await res.arrayBuffer());
+            text = await transcribeAudio({
+              bytes: buf,
+              contentType: voiceAtt.contentType ?? "audio/ogg",
+            });
           }
         } catch (e) {
-          console.warn("[discord] attachment fetch failed:", e instanceof Error ? e.message : String(e));
+          console.warn("[discord] voice fetch failed:", e instanceof Error ? e.message : String(e));
+        }
+        text = text.trim();
+        if (!text) {
+          await msg.reply("Aku kurang menangkap suaranya. Coba kirim lagi ya. 🎤").catch(() => {});
+          return;
+        }
+        console.log(`[discord] voice transcribed (${text.length} chars)`);
+        (msg.channel as { sendTyping: () => Promise<unknown> }).sendTyping().catch(() => {});
+      }
+
+      if (!isVoice) {
+        for (const att of atts) {
+          try {
+            const res = await fetch(att.url);
+            if (!res.ok) continue;
+            const buf = Buffer.from(await res.arrayBuffer());
+            const meta = saveUpload(
+              user,
+              att.name || "file.bin",
+              att.contentType || "application/octet-stream",
+              buf
+            );
+            const kb = (meta.size / 1024).toFixed(1);
+            if (meta.isText && meta.textContent !== undefined) {
+              fileContexts.push(`[The user uploaded file "${meta.name}" (${kb} KB). It is already saved by the system; do not save it again. Its text content:\n${meta.textContent.slice(0, 6000)}\n]`);
+            } else {
+              fileContexts.push(`[The user uploaded file "${meta.name}" (${kb} KB). It is already saved by the system; do not save it again.]`);
+            }
+          } catch (e) {
+            console.warn("[discord] attachment fetch failed:", e instanceof Error ? e.message : String(e));
+          }
         }
       }
 

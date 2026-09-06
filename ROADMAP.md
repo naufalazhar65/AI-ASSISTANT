@@ -118,7 +118,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 ```text
 [x] Long-term memory (RAG / knowledge retrieval dari catatan & file)  — rag.ts (local BM25 over notes, tasks, reminders, automations, uploads, persona) + tool search_memory; zero API dependency for retrieval, offline-ready
 [ ] Multi-agent / specialized agents (mis. agent web, agent files, agent reminders)  — SKIP: fungsi specialist sudah ada sebagai tool di satu agent (web_search, file_read/exec, remind_me/add_task); multi-agent menambah latensi (> target <1.5s) + complexity tanpa kebutuhan single-owner. Kalau nanti butuh paralel: perkuat loop agent (parallel tool calls) — bukan pecah agent (2026-09-06)
-[ ] Voice interaction (perluas voice ke channel bot bila relevan; DSCORD voice)
+[x] Voice interaction (perluas voice ke channel bot bila relevan; DSCORD voice)  — voice note/nativ voice message di Telegram (grammY `message:voice`) & Discord (attachment OGG) ditranskripsi via `lib/stt.ts` (STT_PROVIDER=groq Whisper | 9router Gemini audioInput) lalu masuk alur percakapan yang sama dengan teks; web `/api/stt` + bot berbagi satu pipeline tanpa HTTP-to-self (2026-09-06)
 [ ] Integrasi lain: Calendar, Email, Smart home (opsional pribadi)
 [x] Plugin/tool system (daftar tool pluggable)  — tools.ts kini plugin registry: `ToolPlugin { definition, execute }` dalam satu objek, `TOOLS`/`executeTool` diturunkan dari registry (tidak bisa divergen), `registerTool()` untuk tambah tool runtime
 [ ] Channel baru sesuai kebutuhan (WhatsApp, Email, dll) via adapter  — lintas-channel relay via tool `send_channel` (Telegram ↔ Discord) sudah ada (pushTarget registry di globalThis)

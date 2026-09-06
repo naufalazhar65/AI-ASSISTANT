@@ -28,6 +28,7 @@ import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
 import { reminderMessage } from "@/lib/reminderMessage";
 import { saveUpload } from "@/lib/uploads";
+import { transcribeAudio } from "@/lib/stt";
 import { registerPushTarget } from "./pushTarget";
 import { classifyAssistantError } from "@/lib/assistantError";
 import { defaultProviderId } from "@/lib/providers";
@@ -221,6 +222,39 @@ export async function startTelegramBot(): Promise<void> {
     } catch (err) {
       console.error("[telegram] handler error:", err instanceof Error ? (err.stack || err.message) : String(err));
       await ctx.reply("Maaf, ada kendala internal. Coba lagi ya.").catch(() => {});
+    }
+  });
+
+  // Voice note: transcribe (shared STT pipeline) then feed the transcript into
+  // the SAME conversation flow as a typed message.
+  bot.on("message:voice", async (ctx) => {
+    try {
+      if (!isAllowedUser(ctx)) return;
+      lastSeenOwnerChat = ctx.chat.id;
+      const voice = ctx.message.voice;
+      if (!voice) return;
+      await bot.api.sendChatAction(ctx.chat.id, "typing").catch(() => {});
+      const file = await ctx.getFile();
+      const filePath = file.file_path;
+      if (!filePath) {
+        await ctx.reply("Voice belum tersedia, coba kirim lagi ya.").catch(() => {});
+        return;
+      }
+      const buffer = await downloadTelegramFile(filePath);
+      const transcript = await transcribeAudio({
+        bytes: buffer,
+        contentType: voice.mime_type || "audio/ogg",
+      });
+      const text = transcript.trim();
+      if (!text) {
+        await replyMia(ctx, "Aku kurang menangkap suaranya. Coba kirim lagi ya. 🎤");
+        return;
+      }
+      console.log(`[telegram] voice transcribed (${text.length} chars)`);
+      await runTurn(ctx, getState(ctx.chat.id), userKeyFor(ctx), undefined, text);
+    } catch (err) {
+      console.error("[telegram] voice handler error:", err instanceof Error ? err.message : String(err));
+      await ctx.reply("Maaf, gagal membaca voice-mu. Coba lagi ya.").catch(() => {});
     }
   });
 
