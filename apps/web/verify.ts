@@ -195,6 +195,37 @@ async function main() {
   rm2(join(userDataRoot(), memUser), { recursive: true, force: true });
   console.log("daily memory: OK");
 
+  // --- advanced memory: hybrid search (BM25 fallback when embeddings down) + recall ---
+  const { cosine } = await import("./src/lib/embed");
+  if (cosine([1, 0, 0], [0, 1, 0]) !== 0) throw new Error("cosine orthogonal should be 0");
+  if (Math.abs(cosine([1, 0], [2, 0]) - 1) > 1e-6) throw new Error("cosine parallel should be 1");
+  const { searchMemory, recallContext, clearEmbedCache } = await import("./src/lib/rag");
+  const semUser = "verify_sem_" + Date.now().toString(36);
+  const saved1 = await executeTool(
+    { id: "t", name: "save_note", arguments: JSON.stringify({ content: "kode rahasia: mie favorit Naufal adalah indomie kari ayam" }) },
+    semUser
+  );
+  if (!/^Saved note #/.test(saved1)) throw new Error(`save_note failed: ${saved1}`);
+  const saved2 = await executeTool(
+    { id: "t", name: "save_note", arguments: JSON.stringify({ content: "jadwal olahraga: badminton tiap sabtu sore di Gor" }) },
+    semUser
+  );
+  if (!/^Saved note #/.test(saved2)) throw new Error(`save_note 2 failed: ${saved2}`);
+  const prevEmbed = process.env.EMBED_API_BASE;
+  process.env.EMBED_API_BASE = "http://127.0.0.1:1";
+  try {
+    const res = await searchMemory("mie favorit", semUser);
+    if (!res.includes("mie favorit")) throw new Error(`search should degrade to BM25 when embeddings down: ${res.slice(0, 200)}`);
+    const rc = await recallContext(semUser, "mie favorit");
+    if (rc !== "") throw new Error(`recall should be silent when embeddings unavailable: ${rc.slice(0, 120)}`);
+  } finally {
+    if (prevEmbed === undefined) delete process.env.EMBED_API_BASE;
+    else process.env.EMBED_API_BASE = prevEmbed;
+    clearEmbedCache(semUser);
+    rm2(join(userDataRoot(), semUser), { recursive: true, force: true });
+  }
+  console.log("advanced memory (semantic degrade): OK");
+
   // --- heartbeat (periodic check-in, no throw when nothing pending) ---
   const { runHeartbeatTick, stopHeartbeat } = await import("./src/lib/heartbeat");
   await runHeartbeatTick();

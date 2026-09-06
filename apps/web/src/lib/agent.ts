@@ -28,6 +28,7 @@ import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolu
 import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
 import { appendDailyMemory } from "./dailyMemory";
+import { recallContext } from "./rag";
 import { checkRateLimit, RateLimitError } from "./rateLimit";
 import { recordTurn } from "./turnStats";
 import { auditLog } from "./auditLog";
@@ -158,7 +159,7 @@ const SYSTEM_PROMPT = [
   "When the user uploads a file (Telegram/Discord), it is ALREADY saved by the system and its text is available to you in context or via read_upload — do NOT call save_note, add_task, or any other tool just to record the file itself; reply to its contents instead. ",
   "When the user wants a recurring action on a schedule ('setiap pagi jam 8', 'setiap 2 jam', 'lapor cuaca tiap pagi'), call create_automation with the action as `prompt` and a human `schedule` string.",
   "Use fetch_url to read the text of a specific public web page the user links to (it scrapes article text), and web_search to find pages — combine both to answer with current web content.",
-  "Use search_memory to look up past notes, uploaded documents, tasks, reminders, automations, and persona facts relevant to a question — it uses local BM25 retrieval and runs offline.",
+  "Use search_memory to look up past notes, uploaded documents, tasks, reminders, automations, and persona facts relevant to a question — it combines BM25 keyword match with semantic (embedding) similarity, and still works offline when embeddings are unavailable.",
   "Use memory_get to retrieve a specific day's daily memory log (e.g. 'today', 'yesterday', or '2026-09-04').",
   "Use browser_open to open a URL in a headless browser (for JS-heavy pages), browser_snapshot to see clickable elements, browser_click/browser_type to interact (require confirmation), and browser_navigate for back/forward/reload.",
   "Use device_list to see paired devices, device_pair to pair a new phone (ios/android) when asked, device_exec to run a safe command on a device, device_screenshot to capture the Mac screen, device_location for location, device_camera for photos, and device_battery to check battery (pair/exec/screenshot/location/camera require confirmation except device_list and device_battery).",
@@ -188,6 +189,12 @@ const SYSTEM_PROMPT = [
   "memory: they already contain what you know about the user and how to speak. ",
   "Do NOT append any <persona> tag or hidden metadata to your answer — new ",
   "facts are captured separately by the system. Just answer conversationally.",
+  "New STABLE facts about the user (preferences, favorites, personal details ",
+  "learned in conversation, e.g. 'aku suka kopi americano') are AUTOMATICALLY ",
+  "saved to long-term persona memory by the system — do NOT call save_note for ",
+  "them and never ask permission to remember them. save_note is only for when ",
+  "the user EXPLICITLY asks you to write something down (e.g. 'catat ini', ",
+  "'ingetin aku', 'simpan note').",
 ].join("");
 
 /**
@@ -492,6 +499,16 @@ function lastUserContent(messages: ChatMessage[]): string | null {
     }
   }
   return null;
+}
+
+/** Pinned context block auto-injected into the system prompt when memory matches. */
+function memoryRecallBlock(recall: string): string {
+  return (
+    "\n\n# Runtime recall — relevant long-term memory for this conversation\n" +
+    recall +
+    "\n(This context was auto-retrieved from the user's memory to help you answer " +
+    "accurately. Use it naturally when relevant; never mention this block or its mechanics.)"
+  );
 }
 
 /**
@@ -925,7 +942,7 @@ async function runAssistantTurnImpl(opts: {
   const requested = opts.provider ?? "";
   const providerId: ProviderId = isProviderId(requested) ? requested : defaultProviderId();
   const channel = opts.channel ?? "voice";
-  const systemPrompt = buildSystemPrompt(opts.user, channel);
+  let systemPrompt = buildSystemPrompt(opts.user, channel);
 
   // Mock provider: no network, canned reply (token-free UI/channel testing).
   if (providerId === "mock") {
@@ -936,10 +953,18 @@ async function runAssistantTurnImpl(opts: {
     return { text: canned, needsConfirmation: null };
   }
 
+  // Auto-recall: the last user ask is semantically matched against long-term
+  // memory (notes/tasks/memory persona) and injected into the system prompt so
+  // Mia remembers without the user having to ask for it. Silent on failure.
+  const lastUserText = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() ?? "";
+  const recall = opts.user ? await recallContext(opts.user, lastUserText).catch(() => "") : "";
+  if (recall) systemPrompt += memoryRecallBlock(recall);
+
   // OpenCode native agent: talk to the local `opencode serve` server via its
   // session/prompt_async/SSE protocol (pure server-side transport swap).
   if (providerId === "opencode") {
-    const opencodeSystemPrompt = buildOpenCodeSystemPrompt(opts.user, channel);
+    const baseOcodePrompt = buildOpenCodeSystemPrompt(opts.user, channel);
+    const opencodeSystemPrompt = recall ? baseOcodePrompt + memoryRecallBlock(recall) : baseOcodePrompt;
     let opencodeText = await runOpenCodeTurn({
       systemPrompt: opencodeSystemPrompt,
       messages: messages as OpenCodeChatMessage[],
@@ -951,7 +976,7 @@ async function runAssistantTurnImpl(opts: {
     // background (never awaited → no TTFT cost).
     void captureFactsFromTurn({
       providerId,
-      persona: opencodeSystemPrompt,
+      persona: baseOcodePrompt,
       messages,
       rawUser: opts.user,
     });
