@@ -239,6 +239,52 @@ export async function spotifySearch(rawUser: unknown, query: string): Promise<st
     .join("\n");
 }
 
+/** Recently played tracks, deduped by id — feeds the song-guess game so the
+ *  "lagu misteri" is one the user actually listened to (nice to guess famous
+ *  ones). Shape: {id, name, artists}. Empty array when nothing exists yet. */
+export async function spotifyRecentTracks(rawUser?: unknown): Promise<{ id: string; name: string; artists: string[] }[]> {
+  const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", "/me/player/recently-played?limit=50");
+  const items = (data.items as Record<string, unknown>[] | undefined) || [];
+  const seen = new Set<string>();
+  const out: { id: string; name: string; artists: string[] }[] = [];
+  for (const it of items) {
+    const tr = (it.track as Record<string, unknown>) || {};
+    const id = String(tr.id || "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      name: String(tr.name || ""),
+      artists: ((tr.artists as Record<string, string>[]) || []).map((a) => String(a.name || "")),
+    });
+  }
+  return out;
+}
+
+/** Random track from an arbitrary keyword search — feeds the song-guess game.
+ *  Karaoke/live/remix-ish entries are skipped so the game never hides a gimmick
+ *  cover. Throws the same "not connected" errors as the other spotify helpers. */
+export async function spotifyRandomTrack(
+  rawUser: unknown,
+  keywords: string[] = ["love", "night", "summer", "dream", "fire", "rock", "jazz", "dance", "rain", "home"],
+): Promise<{ id: string; name: string; artists: string[] }> {
+  const kw = keywords[Math.floor(Math.random() * keywords.length)];
+  const data = await spotifyRequest<Record<string, unknown>>(rawUser, "GET", `/search?q=${encodeURIComponent(kw)}&type=track&limit=10`);
+  const items = ((data.tracks as Record<string, unknown>)?.items as Record<string, unknown>[] | undefined) || [];
+  const clean = items.filter((t) => {
+    const n = String(t.name || "").toLowerCase();
+    return !/(karaoke|instrumental|tribute|remix| karaoke| instrumental )/.test(n);
+  });
+  const pool = clean.length ? clean : items;
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
+  if (!chosen) throw new Error("no tracks found");
+  return {
+    id: String(chosen.id || ""),
+    name: String(chosen.name || ""),
+    artists: ((chosen.artists as Record<string, string>[]) || []).map((a) => String(a.name || "")),
+  };
+}
+
 /** Score how well a track matches a free-text query: token overlap weighted
  *  to prefer exact artist and title matches over Spotify's opaque ranking
  *  (limit=1 hits are unreliable). Returns the best-scoring track. */

@@ -28,10 +28,15 @@ export function detectSpotifyIntent(text: string): SpotifyIntent | null {
   const afterVerb = text.slice(m.index! + m[0].length).trim();
   const cleaned = afterVerb
     .replace(/\s+(?:di|on|ke|untuk|pake|pakai)\s+spotify\b.*$/i, "")
-    .replace(/\b(?:dong|ya|yuk|deh|donk|lah|beb|mas|bang|kak|plis|please|a|nya|sih|coba|tolong|bantu|aku|gue|saya|kan)\b.*$/i, "")
+    .replace(
+      /\b(?:dong|ya|yuk|deh|donk|lah|beb|mas|bang|kak|plis|please|a|nya|sih|coba|tolong|bantu|aku|gue|saya|kan|itu|ini|kesana|kesini|distu|disini|begitu|begini|gitu|gini|lah)\b.*$/i,
+      ""
+    )
     .trim()
     .replace(/^[\s\-:"]+|[\s\-:"]+$/g, "");
 
+  // A deictic remnant ("itu", "ini") has no searchable content — return null so
+  // the caller falls back to the model's own (context-aware) spotify_play query.
   if (!cleaned) return null;
   return { query: cleaned, kind };
 }

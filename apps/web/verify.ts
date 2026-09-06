@@ -228,10 +228,35 @@ async function main() {
   const spPlay = detectSpotifyIntent("coba play playlist M.Y di spotify");
   if (!spPlay || spPlay.kind !== "playlist") throw new Error(`spotifyIntent playlist mismatch: ${JSON.stringify(spPlay)}`);
   if (detectSpotifyIntent("apa kabar banyak bug?") !== null) throw new Error("spotifyIntent false positive");
+  // Deictic "lagu itu" (referencing conversation context) must NOT become a search query —
+  // the model's own context-aware spotify_play query wins in that case (2026-09-06 bug fix).
+  if (detectSpotifyIntent("hahaha, coba play lagu itu") !== null) throw new Error("spotifyIntent deictic should be null");
   const priceYes = detectPriceIntent("harga bitcoin sekarang berapa?");
   if (!priceYes || cryptoSubject(priceYes.subject) !== "bitcoin") throw new Error(`priceIntent mismatch: ${JSON.stringify(priceYes)}`);
   if (detectPriceIntent("halo apa kabar") !== null) throw new Error("priceIntent false positive");
   console.log("spotify: OK (tools registered, not-connected path, intent detectors)");
+
+  // --- fun tools: mala determinism, game matching, holiday info ---
+  const funTools = ["mala", "game_start", "game_guess", "game_quit", "hari_libur", "recap"];
+  for (const name of funTools) if (!getTool(name)) throw new Error(`fun tool not registered: ${name}`);
+  const { buildMala, renderMala } = await import("./src/lib/mala");
+  const malaA = buildMala("probe");
+  const malaB = buildMala("probe");
+  if (malaA.date !== malaB.date || malaA.number !== malaB.number || malaA.mood !== malaB.mood) throw new Error("mala not stable within a day");
+  const malaC = buildMala("probe2");
+  if (malaC.number === malaA.number && malaC.mood === malaA.mood) throw new Error("mala identical across users");
+  if (!renderMala("probe").includes("Ramalan")) throw new Error("renderMala unexpected");
+  const { answerMatches } = await import("./src/lib/game");
+  const secret = { id: "x", name: "Nothing But Love", artists: ["Mr. Big"] };
+  if (!answerMatches("nothing but love", secret)) throw new Error("answerMatches title miss");
+  if (!answerMatches("big", secret)) throw new Error("answerMatches artist miss");
+  if (answerMatches("all alone", secret)) throw new Error("answerMatches false positive");
+  const gStart = await executeTool({ id: "t", name: "game_start", arguments: "{}" }, "spotifyprobe");
+  if (!/Spotify belum tersambung|Tebak Lagu/.test(gStart)) throw new Error(`game_start unexpected: ${gStart.slice(0, 120)}`);
+  const hInfo = await executeTool({ id: "t", name: "hari_libur", arguments: "{}" });
+  if (!hInfo.includes("Tanggal merah") || !hInfo.includes("2026")) throw new Error(`hari_libur unexpected: ${hInfo.slice(0, 120)}`);
+  const recap = await executeTool({ id: "t", name: "recap", arguments: "{}" }, "spotifyprobe");
+  console.log("fun: OK (mala stable/deterministic, game match logic, hari_libur/recap via tools)");
 
   // --- multi-root sandbox (ALLOWED_WORKSPACES): path stays inside listed roots ---
   const tmpWs = mkdtempSync(join(tmpdir(), "mia-ws-"));

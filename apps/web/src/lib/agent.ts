@@ -118,7 +118,7 @@ const SYSTEM_PROMPT = [
   "write 'Mau dengar apa beb?' not 'Mau dengar apa, beb?'.",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, and send_channel. ",
+  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, send_channel, mala, game_start, game_guess, game_quit, hari_libur, and recap. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
   "show saved notes, delete_note to remove one, file_read to read a project ",
@@ -150,6 +150,7 @@ const SYSTEM_PROMPT = [
   "Use calendar_list to see upcoming events, calendar_check to check a slot, calendar_add to create an event (requires confirmation), and calendar_mac_add/calendar_mac_list to sync with the Mac's Calendar.app via AppleScript. If the user says 'dikalender' / 'di kalender' / 'Mac Calendar' / 'Calendar.app', use calendar_mac_add so it lands on the Mac. After an event is confirmed and created, do NOT ask 'lanjut?' or create a second event.",
   "Use send_channel with `to` = 'telegram' or 'discord' to relay a message to the other platform when the user asks (e.g. 'kirim ini ke discord'). It sends immediately without needing confirmation.",
   "Use mood_log to record how the user is feeling when they share their mood or state (e.g. 'aku stres', 'hari ini bahagia', 'capek banget') — it stores a mood entry (great/good/okay/meh/stressed/anxious/sad/tired/angry) with an optional note and helps you tailor replies and support later. Use mood_recent to show their mood history/trend when asked (e.g. 'gimana mood-ku belakangan ini'). Both run immediately without confirmation.",
+  "Fun features, all immediate without confirmation: mala gives a daily fortune ('ramalan harian', stable all day) when the user asks to be told their luck/fortune; game_start starts a song-guess round (Mia secretly picks a song from the user's recently played Spotify history), game_guess checks the user's guess (correct → celebrate + score; wrong → next clue, max 3), game_quit reveals and stops; hari_libur answers Indonesian public holidays ('tanggal merah/libur nasional'), noting that moveable Islamic dates follow the official SKB — web_search them when the user needs exact current-year dates; recap wraps up the user's day from memory + moods when asked ('rekap hariku').",
   "Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_next/spotify_previous/spotify_volume to control playback (they run immediately, no confirmation). If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
   "save_note, delete_note, write_file, edit_file, browser_click, browser_type, browser_navigate, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, remind_me, add_task, complete_task, cancel_task, reschedule_task, create_automation, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
@@ -676,9 +677,14 @@ function scheduleMonitorFromIntent(messages: ChatMessage[], user: unknown, text:
  * "play lagu X di spotify" actually plays the song right away even when the
  * model answers verbally without a `spotify_play` tool call, or emits a
  * malformed/empty-args call. Awaited + rejection-handled so a genuinely failed
- * playback is reported gracefully (never a thrown 502). If no intent is
- * detected but `fallbackQuery` is given (from a native spotify_play call the
- * model DID emit), plays that instead.
+ * playback is reported gracefully (never a thrown 502).
+ *
+ * Query precedence: the model's OWN native `spotify_play` query wins when
+ * present (the model sees the conversation context, so "coba play lagu itu"
+ * right after a game reveal correctly resolves to "Love Bites" rather than the
+ * deictic "itu"); the deterministic intent-detected query is the fallback for
+ * turns where the model never emitted a real call. The intent's `kind`
+ * (playlist/album/track) still applies either way.
  */
 async function scheduleSpotifyFromIntent(
   messages: ChatMessage[],
@@ -689,8 +695,7 @@ async function scheduleSpotifyFromIntent(
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content || typeof lastUser.content !== "string") return text;
   const intent = detectSpotifyIntent(lastUser.content);
-  if (!intent && !fallbackQuery) return text;
-  const query = intent ? intent.query : fallbackQuery;
+  const query = fallbackQuery ?? intent?.query ?? null;
   if (!query) return text;
   let played: string;
   try {

@@ -14,6 +14,10 @@ import { listDevicesText, deviceExec, deviceScreenshot, pairDevice } from "./dev
 import { listCalText, addCalEvent, checkCalAvailability } from "./calendar";
 import { addMood, listMoods, moodTrend } from "./mood";
 import { sendToChannel, listChannels } from "../channels/pushTarget";
+import { renderMala } from "./mala";
+import { startSongGame, guessSong, quitSongGame } from "./game";
+import { holidayInfo } from "./holiday";
+import { buildEveningRecap } from "./recap";
 import {
   spotifyAuthUrl,
   spotifyConfigured,
@@ -1305,7 +1309,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "spotify_play",
         description:
-          "Play a song on Spotify. Provide `query` to search and play the top result; omit `query` to resume paused playback. Requires confirmation.",
+          "Play a song on Spotify. Provide `query` to search and play the top result; omit `query` to resume paused playback. Runs immediately (no confirmation).",
         parameters: {
           type: "object",
           properties: {
@@ -1435,6 +1439,102 @@ const toolRegistry: ToolPlugin[] = [
       } catch (err) {
         return spotifyToolError(err, ctx.rawUser);
       }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "mala",
+        description:
+          "Give a short, playfull daily fortune ('ramalan harian') — mood of the day, lucky color, lucky number, and a Mia-style hint. Same answer all day, changes daily, free/offline. Use when the user asks 'ramal aku', 'ramalan', 'mala', atau minta ramalan harian.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: (_, ctx) => renderMala(ctx.rawUser),
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "game_start",
+        description:
+          "Start a 'Tebak Lagu' round: Mia secretly picks a song the user recently played on Spotify and gives clue 1 (title length + artist initials). User guesses via game_guess; wrong answers reveal more clues (max 3). Requires Spotify connected (free tier OK).",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async (_, ctx) => {
+      try {
+        return await startSongGame(ctx.rawUser);
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "game_guess",
+        description: "Submit a guess ('judul atau artis') for the active Tebak Lagu round. Correct → win + score; wrong → next clue (max 3 tries).",
+        parameters: {
+          type: "object",
+          properties: { answer: { type: "string", description: "the user's guess, e.g. 'mr big' or 'beat it'" } },
+          required: ["answer"],
+        },
+      },
+    },
+    execute: (args, ctx) => guessSong(ctx.rawUser, args.answer),
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "game_quit",
+        description: "Give up the active Tebak Lagu round: reveal the secret song and show the score.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: (_, ctx) => quitSongGame(ctx.rawUser),
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "hari_libur",
+        description:
+          "Answer questions about Indonesian public holidays ('tanggal merah', 'hari libur nasional', 'libur apa?'). Returns fixed civil-calendar holidays (2026) and notes that moveable Islamic holidays follow the official SKB (confirm exact dates with web_search when needed). Optional `month` (1-12) filters to that month.",
+        parameters: {
+          type: "object",
+          properties: { month: { type: "string", description: "optional month 1-12 to filter, e.g. '12' for December" } },
+          required: [],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      const m = parseInt(typeof args.month === "string" ? args.month : "", 10);
+      return holidayInfo(ctx.rawUser, Number.isNaN(m) ? undefined : m);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "recap",
+        description:
+          "Wrap up the user's day in a warm recap from local data (today's memory + moods). Use when asked 'rekap hari ini', 'refleksi', 'gimana hari ku', 'summarize my day'. A night recap also auto-pushes every evening.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: (_, ctx) => {
+      const text = buildEveningRecap(ctx.rawUser);
+      return text || "Belum ada aktivitas yang terekam hari ini — nanti malam aku rekap lebih lengkap ya. 🌸";
     },
   },
 ];

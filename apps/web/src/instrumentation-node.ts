@@ -38,6 +38,12 @@ export async function registerNode(): Promise<void> {
     console.error("[heartbeat] failed to start:", err instanceof Error ? err.message : String(err));
   }
   try {
+    const { startRecapRunner } = await import("@/lib/recap");
+    startRecapRunner();
+  } catch (err) {
+    console.error("[recap] failed to start:", err instanceof Error ? err.message : String(err));
+  }
+  try {
     const { backupNow } = await import("@/lib/backup");
     const dest = backupNow();
     console.log(`[backup] auto backup created at ${dest}`);
