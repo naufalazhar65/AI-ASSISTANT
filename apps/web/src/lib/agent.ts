@@ -28,6 +28,9 @@ import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolu
 import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
 import { appendDailyMemory } from "./dailyMemory";
+import { checkRateLimit, RateLimitError } from "./rateLimit";
+import { recordTurn } from "./turnStats";
+import { auditLog } from "./auditLog";
 
 export type ChatMessage = {
   role: string;
@@ -841,8 +844,46 @@ function logMoodFromMessages(messages: ChatMessage[], user: unknown): void {
  * automatic persona memory capture, and reminder scheduling on the opencode
  * path. Buffered (non-streaming) — the web route streams the returned text and
  * any confirmation frame; channel bots send the text to their platform.
+ *
+ * Thin vehicle for Fase-5 guardrails: app-level rate limiting (per-user,
+ * `RATE_LIMIT_TURNS_PER_MIN`), turn latency/outcome counters for observability,
+ * and targeted audit-log events. The actual work lives in `runAssistantTurnImpl`.
  */
 export async function runAssistantTurn(opts: {
+  messages: ChatMessage[];
+  provider?: string;
+  model?: string;
+  user?: unknown;
+  confirm_call?: { call: ToolCall; allow: boolean };
+  /** Headless/automated turns (no human to approve risky tools): auto-denied. */
+  autoDenyRisky?: boolean;
+  /** Voice (default) keeps replies plain for TTS; "text"/"discord" allow markdown. */
+  channel?: Channel;
+}): Promise<TurnResult> {
+  checkRateLimit(opts.user);
+  if (opts.confirm_call && !opts.confirm_call.allow) {
+    auditLog(opts.user, "tool_confirm_denied", `${opts.confirm_call.call?.name ?? "unknown"}`);
+  }
+  const t0 = Date.now();
+  let ok = true;
+  let kind: string | undefined;
+  try {
+    return await runAssistantTurnImpl(opts);
+  } catch (err) {
+    ok = false;
+    kind = err instanceof Error ? err.name : "UnknownError";
+    if (err instanceof RateLimitError) {
+      auditLog(opts.user, "turn_rate_limited", err.message.slice(0, 80));
+    } else {
+      auditLog(opts.user, "turn_error", `${kind}: ${err instanceof Error ? String(err.message).slice(0, 200) : String(err)}`);
+    }
+    throw err;
+  } finally {
+    recordTurn(opts.user, Date.now() - t0, ok, kind);
+  }
+}
+
+async function runAssistantTurnImpl(opts: {
   messages: ChatMessage[];
   provider?: string;
   model?: string;

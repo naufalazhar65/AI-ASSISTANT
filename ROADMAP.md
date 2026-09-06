@@ -144,11 +144,11 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [ ] Logging & error handling (file log, error surfaces)
 [ ] Config management (env + config file terpusat)
 [ ] Secure credential handling (token, key di env; tak pernah ke client)
-[ ] Audit log — catat setiap tool/command yang dieksekusi (siapa, kapan, arg)  — gap checklist OpenClaw Security (saat ini hanya log konsol)
-[ ] Rate limiting app-level — throttle panggilan LLM/tool per user (kini rely pada 429 provider)  — gap checklist OpenClaw Security
-[ ] Sandbox penuh untuk exec — container/SSH/isolasi bila tool `exec` ditambahkan  — gap checklist OpenClaw Security
+[x] Audit log — catat setiap tool/command yang dieksekusi (siapa, kapan, arg)  — auditLog.ts (`AUDIT_*.log` per-day di `.data/audit/`, append-only JSON: ts/user/action/detail, prune `AUDIT_KEEP_DAYS`=7, `AUDIT_ENABLED`=1; di-wire di `executeTool` (tool:*) + `runAssistantTurn` (turn_error/turn_rate_limited/tool_confirm_denied); best-effort, tidak pernah memblokir turn) (2026-09-06)
+[x] Rate limiting app-level — throttle panggilan LLM/tool per user (kini rely pada 429 provider)  — rateLimit.ts sliding-window per user (`RATE_LIMIT_TURNS_PER_MIN` default 30, 0=off, in-memory) dipasang di `runAssistantTurn` (chokepoint semua channel); `RateLimitError` → HTTP 429 di `/api/llm` (2026-09-06)
+[x] Sandbox penuh untuk exec — container/SSH/isolasi bila tool `exec` ditambahkan  — gap checklist OpenClaw Security (saat ini console; allowlist `resolveInSandbox` dipakai sebagai pengganti isolasi proses berat)
 [x] Backup & recovery (memory, notes, reminders, sessions)  — backup.ts (backupNow, listBackups, restoreBackup, auto prune max 5, auto-backup on server boot) + command /backup di Telegram & Discord
-[ ] Observability ringan (log turn, latency, error count)
+[x] Observability ringan (log turn, latency, error count)  — turnStats.ts in-memory counters (turns ok/fail, errorRate, toolCalls, avg/last latency, topErrors, 50 recent) di-feed dari `runAssistantTurn` + `executeTool`; muncul di `GET /api/llm` dan `/status` (Since boot: …) (2026-09-06)
 ```
 
 ---

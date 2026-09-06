@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { ToolCall } from "@/lib/tools";
 import { classifyAssistantError } from "@/lib/assistantError";
+import { RateLimitError } from "@/lib/rateLimit";
+import { getTurnStats } from "@/lib/turnStats";
 import {
   runAssistantTurn,
   CONFIRM_FRAME_PREFIX,
@@ -52,6 +54,9 @@ export async function POST(request: NextRequest) {
       confirm_call: body.confirm_call,
     });
   } catch (err) {
+    if (err instanceof RateLimitError) {
+      return new Response(`LLM error: ${err.message}`, { status: 429, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    }
     const message = err instanceof Error ? err.message : "Assistant failed";
     const cls = classifyAssistantError(err);
     // Return the user-facing message so the web UI can surface a clear
@@ -85,5 +90,22 @@ export async function POST(request: NextRequest) {
 
   return new Response(stream, {
     headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" },
+  });
+}
+
+/** GET /api/stats — lightweight observability (Fase 5): in-process counters. */
+export async function GET() {
+  const stats = getTurnStats();
+  return Response.json({
+    stats,
+    config: {
+      rateLimitPerMin: (() => {
+        const raw = process.env.RATE_LIMIT_TURNS_PER_MIN;
+        const n = Number(raw);
+        return Number.isNaN(n) ? 30 : n;
+      })(),
+      auditEnabled: process.env.AUDIT_ENABLED !== "0",
+    },
+    at: new Date().toISOString(),
   });
 }

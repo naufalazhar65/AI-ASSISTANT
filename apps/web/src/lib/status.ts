@@ -15,6 +15,7 @@ import { readReminders } from "./reminders";
 import { readAutomations } from "./automations";
 import { listUploads } from "./uploads";
 import { readMoods } from "./mood";
+import { getTurnStats } from "./turnStats";
 
 const bootTime = Date.now();
 const TIMEZONE = process.env.MIA_USER_TIMEZONE || "Asia/Jakarta";
@@ -83,6 +84,11 @@ export function buildStatusReport(input: StatusInput, version = "Mia"): string {
   lines.push(`  tasks ${countTasks(user)} · reminders ${readReminders(user).length} · automations ${readAutomations(user).length} · notes ${noteCount(user)} · moods ${readMoods(user).length}`);
   lines.push(`  uploads:`);
   lines.push(padUploadSummary(listUploads(user)));
+
+  // Fase-5 observability: in-process turn/tool counters + latency.
+  const st = getTurnStats();
+  lines.push("");
+  lines.push(`Since boot: ${st.turns} turns (${st.turnsOk} ok · ${st.turnsFailed} err · ${st.errorRatePct}% fail) · ${st.toolCalls} tool calls · avg ${st.avgLatencyMs}ms · last ${st.lastTurnMs}ms`);
 
   return lines.join("\n");
 }

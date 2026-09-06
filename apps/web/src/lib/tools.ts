@@ -18,6 +18,8 @@ import { renderMala } from "./mala";
 import { startSongGame, guessSong, quitSongGame } from "./game";
 import { holidayInfo } from "./holiday";
 import { buildEveningRecap } from "./recap";
+import { auditLog } from "./auditLog";
+import { recordToolCall } from "./turnStats";
 import {
   spotifyAuthUrl,
   spotifyConfigured,
@@ -1574,6 +1576,12 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   }
   const plugin = getTool(call.name);
   if (!plugin) return `Error: unknown tool "${call.name}"`;
+  // Fase-5 audit + observability: who/what/when for every tool call, plus a
+  // call counter. Best-effort, never disturbs the result.
+  try {
+    auditLog(rawUser, `tool:${call.name}`, JSON.stringify(args).slice(0, 300));
+  } catch { /* no-op */ }
+  recordToolCall(rawUser, call.name);
   const userKey = sanitizeUser(rawUser);
   const out = await plugin.execute(args, { userKey, rawUser });
   return out ?? "";

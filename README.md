@@ -125,9 +125,10 @@ npx tsx packages/state-machine/verify.ts
 ## Operations
 
 - **Deploy:** single process (`next start` + in-process bots + scheduler). Two config dirs: `.env.local` holds keys; `.data/` holds user state — back up both. Multi-instance needs an external queue for the scheduler.
-- **Diagnostics:** `/tmp/mia-dev.log` in dev; bot gateway warnings/errors surface via stdout. `/status` in any channel shows live state.
+- **Diagnostics:** `/tmp/mia-dev.log` in dev; bot gateway warnings/errors surface via stdout. `/status` in any channel shows live state. `GET /api/llm` returns in-process turn/tool counters (Fase-5 observability: turns ok/fail, error %, avg/last latency).
 - **Automation delivery:** scheduled automations push to the owner's last-seen channel; stays unfired until a channel is seen after restart.
 - **Error surfaces:** `assistantError.ts` classifies `rate_limit`/`quota` (429/402) into clear user messages in web banner + Telegram/Discord.
+- **Guardrails (Fase 5):** per-user rate limiting on assistant turns (`RATE_LIMIT_TURNS_PER_MIN`, default 30, 0=off) returns HTTP 429; append-only audit trail of tool calls/turn errors at `.data/audit/AUDIT-*.log` (`AUDIT_ENABLED`, `AUDIT_KEEP_DAYS`); both in-process for the single-personal-process deploy.
 
 ## Docs
 
