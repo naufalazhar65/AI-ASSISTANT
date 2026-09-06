@@ -39,7 +39,7 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 - **Channels:** `apps/web/src/channels/{telegram,discord}.ts` + `pushTarget.ts` sink for proactive pushes.
 - **Persistence:** per-user disk store under `apps/web/.data/users/<user>/` — notes, reminders, tasks, uploads, automations, mood log (`moods.json`), Spotify token (`spotify.json`), persona, daily memory (`memory/YYYY-MM-DD.md`).
 - **Scheduling:** `lib/reminders.ts` + `lib/automations.ts` (daily / hourly) + `automationRunner.ts` + `heartbeat.ts` (periodic overdue/due-soon check, default 30m) + `POST /api/webhook` (external trigger with `WEBHOOK_SECRET`) — all started in `instrumentation-node.ts`.
-- **Channel adapter policy:** Discord DM requires `partials: [Channel, Message]` + `msg.fetch()` on `msg.partial` (first-ever DM would be dropped otherwise).
+- **Channel adapter policy:** Discord DM requires `partials: [Channel, Message]` + `msg.fetch()` on `msg.partial` (first-ever DM would be dropped otherwise). While a turn is running, the Discord adapter keeps a live typing indicator on the channel (`withTyping`, re-pulses every 8s) so the owner sees the bot is working.
 
 ## Commands
 
@@ -75,7 +75,7 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 | `calendar_add` | write | Add calendar event (confirmation) |
 | `spotify_link` | read | Return Spotify authorization link (one-time connect, opens in browser) |
 | `spotify_status` / `spotify_search` / `spotify_devices` | read | Now playing / search tracks / list playback devices |
-| `spotify_play` / `spotify_pause` / `spotify_next` / `spotify_previous` / `spotify_volume` | write | Control Spotify playback (confirmation; requires Spotify Premium) |
+| `spotify_play` / `spotify_pause` / `spotify_next` / `spotify_previous` / `spotify_volume` | write | Control Spotify playback (runs immediately, no confirmation; requires Spotify Premium) |
 | `save_note` / `list_notes` / `delete_note` | write/delete | Quick persistent notes (50 / 80 KB cap, atomic disk write) |
 | `add_task` `list_tasks` `complete_task` `cancel_task` `reschedule_task` | write | Task list |
 | `remind_me` | write | Schedule a reminder (ISO-8601 with offset; stale clock rebased) |
@@ -84,7 +84,7 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 | `mood_recent` | read | Show mood history / trend ("gimana mood-ku belakangan ini?") |
 | `send_channel` | read* | Relay a message to another registered channel (Telegram ↔ Discord, sends immediately, no confirmation) |
 
-Read-only tools auto-execute. Write/delete/transaction/external tools pause for inline `ya`/`tidak` confirmation (FR-014).
+Read-only tools auto-execute. Write/delete/transaction/external tools pause for inline `ya`/`tidak` confirmation (FR-014) — **except Spotify playback controls**, which run immediately (user preference, 2026-09-06).
 
 ## Voice (Web)
 

@@ -77,6 +77,7 @@ Memperkuat inti asisten (sudah ~90% dari Fase 0).
 [x] Command system (slash commands)  — prefix "/" (start/help/reset/provider/model)
 [x] Per-user conversation session  — in-memory per-channel history; user key dari discord username
 [x] Konfirmasi risky tool via Discord  — "Balas ya / tidak" (sama pola Telegram)
+[x] Typing indicator saat menunggu respon  — withTyping() di runTurn + handleConfirmation (re-pulse 8s, Discord tayangkan "bot lagi ngetik") (2026-09-06)
 ```
 
 ### 2.4 Message Handling & Command System
@@ -102,7 +103,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [x] Notifications: reminder/notif proaktif push ke channel aktif (Telegram/Discord)  — pushTarget Telegram + pushTargetChannel Discord + reminderMessage ala Mia (live-verified)
 [x] Scheduling/task management: daftar task, reschedule, cancel via chat  — tasks.ts + tools (add/list/complete/cancel/reschedule_task), insertion-order numbering
 [x] Mood tracking: Mia tahu perasaan user & bisa menyesuaikan dukungan  — mood.ts (per-user `moods.json`: good/okay/meh/stressed/anxious/sad/tired/angry, terkap normalisasi IN-EN) + tools `mood_log` (read, auto) & `mood_recent` (read, auto, trend + riwayat); deteksi deterministic `moodIntent.ts` (log otomatis saat user bilang "aku stres/capek/galau" — tanpa perlu tool call) di kedua path agent; verified probe + typecheck/lint (2026-09-05)
-[x] Spotify integration: kontrol musik pemilik via Spotify Web API  — spotify.ts (per-user OAuth token store `spotify.json`, auto-refresh) + route `/api/spotify/auth` (redirect OAuth) & `/api/spotify/callback` (exchange code→token); tools `spotify_link` (read) `spotify_status`/`spotify_search`/`spotify_devices` (read, auto) + `spotify_play`/`spotify_pause`/`spotify_next`/`spotify_previous`/`spotify_volume` (write, FR-014 confirm); playback control butuh akun Premium (status/search jalan di free); verified probe + verify.ts (2026-09-05)
+[x] Spotify integration: kontrol musik pemilik via Spotify Web API  — spotify.ts (per-user OAuth token store `spotify.json`, auto-refresh) + route `/api/spotify/auth` (redirect OAuth) & `/api/spotify/callback` (exchange code→token); tools `spotify_link` (read) `spotify_status`/`spotify_search`/`spotify_devices` (read, auto) + `spotify_play`/`spotify_pause`/`spotify_next`/`spotify_previous`/`spotify_volume` (write, **EKSEKUSI LANGSUNG tanpa konfirmasi** sejak 2026-09-06 per keputusan user — deterministik intent play/control dari user-message jadi sumber kebenaran, call native hasil model didedup/dieksekusi in-place agar tidak double-action); playback control butuh akun Premium (status/search jalan di free); verified probe + verify.ts (2026-09-05)
 [x] Scheduler yang tahan restart (replay dari disk)  — reminders.json/automations.json unfired persist; SSE re-play on connect (survives restart/closed tab)
 [x] Konfirmasi risky tool secara penuh di semua channel  — Telegram ya/tidak ✓; Discord ya/tidak ✓; automation create_automation juga via gate FR-014
 [x] Web interaction: web_search lebih kuat (navigasi, ambil konten)  — web_search (DuckDuckGo instant+HTML) + tool baru fetch_url (scrape teks artikel by URL, SSRF-guard: blok localhost/private/metadata, htst HTTTP(S), size/timeout cap; ekstraksi article/main/og:description); live-verified 404 + example.com

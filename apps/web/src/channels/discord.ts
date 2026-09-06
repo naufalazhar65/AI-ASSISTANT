@@ -39,6 +39,26 @@ import { handleUnifiedCommand, ChatSessionState } from "@/lib/channelMessage";
 /** Minimal sendable text surface we rely on (any discord.js text channel). */
 type SendableChannel = { send: (content: string) => Promise<Message> };
 
+/** Keep Discord's typing indicator on a channel alive while `task` runs. The
+ *  indicator fades after ~10s, so we re-trigger it every 8s and stop as soon as
+ *  the task settles. Extra separators: best-effort, never fatal. */
+async function withTyping<T>(channel: SendableChannel, task: () => Promise<T>): Promise<T> {
+  const ch = channel as { sendTyping?: () => Promise<unknown> };
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const pulse = (): void => {
+    ch.sendTyping?.().catch(() => {});
+  };
+  if (ch.sendTyping) {
+    timer = setInterval(pulse, 8000);
+    pulse();
+  }
+  try {
+    return await task();
+  } finally {
+    if (timer) clearInterval(timer);
+  }
+}
+
 type ChatState = {
   provider: string;
   model?: string;
@@ -397,17 +417,20 @@ async function handleConfirmation(msg: Message, state: ChatState, user: string, 
     return;
   }
   state.pending = null;
+  const channel = msg.channel as unknown as SendableChannel;
   await replyMia(msg, "Oke, sebentar ya…");
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
-    result = await runAssistantTurn({
-      messages: pending.messages,
-      provider: state.provider,
-      model: state.model,
-      user,
-      channel: "discord",
-      confirm_call: { call: pending.call, allow: yes },
-    });
+    result = await withTyping(channel, () =>
+      runAssistantTurn({
+        messages: pending.messages,
+        provider: state.provider,
+        model: state.model,
+        user,
+        channel: "discord",
+        confirm_call: { call: pending.call, allow: yes },
+      })
+    );
   } catch (err) {
     console.error("[discord] confirm failed:", err instanceof Error ? err.message : String(err));
     await replyMia(msg, classifyAssistantError(err).userMessage);
@@ -433,14 +456,16 @@ async function runTurn(
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
     console.log(`[discord] turn start (provider=${state.provider})`);
-    result = await runAssistantTurn({
-      messages: turnMessages,
-      provider: state.provider,
-      model: state.model,
-      user,
-      channel: "discord",
-      confirm_call: confirmCall,
-    });
+    result = await withTyping(msg.channel as unknown as SendableChannel, () =>
+      runAssistantTurn({
+        messages: turnMessages,
+        provider: state.provider,
+        model: state.model,
+        user,
+        channel: "discord",
+        confirm_call: confirmCall,
+      })
+    );
     console.log(`[discord] turn done (text len=${(result.text || "").length})`);
   } catch (err) {
     console.error("[discord] turn failed:", err instanceof Error ? err.message : String(err));
