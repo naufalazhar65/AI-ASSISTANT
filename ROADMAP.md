@@ -139,10 +139,10 @@ Mia benar-benar berguna sebagai asisten pribadi.
 ## Fase 5 — Stability & Security
 
 ```text
-[ ] Authentication (tetap ringan untuk single-user, namun kokoh)
-[ ] Permission management (per tool/channel)
-[ ] Logging & error handling (file log, error surfaces)
-[ ] Config management (env + config file terpusat)
+[x] Authentication (tetap ringan untuk single-user, namun kokoh)  — AUTH_TOKEN: middleware.ts melindungi `/` + `/api/*` (kecuali /login, /api/auth|webhook, /api/spotify/) via cookie `mia_auth` (HttpOnly, POST /api/auth/login + DELETE logout + GET status) atau header `Authorization: Bearer`; halaman /login PIN pakai cookie HttpOnly+SameSite=Lax; default tanpa AUTH_TOKEN tetap terbuka (LAN pribadi); bot tak terpengaruh (langsung panggil core). Edge-safe authGuard.ts (2026-09-06)
+[x] Permission management (per tool/channel)  — TOOLS_DENY (env/config.json): tool yang diblok untuk SEMUA channel di `executeTool` sebelum dispatch, tetap diaudit `tool:<x>::denied`; FR-014 risk-gate (read auto / write-delete confirm) tetap jalan sebagai lapisan kedua; matriks per-channel per-role baru relevan saat multi-owner (single-owner: satu kebijakan, didokumentasikan) (2026-09-06)
+[x] Logging & error handling (file log, error surfaces)  — appLogger.ts: event operasional (bot start, heartbeat, recap, backup, error) diampless ke stdout DAN per-day `.data/logs/APP-YYYY-MM-DD.log` (`APP_LOG_ENABLED`=1, retensi `APP_LOG_KEEP_DAYS`=14); audit trail per-aksi tetap di auditLog.ts; best-effort tidak pernah blokir runtime (2026-09-06)
+[x] Config management (env + config file terpusat)  — config.ts: precedence env → `.data/config.json` (gitignored, key sama dgn env) → default; getter bertipe (cfgStr/cfgInt/cfgBool/cfgList + named knob rateLimit/audit/recap/heartbeat/log/toolsDeny); rateLimit/auditLog/recap/heartbeat/tools/route di-refactor ke config (single source) (2026-09-06)
 [ ] Secure credential handling (token, key di env; tak pernah ke client)
 [x] Audit log — catat setiap tool/command yang dieksekusi (siapa, kapan, arg)  — auditLog.ts (`AUDIT_*.log` per-day di `.data/audit/`, append-only JSON: ts/user/action/detail, prune `AUDIT_KEEP_DAYS`=7, `AUDIT_ENABLED`=1; di-wire di `executeTool` (tool:*) + `runAssistantTurn` (turn_error/turn_rate_limited/tool_confirm_denied); best-effort, tidak pernah memblokir turn) (2026-09-06)
 [x] Rate limiting app-level — throttle panggilan LLM/tool per user (kini rely pada 429 provider)  — rateLimit.ts sliding-window per user (`RATE_LIMIT_TURNS_PER_MIN` default 30, 0=off, in-memory) dipasang di `runAssistantTurn` (chokepoint semua channel); `RateLimitError` → HTTP 429 di `/api/llm` (2026-09-06)

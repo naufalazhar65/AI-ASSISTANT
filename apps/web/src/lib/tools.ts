@@ -19,6 +19,7 @@ import { startSongGame, guessSong, quitSongGame } from "./game";
 import { holidayInfo } from "./holiday";
 import { buildEveningRecap } from "./recap";
 import { auditLog } from "./auditLog";
+import { toolsDeny } from "./config";
 import { recordToolCall } from "./turnStats";
 import {
   spotifyAuthUrl,
@@ -1576,6 +1577,14 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   }
   const plugin = getTool(call.name);
   if (!plugin) return `Error: unknown tool "${call.name}"`;
+  // Fase-5 permission policy: TOOLS_DENY (central config) hard-blocks a tool for
+  // every channel, even read-only ones. Best-effort audit records the block.
+  if (toolsDeny().includes(call.name)) {
+    try {
+      auditLog(rawUser, `tool:${call.name}::denied`, JSON.stringify(args).slice(0, 300));
+    } catch { /* no-op */ }
+    return `Tool "${call.name}" dinonaktifkan oleh kebijakan (TOOLS_DENY).`;
+  }
   // Fase-5 audit + observability: who/what/when for every tool call, plus a
   // call counter. Best-effort, never disturbs the result.
   try {

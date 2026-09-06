@@ -5,49 +5,50 @@
  * code).
  */
 export async function registerNode(): Promise<void> {
+  const { logInfo, logError } = await import("@/lib/appLogger");
   try {
     const { isValidTelegramConfig, startTelegramBot } = await import("@/channels/telegram");
     if (isValidTelegramConfig()) {
       await startTelegramBot();
     } else {
-      console.log("[telegram] not configured — skipping bot start");
+      logInfo("telegram", "not configured — skipping bot start");
     }
   } catch (err) {
-    console.error("[telegram] failed to start bot:", err instanceof Error ? err.message : String(err));
+    logError("telegram", `failed to start bot: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
     const { isValidDiscordConfig, startDiscordBot } = await import("@/channels/discord");
     if (isValidDiscordConfig()) {
       await startDiscordBot();
     } else {
-      console.log("[discord] not configured — skipping bot start");
+      logInfo("discord", "not configured — skipping bot start");
     }
   } catch (err) {
-    console.error("[discord] failed to start bot:", err instanceof Error ? err.message : String(err));
+    logError("discord", `failed to start bot: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
     const { startAutomationRunner } = await import("@/lib/automationRunner");
     startAutomationRunner();
   } catch (err) {
-    console.error("[automation] failed to start runner:", err instanceof Error ? err.message : String(err));
+    logError("automation", `failed to start runner: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
     const { startHeartbeat } = await import("@/lib/heartbeat");
     startHeartbeat();
   } catch (err) {
-    console.error("[heartbeat] failed to start:", err instanceof Error ? err.message : String(err));
+    logError("heartbeat", `failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
     const { startRecapRunner } = await import("@/lib/recap");
     startRecapRunner();
   } catch (err) {
-    console.error("[recap] failed to start:", err instanceof Error ? err.message : String(err));
+    logError("recap", `failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
     const { backupNow } = await import("@/lib/backup");
     const dest = backupNow();
-    console.log(`[backup] auto backup created at ${dest}`);
+    logInfo("backup", `auto backup created at ${dest}`);
   } catch (err) {
-    console.error("[backup] failed:", err instanceof Error ? err.message : String(err));
+    logError("backup", `failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

@@ -9,6 +9,7 @@ import {
   ChatMessage,
 } from "@/lib/agent";
 import { defaultProviderId } from "@/lib/providers";
+import { rateLimitPerMin, auditEnabled, auditKeepDays, toolsDeny } from "@/lib/config";
 
 export const runtime = "nodejs";
 
@@ -99,12 +100,10 @@ export async function GET() {
   return Response.json({
     stats,
     config: {
-      rateLimitPerMin: (() => {
-        const raw = process.env.RATE_LIMIT_TURNS_PER_MIN;
-        const n = Number(raw);
-        return Number.isNaN(n) ? 30 : n;
-      })(),
-      auditEnabled: process.env.AUDIT_ENABLED !== "0",
+      rateLimitPerMin: rateLimitPerMin(),
+      auditEnabled: auditEnabled(),
+      auditKeepDays: auditKeepDays(),
+      toolsDeny: toolsDeny(),
     },
     at: new Date().toISOString(),
   });

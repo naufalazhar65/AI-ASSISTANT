@@ -5,19 +5,17 @@
 // Deliberately best-effort and non-blocking: audit() never throws, never waits,
 // and can never break the turn (wrapped in try/catch + guarded file appends).
 // This is an append-only trail for the owner's personal review — NOT a
-// queryable service. Env: AUDIT_ENABLED=1|0 (default 1), AUDIT_KEEP_DAYS (7).
+// queryable service. Knobs (AUDIT_ENABLED, AUDIT_KEEP_DAYS) come from central
+// config.
 
 import { appendFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { appRoot, sanitizeUser } from "./users";
+import { auditEnabled, auditKeepDays } from "./config";
 
 const AUDIT_DIR = () => join(appRoot(), ".data", "audit");
 
 let lastPruneDay = "";
-
-export function auditEnabled(): boolean {
-  return process.env.AUDIT_ENABLED !== "0";
-}
 
 function day(now = new Date()): string {
   return now.toISOString().slice(0, 10);
@@ -47,7 +45,7 @@ export function auditLog(user: unknown, action: string, detail?: string): void {
   try {
     if (!auditEnabled()) return;
     const now = new Date();
-    const keepDays = Number(process.env.AUDIT_KEEP_DAYS ?? "7") || 7;
+    const keepDays = auditKeepDays();
     prune(now, keepDays);
     const file = join(AUDIT_DIR(), `AUDIT-${day(now)}.log`);
     mkdirSync(AUDIT_DIR(), { recursive: true });

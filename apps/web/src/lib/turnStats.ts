@@ -39,7 +39,8 @@ export interface TurnStats {
 
 export function recordTurn(user: unknown, latencyMs: number, ok: boolean, kind?: string): void {
   stats.turns += 1;
-  ok ? (stats.turnsOk += 1) : (stats.turnsFailed += 1);
+  if (ok) stats.turnsOk += 1;
+  else stats.turnsFailed += 1;
   stats.totalLatencyMs += latencyMs;
   if (kind) stats.errorKinds.set(kind, (stats.errorKinds.get(kind) ?? 0) + 1);
   const entry: TurnStatEntry = {

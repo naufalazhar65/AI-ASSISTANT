@@ -12,20 +12,12 @@ import { userDataRoot } from "./users";
 import { readDailyMemory } from "./dailyMemory";
 import { readMoods } from "./mood";
 import { pushToOwner } from "../channels/pushTarget";
+import { recapHour } from "./config";
+import { logInfo, logError } from "./appLogger";
 
 let timer: NodeJS.Timeout | null = null;
 let started = false;
 let lastRecapDay = "";
-
-/** 0 = off. Default 21 (= 21:00 WIB local server time). */
-export function recapHour(): number {
-  const raw = process.env.RECAP_HOUR;
-  if (raw !== undefined) {
-    const n = Number(raw);
-    if (!Number.isNaN(n) && n >= 0 && n <= 23) return n;
-  }
-  return 21;
-}
 
 function localDay(date: Date): string {
   try {
@@ -125,10 +117,10 @@ async function tick(): Promise<void> {
       const msg = buildEveningRecap(user, now);
       if (!msg) continue; // nothing happened today → stay silent
       const delivered = await pushToOwner(msg);
-      if (delivered) console.log(`[recap] pushed for ${user}`);
-      else console.log(`[recap] no channel for ${user}, skipped`);
+      if (delivered) logInfo("recap", `pushed for ${user}`);
+      else logInfo("recap", `no channel for ${user}, skipped`);
     } catch (e) {
-      console.warn(`[recap] failed for ${user}:`, e instanceof Error ? e.message : String(e));
+      logError("recap", `failed for ${user}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 }
@@ -138,10 +130,10 @@ export function startRecapRunner(): void {
   if (started) return;
   started = true;
   if (!recapHour()) {
-    console.log("[recap] disabled (RECAP_HOUR=0)");
+    logInfo("recap", "disabled (RECAP_HOUR=0)");
     return;
   }
-  console.log(`[recap] starting — daily at ${String(recapHour()).padStart(2, "0")}:00`);
+  logInfo("recap", `starting — daily at ${String(recapHour()).padStart(2, "0")}:00`);
   setTimeout(() => void tick(), 30 * 1000);
   timer = setInterval(() => void tick(), 60 * 1000);
   if (timer && typeof timer.unref === "function") timer.unref();

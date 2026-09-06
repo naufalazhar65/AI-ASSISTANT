@@ -9,18 +9,16 @@ import { join } from "node:path";
 import { userDataRoot } from "./users";
 import { readTasks } from "./tasks";
 import { pushToOwner } from "../channels/pushTarget";
+import { heartbeatMinutes } from "./config";
+import { logInfo, logError } from "./appLogger";
 
 let timer: NodeJS.Timeout | null = null;
 let started = false;
 
 function heartbeatIntervalMs(): number {
-  const raw = process.env.HEARTBEAT_INTERVAL_MINUTES;
-  if (raw !== undefined) {
-    const n = Number(raw);
-    if (!Number.isNaN(n) && n > 0) return n * 60 * 1000;
-    if (n === 0) return 0; // disabled
-  }
-  return 30 * 60 * 1000; // default 30m
+  const n = heartbeatMinutes();
+  if (n > 0) return n * 60 * 1000;
+  return 0; // disabled
 }
 
 function allUserKeys(): string[] {
@@ -65,10 +63,10 @@ async function tick(): Promise<void> {
       }
       const msg = `💓 *Heartbeat* — cek tugas\n${lines.join("\n")}`;
       const delivered = await pushToOwner(msg);
-      if (delivered) console.log(`[heartbeat] notified ${user}: ${overdue.length} overdue, ${dueSoon.length} due soon`);
-      else console.log(`[heartbeat] no channel for ${user}, skipped`);
+      if (delivered) logInfo("heartbeat", `notified ${user}: ${overdue.length} overdue, ${dueSoon.length} due soon`);
+      else logInfo("heartbeat", `no channel for ${user}, skipped`);
     } catch (e) {
-      console.warn(`[heartbeat] check failed for ${user}:`, e instanceof Error ? e.message : String(e));
+      logError("heartbeat", `check failed for ${user}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 }
@@ -79,10 +77,10 @@ export function startHeartbeat(): void {
   started = true;
   const interval = heartbeatIntervalMs();
   if (!interval) {
-    console.log("[heartbeat] disabled (HEARTBEAT_INTERVAL_MINUTES=0)");
+    logInfo("heartbeat", "disabled (HEARTBEAT_INTERVAL_MINUTES=0)");
     return;
   }
-  console.log(`[heartbeat] starting — every ${Math.round(interval / 60000)}m`);
+  logInfo("heartbeat", `starting — every ${Math.round(interval / 60000)}m`);
   // Run once a short time after boot, then on interval
   setTimeout(() => void tick(), 60 * 1000);
   timer = setInterval(() => void tick(), interval);

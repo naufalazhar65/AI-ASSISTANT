@@ -1,8 +1,8 @@
 import { ConversationManager } from "./src/ai/ConversationManager";
 import { MockProvider } from "@ai-provider/mock";
 import { executeTool } from "./src/lib/tools";
-import { resolveInSandbox } from "./src/lib/users";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { resolveInSandbox, appRoot } from "./src/lib/users";
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -278,6 +278,60 @@ async function main() {
     rmSync(tmpWs, { recursive: true, force: true });
   }
   console.log("sandbox multi-root: OK");
+
+  // --- Fase 5: config precedence (env > .data/config.json > default) ---
+  const { resetConfigCache, rateLimitPerMin, cfgStr, toolsDeny } = await import("./src/lib/config");
+  const prevRl = process.env.RATE_LIMIT_TURNS_PER_MIN;
+  const cfgFile = join(appRoot(), ".data", "config.json");
+  resetConfigCache();
+  const hadCfg = existsSync(cfgFile);
+  const oldCfg = hadCfg ? readFileSync(cfgFile, "utf8") : null;
+  try {
+    writeFileSync(cfgFile, JSON.stringify({ RATE_LIMIT_TURNS_PER_MIN: 7, MIA_TEST_ONLY: "fromfile", TOOLS_DENY: "exec,write_file" }), "utf8");
+    resetConfigCache();
+    if (cfgStr("MIA_TEST_ONLY", "def") !== "fromfile") throw new Error("config file override failed");
+    if (rateLimitPerMin() !== 7) throw new Error("config file int override failed");
+    process.env.RATE_LIMIT_TURNS_PER_MIN = "99";
+    resetConfigCache();
+    if (rateLimitPerMin() !== 99) throw new Error("env precedence over file failed");
+    const denied = toolsDeny();
+    if (!denied.includes("exec") || !denied.includes("write_file")) throw new Error("toolsDeny list parse failed");
+    // TOOLS_DENY blocks a tool even though it's registered.
+    const deniedOut = await executeTool({ id: "t", name: "exec", arguments: "{\"cmd\":\"ls\"}" }, "cfgprobe");
+    if (!/dinonaktifkan/.test(deniedOut)) throw new Error(`denied tool not blocked: ${deniedOut}`);
+  } finally {
+    if (prevRl === undefined) delete process.env.RATE_LIMIT_TURNS_PER_MIN;
+    else process.env.RATE_LIMIT_TURNS_PER_MIN = prevRl;
+    if (hadCfg) writeFileSync(cfgFile, oldCfg!, "utf8");
+    else rmSync(cfgFile, { force: true });
+    process.env.TOOLS_DENY = "";
+    resetConfigCache();
+  }
+  console.log("fase5 config: OK (env > file > default, TOOLS_DENY blocks tools)");
+
+  // --- Fase 5: auth guard (pure, edge-safe) + app logger ---
+  const { authEnabled, isAuthorized, isPublicPath, authToken } = await import("./src/lib/authGuard");
+  const prevAuth = process.env.AUTH_TOKEN;
+  try {
+    process.env.AUTH_TOKEN = "s3cret";
+    if (!authEnabled()) throw new Error("authEnabled false with token set");
+    if (!isAuthorized("s3cret", null)) throw new Error("cookie auth failed");
+    if (!isAuthorized(null, "s3cret")) throw new Error("bearer auth failed");
+    if (isAuthorized("wrong", null)) throw new Error("wrong cookie accepted");
+    if (!isPublicPath("/login") || !isPublicPath("/api/auth/login") || !isPublicPath("/api/webhook") || !isPublicPath("/api/spotify/callback")) {
+      throw new Error("public path classification wrong");
+    }
+    if (isPublicPath("/api/llm") || isPublicPath("/")) throw new Error("private path misclassified");
+  } finally {
+    if (prevAuth === undefined) delete process.env.AUTH_TOKEN;
+    else process.env.AUTH_TOKEN = prevAuth;
+  }
+  const { logInfo } = await import("./src/lib/appLogger");
+  logInfo("verify", "probe line");
+  const logFile = join(appRoot(), ".data", "logs", `APP-${new Date().toISOString().slice(0, 10)}.log`);
+  if (!existsSync(logFile)) throw new Error("app logger file missing");
+  if (!readFileSync(logFile, "utf8").includes("probe line")) throw new Error("app logger line missing");
+  console.log("fase5 auth+log: OK (AUTH_TOKEN gate, public paths, app logger writes)");
 }
 
 main().catch((err) => {

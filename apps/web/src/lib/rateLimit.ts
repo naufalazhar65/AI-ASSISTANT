@@ -5,20 +5,18 @@
 //
 // In-memory by design (a single personal/self-hosted process): a restart resets
 // the window, which is acceptable for this threat model (owner-authorized bots
-// + webhook secret already gate entry). Env: RATE_LIMIT_TURNS_PER_MIN (default
-// 30, 0 = unlimited). Throws RateLimitError with a friendly message.
+// + webhook secret already gate entry). Config knob: RATE_LIMIT_TURNS_PER_MIN
+// via central config (default 30, 0 = unlimited). Throws RateLimitError with a
+// friendly message.
+
+import { rateLimitPerMin as rateLimitConfig } from "./config";
 
 const WINDOW_MS = 60_000;
 const hits = new Map<string, number[]>();
 
-/** Turns allowed per user per minute. 0 = unlimited. Env configurable. */
+/** Turns allowed per user per minute. 0 = unlimited. Central config. */
 export function limitPerMinute(): number {
-  const raw = process.env.RATE_LIMIT_TURNS_PER_MIN;
-  if (raw !== undefined) {
-    const n = Number(raw);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  }
-  return 30;
+  return rateLimitConfig();
 }
 
 /** Dedicated error so the web route can map it straight to HTTP 429. */

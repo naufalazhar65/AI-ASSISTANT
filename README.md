@@ -128,7 +128,8 @@ npx tsx packages/state-machine/verify.ts
 - **Diagnostics:** `/tmp/mia-dev.log` in dev; bot gateway warnings/errors surface via stdout. `/status` in any channel shows live state. `GET /api/llm` returns in-process turn/tool counters (Fase-5 observability: turns ok/fail, error %, avg/last latency).
 - **Automation delivery:** scheduled automations push to the owner's last-seen channel; stays unfired until a channel is seen after restart.
 - **Error surfaces:** `assistantError.ts` classifies `rate_limit`/`quota` (429/402) into clear user messages in web banner + Telegram/Discord.
-- **Guardrails (Fase 5):** per-user rate limiting on assistant turns (`RATE_LIMIT_TURNS_PER_MIN`, default 30, 0=off) returns HTTP 429; append-only audit trail of tool calls/turn errors at `.data/audit/AUDIT-*.log` (`AUDIT_ENABLED`, `AUDIT_KEEP_DAYS`); both in-process for the single-personal-process deploy.
+- **Guardrails (Fase 5):** per-user rate limiting on assistant turns (`RATE_LIMIT_TURNS_PER_MIN`, default 30, 0=off) returns HTTP 429; append-only audit trail of tool calls/turn errors at `.data/audit/AUDIT-*.log` (`AUDIT_ENABLED`, `AUDIT_KEEP_DAYS`); operational log at `.data/logs/APP-*.log`; both in-process for the single-personal-process deploy.
+- **Web auth + permissions:** set `AUTH_TOKEN` to gate the web app + `/api/*` behind a PIN (`/login` page, HttpOnly cookie, or `Authorization: Bearer`); `TOOLS_DENY` disables named tools across all channels. Knobs can also live in `.data/config.json` (same keys as env, env wins). Bots keep working regardless.
 
 ## Docs
 
