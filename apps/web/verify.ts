@@ -332,6 +332,26 @@ async function main() {
   if (!existsSync(logFile)) throw new Error("app logger file missing");
   if (!readFileSync(logFile, "utf8").includes("probe line")) throw new Error("app logger line missing");
   console.log("fase5 auth+log: OK (AUTH_TOKEN gate, public paths, app logger writes)");
+
+  // --- Fase 2: deterministic comma-before-call-name fix (textStyle.ts) ---
+  const { fixAddressComma } = await import("./src/lib/textStyle");
+  const cases: [string, string][] = [
+    ["Selalu ada buat kamu, beb 🌸 Mau ngobrol apa sekarang?", "Selalu ada buat kamu beb 🌸 Mau ngobrol apa sekarang?"],
+    ["Mau dengar apa, beb?", "Mau dengar apa beb?"],
+    ["terima kasih, mas", "terima kasih mas"],
+    ["kamu,bang", "kamu bang"],
+    ["kalau, masak begini", "kalau, masak begini"],
+    ["jangan, beb, jangan bebas ya", "jangan beb, jangan bebas ya"],
+    ["tolong, bangunkan aku", "tolong, bangunkan aku"],
+    ["ngomong-ngomong, saya suka begini, kak", "ngomong-ngomong, saya suka begini kak"],
+    ["kmmu, masak nasi", "kmmu, masak nasi"],
+  ];
+  for (const [input, expected] of cases) {
+    const got = fixAddressComma(input);
+    if (got !== expected) throw new Error(`fixAddressComma(${JSON.stringify(input)}) -> ${JSON.stringify(got)} expected ${JSON.stringify(expected)}`);
+  }
+  if (fixAddressComma("") !== "") throw new Error("fixAddressComma empty failed");
+  console.log("fase2 textstyle: OK (comma-before-call removed, non-call words untouched)");
 }
 
 main().catch((err) => {
