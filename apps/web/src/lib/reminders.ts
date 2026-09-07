@@ -190,6 +190,30 @@ export function addReminder(
 }
 
 /**
+ * Attach a model-authored variants pool to the most recent UNFIRED reminder
+ * with exactly this text (created moments earlier by the deterministic path or
+ * the `remind_me` tool). Best-effort enrichment: returns false when no matching
+ * reminder exists — the push-time template fallback keeps working.
+ */
+export function attachVariants(rawUser: unknown, text: string, variants: string[]): boolean {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return false;
+  const clean = variants.map((v) => v.trim()).filter(Boolean).slice(0, 5);
+  if (clean.length < 2) return false;
+  const target = text.trim().slice(0, 300);
+  if (!target) return false;
+  const reminders = readReminders(rawUser);
+  for (let i = reminders.length - 1; i >= 0; i--) {
+    const r = reminders[i];
+    if (r.fired || r.text !== target) continue;
+    reminders[i] = { ...r, variants: clean, variantIdx: 0 };
+    writeReminders(reminders, userKey);
+    return true;
+  }
+  return false;
+}
+
+/**
  * Due-and-unfired reminders for one user. Every returned reminder is marked
  * handled before returning so it's broadcast only once: daily reminders are
  * rescheduled 24h ahead (still unfired) with their variant index advanced;

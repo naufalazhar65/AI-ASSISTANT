@@ -20,6 +20,7 @@ import { captureFactsFromTurn } from "./autoMemory";
 import { detectReminderIntents } from "./reminderIntent";
 import { addReminder } from "./reminders";
 import { detectMoodIntent, logDetectedMood } from "./moodIntent";
+import { enrichReminderVariants } from "./reminderVariants";
 import { detectMonitorIntent, cryptoSubject } from "./monitorIntent";
 import { addMonitor } from "./monitor";
 import { detectSpotifyControl, detectSpotifyIntent, SpotifyControlIntent } from "./spotifyIntent";
@@ -167,7 +168,7 @@ const SYSTEM_PROMPT = [
   "Use device_list to see paired devices, device_pair to pair a new phone (ios/android) when asked, device_exec to run a safe command on a device, device_screenshot to capture the Mac screen, device_location for location, device_camera for photos, and device_battery to check battery (pair/exec/screenshot/location/camera require confirmation except device_list and device_battery).",
   "Use calendar_list to see upcoming events, calendar_check to check a slot, calendar_add to create an event (requires confirmation), and calendar_mac_add/calendar_mac_list to sync with the Mac's Calendar.app via AppleScript. If the user says 'dikalender' / 'di kalender' / 'Mac Calendar' / 'Calendar.app', use calendar_mac_add so it lands on the Mac. After an event is confirmed and created, do NOT ask 'lanjut?' or create a second event.",
   "Use send_channel with `to` = 'telegram' or 'discord' to relay a message to the other platform when the user asks (e.g. 'kirim ini ke discord'). It sends immediately without needing confirmation.",
-  "When the user shares how they feel (e.g. 'aku stres', 'hari ini bahagia', 'capek banget'), their mood is recorded automatically by the system — just reply with a WARM, natural full sentence of empathy + one small caring suggestion or question, like a real friend texting. GOOD: 'Duh beb, capek banget ya 🌸 Istirahat dulu bentar, minum yang anget — nanti kalau mau, aku temenin ngobrol.' BAD (never do this): telegraphic fragments like 'Beb lelah. Hari berat. Istirahat dulu.' or narrating bookkeeping ('Mood simpan.'). NEVER say you saved/logged/recorded their mood — that's internal, the user doesn't care. mood_recent shows their mood history/trend when asked (e.g. 'gimana mood-ku belakangan ini'). mood_recent runs immediately without confirmation.",
+  "When the user shares how they feel (e.g. 'aku stres', 'hari ini bahagia', 'capek banget'), their mood is recorded automatically by the system — reply with ONE warm, natural, flowing sentence of empathy plus one small caring suggestion or question, like a real friend texting ('Duh beb, capek banget ya 🌸 Istirahat dulu bentar, minum yang anget — mau aku temenin ngobrol?'). Never answer in clipped keyword fragments separated by periods, never narrate bookkeeping, and NEVER say you saved/logged/recorded their mood — that's internal. mood_recent shows their mood history/trend when asked (e.g. 'gimana mood-ku belakangan ini'). mood_recent runs immediately without confirmation.",
   "Use context_active to see what the user is currently doing on their Mac (active app + window title) when they ask 'lagi ngapain' / 'sedang di aplikasi apa' or to tailor help. It runs immediately, without confirmation, and reports only the app/window name.",
   "Use memory_hygiene to clean up duplicate persona facts when the user asks ('bersihkan ingatanmu', 'beresin memory', 'rapikan fakta aku') — it dedups facts and reports any conflicts (same fact, different values): ask the user which value is right after it runs. Requires confirmation (it rewrites the persona files).",
   "Use library_list to open the user's reading list — saved links with summaries (e.g. when they ask 'daftar bacaan', 'link yang kusimpan', or reference something they shared earlier). It runs immediately, without confirmation. Shared links are ALREADY saved+summarized automatically by the system, so reply to the link content and only call library_list when asked for the list. library_remove (delete) pauses for confirmation.",
@@ -676,7 +677,8 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
     const recurring = intents[0].repeat === "daily" ? "setiap hari " : "";
     const confirmSuffix = ` (Sudah kusetel reminder ${recurring}pukul ${labels.join(" dan ")}, nanti kubangunkan.)`;
     return /remind|ingat|alarm|bangun/i.test(text) ? text : (text || "").trimEnd() + confirmSuffix;
-  } catch {
+  } catch (err) {
+    console.error("[agent] reminder intent scheduling failed:", err instanceof Error ? err.message : String(err));
     return text;
   }
 }
@@ -945,12 +947,24 @@ function schedulePlaceCheckFromIntent(messages: ChatMessage[], text: string, web
  */
 export function stripToolCallProse(text: string): string {
   const names = getTOOLS().map((t) => t.function.name).join("|");
-  const re = new RegExp(`^\\s*(?:${names})\\s*\\(`, "i");
+  // A whole line that IS a tool call: "remind_me(text='...', when='...')" → drop.
+  const lineRe = new RegExp(`^\\s*(?:${names})\\s*\\(`, "i");
+  // An inline tool-call embedded in prose (leading/trailing space or start),
+  // with single/double/no quotes: strip just the call, keep the rest.
+  const inlineRe = new RegExp(
+    `(?:^|\\s)(?:${names})\\s*\\([^()]*?\\)`,
+    "gi"
+  );
   let inFence = false;
   const out: string[] = [];
   for (const line of text.split("\n")) {
     if (/^\s*```/.test(line)) inFence = !inFence;
-    if (!inFence && re.test(line)) continue;
+    if (!inFence) {
+      if (lineRe.test(line)) continue; // whole line is a call
+      const stripped = line.replace(inlineRe, " ").replace(/\s{2,}/g, " ").trim();
+      out.push(stripped);
+      continue;
+    }
     out.push(line);
   }
   return out.join("\n").trim();
@@ -1009,7 +1023,7 @@ const MOOD_EMPATHY: Record<string, string[]> = {
 };
 
 /** A reply counts as telegraphic when every sentence is ≤4 words (e.g.
- *  "Beb lelah. Hari berat. Istirahat dulu."). */
+ *  keyword fragments separated by periods). */
 function isTelegraphicReply(text: string): boolean {
   const t = text.trim();
   if (!t) return true;
@@ -1018,18 +1032,39 @@ function isTelegraphicReply(text: string): boolean {
   return sentences.every((s) => s.split(/\s+/).filter(Boolean).length <= 4);
 }
 
-/** If the user shared a mood and the model's reply is telegraphic, replace it
- *  with a warm deterministic empathy line (rotated by day so it doesn't feel
- *  copy-pasted). Non-mood turns and already-warm replies pass through. */
+/** Short social greeting/thanks ("hai mia ku sayang", "makasih ya", "mau tidur
+ *  dulu"). Excludes reminder asks that mention a clock ("jam 1 siang"). */
+const GREETING_RE =
+  /\b(hai|halo|hei|hay|hi|pagi|siang|malam|sore|makasih|makasi|terima\s+kasih|sayang|pamit|mau\s+tidur|bobomain|met\s+bobo)\b/i;
+const GREETING_EXCLUDE_RE = /\bjam\s*\d|\bremind|ingetin|ingatkan|bangunin|alarm\b/i;
+
+function detectGreetingTurn(userText: string): boolean {
+  if (!GREETING_RE.test(userText) || GREETING_EXCLUDE_RE.test(userText)) return false;
+  return userText.trim().split(/\s+/).length <= 8;
+}
+
+const GREETING_EMPATHY = [
+  "Hai beb 🌸 Aku di sini! Ada yang mau diceritain atau dibantuin hari ini?",
+  "Halo beb 🌸 Seneng kamu mampir — gimana harimu? Ada yang bisa kubantu?",
+  "Heey beb 🌸 Untung kamu nyapa — mau cerita apa sekadar nge-chat aja nih?",
+];
+
+/** If the user shared a mood or a greeting and the model's reply is telegraphic,
+ *  replace it with a warm deterministic line (rotated by day so it doesn't feel
+ *  copy-pasted). Normal replies and other turns pass through untouched. */
 export function ensureMoodReplyQuality(messages: ChatMessage[], text: string): string {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content || typeof lastUser.content !== "string") return text;
-  const hit = detectMoodIntent(lastUser.content);
-  if (!hit) return text;
   if (!isTelegraphicReply(text)) return text;
-  const variants = MOOD_EMPATHY[hit.mood] ?? MOOD_EMPATHY.okay;
-  const dayIdx = Math.floor(Date.now() / 86400000) % variants.length;
-  return variants[dayIdx];
+  const moodHit = detectMoodIntent(lastUser.content);
+  if (moodHit) {
+    const variants = MOOD_EMPATHY[moodHit.mood] ?? MOOD_EMPATHY.okay;
+    return variants[Math.floor(Date.now() / 86400000) % variants.length];
+  }
+  if (detectGreetingTurn(lastUser.content)) {
+    return GREETING_EMPATHY[Math.floor(Date.now() / 86400000) % GREETING_EMPATHY.length];
+  }
+  return text;
 }
 
 /**
@@ -1135,6 +1170,11 @@ async function runAssistantTurnImpl(opts: {
       signal: new AbortController().signal,
       onDelta: () => {},
     });
+    // Strip tool-call prose BEFORE the deterministic post-processors (same
+    // reason as the groq/9router branch below: the reminder suffix must be
+    // decided on the cleaned text, or a prose "remind_me(...)" reply both
+    // suppresses the suffix AND gets stripped → empty reply).
+    opencodeText = stripToolCallProse(opencodeText);
 
     // OpenClaw-style automatic memory: persist any new stable facts in the
     // background (never awaited → no TTFT cost).
@@ -1196,6 +1236,21 @@ async function runAssistantTurnImpl(opts: {
         ? await executeTool(call, opts.user)
         : "The user declined this action. Do NOT execute it; briefly tell the user you skipped it.",
     });
+    // Model-authored reminder variety: when a remind_me was just CONFIRMED, ask
+    // the model (fire-and-forget) for a small variants pool so push time
+    // rotates Mia-style wordings instead of the static template.
+    if (opts.confirm_call.allow && call.name === "remind_me") {
+      try {
+        const args = JSON.parse(call.arguments || "{}") as { text?: unknown };
+        if (typeof args.text === "string" && args.text.trim()) {
+          void enrichReminderVariants(opts.user, args.text, {
+            url: resolved.url,
+            apiKey: resolved.apiKey,
+            defaultModel: resolved.defaultModel,
+          });
+        }
+      } catch { /* best-effort enrichment */ }
+    }
   }
 
   let text = "";
@@ -1240,6 +1295,12 @@ async function runAssistantTurnImpl(opts: {
     throw err;
   }
   needsConfirmation = result.needsConfirmation;
+  // Strip tool-call prose BEFORE the deterministic post-processors: when the
+  // model writes "remind_me(text='…', when='…')" as its whole reply, the
+  // reminder suffix must be decided on the CLEANED text — otherwise the prose
+  // (containing "remind") suppresses the suffix, the strip then removes the
+  // line, and the user gets a bare "…" even though the reminder was scheduled.
+  text = stripToolCallProse(text);
 
   // Automatic memory capture in the background (never delays the turn).
   void captureFactsFromTurn({
@@ -1257,6 +1318,22 @@ async function runAssistantTurnImpl(opts: {
   // it, to avoid double-scheduling). Mirrors the opencode path.
   if (!remindToolAlreadyHandled(opts, needsConfirmation)) {
     text = scheduleReminderFromIntent(messages, opts.user, text);
+    // Model-authored reminder variety for the deterministic path too: ask the
+    // model (fire-and-forget) for a variants pool so the push rotates Mia-style
+    // wordings instead of the static template.
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && m.content);
+    const reminderHit = lastUserMsg?.content && typeof lastUserMsg.content === "string"
+      ? detectReminderIntents(lastUserMsg.content)
+      : null;
+    if (reminderHit?.length) {
+      for (const intent of reminderHit) {
+        void enrichReminderVariants(opts.user, intent.text, {
+          url: resolved.url,
+          apiKey: resolved.apiKey,
+          defaultModel: resolved.defaultModel,
+        });
+      }
+    }
   }
   // Deterministic watchlist scheduling (feature #6): a bare "monitorin harga
   // bitcoin" must land on the watchlist even when the model answers verbally or
@@ -1367,6 +1444,10 @@ async function runAssistantTurnImpl(opts: {
   // Honesty guard: never present unverified real-world place status as fact.
   if (!needsConfirmation?.length) {
     text = schedulePlaceCheckFromIntent(messages, text, collector.webSearchSuccess);
+  }
+
+  if (!text.trim() && !needsConfirmation?.length) {
+    console.error("[agent] empty turn text (debug): user=", JSON.stringify((messages[messages.length - 1]?.content ?? "").slice(0, 80)));
   }
 
   return { text, needsConfirmation };

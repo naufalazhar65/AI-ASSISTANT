@@ -17,7 +17,7 @@ const REPEAT_RE = /\b(setiap\s*hari|tiap\s*hari|tiap[\s-]*tiap\s*hari|every\s*da
 // delivered message each day instead of repeating the same line.
 const VARIETY_RE = /\b(ganti[-\s]*ganti|ganti\s*pesan(nya)?|beda[-\s]*beda|variasi|selang[-\s]*seling|ganti[- ]*ganti|jangan\s*sama)\b/i;
 
-type ParsedTime = { hour: number; minute: number };
+type ParsedTime = { hour: number; minute: number; suffixed?: boolean };
 
 /**
  * Normalize a clock match ("9", "9:30", suffix pagi/siang/sore/malam/...) to a
@@ -29,6 +29,7 @@ function normalizeClock(hourStr: string, minuteStr: string | undefined, suffix: 
   if (hour > 23 || Number.isNaN(hour)) return null;
   if (minute > 59 || Number.isNaN(minute)) minute = 0;
   const s = (suffix || "").toLowerCase().trim();
+  const suffixed = !!s;
 
   if (s === "pm" || s === "malam" || s === "sore") {
     if (hour < 12) hour += 12;
@@ -36,12 +37,15 @@ function normalizeClock(hourStr: string, minuteStr: string | undefined, suffix: 
     hour = 0;
   } else if (s === "pagi") {
     if (hour >= 12) hour -= 12;
-  } else if (s === "siang" && hour <= 11) {
-    hour = 12;
+  } else if (s === "siang") {
+    // Indonesian convention: 12 siang = 12:00 (noon), 1 siang = 13:00,
+    // 2 siang = 14:00 … 5 siang = 17:00. But 10/11 "siang" stays morning
+    // (11 AM), so only explicitly-afternoon hours (1–5) get +12.
+    if (hour >= 1 && hour <= 5) hour += 12;
   } else if (s === "subuh" || s === "dini hari") {
     if (hour >= 12) hour -= 12;
   }
-  return { hour, minute };
+  return { hour, minute, suffixed };
 }
 
 /**
@@ -79,6 +83,21 @@ export function nextOccurrence(hour: number, minute: number, now = Date.now()): 
   return target.getTime();
 }
 
+/**
+ * For a BARE clock time (no pagi/sore/malam suffix), pick the interpretation
+ * closest in the future: "jam 8" said at 19:50 means 20:00 tonight (not
+ * tomorrow 08:00), while "jam 8" said at 22:00 means 08:00 next morning.
+ * Candidates are H:00 and (H+12):00 when valid.
+ */
+export function nearestOccurrence(hour: number, minute: number, now = Date.now()): number {
+  let best = nextOccurrence(hour, minute, now);
+  if (hour + 12 <= 23) {
+    const alt = nextOccurrence(hour + 12, minute, now);
+    if (alt < best) best = alt;
+  }
+  return best;
+}
+
 /** Mia-style varied morning/wake-up lines for "ganti ganti pesannya". */
 const WAKE_VARIANTS = [
   "Bangun, hari baru dimulai! Semangat ya 🌸",
@@ -104,14 +123,15 @@ export type ReminderIntent = {
  * and its subsequent push both carry "makan siang" vs "makan malam" instead of
  * the whole sentence repeated at every time.
  */
-export function splitReminderRequests(userText: string): Array<{ text: string; hour: number; minute: number }> {
+export function splitReminderRequests(userText: string): Array<{ text: string; hour: number; minute: number; suffixed?: boolean }> {
   const clauseRe = /\s*[,;，]|\s+\band\b|\s+dan\s+|\s+lalu\s+|\s+terus\s+/i;
   const clauses = userText.split(clauseRe);
   return clauses.flatMap((clause) => {
     const times = parseClockTimes(clause);
     if (!times.length) return [];
     const text = clause.trim();
-    return times.slice(0, 1).map((t) => ({ text, ...t }));
+    const t = times[0];
+    return [{ text, hour: t.hour, minute: t.minute, ...(t.suffixed ? {} : { suffixed: false }) }];
   });
 }
 
@@ -133,7 +153,12 @@ export function detectReminderIntents(userText: string, now = Date.now()): Remin
   if (!segments.length) return null;
   return segments.map((seg) => ({
     text: seg.text,
-    atMs: nextOccurrence(seg.hour, seg.minute, now),
+    // Suffixed times ("jam 8 malam") are unambiguous → next occurrence.
+    // Bare times ("jam 8 pas") resolve to the interpretation nearest in the
+    // future so an evening ask never lands on tomorrow morning.
+    atMs: seg.suffixed === false
+      ? nearestOccurrence(seg.hour, seg.minute, now)
+      : nextOccurrence(seg.hour, seg.minute, now),
     ...(repeat ? { repeat } : {}),
     ...(variants?.length ? { variants } : {}),
   }));

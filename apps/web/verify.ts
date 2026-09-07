@@ -737,6 +737,69 @@ async function main() {
   if (ensureMoodReplyQuality(moodMsgs, warm) !== warm) throw new Error("warm mood reply got rewritten");
   if (ensureMoodReplyQuality([{ role: "user" as const, content: "berapa 2+2?" }], "4.") !== "4.") throw new Error("non-mood turn altered");
   console.log("mood reply quality: OK (telegraphic rewritten, warm passes through)");
+
+  // Greeting turns get the same telegraphic guard ("Sapa terima. Beb panggil.").
+  const greet = ensureMoodReplyQuality([{ role: "user" as const, content: "hai mia ku sayang" }], "Sapa terima. Beb panggil. Bantu apa?");
+  if (!/🌸/.test(greet) || greet === "Sapa terima. Beb panggil. Bantu apa?") throw new Error(`greeting not rewritten: ${greet}`);
+  // Reminder asks that mention a clock are NOT greetings.
+  if (ensureMoodReplyQuality([{ role: "user" as const, content: "ingetin aku ya jam 1 siang makan" }], "Siap, nanti kuingetin.") !== "Siap, nanti kuingetin.") throw new Error("reminder ask treated as greeting");
+  console.log("greeting reply quality: OK (telegraphic rewritten, reminder asks untouched)");
+
+  // --- Indonesian clock parsing: "jam 1 siang" = 13:00 (NOT 12:00), 12 siang
+  // stays noon, pagi/malam unchanged. ---
+  const { parseClockTime } = await import("./src/lib/reminderIntent");
+  const clockCases: Array<[string, number]> = [
+    ["jam 1 siang", 13],
+    ["jam 2 siang", 14],
+    ["jam 3 siang", 15],
+    ["jam 11 siang", 11],
+    ["jam 12 siang", 12],
+    ["jam 9 pagi", 9],
+    ["jam 8 malam", 20],
+    ["jam 3 sore", 15],
+  ];
+  for (const [input, expectHour] of clockCases) {
+    const got = parseClockTime(input);
+    if (!got || got.hour !== expectHour) throw new Error(`parseClockTime(${input}) -> ${JSON.stringify(got)}, expected hour ${expectHour}`);
+  }
+  console.log("reminder clock id: OK (1 siang=13, 12 siang=12, sore/malam +12)");
+
+  // Bare clock times ("jam 8 pas", no suffix) resolve to the interpretation
+  // nearest in the future: evening ask → tonight, night ask → next morning.
+  const { detectReminderIntents } = await import("./src/lib/reminderIntent");
+  const evening = detectReminderIntents("yaudah ingetin aku jam 8 pas ya mau cari makan", Date.parse("2026-09-07T19:50:00+07:00"));
+  if (!evening?.length || evening[0].atMs !== Date.parse("2026-09-07T20:00:00+07:00")) {
+    throw new Error(`bare evening clock: ${evening && new Date(evening[0].atMs).toString()}`);
+  }
+  const night = detectReminderIntents("bangunin aku jam 8 ya", Date.parse("2026-09-07T22:00:00+07:00"));
+  if (!night?.length || night[0].atMs !== Date.parse("2026-09-08T08:00:00+07:00")) {
+    throw new Error(`bare night clock: ${night && new Date(night[0].atMs).toString()}`);
+  }
+  const morning = detectReminderIntents("ingetin aku jam 9", Date.parse("2026-09-07T07:00:00+07:00"));
+  if (!morning?.length || morning[0].atMs !== Date.parse("2026-09-07T09:00:00+07:00")) {
+    throw new Error(`bare morning clock: ${morning && new Date(morning[0].atMs).toString()}`);
+  }
+  console.log("reminder bare clock: OK (evening→tonight 20:00, night→besok pagi, morning→hari ini)");
+
+  // --- Inline tool-call prose: a call embedded mid-sentence is stripped while
+  // the surrounding words survive. ---
+  const inlineLeak = stripToolCallProse("Oke aku catat remind_me(text='x') ya beb");
+  if (inlineLeak !== "Oke aku catat ya beb") throw new Error(`inline strip: ${JSON.stringify(inlineLeak)}`);
+  console.log("toolcall inline strip: OK");
+
+  // --- Model-authored reminder variants: parse + attach + delivery rotation. ---
+  const { parseVariantLines } = await import("./src/lib/reminderVariants");
+  const vParsed = parseVariantLines("1. Waktunya minum dulu ya beb 🌸\n- Nih, minum yang banyak biar nggak dehidrasi 😄\n\n\"Udah jam segini, minum dulu dong\"\n\n\nSaatnya rehidrasi ☀️");
+  if (vParsed.length !== 4) throw new Error(`parseVariantLines: ${JSON.stringify(vParsed)}`);
+  if (vParsed[0] !== "Waktunya minum dulu ya beb 🌸") throw new Error(`parseVariantLines bullet: ${vParsed[0]}`);
+  const { addReminder: addReminderV, attachVariants, takeDueReminders: takeDueV } = await import("./src/lib/reminders");
+  const vUser = `verify_vars_${Date.now()}`;
+  const r = addReminderV("minum", Date.now() - 1000, vUser);
+  if (!attachVariants(vUser, "minum", vParsed)) throw new Error("attachVariants failed");
+  const due = takeDueV(vUser);
+  if (due[0]?.id !== r.id || due[0]?.text !== vParsed[0]) throw new Error(`variant delivery: ${due[0]?.text}`);
+  rmSync(join(userDataRoot(), vUser), { recursive: true, force: true });
+  console.log("reminder variants: OK (parse strips bullets, attach + delivery uses variant[0])");
 }
 
 main().catch((err) => {

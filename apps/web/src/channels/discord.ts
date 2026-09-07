@@ -545,5 +545,9 @@ async function runTurn(
   }
 
   state.history.push({ role: "assistant", content: result.text });
-  await replyMiaVoice(msg, result.text || "…", voiceTurn);
+  await replyMiaVoice(
+    msg,
+    result.text || "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸",
+    voiceTurn
+  );
 }
