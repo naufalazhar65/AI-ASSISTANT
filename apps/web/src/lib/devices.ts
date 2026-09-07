@@ -114,14 +114,30 @@ export function requireDeviceCapability(rawUser: unknown, id: string, cap: Devic
 
 export function deviceExec(rawUser: unknown, deviceId: string, command: string): Promise<string> {
   requireDeviceCapability(rawUser, deviceId, "exec");
-  const allowed = ["ls", "pwd", "cat", "git", "node", "npm", "pmset", "system_profiler", "ioreg", "uptime", "whoami", "hostname", "df", "ps"];
+  const allowed = ["ls", "pwd", "cat", "git", "node", "npm", "pmset", "system_profiler", "ioreg", "uptime", "whoami", "hostname", "df", "ps", "blueutil"];
   const parts = command.trim().split(/\s+/);
   const cmd = parts[0];
-  if (!allowed.includes(cmd)) throw new Error(`device exec: command ${cmd} not allowed — try ls, pwd, cat, git status, pmset -g batt, etc.`);
+  const isBlueutil = cmd === "blueutil" && (
+    (parts.length === 2 && parts[1] === "-p") ||
+    (parts.length === 3 && parts[1] === "-p" && (parts[2] === "0" || parts[2] === "1"))
+  );
+  if (!allowed.includes(cmd) || (cmd === "blueutil" && !isBlueutil)) {
+    throw new Error(`device exec: command ${cmd} not allowed — try ls, pwd, cat, git status, pmset -g batt, blueutil -p (bluetooth on/off/status: 'blueutil -p 0' = off, 'blueutil -p 1' = on), etc.`);
+  }
   return new Promise((resolve, reject) => {
     execFile(cmd, parts.slice(1), { timeout: 8000, maxBuffer: 60000 }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(stderr?.trim() || err.message));
-      resolve(stdout.trim().slice(0, 6000) || "(no output)");
+      if (err) {
+        const msg = (err as NodeJS.ErrnoException).code === "ENOENT"
+          ? `${cmd} belum terpasang di Mac ini${cmd === "blueutil" ? " — install via 'brew install blueutil'" : ""}`
+          : stderr?.trim() || err.message;
+        return reject(new Error(msg));
+      }
+      const out = stdout.trim().slice(0, 6000) || "(no output)";
+      // blueutil -p prints "0"/"1" — translate so the model answers naturally.
+      if (cmd === "blueutil" && parts[1] === "-p" && (out === "0" || out === "1")) {
+        return resolve(`Bluetooth: ${out === "1" ? "ON" : "OFF"}`);
+      }
+      resolve(out);
     });
   });
 }
