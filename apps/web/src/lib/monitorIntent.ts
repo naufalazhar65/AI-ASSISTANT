@@ -125,6 +125,39 @@ export function detectMonitorIntent(userText: string): MonitorIntent | null {
   return null;
 }
 
+/**
+ * Compound-aware detection: "storage 90% … terus batre 20% kasih tau" is TWO
+ * monitors with DIFFERENT thresholds. Splitting per clause (same separators as
+ * the reminder compound parser) and running the device detection per clause
+ * prevents the classic bug where the FIRST percent in the sentence (90) was
+ * paired with the battery (which is checked first) → "Baterai ≤90%". Crypto/
+ * web intents stay whole-sentence. Dedupes by kind+subject (first wins).
+ */
+export function detectMonitorIntents(userText: string): MonitorIntent[] {
+  const text = (userText ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return [];
+  const clauses = text.split(/\s*[,;，]\s*|\s+dan\s+|\s+terus\s+|\s+lalu\s+|\s+\band\b\s+/i).map((c) => c.trim()).filter(Boolean);
+  const out: MonitorIntent[] = [];
+  const seen = new Set<string>();
+  // Clauses FIRST: "storage 90% … terus batre 20%" must yield storage@90 AND
+  // battery@20 — checking the whole sentence first would pair the battery with
+  // the sentence's first percent (90) and poison the dedupe.
+  for (const clause of clauses) {
+    const intent = detectMonitorIntent(clause);
+    if (!intent) continue;
+    const key = `${intent.kind}:${intent.subject.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(intent);
+  }
+  // Whole-sentence fallback (single-clause crypto/web/url asks).
+  if (!out.length) {
+    const whole = detectMonitorIntent(text);
+    if (whole) out.push(whole);
+  }
+  return out;
+}
+
 function parseThreshold(text: string): { value: number; direction: "above" | "below" } | null {
   const m = text.match(THRESHOLD_RE);
   if (!m) return null;

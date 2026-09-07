@@ -22,7 +22,7 @@ import { detectReminderIntents } from "./reminderIntent";
 import { addReminder } from "./reminders";
 import { detectMoodIntent, logDetectedMood } from "./moodIntent";
 import { enrichReminderVariants } from "./reminderVariants";
-import { detectMonitorIntent, cryptoSubject } from "./monitorIntent";
+import { detectMonitorIntents, detectMonitorIntent, cryptoSubject } from "./monitorIntent";
 import { addMonitor } from "./monitor";
 import { detectSpotifyControl, detectSpotifyIntent, SpotifyControlIntent } from "./spotifyIntent";
 import { detectPriceIntent } from "./priceIntent";
@@ -138,7 +138,7 @@ const SYSTEM_PROMPT = [
   "never list capabilities unless asked, never narrate what you're doing in telegraphese. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, and briefing. ",
+  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, and briefing. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
   "show saved notes, delete_note to remove one, file_read to read a project ",
@@ -153,6 +153,7 @@ const SYSTEM_PROMPT = [
   "concrete ISO-8601 timestamp with offset). For remind_me, ALWAYS use the ",
   "current date given below: a bare time like \"jam 3 sore\" means TODAY (or ",
   "TOMORROW if that time has already passed today). Never invent a date. ",
+  "REMINDER HONESTY: never claim a reminder has fired/passed/is still pending from memory or guesses — call reminders_list to see the REAL state first, then answer from it (e.g. 'udah terkirim ✓' / 'masih terjadwal jam X').",
   "If the user wants a REPEATING reminder (\"setiap hari\", \"tiap pagi\", \"every day\", wake-up daily), pass repeat=\"daily\"; ",
   "if they want the message varied each day (\"ganti ganti pesannya\"), just schedule the daily reminder — the system rotates messages automatically.",
   "Mac health monitoring: when the user asks to be NOTIFIED about Mac battery or storage at a percent ('kasih tau kalau batre 20%', 'storage 90% tolong kabarin'), say you'll watch it warmly — the system schedules the monitor automatically and alerts via heartbeat when it crosses. You can check the CURRENT value right away with device_battery (battery) or exec 'df -h /' (storage).",
@@ -761,27 +762,33 @@ function appendTurnResult(text: string, result: string): string {
 function scheduleMonitorFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content || typeof lastUser.content !== "string") return text;
-  const intent = detectMonitorIntent(lastUser.content);
-  if (!intent) return text;
+  // Compound-aware: "storage 90% … terus batre 20%" registers BOTH monitors.
+  const intents = detectMonitorIntents(lastUser.content);
+  if (!intents.length) return text;
   try {
-    const target = addMonitor({
-      name: intent.name,
-      kind: intent.kind,
-      subject: intent.subject,
-      threshold: intent.threshold,
-      direction: intent.direction,
-      rawUser: user,
-    });
-    const th =
-      intent.threshold !== undefined
-        ? `, alert ${intent.direction === "below" ? "di bawah" : "di atas"} ${intent.threshold.toLocaleString("id-ID")}`
-        : "";
-    const confirmSuffix = ` (Sudah kumasukkan "${target.name}" ke watchlist${th} — bakal kucek berkala dan kubilang kalau ada yang penting.)`;
+    const targets = intents.map((intent) =>
+      addMonitor({
+        name: intent.name,
+        kind: intent.kind,
+        subject: intent.subject,
+        threshold: intent.threshold,
+        direction: intent.direction,
+        rawUser: user,
+      })
+    );
+    const label = (t: { name: string; kind: string; threshold?: number; direction?: string }): string => {
+      const unit = t.kind === "device" ? "%" : "";
+      return t.threshold !== undefined && t.direction
+        ? `${t.name} (alert ${t.direction === "below" ? "di bawah" : "di atas"} ${t.threshold.toLocaleString("id-ID")}${unit})`
+        : t.name;
+    };
+    const confirmSuffix = ` (Sudah kupasang pantauan: ${targets.map(label).join(" dan ")} — bakal kucek berkala dan kabarin begitu kena.)`;
     const trimmed = (text || "").trim();
     const stubOnly = trimmed === "" || /^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(trimmed);
     if (stubOnly) return confirmSuffix.trim();
     return /monitor|watchlist|pantau/i.test(text) ? text : (text || "").trimEnd() + confirmSuffix;
-  } catch {
+  } catch (err) {
+    console.error("[agent] monitor intent scheduling failed:", err instanceof Error ? err.message : String(err));
     return text;
   }
 }

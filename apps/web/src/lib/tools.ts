@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSy
 import { execFile, execFile as execFileCb } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
-import { addReminder } from "./reminders";
+import { addReminder, readReminders } from "./reminders";
 import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
@@ -20,6 +20,27 @@ import { startSongGame, guessSong, quitSongGame } from "./game";
 import { holidayInfo } from "./holiday";
 import { buildEveningRecap } from "./recap";
 import { buildWeeklyInsight } from "./weeklyInsight";
+
+/** Human-readable reminder state for the model: upcoming (unfired) first, then
+ *  today's delivered — so it can talk about reminders HONESTLY instead of
+ *  inventing status from stale persona facts. */
+function remindersListText(rawUser: unknown): string {
+  const now = Date.now();
+  const rs = readReminders(rawUser);
+  if (!rs.length) return "Belum ada reminder terpasang.";
+  const fmt = (ms: number): string =>
+    new Date(ms).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const upcoming = rs.filter((r) => !r.fired && r.at >= now).sort((a, b) => a.at - b.at).slice(0, 10);
+  const deliveredToday = rs.filter((r) => r.fired && now - r.at < 24 * 60 * 60 * 1000).sort((a, b) => b.at - a.at).slice(0, 5);
+  const lines: string[] = [];
+  for (const r of upcoming) {
+    lines.push(`• ${fmt(r.at)} — "${r.text}"${r.repeat === "daily" ? " (harian)" : ""} — terjadwal`);
+  }
+  for (const r of deliveredToday) {
+    lines.push(`• ${fmt(r.at)} — "${r.text}" — sudah terkirim ✓`);
+  }
+  return lines.length ? lines.join("\n") : "Belum ada reminder terjadwal (yang lama sudah terkirim).";
+}
 import { auditLog } from "./auditLog";
 import { toolsDeny } from "./config";
 import { recordToolCall } from "./turnStats";
@@ -1770,6 +1791,19 @@ const toolRegistry: ToolPlugin[] = [
       const text = buildWeeklyInsight(ctx.rawUser);
       return text || "Belum ada data yang cukup untuk minggu ini — makin sering ngobrol, makin lengkap insightnya 🌸";
     },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "reminders_list",
+        description:
+          "List the user's ACTUAL reminder state (scheduled + today's delivered). Call this BEFORE claiming anything about a reminder (belum lewat/udah lewat/terkirim) — never invent reminder status from memory.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: (_, ctx) => remindersListText(ctx.rawUser),
   },
 ];
 

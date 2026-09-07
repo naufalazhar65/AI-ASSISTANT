@@ -163,6 +163,11 @@ export async function captureFactsFromTurn(args: CaptureArgs): Promise<number> {
     }
 
     for (const f of facts) {
+      // Reminder schedules are TRANSIENT state owned by reminders.json (they
+      // fire, pass, and change) — capturing them as persona "facts" poisons
+      // every later prompt with stale times (the model then invents confusing
+      // "nanti ... udah lewat" lines). Skip them here; scrubbed from disk too.
+      if (f.key.toLowerCase().startsWith("reminder")) continue;
       upsertPersonaFact(f.target, f.key, f.value, args.rawUser);
     }
     // Also record today's new facts in the daily memory log (time-bucketed

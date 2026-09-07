@@ -278,9 +278,11 @@ async function main() {
     mkdirSync(join(userDataRoot(), proUser), { recursive: true });
     writeFileSync(join(userDataRoot(), proUser, "moods.json"), JSON.stringify([{ id: "t", mood, note, at: atMs }]));
   };
-  const yday = new Date();
-  yday.setDate(yday.getDate() - 1);
-  yday.setUTCHours(5, 0, 0, 0);
+  // Seed "yesterday" in JAKARTA terms (noon WIB of the Jkt-yesterday date) —
+  // a UTC-based seed lands on the day BEFORE yesterday when the test runs
+  // after Jakarta midnight (00:00–07:00 WIB) and the test fails spuriously.
+  const yJkt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() - 24 * 60 * 60 * 1000));
+  const yAtMs = Date.parse(`${yJkt}T12:00:00+07:00`);
   if (buildProactiveMessage(proUser) !== "") throw new Error("proactive should be silent with no signal");
   const prevStart = process.env.PROACTIVE_HOUR_START;
   const prevEnd = process.env.PROACTIVE_HOUR_END;
@@ -288,13 +290,12 @@ async function main() {
   process.env.PROACTIVE_HOUR_END = "24";
   try {
     const hut = new Date();
-    const yInJkt = jktDay(yday);
-    if (jktDay(hut) === yInJkt) throw new Error("test setup: today !== yesterday");
-    writeMood("stressed", "kerjaan numpuk", yday.getTime());
+    if (jktDay(hut) === yJkt) throw new Error("test setup: today !== yesterday");
+    writeMood("stressed", "kerjaan numpuk", yAtMs);
     const msg = buildProactiveMessage(proUser, hut);
     if (msg === "") throw new Error("proactive should fire after a negative mood yesterday");
     if (!msg.includes("berat")) throw new Error("proactive message should mention heavy day");
-    writeMood("great", "happy", yday.getTime());
+    writeMood("great", "happy", yAtMs);
     if (buildProactiveMessage(proUser, hut) !== "") throw new Error("proactive should stay silent after a positive-only day");
   } finally {
     if (prevStart === undefined) delete process.env.PROACTIVE_HOUR_START;
@@ -314,9 +315,9 @@ async function main() {
   const todayB = jktDay(new Date());
   const todayStartB = Date.parse(`${todayB}T00:00:00+07:00`);
   mkdirSync(join(userDataRoot(), briUser, "memory"), { recursive: true });
-  writeFileSync(join(join(userDataRoot(), briUser, "memory"), `${jktDay(yday)}.md`), "# Memory\n\n## t\nUser: persiapan deploy fitur intelligence\n");
+  writeFileSync(join(join(userDataRoot(), briUser, "memory"), `${yJkt}.md`), "# Memory\n\n## t\nUser: persiapan deploy fitur intelligence\n");
   mkdirSync(join(userDataRoot(), briUser), { recursive: true });
-  writeFileSync(join(userDataRoot(), briUser, "moods.json"), JSON.stringify([{ id: "t", mood: "stressed", note: "lelah", at: yday.getTime() }]));
+  writeFileSync(join(userDataRoot(), briUser, "moods.json"), JSON.stringify([{ id: "t", mood: "stressed", note: "lelah", at: yAtMs }]));
   try {
     addTask("finish deploy fitur intelligence", briUser, todayStartB + 5 * 3600 * 1000);
     addReminder("minum air putih", todayStartB + 2 * 3600 * 1000, briUser, undefined);
@@ -900,6 +901,14 @@ async function main() {
   if (!stoAuto || stoAuto.kind !== "device" || stoAuto.threshold !== 90) {
     throw new Error(`storage auto-threshold: ${JSON.stringify(stoAuto)}`);
   }
+  // Compound ask: BOTH monitors with their OWN thresholds (bug: first % paired
+  // with battery → "Baterai ≤90%").
+  const { detectMonitorIntents } = await import("./src/lib/monitorIntent");
+  const compound = detectMonitorIntents("kalo storage mac ku udah mencapai 90% atau hampir penuh tolong kasih tau ya, terus kalau batre udh 20% kasih tau juga");
+  const stoI = compound.find((i) => i.subject === "storage");
+  const batI = compound.find((i) => i.subject === "battery");
+  if (!stoI || stoI.threshold !== 90 || stoI.direction !== "above") throw new Error(`compound storage: ${JSON.stringify(stoI)}`);
+  if (!batI || batI.threshold !== 20 || batI.direction !== "below") throw new Error(`compound battery: ${JSON.stringify(batI)}`);
   const mUser = `verify_mon_${Date.now()}`;
   addMonitor({ name: "Baterai Mac", kind: "device", subject: "battery", threshold: 100, direction: "below", rawUser: mUser });
   const alerts1 = await checkMonitorsAndAlert(mUser);
@@ -915,6 +924,20 @@ async function main() {
   for (const m of (await import("./src/lib/monitor")).readMonitors(mUser)) removeMonitor(m.id, mUser);
   rmSync(join(userDataRoot(), mUser), { recursive: true, force: true });
   console.log(`mac monitor: OK (intents, battery alert fires+re-arms, storage ${storagePct}%)`);
+
+  // --- reminders_list: honest reminder state for the model (scheduled vs
+  // delivered), so it never invents "nanti ... udah lewat" from stale facts. ---
+  const rUser = `verify_remlist_${Date.now()}`;
+  const { addReminder: addRem, readReminders } = await import("./src/lib/reminders");
+  addRem("minum", Date.now() + 3600_000, rUser);
+  addRem("bangun", Date.now() - 1000, rUser);
+  takeDueV(rUser); // fire the past one → delivered
+  const { executeTool: execToolR } = await import("./src/lib/tools");
+  const rl = await execToolR({ id: "r1", name: "reminders_list", arguments: "{}" }, rUser);
+  if (!rl.includes("terjadwal") || !rl.includes("minum")) throw new Error(`reminders_list scheduled: ${rl}`);
+  if (!rl.includes("sudah terkirim") || !rl.includes("bangun")) throw new Error(`reminders_list delivered: ${rl}`);
+  rmSync(join(userDataRoot(), rUser), { recursive: true, force: true });
+  console.log("reminders_list: OK (scheduled + delivered both listed)");
 }
 
 main().catch((err) => {
