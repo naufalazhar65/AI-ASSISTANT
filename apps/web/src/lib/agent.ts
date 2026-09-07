@@ -19,7 +19,7 @@ import { runOpenCodeTurn, OpenCodeChatMessage } from "./opencode";
 import { captureFactsFromTurn } from "./autoMemory";
 import { detectReminderIntents } from "./reminderIntent";
 import { addReminder } from "./reminders";
-import { logDetectedMood } from "./moodIntent";
+import { detectMoodIntent, logDetectedMood } from "./moodIntent";
 import { detectMonitorIntent, cryptoSubject } from "./monitorIntent";
 import { addMonitor } from "./monitor";
 import { detectSpotifyControl, detectSpotifyIntent, SpotifyControlIntent } from "./spotifyIntent";
@@ -167,7 +167,7 @@ const SYSTEM_PROMPT = [
   "Use device_list to see paired devices, device_pair to pair a new phone (ios/android) when asked, device_exec to run a safe command on a device, device_screenshot to capture the Mac screen, device_location for location, device_camera for photos, and device_battery to check battery (pair/exec/screenshot/location/camera require confirmation except device_list and device_battery).",
   "Use calendar_list to see upcoming events, calendar_check to check a slot, calendar_add to create an event (requires confirmation), and calendar_mac_add/calendar_mac_list to sync with the Mac's Calendar.app via AppleScript. If the user says 'dikalender' / 'di kalender' / 'Mac Calendar' / 'Calendar.app', use calendar_mac_add so it lands on the Mac. After an event is confirmed and created, do NOT ask 'lanjut?' or create a second event.",
   "Use send_channel with `to` = 'telegram' or 'discord' to relay a message to the other platform when the user asks (e.g. 'kirim ini ke discord'). It sends immediately without needing confirmation.",
-  "Use mood_log to record how the user is feeling when they share their mood or state (e.g. 'aku stres', 'hari ini bahagia', 'capek banget') — it stores a mood entry (great/good/okay/meh/stressed/anxious/sad/tired/angry) with an optional note and helps you tailor replies and support later. Use mood_recent to show their mood history/trend when asked (e.g. 'gimana mood-ku belakangan ini'). Both run immediately without confirmation.",
+  "When the user shares how they feel (e.g. 'aku stres', 'hari ini bahagia', 'capek banget'), their mood is recorded automatically by the system — just reply with a WARM, natural full sentence of empathy + one small caring suggestion or question, like a real friend texting. GOOD: 'Duh beb, capek banget ya 🌸 Istirahat dulu bentar, minum yang anget — nanti kalau mau, aku temenin ngobrol.' BAD (never do this): telegraphic fragments like 'Beb lelah. Hari berat. Istirahat dulu.' or narrating bookkeeping ('Mood simpan.'). NEVER say you saved/logged/recorded their mood — that's internal, the user doesn't care. mood_recent shows their mood history/trend when asked (e.g. 'gimana mood-ku belakangan ini'). mood_recent runs immediately without confirmation.",
   "Use context_active to see what the user is currently doing on their Mac (active app + window title) when they ask 'lagi ngapain' / 'sedang di aplikasi apa' or to tailor help. It runs immediately, without confirmation, and reports only the app/window name.",
   "Use memory_hygiene to clean up duplicate persona facts when the user asks ('bersihkan ingatanmu', 'beresin memory', 'rapikan fakta aku') — it dedups facts and reports any conflicts (same fact, different values): ask the user which value is right after it runs. Requires confirmation (it rewrites the persona files).",
   "Use library_list to open the user's reading list — saved links with summaries (e.g. when they ask 'daftar bacaan', 'link yang kusimpan', or reference something they shared earlier). It runs immediately, without confirmation. Shared links are ALREADY saved+summarized automatically by the system, so reply to the link content and only call library_list when asked for the list. library_remove (delete) pauses for confirmation.",
@@ -937,6 +937,26 @@ function schedulePlaceCheckFromIntent(messages: ChatMessage[], text: string, web
 }
 
 /**
+ * Strip raw tool-call prose the model emitted as plain text — e.g. the 9router
+ * model writes `mood_log(mood='stressed', note='...')` on its own line instead
+ * of emitting a native tool call. The deterministic intent layer already
+ * handles the action; that prose line must never reach the user. Lines inside
+ * ``` code fences are kept (a tool-call shown as example code is legitimate).
+ */
+export function stripToolCallProse(text: string): string {
+  const names = getTOOLS().map((t) => t.function.name).join("|");
+  const re = new RegExp(`^\\s*(?:${names})\\s*\\(`, "i");
+  let inFence = false;
+  const out: string[] = [];
+  for (const line of text.split("\n")) {
+    if (/^\s*```/.test(line)) inFence = !inFence;
+    if (!inFence && re.test(line)) continue;
+    out.push(line);
+  }
+  return out.join("\n").trim();
+}
+
+/**
  * Best-effort mood capture: if the user's latest message states how they feel
  * ("aku lagi stres", "hari ini bahagia"), log it to their mood store via
  * `logDetectedMood` (fire-and-forget, never throws). Complements the
@@ -948,6 +968,68 @@ function logMoodFromMessages(messages: ChatMessage[], user: unknown): void {
   try {
     logDetectedMood(lastUser.content, user);
   } catch { /* best-effort */ }
+}
+
+/** Empathetic mood replies (rotated daily) — used when the model's own reply to
+ *  a mood statement comes out telegraphic ("Beb lelah. Hari berat. Istirahat.")
+ *  despite prompt rules, which 9router-class models keep doing. Deterministic
+ *  post-turn fix, same pattern as reminder/spotify guards in this file. */
+const MOOD_EMPATHY: Record<string, string[]> = {
+  stressed: [
+    "Napas dulu ya beb 🌸 Kerjaan numpuk emang berat — pelan-pelan aja, satu-satu. Kalau mau aku bantu susun prioritasnya, bilang aja.",
+    "Kedengeran berat banget harinya 🌸 Jangan dipaksa terus, rehat sebentar juga penting. Mau cerita apa yang paling bikin stres?",
+  ],
+  tired: [
+    "Duh beb, lelah banget ya harinya 🌸 Istirahat dulu yang bener, minum yang anget — kalau mau ditemenin cerita, aku di sini.",
+    "Capek banget ya 🌸 Udah makan belum? Recharge dulu ya beb, badanmu juga butuh. Mau aku puterin lagu santai biar lebih lega?",
+  ],
+  sad: [
+    "Peluk dari jauh ya beb 🌸 Aku di sini kalau kamu mau cerita apa yang bikin sedih.",
+    "Nggak apa-apa merasa sedih 🌸 Kalau mau cerita, aku dengerin sampai selesai.",
+  ],
+  anxious: [
+    "Tarik napas pelan-pelan ya beb 🌸 Apa yang lagi bikin cemas? Cerita aja, siapa tahu bisa kita urai bareng.",
+    "Tenang ya beb 🌸 Cemas itu wajar, tapi jangan dipendam sendiri — cerita ke aku apa yang kamu khawatirkan?",
+  ],
+  angry: [
+    "Kesel banget ya keliatannya 🌸 Curahkan aja dulu ke aku biar lega, aku dengerin.",
+    "Sabar ya beb 🌸 Mau cerita apa yang bikin kesel? Kadang diluapin dulu aja biar enakan.",
+  ],
+  good: [
+    "Seneng denger kamu lagi baik 🌸 Semoga harimu lancar terus ya beb!",
+    "Wah, mantap 🌸 Semoga mood bagusnya awet sampai malam ya beb!",
+  ],
+  great: [
+    "Wah, bahagia itu menular 🌸 Ada kabar apa yang bikin se-excited itu?",
+    "Ikut seneng dengernya 🌸 Hari yang bagus banget ya — nikmatin beb!",
+  ],
+  okay: [
+    "Biasa aja ya harinya 🌸 Nggak apa-apa, hari tenang kadang emang yang kita butuhin. Ada yang mau diceritain?",
+  ],
+};
+
+/** A reply counts as telegraphic when every sentence is ≤4 words (e.g.
+ *  "Beb lelah. Hari berat. Istirahat dulu."). */
+function isTelegraphicReply(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  const sentences = t.split(/[.!?\n]+/).map((s) => s.trim()).filter(Boolean);
+  if (sentences.length < 2) return false;
+  return sentences.every((s) => s.split(/\s+/).filter(Boolean).length <= 4);
+}
+
+/** If the user shared a mood and the model's reply is telegraphic, replace it
+ *  with a warm deterministic empathy line (rotated by day so it doesn't feel
+ *  copy-pasted). Non-mood turns and already-warm replies pass through. */
+export function ensureMoodReplyQuality(messages: ChatMessage[], text: string): string {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content || typeof lastUser.content !== "string") return text;
+  const hit = detectMoodIntent(lastUser.content);
+  if (!hit) return text;
+  if (!isTelegraphicReply(text)) return text;
+  const variants = MOOD_EMPATHY[hit.mood] ?? MOOD_EMPATHY.okay;
+  const dayIdx = Math.floor(Date.now() / 86400000) % variants.length;
+  return variants[dayIdx];
 }
 
 /**
@@ -981,7 +1063,7 @@ export async function runAssistantTurn(opts: {
   let kind: string | undefined;
   try {
     const result = await runAssistantTurnImpl(opts);
-    return { ...result, text: fixAddressComma(result.text) };
+    return { ...result, text: stripToolCallProse(fixAddressComma(result.text)) };
   } catch (err) {
     ok = false;
     kind = err instanceof Error ? err.name : "UnknownError";
@@ -1073,6 +1155,7 @@ async function runAssistantTurnImpl(opts: {
     // Mood tracking: register "aku lagi stres/capek/.." statements even when
     // the model never emits a tool call (deterministic, fire-and-forget).
     logMoodFromMessages(messages, opts.user);
+    opencodeText = ensureMoodReplyQuality(messages, opencodeText);
     try {
       const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() || "";
       if (!isInternalUserTurn(lastUser) && (lastUser || opencodeText.trim())) {
@@ -1255,6 +1338,7 @@ async function runAssistantTurnImpl(opts: {
   // Mood tracking: log state-of-mind statements (fire-and-forget) so Mia knows
   // how the user is feeling and can tailor replies / offer support.
   logMoodFromMessages(messages, opts.user);
+  text = ensureMoodReplyQuality(messages, text);
 
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
   // This provides the YYYY-MM-DD.md files that memory_get reads and that

@@ -714,6 +714,29 @@ async function main() {
   }
   if (fixAddressComma("") !== "") throw new Error("fixAddressComma empty failed");
   console.log("fase2 textstyle: OK (comma-before-call removed, non-call words untouched)");
+
+  // --- Tool-call prose strip: 9router writes "mood_log(mood='stressed', ...)"
+  // as plain text; that line must never reach the user (code fences kept). ---
+  const { stripToolCallProse } = await import("./src/lib/agent");
+  const leaked = `mood_log(mood='stressed', note='cuaca panas banget')\nIya beb, panas banget ya. 🌸`;
+  const cleaned = stripToolCallProse(leaked);
+  if (cleaned !== "Iya beb, panas banget ya. 🌸") throw new Error(`stripToolCallProse leak: ${JSON.stringify(cleaned)}`);
+  const fenced = "Contoh pemanggilan:\n```js\nweb_search(query='cuaca')\n```\nItu contohnya.";
+  if (stripToolCallProse(fenced) !== fenced) throw new Error("stripToolCallProse stripped inside code fence");
+  if (stripToolCallProse("Balasan biasa tanpa prosa.") !== "Balasan biasa tanpa prosa.") throw new Error("stripToolCallProse altered normal text");
+  console.log("toolcall prose strip: OK (leaked mood_log removed, code fence kept)");
+
+  // --- Mood reply quality: telegraphic model replies to mood statements get a
+  // warm deterministic rewrite; warm replies pass through untouched. ---
+  const { ensureMoodReplyQuality } = await import("./src/lib/agent");
+  const moodMsgs = [{ role: "user" as const, content: "capek banget hari ini duhh" }];
+  const rewritten = ensureMoodReplyQuality(moodMsgs, "Beb lelah. Hari berat. Istirahat dulu.");
+  if (rewritten === "Beb lelah. Hari berat. Istirahat dulu.") throw new Error("telegraphic mood reply not rewritten");
+  if (!/🌸/.test(rewritten)) throw new Error("rewritten mood reply lacks warmth/emoji");
+  const warm = "Duh beb, capek banget ya 🌸 Istirahat dulu bentar ya.";
+  if (ensureMoodReplyQuality(moodMsgs, warm) !== warm) throw new Error("warm mood reply got rewritten");
+  if (ensureMoodReplyQuality([{ role: "user" as const, content: "berapa 2+2?" }], "4.") !== "4.") throw new Error("non-mood turn altered");
+  console.log("mood reply quality: OK (telegraphic rewritten, warm passes through)");
 }
 
 main().catch((err) => {
