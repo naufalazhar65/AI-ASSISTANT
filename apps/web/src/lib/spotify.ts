@@ -391,6 +391,7 @@ async function verifyPlayback(rawUser: unknown, expectedUri?: string, timeoutMs 
 
 /** Play a search result (first track) or resume (`query` empty). Returns a short summary. */
 export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "playlist" | "album" | "track"): Promise<string> {
+  console.log("[spotify] play requested:", { query, kind });
   let track: Record<string, unknown> | undefined;
   let contextUri: string | undefined;
   if (query && query.trim()) {
@@ -425,12 +426,24 @@ export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "play
   const onDevice = (snap: PlayerSnapshot): string =>
     snap.isPlaying && snap.deviceName ? ` di ${snap.deviceName}` : "";
   const confirmTrack = async (t: Record<string, unknown>): Promise<string> => {
+    // SEBELUM Start/Polling: Cek dulu apa sudah muter?
+    const snapNow = await currentPlayer(rawUser);
+    if (snapNow?.isPlaying && snapNow.trackUri === String(t.uri)) {
+      return `${String(t.name)} — ${artistsOf(t)} sudah muter${onDevice(snapNow)}.`;
+    }
+
     const snap = (await verifyPlayback(rawUser, String(t.uri))) || { isPlaying: false };
     const label = `${String(t.name)} — ${artistsOf(t)}`;
     if (snap.isPlaying) return `${label} sudah benar-benar keputar${onDevice(snap)}.`;
     return `Perintah putar ${label} sudah masuk, tapi belum kedengeran muter — cek aplikasi/device Spotify-nya ya.`;
   };
   const confirmResume = async (transferred?: string): Promise<string> => {
+    // SEBELUM Start/Polling: Cek dulu apa sudah muter?
+    const snapNow = await currentPlayer(rawUser);
+    if (snapNow?.isPlaying) {
+      return `Pemutaran dilanjutkan${onDevice(snapNow).trim() ? ` ${onDevice(snapNow).trim()}` : ""}.`;
+    }
+
     const snap = (await verifyPlayback(rawUser)) || { isPlaying: false };
     const suffix = transferred ? ` di ${transferred}` : onDevice(snap);
     if (snap.isPlaying) return `Pemutaran dilanjutkan${suffix ? ` ${suffix.trim()}` : ""}.`;
@@ -453,12 +466,19 @@ export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "play
     //   2. Transfer playback to a listed device, then retry the play once.
     if (err instanceof Error && err.message === "spotify_no_active_device") {
       if (track && process.platform === "darwin") {
-        // Launch via deeplink: this both opens the app and queues the track.
-        // `track.uri` is already `spotify:track:<id>` — open it verbatim.
+        // Launch via deeplink: `open spotify:track:<id>` opens the Spotify app
+        // AND automatically triggers playback on macOS natively.
         await execFileAsync("open", [String(track.uri)], { timeout: 4000 });
-        // The freshly launched app may resume an old queue; give it a moment to
-        // register as a device, then force-play exactly the requested track.
-        const deadline = Date.now() + 15000;
+        
+        // Wait briefly for Spotify to spin up and confirm playback started from the deeplink.
+        const snap = await verifyPlayback(rawUser, String(track.uri), 8000);
+        if (snap?.isPlaying) {
+          return await confirmTrack(track);
+        }
+
+        // Fallback: If deeplink opened the app but didn't start playing automatically,
+        // wait for the device to register and explicitly issue the start command ONCE.
+        const deadline = Date.now() + 10000;
         let played = false;
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 1500));
