@@ -943,12 +943,24 @@ async function runAssistantTurnImpl(opts: {
   /** Voice (default) keeps replies plain for TTS; "text"/"discord" allow markdown. */
   channel?: Channel;
 }): Promise<TurnResult> {
-  const { messages } = opts;
+  const { messages: inputMessages } = opts;
   const model = opts.model?.trim() || undefined;
   const requested = opts.provider ?? "";
   const providerId: ProviderId = isProviderId(requested) ? requested : defaultProviderId();
   const channel = opts.channel ?? "voice";
   let systemPrompt = buildSystemPrompt(opts.user, channel);
+
+  // Rolling summary: when the conversation grew very long, the oldest messages
+  // are compressed into one short "previous conversation" message (cache-per-
+  // boundary, deterministic fallback). Only the tail stays verbatim, so recent
+  // context and tool-call continuations are untouched.
+  const { buildSummarizedMessages } = await import("./summarize");
+  const messages: ChatMessage[] = (await buildSummarizedMessages({
+    messages: inputMessages,
+    user: opts.user,
+    provider: providerId,
+    model,
+  })) as ChatMessage[];
 
   // Mock provider: no network, canned reply (token-free UI/channel testing).
   if (providerId === "mock") {

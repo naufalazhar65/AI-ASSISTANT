@@ -131,6 +131,20 @@ export function briefingHour(): number {
   return cfgInt("BRIEFING_HOUR", 7);
 }
 
+export function rollingSummaryEnabled(): boolean {
+  return cfgBool("ROLLING_SUMMARY_ENABLED", true);
+}
+
+/** Total text chars above which the oldest messages get rolled into a summary. */
+export function rollingSummaryTriggerChars(): number {
+  return cfgInt("ROLLING_SUMMARY_TRIGGER_CHARS", 24000);
+}
+
+/** Messages kept verbatim at the tail after a roll (recent context untouched). */
+export function rollingSummaryKeepRecent(): number {
+  return cfgInt("ROLLING_SUMMARY_KEEP_RECENT", 8);
+}
+
 export function appLogEnabled(): boolean {
   return cfgBool("APP_LOG_ENABLED", true);
 }

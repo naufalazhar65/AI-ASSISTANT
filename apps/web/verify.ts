@@ -320,6 +320,48 @@ async function main() {
   }
   console.log("briefing: OK");
 
+  // --- rolling summary: chat pendek tak tersentuh, panjang di-roll (tail utuh, cache) ---
+  const { buildSummarizedMessages, deterministicDigest } = await import("./src/lib/summarize");
+  const shortChat = Array.from({ length: 5 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `pesan pendek ${i}` }));
+  if ((await buildSummarizedMessages({ messages: shortChat, force: true })) !== shortChat)
+    throw new Error("rolling summary should leave a short chat untouched");
+  const longChat: { role: string; content: string }[] = Array.from({ length: 20 }, (_, i) => ({
+    role: i % 2 ? "assistant" : "user",
+    content: `baris ${i} `.repeat(180), // ~1400 chars each → total > default trigger 24000
+  }));
+  let summarizeCalls = 0;
+  const rollUser = "verify_roll_" + Date.now().toString(36);
+  const rolled = await buildSummarizedMessages({
+    messages: longChat,
+    user: rollUser,
+    provider: "9router",
+    force: true,
+    summarize: async (texts) => {
+      summarizeCalls++;
+      return `RINGKASAN_${texts.length}`;
+    },
+  });
+  if (rolled.length !== 9) throw new Error(`rolling summary should keep recent+1 messages, got ${rolled.length}`);
+  if (!String(rolled[0].content).includes("RINGKASAN_12")) throw new Error("rolling summary should carry the summarized prefix");
+  if (rolled[rolled.length - 1] !== longChat[longChat.length - 1]) throw new Error("rolling summary must keep the tail verbatim");
+  await buildSummarizedMessages({ messages: longChat, user: "verify_roll_x", force: true, summarize: async () => { summarizeCalls++; return "X"; } });
+  await buildSummarizedMessages({ messages: longChat, user: "verify_roll_x2", force: true, summarize: async () => { summarizeCalls++; return "X"; } });
+  if (summarizeCalls !== 1) throw new Error(`rolling summary should reuse cache (calls=${summarizeCalls})`);
+  const fallback = await buildSummarizedMessages({
+    messages: longChat.map((m, i) => ({ ...m, content: i % 2 ? m.content : `beda ${i} `.repeat(200) })),
+    user: "verify_roll_fallback",
+    force: true,
+    summarize: async () => {
+      throw new Error("boom");
+    },
+  });
+  if (!String(fallback[0].content).includes("-")) throw new Error("rolling summary fallback digest should be bulleted");
+  if (!deterministicDigest(["halo", "ini tes"]).includes("-")) throw new Error("deterministicDigest output shape");
+  for (const ru of [rollUser, "verify_roll_x", "verify_roll_x2", "verify_roll_fallback"]) {
+    rm2(join(userDataRoot(), ru), { recursive: true, force: true });
+  }
+  console.log("rolling summary: OK");
+
   // --- browser automation — just check tools are registered (no heavy launch in verify) ---
   const { getTool } = await import("./src/lib/tools");
   if (!getTool("browser_open") || !getTool("browser_snapshot")) throw new Error("browser tools not registered");
