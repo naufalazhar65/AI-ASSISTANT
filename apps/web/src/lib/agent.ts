@@ -49,7 +49,7 @@ export type ChatMessage = {
  *  (TTS-friendly); "text" (Telegram) and "discord" allow platform markdown. */
 export type Channel = "voice" | "text" | "discord";
 
-export const MAX_TOOL_ROUNDS = 3;
+export const MAX_TOOL_ROUNDS = 5;
 
 /** Control frame that marks a turn paused for user confirmation (FR-014). */
 export const CONFIRM_FRAME_PREFIX = "@@CONFIRM ";
@@ -138,7 +138,7 @@ const SYSTEM_PROMPT = [
   "never list capabilities unless asked, never narrate what you're doing in telegraphese. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, and briefing. ",
+  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, codebase_search, codebase_refresh, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, and briefing. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
   "show saved notes, delete_note to remove one, file_read to read a project ",
@@ -147,8 +147,8 @@ const SYSTEM_PROMPT = [
   "write_file to create or overwrite a file with given content and edit_file to patch a file by replacing old_string with new_string (both require confirmation), ",
   "exec to run a safe read-only command (e.g. 'git status', 'ls src', ",
   "'node --version') whose output answers the user — pass `cwd` to target a ",
-  "different allowed workspace, exec_write to run a write command (git add/commit/push, one command per call — never chain with &&) ",
-  "when the user explicitly asks to commit or push (requires confirmation), remind_me when ",
+  "different allowed workspace, exec_write to run a write command (git add/commit/push, npm test / npm run <script> such as running a project's unit tests; one command per call — never chain with &&) ",
+  "when the user asks to commit, push, or run tests (requires confirmation), remind_me when ",
   "the user asks to be reminded in the future (convert any relative time to a ",
   "concrete ISO-8601 timestamp with offset). For remind_me, ALWAYS use the ",
   "current date given below: a bare time like \"jam 3 sore\" means TODAY (or ",
@@ -165,6 +165,7 @@ const SYSTEM_PROMPT = [
   "Use fetch_url to read the text of a specific public web page the user links to (it scrapes article text), and web_search to find pages — combine both to answer with current web content. IMPORTANT: when the user themselves SHARES a link in the chat, the system automatically saves and summarizes it to their reading list in the background — do NOT call fetch_url on a link the user just posted; acknowledge that it's been saved and answer from context, or use library_list later when they ask for their saved links.",
   "Use search_memory to look up past notes, uploaded documents, tasks, reminders, automations, and persona facts relevant to a question — it combines BM25 keyword match with semantic (embedding) similarity, and still works offline when embeddings are unavailable.",
   "Use memory_get to retrieve a specific day's daily memory log (e.g. 'today', 'yesterday', or '2026-09-04').",
+  "Use codebase_search to answer questions about the user's project code (where something is implemented, how a function works, file locations) — it searches the pre-indexed source of the repo and allowed workspaces and returns file:line references; search by identifier names (e.g. 'buildEveningRecap', 'reminder merge daily') and read the referenced file with file_read if the user needs more. codebase_refresh rebuilds that index when the user says the code just changed ('refresh index'). Both run immediately, without confirmation.",
   "Use browser_open to open a URL in a headless browser (for JS-heavy pages), browser_snapshot to see clickable elements, browser_click/browser_type to interact (require confirmation), and browser_navigate for back/forward/reload.",
   "Use device_list to see paired devices, device_pair to pair a new phone (ios/android) when asked, device_exec to run a safe command on a device, device_screenshot to capture the Mac screen, device_location for location, device_camera for photos, and device_battery to check battery (pair/exec/screenshot/location/camera require confirmation except device_list and device_battery).",
   "Use calendar_list to see upcoming events, calendar_check to check a slot, calendar_add to create an event (requires confirmation), and calendar_mac_add/calendar_mac_list to sync with the Mac's Calendar.app via AppleScript. If the user says 'dikalender' / 'di kalender' / 'Mac Calendar' / 'Calendar.app', use calendar_mac_add so it lands on the Mac. After an event is confirmed and created, do NOT ask 'lanjut?' or create a second event.",
@@ -178,7 +179,7 @@ const SYSTEM_PROMPT = [
   "Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_next/spotify_previous/spotify_volume to control playback (they run immediately, no confirmation). If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
   "save_note, delete_note, library_remove, memory_hygiene, write_file, edit_file, browser_click, browser_type, browser_navigate, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, remind_me, add_task, complete_task, cancel_task, reschedule_task, create_automation, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
-  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, context_active, briefing, library_list, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous and spotify_volume do NOT wait for confirmation — send/run them right away.",
+  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, context_active, briefing, library_list, codebase_search, codebase_refresh, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous and spotify_volume do NOT wait for confirmation — send/run them right away.",
   "Tool results come from the server and should be trusted as fresh information.",
   "Report tool results as a natural, complete Indonesian sentence in your own ",
   "voice — NEVER as terse fragments. The words 'Progress', 'Progres', 'Device', ",
@@ -605,6 +606,7 @@ async function runAgent(
     collector.collect(text);
     return { needsConfirmation: null };
   }
+  console.error(`[agent] round ${round} tool calls: ${toolCalls.map((c) => c.name).join(", ")}`);
 
   const lastUser = lastUserContent(messages);
   const toolCalls2 = normalizeCalendarCalls(lastUser, toolCalls);

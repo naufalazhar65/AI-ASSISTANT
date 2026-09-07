@@ -814,6 +814,43 @@ async function main() {
   })();
   if (!goResolved || !goResolved.apiKey) throw new Error("opencodego did not resolve (no env key / no auth.json)");
   console.log("opencodego provider: OK (registered + key resolved server-side, model " + goResolved.defaultModel + ")");
+
+  // --- Codebase QA: chunk, index (temp workspace), search with file:line refs,
+  // deny rules (.env / node_modules skipped), and real-repo smoke. ---
+  const { chunkText, buildIndexFromRoots, searchCodebaseIn, saveIndex } = await import("./src/lib/codebaseIndex");
+  const { getTOOLS } = await import("./src/lib/tools");
+  if (!getTOOLS().some((t) => t.function.name === "codebase_search")) throw new Error("codebase_search not registered");
+  if (!getTOOLS().some((t) => t.function.name === "codebase_refresh")) throw new Error("codebase_refresh not registered");
+
+  const short = chunkText("one\ntwo\nthree");
+  if (short.length !== 1 || short[0].start !== 1 || short[0].end !== 3) throw new Error("chunkText short file");
+
+  const tmpCode = mkdtempSync(join(tmpdir(), "mia-code-"));
+  writeFileSync(join(tmpCode, "calc.ts"), [
+    "export function calculateFoo(n: number): number {",
+    "  // the secret sauce of foobar",
+    "  return n * 42 + 7;",
+    "}",
+  ].join("\n"));
+  writeFileSync(join(tmpCode, ".env"), "SECRET=1");
+  mkdirSync(join(tmpCode, "node_modules"));
+  writeFileSync(join(tmpCode, "node_modules", "evil.ts"), "export const evil = 1;");
+  const tmpIdx = buildIndexFromRoots([tmpCode]);
+  if (!tmpIdx.docs.some((d) => d.id.includes("calc.ts#L1-L4"))) throw new Error("index missing calc.ts chunk");
+  if (tmpIdx.docs.some((d) => d.id.includes(".env") || d.id.includes("node_modules"))) throw new Error("deny rules leaked secret/deps into index");
+  const hit = searchCodebaseIn(tmpIdx, "calculateFoo foobar");
+  if (!hit.includes("calc.ts#L1-L4") || !hit.includes("calculateFoo")) throw new Error(`code search miss: ${hit.slice(0, 120)}`);
+  const miss = searchCodebaseIn(tmpIdx, "zzzqqqxyzzy");
+  if (!/No matching code/.test(miss)) throw new Error("garbage query should miss");
+
+  // Real-repo smoke: build + persist so the live index starts warm.
+  const { repoRoot } = await import("./src/lib/users");
+  const realIdx = buildIndexFromRoots([repoRoot()]);
+  if (realIdx.fileCount < 50) throw new Error(`real repo indexed too few files: ${realIdx.fileCount}`);
+  if (!realIdx.docs.some((d) => d.id.includes("recap.ts"))) throw new Error("real repo index missing recap.ts");
+  saveIndex(realIdx);
+  rmSync(tmpCode, { recursive: true, force: true });
+  console.log(`codebase index: OK (${realIdx.fileCount} files, ${realIdx.docs.length} chunks; temp search + deny rules OK)`);
 }
 
 main().catch((err) => {

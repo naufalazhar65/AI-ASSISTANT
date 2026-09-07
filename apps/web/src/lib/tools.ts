@@ -8,6 +8,7 @@ import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
+import { ensureFreshIndex, rebuildIndex, searchCodebaseIn, indexSummary } from "./codebaseIndex";
 import { readDailyMemory } from "./dailyMemory";
 import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate, browserClose } from "./browser";
 import { listDevicesText, deviceExec, deviceScreenshot, pairDevice } from "./devices";
@@ -851,6 +852,59 @@ const toolRegistry: ToolPlugin[] = [
         return readDailyMemory(ctx.rawUser, typeof args.date === "string" ? args.date : "");
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "cannot read memory"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "codebase_search",
+        description:
+          "Search the user's PROJECT SOURCE CODE (repo + allowed workspaces, pre-indexed). Use for code questions: where a feature is implemented, how a function works, file locations. Returns file:line references with generous code snippets — ANSWER FROM THESE directly; at most one follow-up file_read is usually needed, do NOT chain many searches/reads. Search by identifier names (function/class/file names) for best results.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "What to find, e.g. 'reminder dedupe merge', 'spotify play fallback', 'recap buildEveningRecap'",
+            },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: (args) => {
+      try {
+        const q = typeof args.query === "string" ? args.query : "";
+        if (!q.trim()) return "Error: query required";
+        const idx = ensureFreshIndex();
+        if (!idx) return "Error: codebase index unavailable";
+        return searchCodebaseIn(idx, q);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "codebase search failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "codebase_refresh",
+        description:
+          "Rebuild the project source-code index (walks repo + allowed workspaces). Use when the user says the code just changed ('refresh index', 'index ulang') or right after large edits, so codebase_search answers stay current. Bounded and safe.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: () => {
+      try {
+        const t0 = Date.now();
+        const idx = rebuildIndex();
+        return `Index diperbarui: ${indexSummary(idx)} (${Date.now() - t0}ms).`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "rebuild failed"}`;
       }
     },
   },
@@ -1912,6 +1966,9 @@ function fileEdit(rawPath: string, oldStr: string, newStr: string): string {
  */
 const EXEC_MAX_OUTPUT = 60000;
 const EXEC_TIMEOUT_MS = 10000;
+// Write commands include npm test/script runs — a unit-test suite can easily
+// take a minute, so confirmed write commands get a bigger budget.
+const EXEC_WRITE_TIMEOUT_MS = 150000;
 /** Allowlisted read-only commands: base binary + (for subcommand tools) allowed
  *  read-only subcommands. Anything else is rejected. */
 const EXEC_ALLOWLIST: Record<
@@ -1952,7 +2009,7 @@ function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
     const [cmd, ...args] = parts;
     const spec = EXEC_ALLOWLIST[cmd];
     if (!spec) {
-      rejectPromise(new Error(`command "${cmd}" is not allowed`));
+      rejectPromise(new Error(`command "${cmd}" is not allowed for read-only exec — for running tests/scripts use exec_write (it will ask the user for confirmation)`));
       return;
     }
     if ("subcommand" in spec) {
@@ -1962,7 +2019,7 @@ function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
         return;
       }
       if (!spec.subcommand!.includes(args[0])) {
-        rejectPromise(new Error(`subcommand "${args[0]}" is not allowed`));
+        rejectPromise(new Error(`subcommand "${args[0]}" is not allowed for read-only exec — e.g. 'npm test'/'npm run' belong in exec_write (requires user confirmation)`));
         return;
       }
       if (args.length - 1 > spec.maxArgs) {
@@ -2005,6 +2062,10 @@ function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
 /** Allowlisted write commands — require FR-014 confirmation (risk: write). */
 const EXEC_WRITE_ALLOWLIST: Record<string, { subcommand: string[]; maxArgs: number }> = {
   git: { subcommand: ["add", "commit", "push", "restore"], maxArgs: 6 },
+  // npm test / npm run <script> execute the project's own scripts (unit tests!):
+  // confirmed by the user via FR-014 before they run. `npx` stays out (it can
+  // download arbitrary packages).
+  npm: { subcommand: ["test", "run"], maxArgs: 6 },
 };
 
 /** Tokenize a command string respecting single/double quotes (e.g. git commit -m "msg with spaces"). */
@@ -2055,7 +2116,7 @@ function execWriteSafe(rawCommand: string, rawCwd = ""): Promise<string> {
     const [cmd, ...args] = parts;
     const spec = EXEC_WRITE_ALLOWLIST[cmd];
     if (!spec) {
-      rejectPromise(new Error(`command "${cmd}" is not allowed for write`));
+      rejectPromise(new Error(`command "${cmd}" is not allowed for write — allowed: git add/commit/push/restore, npm test, npm run <script>`));
       return;
     }
     if (args.length === 0) {
@@ -2080,10 +2141,12 @@ function execWriteSafe(rawCommand: string, rawCwd = ""): Promise<string> {
       rejectPromise(new Error("command targets a blocked path"));
       return;
     }
-    execFile(cmd, args, { cwd, timeout: EXEC_TIMEOUT_MS, maxBuffer: EXEC_MAX_OUTPUT * 2 }, (err, stdout, stderr) => {
+    execFile(cmd, args, { cwd, timeout: EXEC_WRITE_TIMEOUT_MS, maxBuffer: EXEC_MAX_OUTPUT * 2 }, (err, stdout, stderr) => {
       if (err) {
         const code = (err as NodeJS.ErrnoException & { code?: number }).code;
-        const msg = stderr?.trim() || err.message || "command failed";
+        // npm prefixes progress noise on stderr ("npm notice run ...") — keep
+        // the actual error lines so a failed test run isn't unreadable.
+        const msg = stderr?.split("\n").filter((l) => !/^npm notice/i.test(l)).join("\n").trim() || err.message || "command failed";
         rejectPromise(new Error(`${msg}${typeof code === "number" ? ` (exit ${code})` : ""}`));
         return;
       }

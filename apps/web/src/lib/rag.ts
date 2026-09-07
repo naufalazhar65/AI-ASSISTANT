@@ -33,7 +33,7 @@ function cfgFloat(key: string, def: number): number {
   return Number.isFinite(v) ? v : def;
 }
 
-function tokenize(text: string): string[] {
+export function tokenize(text: string): string[] {
   return (text.toLowerCase().match(TOKEN_RE) || []).filter((t) => t.length > 1);
 }
 
@@ -165,7 +165,9 @@ export async function refreshEmbeddings(userKey: string, docs: DocChunk[]): Prom
   return fresh;
 }
 
-function bm25Scores(docs: DocChunk[], qTerms: string[]): { doc: DocChunk; score: number }[] {
+/** BM25 ranking shared with codebaseIndex (code search reuses this scoring so
+ *  the two corpora can't drift apart in ranking behavior). */
+export function bm25Scores(docs: DocChunk[], qTerms: string[]): { doc: DocChunk; score: number }[] {
   const N = docs.length;
   const avgLen = docs.reduce((s, d) => s + tokenize(d.text).length, 0) / N || 1;
   const df = new Map<string, number>();
