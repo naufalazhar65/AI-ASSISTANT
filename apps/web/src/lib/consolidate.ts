@@ -12,6 +12,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdir
 import { join, dirname } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
 import { resolveProvider, defaultProviderId } from "./providers";
+import { ensureOpenCodeGoKey } from "./serverKeys";
 import { logInfo } from "./appLogger";
 
 const DAY_RE = /^(\d{4}-\d{2})-\d{2}\.md$/;
@@ -107,6 +108,7 @@ export interface ConsolidatedMonth {
 type Summarizer = (month: string, days: DayEntry[]) => Promise<string>;
 
 async function summarizeWithLlm(month: string, days: DayEntry[]): Promise<string> {
+  ensureOpenCodeGoKey();
   const provider = resolveProvider(defaultProviderId());
   if (!provider || !provider.url || !provider.apiKey || !provider.defaultModel) {
     throw new Error("no LLM provider configured for consolidation");

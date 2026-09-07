@@ -34,7 +34,7 @@ export const HELP_TEXT = [
   "  `/help` — bantuan ini",
   "  `/reset` — hapus riwayat percakapan ini",
   "  `/provider` — lihat provider AI",
-  "  `/provider <id>` — ganti provider (groq | opencode | 9router | openrouter | mock)",
+  "  `/provider <id>` — ganti provider (groq | opencode | opencodego | 9router | openrouter | mock)",
   "  `/model <id>` — set model (default Auto)",
   "  `/status` — status sistem (waktu, uptime, provider, data)",
   "  `/backup` — backup data user ke .data/backups/<ts>/",
@@ -42,7 +42,7 @@ export const HELP_TEXT = [
   "Kamu bisa minta aku menyetel reminder, menyimpan catatan, mencari di web, membaca file/link, atau menghitung.",
 ].join("\n");
 
-export const VALID_PROVIDERS = ["groq", "opencode", "9router", "openrouter", "mock"];
+export const VALID_PROVIDERS = ["groq", "opencode", "opencodego", "9router", "openrouter", "mock"];
 
 /**
  * Handle a unified command. Returns { handled: true, replyText } if the text

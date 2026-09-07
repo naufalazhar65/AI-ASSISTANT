@@ -18,6 +18,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
 import { resolveProvider, defaultProviderId, isProviderId } from "./providers";
+import { ensureOpenCodeGoKey } from "./serverKeys";
 import { rollingSummaryEnabled, rollingSummaryTriggerChars, rollingSummaryKeepRecent } from "./config";
 
 export interface ChatLikeMessage {
@@ -116,6 +117,7 @@ export interface SummarizeTextOptions {
 export async function summarizeText(opts: SummarizeTextOptions): Promise<string> {
   const { text, provider, model } = opts;
   const providerId = provider && isProviderId(provider) ? provider : defaultProviderId();
+  if (providerId === "opencodego") ensureOpenCodeGoKey();
   const conf = resolveProvider(providerId);
   if (!conf || !conf.url) return "";
   const headers: Record<string, string> = { "Content-Type": "application/json" };

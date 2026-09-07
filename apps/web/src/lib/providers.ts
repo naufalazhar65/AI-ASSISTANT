@@ -4,9 +4,13 @@
  * The client only ever sends a `provider` id (+ optional `model`); it never
  * receives or sends endpoints or API keys. This module maps a provider id to
  * its endpoint + key + default model, resolved from server env at request time.
+ *
+ * NOTE: this module is ALSO imported client-side (Settings UI metadata), so it
+ * must stay free of node built-ins. Server-only key sources (e.g. the opencode
+ * CLI auth.json fallback) live in agent.ts.
  */
 
-export type ProviderId = "mock" | "groq" | "opencode" | "9router" | "openrouter";
+export type ProviderId = "mock" | "groq" | "opencode" | "opencodego" | "9router" | "openrouter";
 
 export interface ProviderSpec {
   id: ProviderId;
@@ -39,6 +43,30 @@ export const PROVIDER_SPECS: ProviderSpec[] = [
     label: "OpenCode (local)",
     description: "Native local opencode agent (opencode serve). Requires the server to be running.",
     models: [{ id: "open-code", label: "Auto (server default)" }],
+  },
+  {
+    id: "opencodego",
+    label: "OpenCode Go",
+    description: "OpenCode Go subscription gateway ($10/mo) — strong models via one key. Requires OPENCODEGO_API_KEY (or the opencode CLI login).",
+    models: [
+      { id: "glm-5.2", label: "GLM 5.2" },
+      { id: "glm-5.3", label: "GLM 5.3" },
+      { id: "glm-5.3-flash", label: "GLM 5.3 Flash (hemat)" },
+      { id: "glm-5.1", label: "GLM 5.1" },
+      { id: "grok-4.6", label: "Grok 4.6" },
+      { id: "kimi-k3", label: "Kimi K3" },
+      { id: "kimi-k2.7-code", label: "Kimi K2.7 Code" },
+      { id: "kimi-k2.6", label: "Kimi K2.6" },
+      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+      { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+      { id: "deepseek-v4-flash-vision-exp", label: "DeepSeek V4 Flash Vision" },
+      { id: "longcat-2.0", label: "LongCat 2.0 (paling hemat)" },
+      { id: "mimo-v2.5", label: "MiMo V2.5" },
+      { id: "mimo-v2.5-pro", label: "MiMo V2.5 Pro" },
+      { id: "hy4-preview", label: "Hy4 preview" },
+      { id: "hy3", label: "Hy3" },
+      { id: "omen-alpha", label: "Omen Alpha" },
+    ],
   },
   {
     id: "9router",
@@ -129,6 +157,17 @@ export function resolveProvider(
         apiKey: process.env.OPENCODE_LLM_KEY || "EMPTY",
         defaultModel: process.env.OPENCODE_LLM_MODEL || "open-code",
       };
+    case "opencodego": {
+      // OpenCode Go subscription gateway (OpenAI-compatible). Key from env;
+      // the opencode CLI auth.json fallback is applied server-side in agent.ts
+      // (this module must stay client-safe — no node built-ins).
+      if (!process.env.OPENCODEGO_API_KEY) return null;
+      return {
+        url: process.env.OPENCODEGO_BASE_URL || "https://opencode.ai/zen/go/v1/chat/completions",
+        apiKey: process.env.OPENCODEGO_API_KEY,
+        defaultModel: process.env.OPENCODEGO_MODEL || "glm-5.2",
+      };
+    }
      case "9router":
       if (!process.env.LLM_API_KEY) return null;
       return {

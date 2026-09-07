@@ -395,6 +395,32 @@ async function handleCommand(ctx: Context, state: ChatState, text: string, user:
   }
 }
 
+/**
+ * Telegram's "typing…" chat action lasts only ~5s — re-send it every 4.5s
+ * while the awaited work runs so the indicator stays alive across long tool
+ * rounds / confirm continuations.
+ */
+async function withTyping<T>(ctx: Context, fn: () => Promise<T>): Promise<T> {
+  const chatId = ctx.chat?.id;
+  let typing = true;
+  const beat = (async () => {
+    let last = 0;
+    while (typing && chatId !== undefined) {
+      if (Date.now() - last >= 4500) {
+        last = Date.now();
+        await ctx.api.sendChatAction(chatId, "typing").catch(() => {});
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  })();
+  try {
+    return await fn();
+  } finally {
+    typing = false;
+    await beat.catch(() => {});
+  }
+}
+
 async function handleConfirmation(ctx: Context, state: ChatState, user: string, text: string): Promise<void> {
   const pending = state.pending!;
   const yes = /^(ya|yes|y|setuju|lanjut|ok|oke)$/i.test(text);
@@ -407,14 +433,16 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
   await replyMia(ctx, "Oke, sebentar ya…");
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
-    result = await runAssistantTurn({
-      messages: pending.messages,
-      provider: state.provider,
-      model: state.model,
-      user,
-      channel: "text",
-      confirm_call: { call: pending.call, allow: yes },
-    });
+    result = await withTyping(ctx, () =>
+      runAssistantTurn({
+        messages: pending.messages,
+        provider: state.provider,
+        model: state.model,
+        user,
+        channel: "text",
+        confirm_call: { call: pending.call, allow: yes },
+      })
+    );
   } catch (err) {
     console.error("[telegram] confirm failed:", err instanceof Error ? err.message : String(err));
     await replyMia(ctx, classifyAssistantError(err).userMessage);
@@ -445,14 +473,16 @@ async function runTurn(
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
     console.log(`[telegram] turn start (provider=${state.provider})`);
-    result = await runAssistantTurn({
-      messages: turnMessages,
-      provider: state.provider,
-      model: state.model,
-      user,
-      channel: "text",
-      confirm_call: confirmCall,
-    });
+    result = await withTyping(ctx, () =>
+      runAssistantTurn({
+        messages: turnMessages,
+        provider: state.provider,
+        model: state.model,
+        user,
+        channel: "text",
+        confirm_call: confirmCall,
+      })
+    );
     console.log(`[telegram] turn done (text len=${(result.text || "").length})`);
   } catch (err) {
     console.error("[telegram] turn failed:", err instanceof Error ? err.message : String(err));
@@ -480,7 +510,7 @@ async function runTurn(
   state.history.push({ role: "assistant", content: result.text });
   if (voiceTurn) {
     if (!(await sendVoiceReply(ctx, result.text))) {
-      await replyMia(ctx, result.text || "…");
+      await replyMia(ctx, result.text || "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸");
     }
   } else {
     await replyMia(ctx, result.text || "…");

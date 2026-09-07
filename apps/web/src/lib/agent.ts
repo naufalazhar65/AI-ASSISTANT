@@ -14,6 +14,7 @@
  */
 
 import { getTOOLS, ToolCall, executeTool, requiresConfirmation } from "./tools";
+import { ensureOpenCodeGoKey } from "./serverKeys";
 import { ProviderId, isProviderId, resolveProvider, findPublicProvider, defaultProviderId } from "./providers";
 import { runOpenCodeTurn, OpenCodeChatMessage } from "./opencode";
 import { captureFactsFromTurn } from "./autoMemory";
@@ -409,14 +410,15 @@ export async function runOneCompletion(
   apiKey: string,
   systemPrompt: string,
   model: string,
-  withTools: boolean
+  withTools: boolean,
+  extraHeaders?: Record<string, string>
 ): Promise<{ text: string; toolCalls: ToolCall[] }> {
   // Retry once on rate-limit (429) so a transient Groq TPM cap — which can hit
   // right after a confirmed tool runs — doesn't fail the whole turn. We back off
   // briefly, honoring a Retry-After header when present.
   for (let attempt = 0; ; attempt++) {
     try {
-      return await runOneCompletionOnce(messages, url, apiKey, systemPrompt, model, withTools);
+      return await runOneCompletionOnce(messages, url, apiKey, systemPrompt, model, withTools, extraHeaders);
     } catch (err) {
       const isRateLimit = err instanceof Error && /429/.test(err.message);
       if (!isRateLimit || attempt >= 1) throw err;
@@ -440,19 +442,33 @@ async function runOneCompletionOnce(
   apiKey: string,
   systemPrompt: string,
   model: string,
-  withTools: boolean
+  withTools: boolean,
+  extraHeaders?: Record<string, string>
 ): Promise<{ text: string; toolCalls: ToolCall[] }> {
   const res = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      ...extraHeaders,
     },
     body: JSON.stringify({
       model,
       messages: [{ role: "system", content: systemPrompt }, ...messages],
       stream: true,
-      tools: withTools ? getTOOLS() : undefined,
+      // Strict OpenAI-compatible gateways (e.g. OpenCode Go) reject extra
+      // fields — Mia's `risk` marker lives in the definition but must NOT be
+      // sent to the model. Serialize standard tool fields only.
+      tools: withTools
+        ? getTOOLS().map((t) => ({
+            type: t.type,
+            function: {
+              name: t.function.name,
+              description: t.function.description,
+              parameters: t.function.parameters,
+            },
+          }))
+        : undefined,
       tool_choice: withTools ? "auto" : undefined,
     }),
   });
@@ -565,13 +581,23 @@ async function runAgent(
   autoDenyRisky = false
 ): Promise<{ needsConfirmation: ToolCall[] | null }> {
   const withTools = round <= MAX_TOOL_ROUNDS;
+  // OpenCode Go requires a stable per-conversation session id for routing and
+  // prompt caching (x-opencode-session), and prefers a client user agent over
+  // a generic SDK name. Derive a stable id from the user key.
+  const extraHeaders: Record<string, string> | undefined = /opencode\.ai\/zen\/go/.test(url)
+    ? {
+        "x-opencode-session": `mia-${String(user ?? "anon").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) || "anon"}`,
+        "User-Agent": "mia-assistant/1.0",
+      }
+    : undefined;
   const { text, toolCalls } = await runOneCompletion(
     messages,
     url,
     apiKey,
     systemPrompt,
     model ?? defaultModel,
-    withTools
+    withTools,
+    extraHeaders
   );
 
   if (toolCalls.length === 0) {
@@ -1206,6 +1232,7 @@ async function runAssistantTurnImpl(opts: {
     return { text: schedulePlaceCheckFromIntent(messages, opencodeText || "", false), needsConfirmation: null };
   }
 
+  if (providerId === "opencodego") ensureOpenCodeGoKey();
   const resolved = resolveProvider(providerId);
   if (!resolved) {
     throw new Error(`Provider "${providerId}" is not configured`);

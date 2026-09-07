@@ -800,6 +800,20 @@ async function main() {
   if (due[0]?.id !== r.id || due[0]?.text !== vParsed[0]) throw new Error(`variant delivery: ${due[0]?.text}`);
   rmSync(join(userDataRoot(), vUser), { recursive: true, force: true });
   console.log("reminder variants: OK (parse strips bullets, attach + delivery uses variant[0])");
+
+  // --- OpenCode Go provider: registered publicly (Settings UI) + resolves from
+  // env or the opencode CLI auth.json fallback (server-side only). ---
+  const { PUBLIC_PROVIDERS, isProviderId } = await import("./src/lib/providers");
+  if (!PUBLIC_PROVIDERS.some((p) => p.id === "opencodego")) throw new Error("opencodego missing from PUBLIC_PROVIDERS");
+  if (!isProviderId("opencodego")) throw new Error("isProviderId rejects opencodego");
+  const { ensureOpenCodeGoKey } = await import("./src/lib/serverKeys");
+  ensureOpenCodeGoKey();
+  const goResolved = await (async () => {
+    const { resolveProvider } = await import("./src/lib/providers");
+    return resolveProvider("opencodego");
+  })();
+  if (!goResolved || !goResolved.apiKey) throw new Error("opencodego did not resolve (no env key / no auth.json)");
+  console.log("opencodego provider: OK (registered + key resolved server-side, model " + goResolved.defaultModel + ")");
 }
 
 main().catch((err) => {
