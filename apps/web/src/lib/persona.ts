@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeUser, appRoot, userDataRoot } from "./users";
 import { loadDailyMemoryPrompt } from "./dailyMemory";
@@ -140,6 +140,155 @@ export function upsertPersonaFact(
   const newBlock = block === "" ? `\n${header}\n\n${insertion}\n\n` : `${lines.join("\n").replace(/\s*$/, "")}\n${insertion}\n\n`;
 
   writeFileSync(path, `${head}${newBlock}${tail.replace(/^\n+/, "").trimStart()}`, "utf8");
+
+  // Continuous hygiene: collapse duplicates left by parallel capture passes.
+  try {
+    hygienizePersona(rawUser);
+  } catch {
+    /* best-effort */
+  }
+}
+
+// --- Memory hygiene (feature #6) ---
+//
+// Lived persona files accumulate duplicates: parallel/fire-and-forget capture
+// passes and older formats wrote the same fact many times, and `name` flipping
+// between values ("Naufal" ↔ "beb") left conflicting rows. `hygienizePersona`
+// normalizes the per-user persona:
+//   - USER.md: every `- key: value` line anywhere collapses to ONE row per key
+//     (last value wins — newest wins), superseded values are reported as
+//     conflicts so Mia can ask the user which value to keep. The file is
+//     rewritten in the canonical `## Facts` shape.
+//   - SOUL.md: only EXACT duplicate lines are collapsed (tone/style bullets are
+//     narrative — different values are NOT a conflict and are left untouched).
+// Idempotent: a second run reports no change.
+
+export interface HygieneConflict {
+  key: string;
+  kept: string;
+  superseded: string;
+}
+
+export interface HygieneResult {
+  file: "USER.md" | "SOUL.md";
+  removed: number;
+  changed: boolean;
+  conflicts: HygieneConflict[];
+}
+
+/** Collapse runs of blank lines to a single blank; trim stray edges. */
+function collapseBlanks(lines: string[]): string {
+  const out: string[] = [];
+  let blankPending = false;
+  for (const line of lines) {
+    const isBlank = line.trim() === "";
+    if (isBlank) {
+      if (out.length && !blankPending) out.push("");
+      blankPending = true;
+    } else {
+      out.push(line);
+      blankPending = false;
+    }
+  }
+  while (out.length && out[out.length - 1].trim() === "") out.pop();
+  return out.join("\n");
+}
+
+const FACT_LINE_RE = /^\s*-\s*([^:]{1,120}?):\s*(.*?)\s*$/;
+
+function hygienizeUserFile(path: string): HygieneResult {
+  const result: HygieneResult = { file: "USER.md", removed: 0, changed: false, conflicts: [] };
+  const original = readFileSync(path, "utf8");
+  const seen = new Map<string, number>();
+  const facts: { key: string; value: string }[] = [];
+  const conflicts = new Map<string, HygieneConflict>();
+  const nonFact: string[] = [];
+  for (const line of original.split("\n")) {
+    const m = FACT_LINE_RE.exec(line);
+    if (m) {
+      const key = m[1].trim();
+      const value = m[2].trim();
+      const prev = seen.get(key);
+      if (prev !== undefined) {
+        const old = facts[prev].value;
+        if (old !== value) conflicts.set(key, { key, kept: value, superseded: old });
+        facts[prev].value = value;
+        result.removed++;
+      } else {
+        seen.set(key, facts.length);
+        facts.push({ key, value });
+      }
+      continue;
+    }
+    if (/^##\s+Facts\s*$/i.test(line.trim())) continue; // rebuilt below
+    nonFact.push(line);
+  }
+  const head = collapseBlanks(nonFact);
+  const rebuilt = `${head}\n\n## Facts\n\n${facts.map((f) => `- ${f.key}: ${f.value}`).join("\n")}\n`;
+  result.conflicts = [...conflicts.values()];
+  if (rebuilt.replace(/\s+$/, "") !== original.replace(/\s+$/, "")) {
+    writeFileSync(path, rebuilt, "utf8");
+    result.changed = true;
+  }
+  return result;
+}
+
+function hygienizeSoulFile(path: string): HygieneResult {
+  const result: HygieneResult = { file: "SOUL.md", removed: 0, changed: false, conflicts: [] };
+  const original = readFileSync(path, "utf8");
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of original.split("\n")) {
+    if (/^\s*- /.test(line)) {
+      const normalized = line.trim();
+      if (seen.has(normalized)) {
+        result.removed++;
+        continue;
+      }
+      seen.add(normalized);
+    }
+    out.push(line);
+  }
+  const rebuilt = collapseBlanks(out);
+  if (rebuilt !== original.replace(/\s+$/, "")) {
+    writeFileSync(path, `${rebuilt}\n`, "utf8");
+    result.changed = true;
+  }
+  return result;
+}
+
+/**
+ * Dedupe/merge a user's persona files on disk. Returns per-file results
+ * (removed rows + conflicts to raise with the user). Never throws.
+ */
+export function hygienizePersona(rawUser: unknown): HygieneResult[] {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return [];
+  const dir = personaDir(userKey);
+  const results: HygieneResult[] = [];
+  for (const file of ["USER.md", "SOUL.md"] as const) {
+    const path = join(dir, file);
+    if (!existsSync(path)) continue;
+    try {
+      results.push(file === "USER.md" ? hygienizeUserFile(path) : hygienizeSoulFile(path));
+    } catch {
+      /* hygiene is best-effort — never break persona serving */
+    }
+  }
+  return results;
+}
+
+/** Run hygiene for every user that has a persona dir (server startup). */
+export function hygienizeAllUsers(): HygieneResult[] {
+  let dirs: string[] = [];
+  try {
+    dirs = readdirSync(USER_DATA_DIR, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    return [];
+  }
+  return dirs.flatMap((u) => hygienizePersona(u));
 }
 
 // --- Truncation-with-marker (OpenClaw-style prompt hygiene) ---

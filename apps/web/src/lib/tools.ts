@@ -793,6 +793,42 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
+      risk: "write",
+      function: {
+        name: "memory_hygiene",
+        description:
+          "Bersihkan ingatan persona: hapus duplikat fakta user & ratakan format (USER.md jadi satu bagian ## Facts; baris yang sama persis di SOUL.md dipangkas). Kalau ada konflik (satu fakta punya nilai beda-beda), nilai TERBARU dipertahankan dan konfliknya dilaporkan — tanyakan ke user mana yang benar. Panggil saat user minta 'bersihkan ingatanmu', 'beresin memory', 'kenapa ingatanmu duplikat', 'rapikan fakta tentang aku'. Butuh konfirmasi user karena menulis ulang file.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async (_args, ctx) => {
+      try {
+        const mod = await import("./persona");
+        const results = mod.hygienizePersona(ctx?.userKey);
+        const totalRemoved = results.reduce((n, r) => n + r.removed, 0);
+        if (!results.some((r) => r.changed) && totalRemoved === 0) {
+          return "Ingatan sudah bersih — tidak ada duplikat atau format berantakan. 🌸";
+        }
+        const lines: string[] = [];
+        for (const r of results) {
+          if (r.removed > 0) lines.push(`- ${r.file}: ${r.removed} baris duplikat dihapus`);
+        }
+        for (const r of results) {
+          for (const c of r.conflicts) {
+            lines.push(
+              `- KONFLIK ${r.file} '${c.key}': kutaruh nilai terbaru "${c.kept}" (nilai lama "${c.superseded}" dihapus). Kalau yang benar yang lama, bilang aja.`,
+            );
+          }
+        }
+        return `Memory hygiene selesai.\n${lines.join("\n")}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "hygiene failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
       risk: "read",
       function: {
         name: "memory_get",

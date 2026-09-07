@@ -7,6 +7,16 @@
 export async function registerNode(): Promise<void> {
   const { logInfo, logError } = await import("@/lib/appLogger");
   try {
+    const { hygienizeAllUsers } = await import("@/lib/persona");
+    const cleaned = hygienizeAllUsers().filter((r) => r.changed);
+    if (cleaned.length) {
+      const removed = cleaned.reduce((n, r) => n + r.removed, 0);
+      logInfo("persona", `hygiene: ${cleaned.length} file(s) dinormalisasi, ${removed} baris duplikat dihapus`);
+    }
+  } catch (err) {
+    logError("persona", `startup hygiene failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
     const { isValidTelegramConfig, startTelegramBot } = await import("@/channels/telegram");
     if (isValidTelegramConfig()) {
       await startTelegramBot();

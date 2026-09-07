@@ -8,6 +8,7 @@ import {
   firstUrlInText,
   scheduleLinkCapture,
 } from "./src/lib/library";
+import { hygienizePersona } from "./src/lib/persona";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -447,6 +448,65 @@ async function main() {
   rm2(join(userDataRoot(), capUser), { recursive: true, force: true });
   rm2(join(userDataRoot(), libUser), { recursive: true, force: true });
   console.log("link intelligence: OK");
+
+  // --- memory hygiene (persona dedupe + conflict report) ---
+  const hygUser = "verify_hyg";
+  const hygDir = join(userDataRoot(), hygUser, "persona");
+  mkdirSync(hygDir, { recursive: true });
+  writeFileSync(
+    join(hygDir, "USER.md"),
+    [
+      "# USER.md",
+      "",
+      "Notes: stable facts.",
+      "",
+      "- name: Naufal",
+      "- name: beb",
+      "- name: Naufal",
+      "- nickname: beb",
+      "- nickname: beb",
+      "- city: Jakarta",
+      "",
+      "## Facts",
+      "",
+      "- city: Tangerang Selatan",
+      "- name: Naufal",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(
+    join(hygDir, "SOUL.md"),
+    ["# SOUL.md", "", "- tone: kasual", "- tone: warm", "- tone: kasual", "", "## Style", "", "- tone: warm", ""].join("\n"),
+    "utf8",
+  );
+  const firstRun = hygienizePersona(hygUser);
+  const user1 = firstRun.find((r) => r.file === "USER.md")!;
+  if (user1.removed !== 5) throw new Error(`hygiene USER should drop 5 duplicate rows, got ${user1.removed}`);
+  if (!user1.changed) throw new Error("hygiene USER should mark changed");
+  const keptName = user1.conflicts.find((c) => c.key === "name");
+  if (!keptName || keptName.kept !== "Naufal" || keptName.superseded !== "beb") {
+    throw new Error(`hygiene should report name conflict Naufal/beb: ${JSON.stringify(user1.conflicts)}`);
+  }
+  const keptCity = user1.conflicts.find((c) => c.key === "city");
+  if (!keptCity || keptCity.kept !== "Tangerang Selatan") {
+    throw new Error(`hygiene should keep the newest city: ${JSON.stringify(user1.conflicts)}`);
+  }
+  const userFileAfter = readFileSync(join(hygDir, "USER.md"), "utf8");
+  if ((userFileAfter.match(/- name:/g) || []).length !== 1) throw new Error("hygiene should leave exactly one name row");
+  if (!/city: Tangerang Selatan/.test(userFileAfter)) throw new Error("hygiene should keep newest city value");
+  const soul = firstRun.find((r) => r.file === "SOUL.md")!;
+  if (soul.removed !== 2) throw new Error(`hygiene SOUL should drop only exact duplicates, got ${soul.removed}`);
+  if (soul.conflicts.length !== 0) throw new Error("SOUL different tone values are NOT conflicts");
+  const soulFileAfter = readFileSync(join(hygDir, "SOUL.md"), "utf8");
+  if ((soulFileAfter.match(/- tone: kasual/g) || []).length !== 1) throw new Error("SOUL exact duplicate should collapse");
+  if (!/tone: warm/.test(soulFileAfter)) throw new Error("SOUL legit tone values should survive");
+  const secondRun = hygienizePersona(hygUser);
+  if (secondRun.some((r) => r.removed !== 0 || r.changed)) throw new Error("hygiene must be idempotent");
+  const toolMsg = await executeTool({ id: "t", name: "memory_hygiene", arguments: "{}" }, hygUser);
+  if (!String(toolMsg).includes("sudah bersih")) throw new Error(`memory_hygiene after clean should say clean: ${toolMsg}`);
+  rm2(join(userDataRoot(), hygUser), { recursive: true, force: true });
+  console.log("memory hygiene: OK");
 
   // --- browser automation — just check tools are registered (no heavy launch in verify) ---
   const { getTool } = await import("./src/lib/tools");
