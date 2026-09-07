@@ -743,6 +743,58 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "library_list",
+        description:
+          "Buka daftar bacaan si user: link yang pernah disimpan (dengan ringkasannya). Panggil saat user minta 'daftar bacaan', 'link yang kusimpan', 'bacaan-ku', 'read later', atau menyebut isi yang dia pernah share. Berjalan tanpa konfirmasi.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async (_, ctx) => {
+      try {
+        const mod = await import("./library");
+        const reads = mod.listReads(ctx?.userKey);
+        if (!reads.length) return "Daftar bacaan masih kosong — belum ada link yang disimpan.";
+        const lines = reads.slice(0, 10).map((r, i) => {
+          const when = new Date(r.savedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+          return `${i + 1}. ${r.title || r.url} (${when})\n   ${r.summary.slice(0, 160)}`;
+        });
+        const more = reads.length > 10 ? `\n+${reads.length - 10} lagi` : "";
+        return `Daftar bacaan (${reads.length}):\n${lines.join("\n")}${more}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "library unavailable"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "delete",
+      function: {
+        name: "library_remove",
+        description:
+          "Hapus satu link dari daftar bacaan user. `ref` = nomor urut (sesuai library_list) atau id entri. Butuh konfirmasi user sebelum dijalankan.",
+        parameters: {
+          type: "object",
+          properties: { ref: { type: "string", description: "Nomor urut atau id entri di daftar bacaan" } },
+          required: ["ref"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const mod = await import("./library");
+        const ref = typeof args.ref === "string" ? args.ref : String(args.ref);
+        return mod.removeLibraryEntry(ctx?.userKey, ref);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "library remove failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "memory_get",
         description:
           "Retrieve the daily memory log for a specific date (YYYY-MM-DD, or 'today'/'yesterday'). Each day's file contains timestamped conversation snippets. Returns the file content or a not-found message.",
@@ -2103,7 +2155,7 @@ const FETCH_TIMEOUT_MS = 12_000;
  *   - GitHub tree → not a file (throw)
  *   - raw.githubusercontent already fine
  */
-function canonicalizeUrl(raw: string): string {
+export function canonicalizeUrl(raw: string): string {
   let u: URL;
   try {
     u = new URL(raw);
@@ -2130,7 +2182,7 @@ function canonicalizeUrl(raw: string): string {
 }
 
 /** SSRF guard: refuse internal/loopback/private addresses and non-http schemes. */
-function assertPublicUrl(raw: string): URL {
+export function assertPublicUrl(raw: string): URL {
   let url: URL;
   try {
     url = new URL(raw);

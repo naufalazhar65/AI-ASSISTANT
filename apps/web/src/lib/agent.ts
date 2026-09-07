@@ -29,6 +29,7 @@ import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
 import { appendDailyMemory } from "./dailyMemory";
 import { recallContext } from "./rag";
+import { scheduleLinkCapture } from "./library";
 import { checkRateLimit, RateLimitError } from "./rateLimit";
 import { recordTurn } from "./turnStats";
 import { auditLog } from "./auditLog";
@@ -134,7 +135,7 @@ const SYSTEM_PROMPT = [
   "never list capabilities unless asked, never narrate what you're doing in telegraphese. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, and briefing. ",
+  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, and briefing. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
   "show saved notes, delete_note to remove one, file_read to read a project ",
@@ -158,7 +159,7 @@ const SYSTEM_PROMPT = [
   "not just a one-time nudge. Use list_uploads to show files the user uploaded via Telegram or Discord, and read_upload to read a saved upload's text content when asked about its contents. ",
   "When the user uploads a file (Telegram/Discord), it is ALREADY saved by the system and its text is available to you in context or via read_upload — do NOT call save_note, add_task, or any other tool just to record the file itself; reply to its contents instead. ",
   "When the user wants a recurring action on a schedule ('setiap pagi jam 8', 'setiap 2 jam', 'lapor cuaca tiap pagi'), call create_automation with the action as `prompt` and a human `schedule` string.",
-  "Use fetch_url to read the text of a specific public web page the user links to (it scrapes article text), and web_search to find pages — combine both to answer with current web content.",
+  "Use fetch_url to read the text of a specific public web page the user links to (it scrapes article text), and web_search to find pages — combine both to answer with current web content. IMPORTANT: when the user themselves SHARES a link in the chat, the system automatically saves and summarizes it to their reading list in the background — do NOT call fetch_url on a link the user just posted; acknowledge that it's been saved and answer from context, or use library_list later when they ask for their saved links.",
   "Use search_memory to look up past notes, uploaded documents, tasks, reminders, automations, and persona facts relevant to a question — it combines BM25 keyword match with semantic (embedding) similarity, and still works offline when embeddings are unavailable.",
   "Use memory_get to retrieve a specific day's daily memory log (e.g. 'today', 'yesterday', or '2026-09-04').",
   "Use browser_open to open a URL in a headless browser (for JS-heavy pages), browser_snapshot to see clickable elements, browser_click/browser_type to interact (require confirmation), and browser_navigate for back/forward/reload.",
@@ -167,12 +168,13 @@ const SYSTEM_PROMPT = [
   "Use send_channel with `to` = 'telegram' or 'discord' to relay a message to the other platform when the user asks (e.g. 'kirim ini ke discord'). It sends immediately without needing confirmation.",
   "Use mood_log to record how the user is feeling when they share their mood or state (e.g. 'aku stres', 'hari ini bahagia', 'capek banget') — it stores a mood entry (great/good/okay/meh/stressed/anxious/sad/tired/angry) with an optional note and helps you tailor replies and support later. Use mood_recent to show their mood history/trend when asked (e.g. 'gimana mood-ku belakangan ini'). Both run immediately without confirmation.",
   "Use context_active to see what the user is currently doing on their Mac (active app + window title) when they ask 'lagi ngapain' / 'sedang di aplikasi apa' or to tailor help. It runs immediately, without confirmation, and reports only the app/window name.",
+  "Use library_list to open the user's reading list — saved links with summaries (e.g. when they ask 'daftar bacaan', 'link yang kusimpan', or reference something they shared earlier). It runs immediately, without confirmation. Shared links are ALREADY saved+summarized automatically by the system, so reply to the link content and only call library_list when asked for the list. library_remove (delete) pauses for confirmation.",
   "Use briefing to serve the morning/day digest when the user asks 'briefing', 'ringkasan pagi', 'apa agenda hari ini', 'rencana hari ini', or greets in the morning wanting their schedule — it assembles due/overdue tasks, today's reminders, yesterday's mood+memory, and any civil holiday today. It runs immediately, without confirmation." ,
   "Fun features, all immediate without confirmation: mala gives a daily fortune ('ramalan harian', stable all day) when the user asks to be told their luck/fortune; game_start starts a song-guess round (Mia secretly picks a song from the user's recently played Spotify history), game_guess checks the user's guess (correct → celebrate + score; wrong → next clue, max 3), game_quit reveals and stops; hari_libur answers Indonesian public holidays ('tanggal merah/libur nasional'), noting that moveable Islamic dates follow the official SKB — web_search them when the user needs exact current-year dates; recap wraps up the user's day from memory + moods when asked ('rekap hariku').",
   "Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_next/spotify_previous/spotify_volume to control playback (they run immediately, no confirmation). If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
-  "save_note, delete_note, write_file, edit_file, browser_click, browser_type, browser_navigate, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, remind_me, add_task, complete_task, cancel_task, reschedule_task, create_automation, and exec_write ",
+  "save_note, delete_note, library_remove, write_file, edit_file, browser_click, browser_type, browser_navigate, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, remind_me, add_task, complete_task, cancel_task, reschedule_task, create_automation, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
-  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, context_active, briefing, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous and spotify_volume do NOT wait for confirmation — send/run them right away.",
+  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, context_active, briefing, library_list, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous and spotify_volume do NOT wait for confirmation — send/run them right away.",
   "Tool results come from the server and should be trusted as fresh information.",
   "Report tool results as a natural, complete Indonesian sentence in your own ",
   "voice — NEVER as terse fragments. The words 'Progress', 'Progres', 'Device', ",
@@ -1003,6 +1005,9 @@ async function runAssistantTurnImpl(opts: {
     // so detect a "remind/bangunin di <waktu>" intent directly and schedule it
     // with the same store the `remind_me` tool uses.
     opencodeText = scheduleReminderFromIntent(messages, opts.user, opencodeText);
+    // Link intelligence: a URL in the message is fetched + summarized + saved
+    // in the background (never blocks the turn).
+    opencodeText = scheduleLinkCapture(messages, opts.user, providerId, model, opencodeText);
     // Mood tracking: register "aku lagi stres/capek/.." statements even when
     // the model never emits a tool call (deterministic, fire-and-forget).
     logMoodFromMessages(messages, opts.user);
@@ -1169,6 +1174,12 @@ async function runAssistantTurnImpl(opts: {
     text = await scheduleSpotifyFromIntent(messages, opts.user, text, playCall ? queryArgOf(playCall) : null);
   }
   text = await schedulePriceFromIntent(messages, opts.user, text);
+  // Link intelligence: deterministic post-turn capture of a shared URL
+  // (fetch + summarize + store + append to daily memory) — fire-and-forget,
+  // never delays the turn. The spoken "saved" suffix is only appended when the
+  // turn does NOT end in a confirmation frame (otherwise the suffix would sit
+  // on top of a @@CONFIRM body and be spoken/rendered out of context).
+  text = scheduleLinkCapture(messages, opts.user, providerId, model, text, (needsConfirmation?.length ?? 0) > 0);
   if (needsConfirmation?.some((c) => c.name === "fetch_url")) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
     if (lastUser?.content && typeof lastUser.content === "string" && detectPriceIntent(lastUser.content) && /Harga .*USD/i.test(text)) {

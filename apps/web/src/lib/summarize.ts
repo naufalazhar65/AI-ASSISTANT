@@ -99,31 +99,45 @@ function writeCache(userKey: string | null, hash: string, summary: string): void
   } catch { /* cache is best-effort */ }
 }
 
-async function summarizeWithProvider(
-  textLines: string[],
-  providerId?: string,
-  model?: string,
-): Promise<string> {
-  const provider = providerId && isProviderId(providerId) ? providerId : defaultProviderId();
-  const conf = resolveProvider(provider);
-  if (!conf || !conf.apiKey || conf.apiKey === "EMPTY") return "";
+export interface SummarizeTextOptions {
+  text: string;
+  provider?: string;
+  model?: string;
+  /** System instruction; defaults to a concise Bahasa Indonesia summary. */
+  instruction?: string;
+  maxChars?: number;
+}
+
+/**
+ * One-shot non-streaming summary of arbitrary text against the default (or
+ * given) provider. Returns "" when no provider is configured, on mock, or on
+ * failure — callers decide their own deterministic fallback.
+ */
+export async function summarizeText(opts: SummarizeTextOptions): Promise<string> {
+  const { text, provider, model } = opts;
+  const providerId = provider && isProviderId(provider) ? provider : defaultProviderId();
+  const conf = resolveProvider(providerId);
+  if (!conf || !conf.url) return "";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (conf.apiKey && conf.apiKey !== "EMPTY") headers.Authorization = `Bearer ${conf.apiKey}`;
   const body = JSON.stringify({
     model: model || conf.defaultModel,
     messages: [
       {
         role: "system",
         content:
-          "Ringkas percakapan berikut ke dalam Bahasa Indonesia yang natural: poin penting yang perlu diingat (topik, keputusan, fakta pribadi, janji, rencana). Maksimal 200 kata, poin-poin saja, tanpa dialog baru.",
+          opts.instruction ??
+          "Ringkas teks berikut ke dalam Bahasa Indonesia yang natural: inti utama + 2-4 poin kunci. Maksimal 150 kata, tanpa dialog baru.",
       },
-      { role: "user", content: textLines.join("\n").slice(0, 30000) },
+      { role: "user", content: text.slice(0, opts.maxChars ?? 30000) },
     ],
     stream: false,
-    temperature: 0.2,
+    temperature: 0.3,
   });
   try {
     const res = await fetch(conf.url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${conf.apiKey}`, "Content-Type": "application/json" },
+      headers,
       body,
       signal: AbortSignal.timeout(20000),
     });
@@ -179,7 +193,11 @@ export async function buildSummarizedMessages(opts: SummarizeOptions): Promise<C
   }
   if (!summary) {
     try {
-      summary = (summarize ? await summarize(textLines) : await summarizeWithProvider(textLines, provider, model)).trim();
+      summary = (
+        summarize
+          ? await summarize(textLines)
+          : await summarizeText({ text: textLines.join("\n").slice(0, 30000), provider, model })
+      ).trim();
     } catch {
       summary = "";
     }

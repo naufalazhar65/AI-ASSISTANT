@@ -1,7 +1,13 @@
 import { ConversationManager } from "./src/ai/ConversationManager";
 import { MockProvider } from "@ai-provider/mock";
 import { executeTool } from "./src/lib/tools";
-import { resolveInSandbox, appRoot } from "./src/lib/users";
+import { resolveInSandbox, appRoot, userDataRoot } from "./src/lib/users";
+import {
+  addLibraryEntry,
+  captureLinkFromMessage,
+  firstUrlInText,
+  scheduleLinkCapture,
+} from "./src/lib/library";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -361,6 +367,86 @@ async function main() {
     rm2(join(userDataRoot(), ru), { recursive: true, force: true });
   }
   console.log("rolling summary: OK");
+
+  // --- link intelligence (library store + deterministic capture) ---
+  const libUser = "verify_lib";
+  rm2(join(userDataRoot(), libUser), { recursive: true, force: true });
+  const savedLib = await addLibraryEntry(libUser, {
+    url: "https://example.com/artikel-1",
+    title: "Artikel Tes Vedro",
+    summary: "Ringkasan tes offline.",
+  });
+  if (!savedLib) throw new Error("addLibraryEntry should persist");
+  const dupLib = await addLibraryEntry(libUser, {
+    url: "https://example.com/artikel-1",
+    title: "duplikat",
+    summary: "x",
+  });
+  if (dupLib) throw new Error("addLibraryEntry must dedupe by URL");
+  const libListed = await executeTool({ id: "t", name: "library_list", arguments: "{}" }, libUser);
+  if (!String(libListed).includes("Artikel Tes Vedro")) throw new Error(`library_list should show saved entry: ${libListed}`);
+  if (!String(libListed).includes("Ringkasan tes offline")) throw new Error(`library_list should show its summary: ${libListed}`);
+  const libRemoved = await executeTool({ id: "t", name: "library_remove", arguments: JSON.stringify({ ref: "1" }) }, libUser);
+  if (!String(libRemoved).toLowerCase().includes("dihapus")) throw new Error(`library_remove should delete by ref: ${libRemoved}`);
+  const libAfter = await executeTool({ id: "t", name: "library_list", arguments: "{}" }, libUser);
+  if (String(libAfter).includes("Artikel Tes Vedro")) throw new Error("library_remove should clear the entry");
+  const capUser = "verify_lib_cap";
+  rm2(join(userDataRoot(), capUser), { recursive: true, force: true });
+  const captured = await captureLinkFromMessage({
+    messages: [
+      { role: "user", content: "halo" },
+      { role: "assistant", content: "hai" },
+      {
+        role: "user",
+        content: "baca ini dong https://news.example.com/kopi-arabika.html lalu simpan!",
+      },
+    ],
+    user: capUser,
+    provider: "9router",
+    fetchHtml: async () =>
+      "<html><head><title>7 Rahasia Kopi Arabika</title><meta property=\"og:description\" content=\"Panduan singkat meracik kopi arabika premium.\"></head><body><article><p>Isi artikel panjang tentang biji kopi arabika yang ditanam di dataran tinggi.</p></article></body></html>",
+    summarize: async () => "Ringkasan offline: arabika tumbuh di dataran tinggi dan diseduh dengan suhu 90 derajat.",
+  });
+  if (!captured) throw new Error("captureLinkFromMessage should save a link entry");
+  if (captured.url !== "https://news.example.com/kopi-arabika.html") throw new Error(`captured url mismatch: ${captured.url}`);
+  if (captured.title !== "7 Rahasia Kopi Arabika") throw new Error(`captured title mismatch: ${captured.title}`);
+  if (!captured.summary.includes("arabika")) throw new Error(`captured summary mismatch: ${captured.summary}`);
+  const capListed = await executeTool({ id: "t", name: "library_list", arguments: "{}" }, capUser);
+  if (!String(capListed).includes("7 Rahasia Kopi Arabika")) throw new Error(`capture should be listable: ${capListed}`);
+  const noUrl = await captureLinkFromMessage({
+    messages: [{ role: "user", content: "hitung 2+2" }],
+    user: capUser,
+    fetchHtml: async () => "",
+    summarize: async () => "",
+  });
+  if (noUrl) throw new Error("captureLinkFromMessage must skip messages without a URL");
+  const duplicate = await captureLinkFromMessage({
+    messages: [{ role: "user", content: "baca https://news.example.com/kopi-arabika.html" }],
+    user: capUser,
+    fetchHtml: async () => "<title>duplikat</title>",
+    summarize: async () => "x",
+  });
+  if (duplicate) throw new Error("captureLinkFromMessage must skip already-saved URLs");
+  const suffixated = scheduleLinkCapture(
+    [{ role: "user", content: "coba baca https://example.org/x" }],
+    capUser,
+    "9router",
+    undefined,
+    "Oke, aku sudah baca.",
+  );
+  if (!suffixated.includes("daftar bacaan")) throw new Error(`scheduleLinkCapture should append a suffix: ${suffixated}`);
+  const noSuffix = scheduleLinkCapture(
+    [{ role: "user", content: "coba baca https://example.org/x" }],
+    capUser,
+    "9router",
+    undefined,
+    "Oke, sudah kusimpan ke daftar bacaan.",
+  );
+  if (noSuffix.includes("(Udah kusimpan")) throw new Error("scheduleLinkCapture must not double-announce when the model already mentioned saving");
+  if (!firstUrlInText("lihat https://a.com/x.html, oke?")?.startsWith("https://a.com/x.html")) throw new Error("firstUrlInText should strip trailing punctuation");
+  rm2(join(userDataRoot(), capUser), { recursive: true, force: true });
+  rm2(join(userDataRoot(), libUser), { recursive: true, force: true });
+  console.log("link intelligence: OK");
 
   // --- browser automation — just check tools are registered (no heavy launch in verify) ---
   const { getTool } = await import("./src/lib/tools");
