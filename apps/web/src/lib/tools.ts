@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { execFile } from "node:child_process";
+import { execFile, execFile as execFileCb } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
 import { addReminder } from "./reminders";
@@ -1018,6 +1018,37 @@ const toolRegistry: ToolPlugin[] = [
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "cannot navigate"}`;
       }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "mac_open",
+        description:
+          "Open a URL in the user's REAL browser on their Mac (visible window, LaunchServices `open`). Use when the user wants to actually SEE/browse a site themselves ('buka youtube dong') — browser_open instead runs an INVISIBLE headless browser for automation/reading. http(s) URLs only.",
+        parameters: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "http(s) URL to open, e.g. 'https://youtube.com'" },
+          },
+          required: ["url"],
+        },
+      },
+    },
+    execute: (args) => {
+      const url = typeof args.url === "string" ? args.url.trim() : "";
+      if (!/^https?:\/\//i.test(url)) {
+        return "Error: mac_open needs a plain http(s) URL (e.g. https://youtube.com)";
+      }
+      if (process.platform !== "darwin") return "Error: mac_open only works on macOS";
+      return new Promise<string>((resolvePromise) => {
+        execFile("open", [url], { timeout: 5000 }, (err) => {
+          if (err) resolvePromise(`Error: gagal membuka ${url}`);
+          else resolvePromise(`Udah kubuka di browser-mu ya: ${url} 🌸`);
+        });
+      });
     },
   },
   {
