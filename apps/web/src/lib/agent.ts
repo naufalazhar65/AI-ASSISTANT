@@ -786,14 +786,15 @@ async function scheduleSpotifyFromIntent(
   } catch (err) {
     return appendSpotifyError(text, err);
   }
-  const confirmSuffix = ` (Sudah kuputar: ${played})`;
+  const ok = /sudah (?:benar-)?benar keputar|mulai diputar|dilanjutkan/i.test(played);
+  const confirmSuffix = ok ? ` (Sudah kuputar: ${played})` : ` (${played})`;
   const trimmed = (text || "").trim();
   const stubOnly =
     trimmed === "" ||
     /^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(trimmed) ||
     /^(Error:)?\s*(Unexpected token|Unexpected non-whitespace|No number after minus sign|is not valid JSON)/i.test(trimmed);
   if (stubOnly) return confirmSuffix.trim();
-  return /spotify|putar|play/i.test(text.toLowerCase()) ? text : trimmed + confirmSuffix;
+  return ok && /spotify|putar|play/i.test(text.toLowerCase()) ? text : trimmed + confirmSuffix;
 }
 
 /**

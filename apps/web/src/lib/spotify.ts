@@ -337,6 +337,58 @@ async function searchBestTrack(
   return best;
 }
 
+/** Snapshot of Spotify's current player state. `null` when there's no
+ *  perceivable playback (nothing loaded/paused/no device) or the state can't be
+ *  read — callers must treat the absence as "playback not confirmed" and never
+ *  claim a track started. */
+interface PlayerSnapshot {
+  isPlaying: boolean;
+  trackUri?: string;
+  contextUri?: string;
+  deviceName?: string;
+}
+
+async function currentPlayer(rawUser: unknown): Promise<PlayerSnapshot | null> {
+  try {
+    const player = await spotifyRequest<Record<string, unknown> | undefined>(rawUser, "GET", "/me/player");
+    if (!player) return null;
+    const item = (player.item as Record<string, unknown>) || undefined;
+    const context = (player.context as Record<string, unknown>) || undefined;
+    const device = (player.device as Record<string, unknown>) || undefined;
+    return {
+      isPlaying: !!player.is_playing,
+      trackUri: item && typeof item.uri === "string" ? item.uri : undefined,
+      contextUri: context && typeof context.uri === "string" ? context.uri : undefined,
+      deviceName: device && typeof device.name === "string" ? device.name : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Poll until the requested playback is actually audible (`is_playing`) or the
+ * timeout elapses. Returns the verified snapshot when playback of `expectedUri`
+ * (track or playlist/album context) is confirmed, otherwise the last snapshot —
+ * so the caller can honestly say "belum kedengeran muter" instead of claiming
+ * success from a bare PUT/`open` request that didn't start audio.
+ */
+async function verifyPlayback(rawUser: unknown, expectedUri?: string, timeoutMs = 5000): Promise<PlayerSnapshot | null> {
+  const deadline = Date.now() + timeoutMs;
+  let last: PlayerSnapshot | null = null;
+  while (Date.now() < deadline) {
+    const snap = await currentPlayer(rawUser);
+    if (snap) {
+      last = snap;
+      if (snap.isPlaying && (!expectedUri || snap.trackUri === expectedUri || snap.contextUri === expectedUri)) {
+        return snap;
+      }
+    }
+    await new Promise((r) => setTimeout(r, 650));
+  }
+  return last;
+}
+
 /** Play a search result (first track) or resume (`query` empty). Returns a short summary. */
 export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "playlist" | "album" | "track"): Promise<string> {
   let track: Record<string, unknown> | undefined;
@@ -368,14 +420,31 @@ export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "play
   const start = async (uris?: string[]) => {
     await spotifyRequest<unknown>(rawUser, "PUT", "/me/player/play", uris ? { uris } : {});
   };
+  const artistsOf = (t: Record<string, unknown>): string =>
+    ((t.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
+  const onDevice = (snap: PlayerSnapshot): string =>
+    snap.isPlaying && snap.deviceName ? ` di ${snap.deviceName}` : "";
+  const confirmTrack = async (t: Record<string, unknown>): Promise<string> => {
+    const snap = (await verifyPlayback(rawUser, String(t.uri))) || { isPlaying: false };
+    const label = `${String(t.name)} — ${artistsOf(t)}`;
+    if (snap.isPlaying) return `${label} sudah benar-benar keputar${onDevice(snap)}.`;
+    return `Perintah putar ${label} sudah masuk, tapi belum kedengeran muter — cek aplikasi/device Spotify-nya ya.`;
+  };
+  const confirmResume = async (transferred?: string): Promise<string> => {
+    const snap = (await verifyPlayback(rawUser)) || { isPlaying: false };
+    const suffix = transferred ? ` di ${transferred}` : onDevice(snap);
+    if (snap.isPlaying) return `Pemutaran dilanjutkan${suffix ? ` ${suffix.trim()}` : ""}.`;
+    return transferred
+      ? `Sudah kuarahkan ke ${transferred}, tapi belum kedengeran muter — cek device-nya ya.`
+      : "Perintah lanjut muter sudah masuk, tapi belum kedengeran — pastikan ada device aktif ya.";
+  };
   try {
     if (track) {
       await start([String(track.uri)]);
-      const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
-      return `${String(track.name)} — ${artists} sudah mulai diputar.`;
+      return await confirmTrack(track);
     }
     await start();
-    return "Pemutaran dilanjutkan.";
+    return await confirmResume();
   } catch (err) {
     // No active device (404). Two robust fallbacks before giving up:
     //   1. macOS: open `spotify:track:<uri>` through LaunchServices — this
@@ -402,19 +471,19 @@ export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "play
             /* device not ready yet; keep polling */
           }
         }
-        const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
-        if (played) return `${String(track.name)} — ${artists} sudah mulai diputar.`;
-        return `Spotify terbuka, ${String(track.name)} — ${artists} mulai diputar.`;
+        if (!played) {
+          return `Spotify sudah kubuka, tapi belum kedeteksi sebagai device — cek aplikasi Spotify-nya dan pastikan ada device aktif ya.`;
+        }
+        return await confirmTrack(track);
       }
       const transferred = await ensureDevice(rawUser);
       if (transferred) {
         if (track) {
           await start([String(track.uri)]);
-          const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
-          return `${String(track.name)} — ${artists} mulai diputar di ${transferred}.`;
+          return await confirmTrack(track);
         }
         await start();
-        return "Pemutaran dilanjutkan di " + transferred + ".";
+        return await confirmResume(transferred);
       }
     }
     throw err;
@@ -429,15 +498,21 @@ async function playContext(rawUser: unknown, contextUri: string, label: string):
   const start = async () => {
     await spotifyRequest<unknown>(rawUser, "PUT", "/me/player/play", { context_uri: contextUri });
   };
+  const onDevice = (snap: PlayerSnapshot): string =>
+    snap.isPlaying && snap.deviceName ? ` di ${snap.deviceName}` : "";
   try {
     await start();
-    return `${label} sudah mulai diputar, beb 🌸`;
+    const snap = (await verifyPlayback(rawUser, contextUri)) || { isPlaying: false };
+    if (snap.isPlaying) return `${label} sudah benar-benar keputar${onDevice(snap)}.`;
+    return `${label} sudah masuk antrean, tapi belum kedengeran muter — cek aplikasi/device Spotify-nya ya.`;
   } catch (err) {
     if (err instanceof Error && err.message === "spotify_no_active_device") {
       const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await start();
-        return `${label} diputar di ${transferred}.`;
+        const snap = (await verifyPlayback(rawUser, contextUri)) || { isPlaying: false };
+        if (snap.isPlaying) return `${label} sudah keputar di ${transferred}.`;
+        return `${label} sudah kuarahkan ke ${transferred}, tapi belum kedengeran muter — cek device-nya ya.`;
       }
     }
     throw err;
