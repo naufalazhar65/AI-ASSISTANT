@@ -24,6 +24,7 @@ import { detectMonitorIntent, cryptoSubject } from "./monitorIntent";
 import { addMonitor } from "./monitor";
 import { detectSpotifyControl, detectSpotifyIntent, SpotifyControlIntent } from "./spotifyIntent";
 import { detectPriceIntent } from "./priceIntent";
+import { detectPlaceIntent, placeNudge } from "./placeIntent";
 import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume } from "./spotify";
 import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
@@ -204,6 +205,14 @@ const SYSTEM_PROMPT = [
   "them and never ask permission to remember them. save_note is only for when ",
   "the user EXPLICITLY asks you to write something down (e.g. 'catat ini', ",
   "'ingetin aku', 'simpan note').",
+  "REAL-WORLD facts that can change — business/venue still open or not, opening ",
+  "hours, stock prices, upcoming events, availability, status of a place — must NOT ",
+  "be asserted from memory alone. Your training data goes stale and local shops can ",
+  "close. For these, call web_search (or fetch_url) to check the current status ",
+  "BEFORE answering; if you cannot verify, say so honestly ('aku cek dulu ya', or " +
+  "'infoku bisa telat, coba cek langsung') instead of presenting a stale/guessed ",
+  "list as fact. Personal facts about the user (from persona/memory) do not need ",
+  "this — only mutable real-world state does.",
 ].join("");
 
 /**
@@ -325,6 +334,12 @@ function openCodeSystemPromptParts(): string {
     "When the user shares how they feel (stressed, sedih, capek, bahagia, ...), ",
     "acknowledge it warmly — the system also records their mood automatically, ",
     "so there's no need to store or repeat it.",
+    "REAL-WORLD facts that can change — whether a business/venue is still open, ",
+    "opening hours, prices, events, availability — must NOT be asserted from memory ",
+    "alone (your training data goes stale; local shops close). Call web_search (or " +
+    "fetch_url) to check current status before answering, and if you can't verify, " +
+    "say so honestly ('aku cek dulu ya') rather than presenting a stale/guessed list " +
+    "as fact. Only mutable real-world state needs this — user persona/memory is fine.",
     "The persona files below (USER, SOUL, IDENTITY, DREAMS) are your persistent ",
     "memory: they already contain what you know about the user and how to speak. ",
     "Do NOT append any <persona> tag or hidden metadata to your answer — new ",
@@ -532,7 +547,7 @@ async function runAgent(
   apiKey: string,
   defaultModel: string,
   systemPrompt: string,
-  collector: { collect: (text: string) => void },
+  collector: { collect: (text: string) => void; webSearchSuccess?: boolean },
   round: number,
   model?: string,
   user?: unknown,
@@ -594,7 +609,9 @@ async function runAgent(
     }
     const autoDenied = toolCalls2.filter((c) => !risky.includes(c));
     for (const call of autoDenied) {
-      messages.push({ role: "tool", tool_call_id: call.id, content: await executeTool(call, user) });
+      const content = await executeTool(call, user);
+      messages.push({ role: "tool", tool_call_id: call.id, content });
+      if (call.name === "web_search" && !/^error:/i.test(content.trim())) collector.webSearchSuccess = true;
     }
     if (round < MAX_TOOL_ROUNDS) {
       return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
@@ -606,7 +623,9 @@ async function runAgent(
   // All read-only tools: execute them server-side and continue (FR-013).
   if (round < MAX_TOOL_ROUNDS) {
     for (const call of toolCalls2) {
-      messages.push({ role: "tool", tool_call_id: call.id, content: await executeTool(call, user) });
+      const content = await executeTool(call, user);
+      messages.push({ role: "tool", tool_call_id: call.id, content });
+      if (call.name === "web_search" && !/^error:/i.test(content.trim())) collector.webSearchSuccess = true;
     }
     return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
   }
@@ -876,6 +895,37 @@ async function schedulePriceFromIntent(messages: ChatMessage[], user: unknown, t
 }
 
 /**
+ * Honesty guard for real-world place recommendations/status (feature: no
+ * hallucinating closed venues). Local establishments (cafes, restaurants,
+ * salons…) close/move/change hours, and models (esp. 9router) often
+ * free-associate a confident list from stale training data — e.g. once
+ * recommending "Arah Coffee"/"Kopi Kalyan"/"Sejiwa" in Tangerang Selatan which
+ * were already gone. Models may also ignore the "verify before answering"
+ * instruction in the system prompt.
+ *
+ * Deterministic & safe: when the user asks for a place recommendation or a
+ * place's open/close status AND the turn did NOT actually consult web_search,
+ * we append a brief honest caveat so Mia never presents unverified local info
+ * as a confidently-current fact. It never fabricates data and never fails the
+ * turn; it only adds honesty. If the model already hedged, we skip it.
+ */
+function schedulePlaceCheckFromIntent(messages: ChatMessage[], text: string, webSearchSuccess?: boolean): string {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content || typeof lastUser.content !== "string") return text;
+  const detected = detectPlaceIntent(lastUser.content);
+  if (!detected) return text;
+
+  // If the turn ran web_search and it succeeded, the answer is grounded in a
+  // live result — no caveat needed. A FAILED search ("Error: web search
+  // failed") means the model had no verified data, so we still nudge.
+  const caveat = placeNudge(text, Boolean(webSearchSuccess));
+  if (!caveat) return text;
+  const trimmed = (text || "").trim();
+  if (trimmed === "") return caveat.trim();
+  return trimmed.trimEnd() + caveat;
+}
+
+/**
  * Best-effort mood capture: if the user's latest message states how they feel
  * ("aku lagi stres", "hari ini bahagia"), log it to their mood store via
  * `logDetectedMood` (fire-and-forget, never throws). Complements the
@@ -1019,7 +1069,7 @@ async function runAssistantTurnImpl(opts: {
         appendDailyMemory(opts.user, snippet);
       }
     } catch { /* best-effort */ }
-    return { text: opencodeText || "", needsConfirmation: null };
+    return { text: schedulePlaceCheckFromIntent(messages, opencodeText || "", false), needsConfirmation: null };
   }
 
   const resolved = resolveProvider(providerId);
@@ -1056,7 +1106,9 @@ async function runAssistantTurnImpl(opts: {
 
   let text = "";
   let needsConfirmation: ToolCall[] | null = null;
-  const collector = { collect: (t: string) => (text += t) };
+  const collector: { collect: (t: string) => void; webSearchSuccess?: boolean } = {
+    collect: (t: string) => (text += t),
+  };
   let result: { needsConfirmation: ToolCall[] | null };
   try {
     result = await runAgent(
@@ -1215,6 +1267,11 @@ async function runAssistantTurnImpl(opts: {
       text: "Aku tidak bisa menyelesaikan permintaan ini pada jadwal otomatis karena butuh persetujuanmu. Coba minta langsung ya. 🌸",
       needsConfirmation: null,
     };
+  }
+
+  // Honesty guard: never present unverified real-world place status as fact.
+  if (!needsConfirmation?.length) {
+    text = schedulePlaceCheckFromIntent(messages, text, collector.webSearchSuccess);
   }
 
   return { text, needsConfirmation };

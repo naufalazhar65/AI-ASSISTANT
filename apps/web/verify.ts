@@ -9,6 +9,7 @@ import {
   scheduleLinkCapture,
 } from "./src/lib/library";
 import { hygienizePersona } from "./src/lib/persona";
+import { detectPlaceIntent, placeNudge } from "./src/lib/placeIntent";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -507,6 +508,36 @@ async function main() {
   if (!String(toolMsg).includes("sudah bersih")) throw new Error(`memory_hygiene after clean should say clean: ${toolMsg}`);
   rm2(join(userDataRoot(), hygUser), { recursive: true, force: true });
   console.log("memory hygiene: OK");
+
+  // --- place verification honesty guard (detect + nudge) ---
+  const placePos = [
+    "enaknya ngopi dimana ya di tangsel?",
+    "rekomendasi cafe di jakarta",
+    "kopi praja masih buka?",
+    "toko itu udah tutup belum?",
+    "mau makan malam enak di bintaro",
+  ];
+  for (const s of placePos) {
+    if (!detectPlaceIntent(s)) throw new Error(`placeIntent should detect: ${s}`);
+  }
+  const placeNeg = [
+    "yang sepi dimana?",
+    "hitung 2+2",
+    "apa kabar hari ini",
+    "cepet banget nih app-nya",
+    "baca dong https://example.com/artikel",
+  ];
+  for (const s of placeNeg) {
+    if (detectPlaceIntent(s)) throw new Error(`placeIntent must NOT detect: ${s}`);
+  }
+  if (placeNudge("Kopi Praja, Bintaro: vibes industrial.", false) === "")
+    throw new Error("placeNudge should add a caveat when not verified");
+  if (placeNudge("Kopi Praja, Bintaro: vibes industrial.", true) !== "")
+    throw new Error("placeNudge should NOT add a caveat after web_search");
+  if (placeNudge("Coba cek dulu ya di Google ya beb.", false) !== "")
+    throw new Error("placeNudge should skip when model already hedged");
+  if (placeNudge("", false) !== "") throw new Error("placeNudge should skip empty answers");
+  console.log("place honesty guard: OK");
 
   // --- browser automation — just check tools are registered (no heavy launch in verify) ---
   const { getTool } = await import("./src/lib/tools");
