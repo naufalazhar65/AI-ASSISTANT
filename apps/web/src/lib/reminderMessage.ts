@@ -18,7 +18,7 @@ const TAILS = [
   "Sip, jangan lupa ya hehe 🌸",
   "Semangat! 🌸",
   "Oke, ku pastiin kamu inget. 🌸",
-  "Jangan sampek bolos ya 😄",
+  "Jangan sampek kelewat ya 😄",
 ];
 
 function pick<T>(arr: T[]): T {
