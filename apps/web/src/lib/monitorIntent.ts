@@ -12,7 +12,7 @@
 
 type MonitorIntent = {
   name: string;
-  kind: "crypto" | "web";
+  kind: "crypto" | "web" | "device";
   subject: string;
   threshold?: number;
   direction?: "above" | "below";
@@ -20,7 +20,7 @@ type MonitorIntent = {
 
 // Watchlist request verbs (Indonesian + English).
 const WATCH_RE =
-  /\b(monitor(in)?\s*harga|monitor(ing)?\s+watchlist|pantau(in)?\s+harga|pantau\s+(in|in?)?|monitor(ing)?\s*(harga)?\s*|watchlist\s+harga|lihatin\s+harga|ikuti\s+harga|mata-matai|kasih\s+tahu\s+kalau|kasih\s+tahu\s+saat|kasih\s+tau\s+kalau|kasih\s+tau\s+saat|beritahu\s+kalau|beritahu\s+saat|alert\s+me\s*(kalau|when|if)?)\b/i;
+  /\b(monitor(in)?\s*harga|monitor(ing)?\s+watchlist|pantau(in)?\s+harga|pantau\s+(in|in?)?|monitor(ing)?\s*(harga)?\s*|watchlist\s+harga|lihatin\s+harga|ikuti\s+harga|mata-matai|kasih\s+ta(u|hu)|kasih\s+tahu|kabarin|kabari|bilangin|beritahu|informasiin|alert\s+me\s*(kalau|when|if)?)\b/i;
 
 // Common crypto names/symbols we recognize inline (word-boundary, lowercase).
 const CRYPTO_WORDS =
@@ -99,6 +99,27 @@ export function detectMonitorIntent(userText: string): MonitorIntent | null {
       subject: coin[0].toLowerCase(),
       ...(threshold ? { threshold: threshold.value, direction: threshold.direction } : {}),
     };
+  }
+
+  // Local Mac health: battery threshold ("batre 20% kasih tau") and storage
+  // threshold ("storage 90%" / "hampir penuh"). Percent metrics alert ON the
+  // boundary, so battery defaults to below and storage to above.
+  const isBattery = /\b(batre|baterai|battery)\b/i.test(text);
+  const isStorage = /\b(storage|penyimpanan|disk|ruang)\b/i.test(text) || /hampir\s*penuh|udah\s*penuh|sudah\s*penuh/i.test(text);
+  if (isBattery || isStorage) {
+    const pct = text.match(/(\d{1,3})\s*%/);
+    let threshold = pct ? Number(pct[1]) : null;
+    if (isStorage && threshold === null && /penuh/i.test(text)) threshold = 90;
+    if (threshold !== null && threshold >= 1 && threshold <= 100) {
+      const subject = isBattery ? "battery" : "storage";
+      return {
+        name: isBattery ? "Baterai Mac" : "Storage Mac",
+        kind: "device",
+        subject,
+        threshold,
+        direction: isBattery ? "below" : "above",
+      };
+    }
   }
 
   return null;

@@ -883,6 +883,38 @@ async function main() {
   saveLastFiredDate(prevWeekly);
   rmSync(join(userDataRoot(), wUser), { recursive: true, force: true });
   console.log("weekly insight: OK (title+mood counts+theme, junk-free, silent-empty, state persists)");
+
+  // --- Mac health monitors: battery/storage kind, real local metrics, alert +
+  // re-arm (this also exercises checkMonitorsAndAlert — the heartbeat wiring). ---
+  const { addMonitor, checkMonitorsAndAlert, listMonitors, removeMonitor } = await import("./src/lib/monitor");
+  const { detectMonitorIntent } = await import("./src/lib/monitorIntent");
+  const bat = detectMonitorIntent("kalo batre udh 20% kasih tau ya");
+  if (!bat || bat.kind !== "device" || bat.subject !== "battery" || bat.threshold !== 20) {
+    throw new Error(`battery intent: ${JSON.stringify(bat)}`);
+  }
+  const sto = detectMonitorIntent("storage mac 90% kabarin ya");
+  if (!sto || sto.kind !== "device" || sto.subject !== "storage" || sto.threshold !== 90) {
+    throw new Error(`storage intent: ${JSON.stringify(sto)}`);
+  }
+  const stoAuto = detectMonitorIntent("kasih tau kalau storage hampir penuh");
+  if (!stoAuto || stoAuto.kind !== "device" || stoAuto.threshold !== 90) {
+    throw new Error(`storage auto-threshold: ${JSON.stringify(stoAuto)}`);
+  }
+  const mUser = `verify_mon_${Date.now()}`;
+  addMonitor({ name: "Baterai Mac", kind: "device", subject: "battery", threshold: 100, direction: "below", rawUser: mUser });
+  const alerts1 = await checkMonitorsAndAlert(mUser);
+  if (!alerts1.length || !alerts1[0].includes("Baterai Mac")) throw new Error(`battery alert missing: ${alerts1.join("|")}`);
+  const alerts2 = await checkMonitorsAndAlert(mUser);
+  if (alerts2.length) throw new Error("battery alert should be armed-off after first fire");
+  const list = listMonitors(mUser);
+  if (!list.includes("Baterai Mac") || !list.includes("[device]")) throw new Error(`listMonitors device: ${list}`);
+  // Storage metric readable on this Mac (any percent 0-100).
+  const { fetchPrice } = await import("./src/lib/monitor");
+  const storagePct = await fetchPrice({ id: "x", name: "Storage Mac", kind: "device", subject: "storage", threshold: 50, direction: "above", at: 0 });
+  if (storagePct === null || storagePct < 0 || storagePct > 100) throw new Error(`storage metric: ${storagePct}`);
+  for (const m of (await import("./src/lib/monitor")).readMonitors(mUser)) removeMonitor(m.id, mUser);
+  rmSync(join(userDataRoot(), mUser), { recursive: true, force: true });
+  console.log(`mac monitor: OK (intents, battery alert fires+re-arms, storage ${storagePct}%)`);
 }
 
 main().catch((err) => {

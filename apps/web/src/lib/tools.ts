@@ -1106,7 +1106,7 @@ const toolRegistry: ToolPlugin[] = [
       risk: "write",
       function: {
         name: "device_exec",
-        description: "Run a safe command on a paired device (macOS). Requires confirmation. Only allowlisted commands (ls, pwd, cat, git status, etc.). Use device_list to see device IDs.",
+        description: "Run a safe command on a paired device (macOS). Requires confirmation. Allowlisted: ls, pwd, cat, git status, pmset, and 'blueutil -p [0|1]' to check/toggle Bluetooth power (0=off, 1=on). Use device_list to see device IDs.",
         parameters: {
           type: "object",
           properties: {
@@ -2029,6 +2029,7 @@ const EXEC_ALLOWLIST: Record<
   cat: { maxArgs: 4 },
   node: { subcommand: ["--version", "-v"], maxArgs: 2 },
   npm: { subcommand: ["ls", "--version"], maxArgs: 3 },
+  df: { maxArgs: 2 },
 };
 /** Args that are never allowed, even for an allowlisted base command. */
 const EXEC_FORBIDDEN_ARG = ["--", "-a", "--all", "..", "~", ";", "&&", "|", ">", "<", "$(", "`"];
@@ -2090,9 +2091,14 @@ function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
       rejectPromise(new Error("command targets a blocked path"));
       return;
     }
+    // macOS: `df /` reads the sealed SYSTEM snapshot (always ~40%) — remap to
+    // the real data volume so any model-generated `df -h /` answers honestly.
+    const parts2 = process.platform === "darwin" && cmd === "df"
+      ? args.map((a) => (a === "/" ? "/System/Volumes/Data" : a))
+      : args;
     execFile(
       cmd,
-      args,
+      parts2,
       { cwd, timeout: EXEC_TIMEOUT_MS, maxBuffer: EXEC_MAX_OUTPUT * 2 },
       (err, stdout, stderr) => {
         if (err) {

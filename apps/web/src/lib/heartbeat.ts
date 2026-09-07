@@ -39,32 +39,52 @@ async function tick(): Promise<void> {
   const soonThreshold = now + 60 * 60 * 1000; // due within next hour
   for (const user of allUserKeys()) {
     try {
+      // Task alerts (existing heartbeat duty).
       const tasks = readTasks(user);
       const active = tasks.filter((t) => t.status === "active" && typeof t.dueAt === "number");
-      if (!active.length) continue;
       const overdue = active.filter((t) => t.dueAt! < now);
       const dueSoon = active.filter((t) => t.dueAt! >= now && t.dueAt! <= soonThreshold);
-      if (!overdue.length && !dueSoon.length) continue;
+      let taskMsg: string | null = null;
+      if (overdue.length || dueSoon.length) {
+        const lines: string[] = [];
+        if (overdue.length) {
+          lines.push(`⚠️ *Overdue* (${overdue.length}):`);
+          for (const t of overdue.slice(0, 5)) {
+            const ago = Math.round((now - t.dueAt!) / 60000);
+            lines.push(`• ${t.text} — lewat ${ago}m`);
+          }
+        }
+        if (dueSoon.length) {
+          lines.push(`⏰ *Due soon* (${dueSoon.length}):`);
+          for (const t of dueSoon.slice(0, 5)) {
+            const mins = Math.round((t.dueAt! - now) / 60000);
+            lines.push(`• ${t.text} — dalam ${mins}m`);
+          }
+        }
+        taskMsg = `💓 *Heartbeat* — cek tugas\n${lines.join("\n")}`;
+      }
 
-      const lines: string[] = [];
-      if (overdue.length) {
-        lines.push(`⚠️ *Overdue* (${overdue.length}):`);
-        for (const t of overdue.slice(0, 5)) {
-          const ago = Math.round((now - t.dueAt!) / 60000);
-          lines.push(`• ${t.text} — lewat ${ago}m`);
-        }
+      // Watchlist + Mac health monitors (crypto/web/device thresholds). This is
+      // the ONLY place checkMonitorsAndAlert runs — without it the watchlist
+      // never alerted (long-standing wiring gap, fixed 2026-09-07).
+      let monitorMsg: string | null = null;
+      const { checkMonitorsAndAlert } = await import("./monitor");
+      const alerts = await checkMonitorsAndAlert(user);
+      if (alerts.length) {
+        monitorMsg = `👁️ *Monitor*\n${alerts.map((a) => `• ${a}`).join("\n")}`;
       }
-      if (dueSoon.length) {
-        lines.push(`⏰ *Due soon* (${dueSoon.length}):`);
-        for (const t of dueSoon.slice(0, 5)) {
-          const mins = Math.round((t.dueAt! - now) / 60000);
-          lines.push(`• ${t.text} — dalam ${mins}m`);
-        }
+
+      if (taskMsg) {
+        const delivered = await pushToOwner(taskMsg);
+        if (delivered) logInfo("heartbeat", `notified ${user}: ${overdue.length} overdue, ${dueSoon.length} due soon`);
+        else logInfo("heartbeat", `no channel for ${user}, skipped`);
       }
-      const msg = `💓 *Heartbeat* — cek tugas\n${lines.join("\n")}`;
-      const delivered = await pushToOwner(msg);
-      if (delivered) logInfo("heartbeat", `notified ${user}: ${overdue.length} overdue, ${dueSoon.length} due soon`);
-      else logInfo("heartbeat", `no channel for ${user}, skipped`);
+      if (monitorMsg) {
+        const delivered = await pushToOwner(monitorMsg);
+        if (delivered) logInfo("heartbeat", `monitor alert for ${user}`);
+        else logInfo("heartbeat", `no channel for ${user} (monitor), skipped`);
+      }
+      if (!taskMsg && !monitorMsg) continue;
     } catch (e) {
       logError("heartbeat", `check failed for ${user}: ${e instanceof Error ? e.message : String(e)}`);
     }

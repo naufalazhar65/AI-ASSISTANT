@@ -20,7 +20,10 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
 
-export type MonitorKind = "crypto" | "web";
+export type MonitorKind = "crypto" | "web" | "device";
+
+/** Valid subjects for kind "device" (local Mac health metrics, percent 0-100). */
+export const DEVICE_SUBJECTS = ["battery", "storage"] as const;
 
 export interface MonitorTarget {
   id: string;
@@ -79,7 +82,9 @@ export function readMonitors(rawUser?: unknown): MonitorTarget[] {
         !!e &&
         typeof (e as MonitorTarget).id === "string" &&
         typeof (e as MonitorTarget).name === "string" &&
-        ((e as MonitorTarget).kind === "crypto" || (e as MonitorTarget).kind === "web") &&
+        ((e as MonitorTarget).kind === "crypto" ||
+          (e as MonitorTarget).kind === "web" ||
+          (e as MonitorTarget).kind === "device") &&
         typeof (e as MonitorTarget).subject === "string" &&
         typeof (e as MonitorTarget).at === "number"
     );
@@ -111,7 +116,44 @@ export function addMonitor(opts: {
   const subject = String(opts.subject ?? "").trim().slice(0, 500);
   if (!name) throw new Error("nama/description wajib diisi");
   if (!subject) throw new Error("subjek wajib diisi (crypto id/symbol atau URL produk)");
-  const kind: MonitorKind = opts.kind === "web" ? "web" : "crypto";
+  const kind: MonitorKind =
+    opts.kind === "web" ? "web" : opts.kind === "device" ? "device" : "crypto";
+  if (kind === "device") {
+    // Mac health monitor: subject is battery or storage, threshold is a
+    // percent. Battery alerts when it drops to/below the threshold, storage
+    // when it rises to/above it.
+    const subj = subject.toLowerCase();
+    if (!(DEVICE_SUBJECTS as readonly string[]).includes(subj)) {
+      throw new Error("monitor device subject harus 'battery' atau 'storage'");
+    }
+    const th = Number(opts.threshold);
+    if (!Number.isFinite(th) || th < 1 || th > 100) {
+      throw new Error("threshold device monitor harus persen 1-100");
+    }
+    const direction = subj === "battery" ? "below" : "above";
+    const target: MonitorTarget = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: subj === "battery" ? "Baterai Mac" : "Storage Mac",
+      kind,
+      subject: subj,
+      threshold: th,
+      direction,
+      at: Date.now(),
+    };
+    const monitors = readMonitors(opts.rawUser);
+    if (monitors.length >= MAX_MONITORS) throw new Error(`watchlist penuh (maks ${MAX_MONITORS})`);
+    const existing = monitors.find((m) => m.kind === "device" && m.subject === subj);
+    if (existing) {
+      existing.name = target.name;
+      existing.threshold = th;
+      existing.direction = direction;
+      writeMonitors(monitors, userKey);
+      return existing;
+    }
+    monitors.push(target);
+    writeMonitors(monitors, userKey);
+    return target;
+  }
 
   let threshold: number | undefined;
   const th = Number(opts.threshold);
@@ -176,9 +218,14 @@ export function listMonitors(rawUser?: unknown): string {
   if (!monitors.length) return "Belum ada yang dipantau. Contoh: 'monitorin harga bitcoin' atau 'pantau harga headphone di link ini'.";
   return monitors
     .map((m) => {
-      const val = m.lastValue === undefined || m.lastValue === null ? "belum dicek" : `Rp ${fmtPrice(m.lastValue)}`;
-      const th = m.threshold !== undefined ? ` (alert ${m.direction === "below" ? "di bawah" : "di atas"} ${fmtPrice(m.threshold)})` : "";
-      return `- ${m.name} [${m.kind === "crypto" ? "crypto" : "web"}]: ${val}${th}`;
+      const isDevice = m.kind === "device";
+      const unit = isDevice ? "%" : "";
+      const val = m.lastValue === undefined || m.lastValue === null
+        ? "belum dicek"
+        : isDevice ? `${m.lastValue}%` : `Rp ${fmtPrice(m.lastValue)}`;
+      const th = m.threshold !== undefined ? ` (alert ${m.direction === "below" ? "di bawah" : "di atas"} ${fmtPrice(m.threshold)}${unit})` : "";
+      const kindLabel = m.kind === "crypto" ? "crypto" : m.kind === "device" ? "device" : "web";
+      return `- ${m.name} [${kindLabel}]: ${val}${th}`;
     })
     .join("\n");
 }
@@ -238,10 +285,54 @@ async function fetchWebNumber(subject: string): Promise<number | null> {
   return n > 0 ? n : null;
 }
 
-/** Current price for a monitor, or null when it can't be read. */
+/** Current metric for a monitor, or null when it can't be read. Device
+ *  monitors read the LOCAL Mac (battery % via pmset/ioreg, storage % via df). */
 export async function fetchPrice(m: MonitorTarget): Promise<number | null> {
   if (m.kind === "crypto") return fetchCryptoUsd(m.subject);
+  if (m.kind === "device") return fetchDeviceMetric(m.subject);
   return fetchWebNumber(m.subject);
+}
+
+import { execFile as cpExecFile } from "node:child_process";
+import { promisify } from "node:util";
+const cpRun = promisify(cpExecFile);
+
+/** Local Mac battery percent (pmset first, ioreg fallback). */
+async function readMacBatteryPct(): Promise<number | null> {
+  try {
+    const { stdout } = await cpRun("pmset", ["-g", "batt"], { timeout: 5000 });
+    const m = stdout.match(/(\d{1,3})%/);
+    if (m) return Math.max(0, Math.min(100, Number(m[1])));
+  } catch { /* fall through to ioreg */ }
+  try {
+    const { stdout } = await cpRun("ioreg", ["-rc", "AppleSmartBattery"], { timeout: 5000 });
+    const cap = stdout.match(/"Capacity"\s*=\s*(\d+)/);
+    const cur = stdout.match(/"CurrentCapacity"\s*=\s*(\d+)/);
+    if (cap && cur) {
+      return Math.max(0, Math.min(100, Math.round((Number(cur[1]) / Number(cap[1])) * 100)));
+    }
+  } catch { /* give up */ }
+  return null;
+}
+
+/** Local Mac used-percent of the DATA volume — on macOS the root `/` is the
+ *  sealed system snapshot (~39% always), while /System/Volumes/Data is the
+ *  volume System Settings reports (the one that actually "fills up"). */
+async function readMacStoragePct(): Promise<number | null> {
+  const paths = process.platform === "darwin" ? ["/System/Volumes/Data", "/"] : ["/"];
+  for (const p of paths) {
+    try {
+      const { stdout } = await cpRun("df", ["-k", p], { timeout: 5000 });
+      const line = stdout.split("\n").find((l) => l.trim() && !l.startsWith("Filesystem"));
+      const pct = line?.match(/(\d{1,3})%/);
+      if (pct) return Math.max(0, Math.min(100, Number(pct[1])));
+    } catch { /* try next path */ }
+  }
+  return null;
+}
+
+async function fetchDeviceMetric(subject: string): Promise<number | null> {
+  return subject === "battery" ? readMacBatteryPct() : readMacStoragePct();
 }
 
 /**
@@ -250,9 +341,19 @@ export async function fetchPrice(m: MonitorTarget): Promise<number | null> {
  */
 function evaluateAlert(m: MonitorTarget, value: number): string | null {
   if (m.threshold === undefined || !m.direction) return null;
-  const crossed = m.direction === "above" ? value > m.threshold : value < m.threshold;
+  const isDevice = m.kind === "device";
+  // Percent metrics alert ON the boundary ("batre 20% kasih tau" must fire at
+  // exactly 20), while price monitors stay strict.
+  const crossed = isDevice
+    ? (m.direction === "above" ? value >= m.threshold : value <= m.threshold)
+    : (m.direction === "above" ? value > m.threshold : value < m.threshold);
   if (!crossed) return null;
   if (m.alertedAt !== undefined) return null; // already alerted for this crossing
+  if (isDevice) {
+    return m.subject === "battery"
+      ? `🔋 Baterai Mac sekarang ${value}% (ambang ${m.threshold}%) — saatnya cas!`
+      : `💾 Storage Mac sekarang ${value}% (ambang ${m.threshold}%) — makin penuh, saatnya bersih-bersih!`;
+  }
   const rel = m.direction === "above" ? "tembus di atas" : "turun di bawah";
   return `${m.name} sekarang ${fmtPrice(value)} — ${rel} ambang ${fmtPrice(m.threshold)}.`;
 }
