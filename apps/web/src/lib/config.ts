@@ -123,6 +123,14 @@ export function proactiveHourEnd(): number {
   return cfgInt("PROACTIVE_HOUR_END", 22);
 }
 
+export function briefingEnabled(): boolean {
+  return cfgBool("BRIEFING_ENABLED", true);
+}
+
+export function briefingHour(): number {
+  return cfgInt("BRIEFING_HOUR", 7);
+}
+
 export function appLogEnabled(): boolean {
   return cfgBool("APP_LOG_ENABLED", true);
 }

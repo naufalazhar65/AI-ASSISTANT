@@ -722,6 +722,27 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "briefing",
+        description:
+          "Sajikan briefing pagi: agenda task yang jatuh tempo hari ini + task terlambat, reminder yang belum kejadian hari ini, potongan hal kemarin (mood + memory), dan tanggal merah hari ini. Panggil saat user minta 'briefing', 'ringkasan pagi', 'apa agenda hari ini', 'rencana hari ini', atau sapaan pagi yang ingin tahu jadwalnya. Berjalan tanpa konfirmasi.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async (_, ctx) => {
+      try {
+        const mod = await import("./briefing");
+        const msg = mod.buildMorningBriefing(ctx?.userKey);
+        return msg || "Hari ini kosong — tanpa agenda, tanpa reminder, kemarin juga tanpa jejak. Rest day. 🌸";
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "briefing unavailable"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "memory_get",
         description:
           "Retrieve the daily memory log for a specific date (YYYY-MM-DD, or 'today'/'yesterday'). Each day's file contains timestamped conversation snippets. Returns the file content or a not-found message.",

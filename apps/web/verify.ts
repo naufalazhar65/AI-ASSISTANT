@@ -295,6 +295,31 @@ async function main() {
   }
   console.log("proactive: OK");
 
+  // --- briefing: silent tanpa agenda, lengkap saat ada task/reminder/hal kemarin ---
+  const briUser = "verify_bri_" + Date.now().toString(36);
+  const { buildMorningBriefing } = await import("./src/lib/briefing");
+  if (buildMorningBriefing(briUser) !== "") throw new Error("briefing should be silent with no agenda");
+  const { addTask } = await import("./src/lib/tasks");
+  const { addReminder } = await import("./src/lib/reminders");
+  const todayB = jktDay(new Date());
+  const todayStartB = Date.parse(`${todayB}T00:00:00+07:00`);
+  mkdirSync(join(userDataRoot(), briUser, "memory"), { recursive: true });
+  writeFileSync(join(join(userDataRoot(), briUser, "memory"), `${jktDay(yday)}.md`), "# Memory\n\n## t\nUser: persiapan deploy fitur intelligence\n");
+  mkdirSync(join(userDataRoot(), briUser), { recursive: true });
+  writeFileSync(join(userDataRoot(), briUser, "moods.json"), JSON.stringify([{ id: "t", mood: "stressed", note: "lelah", at: yday.getTime() }]));
+  try {
+    addTask("finish deploy fitur intelligence", briUser, todayStartB + 5 * 3600 * 1000);
+    addReminder("minum air putih", todayStartB + 2 * 3600 * 1000, briUser, undefined);
+    const brief = buildMorningBriefing(briUser);
+    if (!brief) throw new Error("briefing should fire when there is an agenda");
+    if (!brief.includes("finish deploy fitur intelligence")) throw new Error("briefing should list the due task");
+    if (!brief.includes("minum air putih")) throw new Error("briefing should list the reminder");
+    if (!brief.includes("berat")) throw new Error("briefing should carry yesterday's heavy-mood note");
+  } finally {
+    rm2(join(userDataRoot(), briUser), { recursive: true, force: true });
+  }
+  console.log("briefing: OK");
+
   // --- browser automation — just check tools are registered (no heavy launch in verify) ---
   const { getTool } = await import("./src/lib/tools");
   if (!getTool("browser_open") || !getTool("browser_snapshot")) throw new Error("browser tools not registered");
