@@ -61,6 +61,12 @@ export async function registerNode(): Promise<void> {
     logError("briefing", `failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
+    const { startWeeklyInsightRunner } = await import("@/lib/weeklyInsight");
+    startWeeklyInsightRunner();
+  } catch (err) {
+    logError("weekly", `failed to start: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
     const { startContextSampler } = await import("@/lib/context");
     startContextSampler();
   } catch (err) {

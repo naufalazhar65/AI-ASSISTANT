@@ -851,6 +851,38 @@ async function main() {
   saveIndex(realIdx);
   rmSync(tmpCode, { recursive: true, force: true });
   console.log(`codebase index: OK (${realIdx.fileCount} files, ${realIdx.docs.length} chunks; temp search + deny rules OK)`);
+
+  // --- Weekly insight: deterministic build from seeded data; junk-free; silent
+  // when a user has nothing. ---
+  const { buildWeeklyInsight, readLastFiredDate, saveLastFiredDate, lastNDays } = await import("./src/lib/weeklyInsight");
+  const wUser = `verify_weekly_${Date.now()}`;
+  const { addMood } = await import("./src/lib/mood");
+  const { addTask: addTaskW } = await import("./src/lib/tasks");
+  const { appendDailyMemory: appendW } = await import("./src/lib/dailyMemory");
+  addMood("tired", wUser, "capek kerjaan");
+  addMood("stressed", wUser);
+  addMood("good", wUser, "senang badminton");
+  addTaskW("kerjakan weekly insight", wUser);
+  appendW(wUser, "User: lagi semangat ngerjain flowtest-studio nih\nMia: Siap beb 🌸");
+  appendW(wUser, "User: [persona] user.name=x");
+  appendW(wUser, "User: Ini laporan terjadwal (automation) laporan terjadwal");
+  // A second day (yesterday) so the theme spans 2 days — day-based counting.
+  const wyday = lastNDays(new Date(), 7)[5];
+  mkdirSync(join(userDataRoot(), wUser, "memory"), { recursive: true });
+  writeFileSync(join(userDataRoot(), wUser, "memory", `${wyday}.md`), `## ${wyday}T10:00:00.000Z\nUser: flowtest-studio error di halaman login\nMia: Kucek dulu ya 🌸\n`);
+  const wMsg = buildWeeklyInsight(wUser);
+  if (!wMsg.includes("Insight Mingguanmu")) throw new Error("weekly insight missing title");
+  if (!wMsg.includes("capek 1x") || !wMsg.includes("stres 1x") || !wMsg.includes("senang 1x")) throw new Error(`weekly mood line wrong: ${wMsg}`);
+  if (!wMsg.includes("flowtest") || !wMsg.includes("(2 hari)")) throw new Error(`weekly theme wrong: ${wMsg}`);
+  if (/undefined|NaN|## 20|\[persona\]|automation|laporan terjadwal/.test(wMsg)) throw new Error(`weekly insight junk: ${wMsg}`);
+  const wEmpty = buildWeeklyInsight(`verify_weekly_empty_${Date.now()}`);
+  if (wEmpty !== "") throw new Error("empty user should be silent");
+  const prevWeekly = readLastFiredDate();
+  saveLastFiredDate("2099-01-01");
+  if (readLastFiredDate() !== "2099-01-01") throw new Error("weekly state persist failed");
+  saveLastFiredDate(prevWeekly);
+  rmSync(join(userDataRoot(), wUser), { recursive: true, force: true });
+  console.log("weekly insight: OK (title+mood counts+theme, junk-free, silent-empty, state persists)");
 }
 
 main().catch((err) => {

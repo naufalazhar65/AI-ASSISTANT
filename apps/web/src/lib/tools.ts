@@ -19,6 +19,7 @@ import { renderMala } from "./mala";
 import { startSongGame, guessSong, quitSongGame } from "./game";
 import { holidayInfo } from "./holiday";
 import { buildEveningRecap } from "./recap";
+import { buildWeeklyInsight } from "./weeklyInsight";
 import { auditLog } from "./auditLog";
 import { toolsDeny } from "./config";
 import { recordToolCall } from "./turnStats";
@@ -1721,6 +1722,22 @@ const toolRegistry: ToolPlugin[] = [
     execute: (_, ctx) => {
       const text = buildEveningRecap(ctx.rawUser);
       return text || "Belum ada aktivitas yang terekam hari ini — nanti malam aku rekap lebih lengkap ya. 🌸";
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "weekly_insight",
+        description:
+          "Weekly digest from local data: last 7 days' moods, task status, and most-repeated conversation themes, written in Mia's warm style. Use when asked 'insight minggu ini', 'rekap mingguan', 'gimana minggu ku', 'weekly recap'. Also auto-pushes once a week.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: (_, ctx) => {
+      const text = buildWeeklyInsight(ctx.rawUser);
+      return text || "Belum ada data yang cukup untuk minggu ini — makin sering ngobrol, makin lengkap insightnya 🌸";
     },
   },
 ];
