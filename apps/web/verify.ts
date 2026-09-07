@@ -10,6 +10,8 @@ import {
 } from "./src/lib/library";
 import { hygienizePersona } from "./src/lib/persona";
 import { detectPlaceIntent, placeNudge } from "./src/lib/placeIntent";
+import { appendDailyMemory } from "./src/lib/dailyMemory";
+import { buildEveningRecap, readLastRecapDay, saveLastRecapDay } from "./src/lib/recap";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -595,6 +597,28 @@ async function main() {
   if (!hInfo.includes("Tanggal merah") || !hInfo.includes("2026")) throw new Error(`hari_libur unexpected: ${hInfo.slice(0, 120)}`);
   const recap = await executeTool({ id: "t", name: "recap", arguments: "{}" }, "spotifyprobe");
   console.log("fun: OK (mala stable/deterministic, game match logic, hari_libur/recap via tools)");
+
+  // --- recap output hygiene: never leak timestamps/automation/persona junk ---
+  const recapUser = "recapprobe";
+  appendDailyMemory(recapUser, "[persona] USER.favorite_drink=kopi americano");
+  appendDailyMemory(recapUser, "User: selamat malam mia ku\nMia: Malam Mas Naufal! 🌸 seneng banget kamu nyapa malam gini.");
+  appendDailyMemory(recapUser, "User: Ini laporan terjadwal (automation). Tugasmu: jawab langsung dari pengetahuanmu, atau pakai web_search.\nMia: Terima kasih, beb. Semangat juga buat hari ini.");
+  const cleanRecap = buildEveningRecap(recapUser);
+  if (/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(cleanRecap)) throw new Error("recap leaked a raw timestamp");
+  if (/\[persona\]/i.test(cleanRecap)) throw new Error("recap leaked a persona log line");
+  if (/terjadwal \(automation\)|laporan terjadwal/i.test(cleanRecap)) throw new Error("recap leaked automation/system text");
+  if (!/Malam Mas Naufal|selamat malam/.test(cleanRecap)) throw new Error(`recap lost the real conversation: ${cleanRecap.slice(0, 120)}`);
+  if (!/Refleksi/.test(cleanRecap)) throw new Error("recap missing its title");
+  console.log("recap hygiene: OK");
+
+  // --- recap day dedup survives restart (persisted state) ---
+  const prevRecapDay = readLastRecapDay();
+  const probeDay = "2099-12-31";
+  saveLastRecapDay(probeDay);
+  if (readLastRecapDay() !== probeDay) throw new Error("recap day did not persist");
+  saveLastRecapDay(prevRecapDay); // restore
+  if (readLastRecapDay() !== prevRecapDay) throw new Error("recap day restore failed");
+  console.log("recap dedup persist: OK");
 
   // --- multi-root sandbox (ALLOWED_WORKSPACES): path stays inside listed roots ---
   const tmpWs = mkdtempSync(join(tmpdir(), "mia-ws-"));

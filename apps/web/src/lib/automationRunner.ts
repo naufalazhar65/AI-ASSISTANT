@@ -40,7 +40,7 @@ async function runOne(automation: Automation, user: string): Promise<void> {
       autoDenyRisky: true,
     });
     const text = (result.text || "").trim() || "Maaf, aku belum bisa menjawab permintaan ini pada jadwal otomatis. Coba minta langsung ya. 🌸";
-    const delivered = await pushToOwner(`🌸 *Automation* — ${automation.prompt}\n${text}`);
+    const delivered = await pushToOwner(`🌸 ${text}\n\n(ini buat jadwal yang kamu minta: ${automation.prompt})`);
     if (!delivered) {
       console.warn(`[automation] no active channel to deliver "${automation.prompt}"`);
     }

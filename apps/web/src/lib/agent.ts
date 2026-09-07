@@ -525,6 +525,16 @@ function lastUserContent(messages: ChatMessage[]): string | null {
   return null;
 }
 
+/**
+ * True when a user-role message is an internal/injected turn rather than a real
+ * message the user typed — e.g. automation schedules ("Ini laporan terjadwal
+ * (automation)", "[Scheduled automation]"). Such content must not be written to
+ * daily memory (it's not the user talking), so recaps and RAG stay clean.
+ */
+function isInternalUserTurn(content: string): boolean {
+  return /terjadwal \(automation\)|\[Scheduled automation\]|laporan terjadwal/i.test(content);
+}
+
 /** Pinned context block auto-injected into the system prompt when memory matches. */
 function memoryRecallBlock(recall: string): string {
   return (
@@ -1064,7 +1074,7 @@ async function runAssistantTurnImpl(opts: {
     logMoodFromMessages(messages, opts.user);
     try {
       const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() || "";
-      if (lastUser || opencodeText.trim()) {
+      if (!isInternalUserTurn(lastUser) && (lastUser || opencodeText.trim())) {
         const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", opencodeText.trim() ? `Mia: ${opencodeText.trim().slice(0, 800)}` : ""].filter(Boolean).join("\n");
         appendDailyMemory(opts.user, snippet);
       }
@@ -1251,7 +1261,7 @@ async function runAssistantTurnImpl(opts: {
   try {
     const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() || "";
     const lastAssistant = text.trim();
-    if (lastUser || lastAssistant) {
+    if (!isInternalUserTurn(lastUser) && (lastUser || lastAssistant)) {
       const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", lastAssistant ? `Mia: ${lastAssistant.slice(0, 800)}` : ""].filter(Boolean).join("\n");
       appendDailyMemory(opts.user, snippet);
     }
