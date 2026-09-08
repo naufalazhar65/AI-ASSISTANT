@@ -2368,9 +2368,16 @@ function execWriteSafe(rawCommand: string, rawCwd = ""): Promise<string> {
 
 const DDG_INSTANT = "https://api.duckduckgo.com/";
 const DDG_HTML = "https://html.duckduckgo.com/html/";
+const BING_HTML = "https://www.bing.com/search";
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
 
+/**
+ * Search with DuckDuckGo first (Instant Answer → HTML scrape), then fall back to
+ * Bing HTML — DDG's gateway frequently fails on this host (CERT_HAS_EXPIRED /
+ * 000), and without a fallback web_search returns nothing for current/factual
+ * questions. All keyless; graceful on failure either way.
+ */
 async function webSearch(query: string): Promise<string> {
   const q = query.trim().slice(0, 200);
   if (!q) return "Error: empty search query";
@@ -2378,6 +2385,7 @@ async function webSearch(query: string): Promise<string> {
   const instant = await fetchInstantAnswer(q);
   if (instant) return instant;
 
+  // 1) DuckDuckGo HTML
   try {
     const res = await fetch(DDG_HTML, {
       method: "POST",
@@ -2389,11 +2397,47 @@ async function webSearch(query: string): Promise<string> {
       body: new URLSearchParams({ q }),
       signal: AbortSignal.timeout(9000),
     });
+    if (res.ok) {
+      const parsed = parseResults(await res.text());
+      if (parsed !== "No results found.") return parsed;
+    }
+  } catch { /* fall through to Bing */ }
+
+  // 2) Bing HTML fallback
+  try {
+    const res = await fetch(`${BING_HTML}?q=${encodeURIComponent(q)}&setlang=id&cc=ID`, {
+      headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
+      signal: AbortSignal.timeout(9000),
+    });
     if (!res.ok) return "Error: web search failed";
-    return parseResults(await res.text());
+    return parseBingResults(await res.text());
   } catch {
     return "Error: web search failed";
   }
+}
+
+/** Extract Bing organic results (class b_algo blocks). */
+function parseBingResults(html: string): string {
+  const titles: string[] = [];
+  const urls: string[] = [];
+  const h2Re = /<h2><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h2>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = h2Re.exec(html)) !== null && titles.length < 5) {
+    titles.push(stripTags(m[2]));
+    urls.push(m[1]);
+  }
+  if (!titles.length) return "No results found.";
+
+  const snippets: string[] = [];
+  const snipRe = /<p class="b_lineclamp[^"]*"[^>]*>([\s\S]*?)<\/p>/gi;
+  while ((m = snipRe.exec(html)) !== null && snippets.length < 5) snippets.push(stripTags(m[1]));
+
+  const rows = titles.map((title, i) => {
+    const line = `${i + 1}. ${title}\n   ${urls[i] ?? ""}`;
+    const snippet = snippets[i];
+    return snippet ? `${line}\n   ${snippet.slice(0, 220)}` : line;
+  });
+  return rows.join("\n").slice(0, 1800);
 }
 
 async function fetchInstantAnswer(q: string): Promise<string | null> {
