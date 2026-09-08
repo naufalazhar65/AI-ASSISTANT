@@ -123,13 +123,25 @@ export type ReminderIntent = {
  * and its subsequent push both carry "makan siang" vs "makan malam" instead of
  * the whole sentence repeated at every time.
  */
+function cleanReminderText(clause: string): string {
+  let s = clause
+    .replace(INTENT_RE, " ")
+    .replace(/jam\s*\d{1,2}(?:[.:]\d{2})?\s*(pagi|siang|sore|malam|subuh|dini\s*hari|am|pm)?/gi, " ")
+    .replace(/\b\d{1,2}(?:[.:]\d{2})?\s*(pagi|siang|sore|malam|subuh|am|pm)?\b/gi, " ")
+    .replace(/\b(aku|gue|saya|ya|dong|tolong|plis|please|nanti|yaa)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  s = s.replace(/^[,\-–—\s]+|[,\-–—\s]+$/g, "").trim();
+  return s || "pengingat";
+}
+
 export function splitReminderRequests(userText: string): Array<{ text: string; hour: number; minute: number; suffixed?: boolean }> {
   const clauseRe = /\s*[,;，]|\s+\band\b|\s+dan\s+|\s+lalu\s+|\s+terus\s+/i;
   const clauses = userText.split(clauseRe);
   return clauses.flatMap((clause) => {
     const times = parseClockTimes(clause);
     if (!times.length) return [];
-    const text = clause.trim();
+    const text = cleanReminderText(clause);
     const t = times[0];
     return [{ text, hour: t.hour, minute: t.minute, ...(t.suffixed ? {} : { suffixed: false }) }];
   });
