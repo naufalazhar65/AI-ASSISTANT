@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 export default function EyesPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -188,7 +189,7 @@ export default function EyesPage() {
         <button onClick={requestWakeLock} className="rounded-full bg-white/10 px-4 py-2 text-xs text-white backdrop-blur">
           {wakeLock ? "Layar tetap nyala ✓" : "Jaga layar tetap nyala"}
         </button>
-        <a href="/" className="rounded-full bg-white/10 px-4 py-2 text-xs text-white backdrop-blur">← Mia</a>
+        <Link href="/" className="rounded-full bg-white/10 px-4 py-2 text-xs text-white backdrop-blur">← Mia</Link>
       </div>
       <p className="absolute top-12 left-1/2 -translate-x-1/2 text-[10px] text-white/30">Add to Home Screen untuk fullscreen • HP tetap di charger</p>
     </main>

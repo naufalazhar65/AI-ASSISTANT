@@ -315,8 +315,7 @@ export async function startTelegramBot(): Promise<void> {
       const user = userKeyFor(ctx);
       saveUpload(user, "photo.jpg", "image/jpeg", buffer);
       const caption = (ctx.message.caption || "").trim();
-  // @ts-ignore
-      const state = getState(String(ctx.chat.id));
+      const state = getState(Number(ctx.chat?.id ?? 0));
       const b64 = buffer.toString("base64");
       const dataUrl = `data:image/jpeg;base64,${b64}`;
       const visionContent = [

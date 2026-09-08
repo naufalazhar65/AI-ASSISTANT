@@ -1003,7 +1003,7 @@ async function schedulePriceFromIntent(messages: ChatMessage[], user: unknown, t
  * as a confidently-current fact. It never fabricates data and never fails the
  * turn; it only adds honesty. If the model already hedged, we skip it.
  */
-function schedulePlaceCheckFromIntent(messages: ChatMessage[], text: string, webSearchSuccess?: boolean): string {
+function schedulePlaceCheckFromIntent(messages: { role: string; content?: unknown }[], text: string, webSearchSuccess?: boolean): string {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
   const detected = detectPlaceIntent(messageText(lastUser.content));
@@ -1200,16 +1200,61 @@ function reflowStructuredReply(text: string): string {
 function rewriteGenericTelegraphic(text: string): string {
   const frags = text.split(/[.!?\n]+/).map((s) => s.trim()).filter(Boolean);
   if (frags.length < 2) return text;
+  const cap = (s: string): string => (s.charAt(0).toUpperCase() + s.slice(1));
+  const lc = (s: string): string => {
+    const first = s.charAt(0);
+    return first.toLowerCase() + s.slice(1);
+  };
+  // Pair fragments into sentences: "Fragmen satu, terus fragment kedua" flows
+  // better than "Fragment one. Fragment two." 6+ fragments → 3 sentences max.
   const sentences: string[] = [];
   for (let i = 0; i < frags.length; i += 2) {
-    const chunk = frags.slice(i, i + 2).join(", ");
-    const cap = chunk.charAt(0).toUpperCase() + chunk.slice(1);
-    sentences.push(cap);
+    const head = frags[i]!;
+    const tail = frags[i + 1];
+    sentences.push(
+      tail
+        ? `${cap(head)}, sementara itu ${lc(tail)}`
+        : cap(head)
+    );
+    if (sentences.length >= 3) break;
   }
   let out = sentences.join(". ").replace(/\s+/g, " ").trim();
   if (!out.endsWith(".")) out += ".";
   if (!/🌸/.test(out)) out = out.replace(/\.$/, " ya beb 🌸");
   return out;
+}
+
+/** Iterative real-provider polish: when the deterministic rewrite still can't
+ *  make the reply natural (9router's telegraphic output), do ONE cheap second
+ *  pass asking the model to rewrite the fragment into warm flowing prose. The
+ *  guard below then re-checks quality. Returns original if it throws/hallucinates. */
+async function polishReplyWithProvider(
+  rough: string,
+  url: string,
+  apiKey: string,
+  defaultModel: string
+): Promise<string> {
+  try {
+    const polishSystem =
+      "Kamu membantu merapikan kalimat. Balas HANYA dengan versi yang sudah " +
+      "dirapikan jadi satu paragraf pendek hangat berbahasa Indonesia santai — " +
+      "tanpa daftar, tanpa poin, tanpa label (Saran:/Catatan:), tanpa '→'. " +
+      "Pertahankan semua informasi penting. Jangan tambah info baru.";
+    const res = await runOneCompletion(
+      [{ role: "user", content: rough }],
+      url,
+      apiKey,
+      polishSystem,
+      defaultModel,
+      false
+    );
+    const out = (res.text || "").trim();
+    if (!out || out.length < rough.length / 2) return rough;
+    if (isTelegraphicReply(out) || isChoppyReply(out)) return rough;
+    return out;
+  } catch {
+    return rough;
+  }
 }
 
 /** If the reply is telegraphic (every sentence ≤4 words), replace it with a
@@ -1304,7 +1349,6 @@ async function runAssistantTurnImpl(opts: {
 
   // Rolling summary: when the conversation grew very long, the oldest messages
   // are compressed into one short "previous conversation" message (cache-per-
-  // @ts-ignore
   // boundary, deterministic fallback). Only the tail stays verbatim, so recent
   // context and tool-call continuations are untouched.
   const { buildSummarizedMessages } = await import("./summarize");
@@ -1323,7 +1367,6 @@ async function runAssistantTurnImpl(opts: {
       "scroll.";
     return { text: canned, needsConfirmation: null };
   }
-  // @ts-ignore
 
   // Auto-recall: the last user ask is semantically matched against long-term
   // memory (notes/tasks/memory persona) and injected into the system prompt so
@@ -1350,26 +1393,18 @@ async function runAssistantTurnImpl(opts: {
     opencodeText = stripToolCallProse(opencodeText);
 
     // OpenClaw-style automatic memory: persist any new stable facts in the
-  // @ts-ignore
-  // @ts-ignore
     // background (never awaited → no TTFT cost).
     void captureFactsFromTurn({
-  // @ts-ignore
       providerId,
-  // @ts-ignore
       persona: baseOcodePrompt,
-  // @ts-ignore
       messages,
       rawUser: opts.user,
     });
 
     // OpenCode can't call server-side tools (no agent tool loop on this path),
-  // @ts-ignore
-  // @ts-ignore
     // so detect a "remind/bangunin di <waktu>" intent directly and schedule it
     // with the same store the `remind_me` tool uses.
     opencodeText = scheduleReminderFromIntent(messages, opts.user, opencodeText);
-  // @ts-ignore
     // Link intelligence: a URL in the message is fetched + summarized + saved
     // in the background (never blocks the turn).
     opencodeText = scheduleLinkCapture(messages, opts.user, providerId, model, opencodeText);
@@ -1392,7 +1427,7 @@ async function runAssistantTurnImpl(opts: {
         appendDailyMemory(opts.user, snippet);
       }
     } catch { /* best-effort */ }
-    return { text: schedulePlaceCheckFromIntent(messages as any, opencodeText || "", false) as any, needsConfirmation: null };
+    return { text: schedulePlaceCheckFromIntent(messages, opencodeText || "", false), needsConfirmation: null };
   }
 
   if (providerId === "opencodego") ensureOpenCodeGoKey();
@@ -1491,17 +1526,14 @@ async function runAssistantTurnImpl(opts: {
   // (containing "remind") suppresses the suffix, the strip then removes the
   // line, and the user gets a bare "…" even though the reminder was scheduled.
   text = stripToolCallProse(text);
-  // @ts-ignore
 
   // Automatic memory capture in the background (never delays the turn).
-  // @ts-ignore
   void captureFactsFromTurn({
     providerId,
     url: resolved.url,
     apiKey: resolved.apiKey,
     defaultModel: resolved.defaultModel,
     persona: systemPrompt,
-  // @ts-ignore
     messages,
     rawUser: opts.user,
   });
@@ -1583,11 +1615,9 @@ async function runAssistantTurnImpl(opts: {
         } catch {
           /* tool plugins surface errors in their own result text */
         }
-  // @ts-ignore
       }
     }
     text = await scheduleSpotifyFromIntent(messages, opts.user, text, playCall ? queryArgOf(playCall) : null);
-  // @ts-ignore
   }
   text = await schedulePriceFromIntent(messages, opts.user, text);
   // Link intelligence: deterministic post-turn capture of a shared URL
@@ -1595,7 +1625,6 @@ async function runAssistantTurnImpl(opts: {
   // never delays the turn. The spoken "saved" suffix is only appended when the
   // turn does NOT end in a confirmation frame (otherwise the suffix would sit
   // on top of a @@CONFIRM body and be spoken/rendered out of context).
-  // @ts-ignore
   text = scheduleLinkCapture(messages, opts.user, providerId, model, text, (needsConfirmation?.length ?? 0) > 0);
   if (needsConfirmation?.some((c) => c.name === "fetch_url")) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
@@ -1617,6 +1646,17 @@ async function runAssistantTurnImpl(opts: {
       logSleep(opts.user);
     }
   } catch {}
+  // 9router's small model produces telegraphic/stiff replies. Do ONE cheap
+  // polish pass FIRST on the RAW stiff output (same model, short completion),
+  // then the deterministic rewrite as a final fallback. Checking isTelegraphic
+  // AFTER the rewrite is wrong: the rewrite already makes it non-telegraphic,
+  // so the polish would never fire.
+  const wasStiff = (text.trim()) && (isTelegraphicReply(text) || isChoppyReply(text) || isStructuredReply(text));
+  if (wasStiff && (providerId === "9router" || providerId === "groq")) {
+    try {
+      text = await polishReplyWithProvider(text, resolved.url, resolved.apiKey, resolved.defaultModel);
+    } catch { /* fall back to existing text */ }
+  }
   text = ensureMoodReplyQuality(messages, text);
 
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
@@ -1645,7 +1685,7 @@ async function runAssistantTurnImpl(opts: {
 
   // Honesty guard: never present unverified real-world place status as fact.
   if (!needsConfirmation?.length) {
-    text = schedulePlaceCheckFromIntent(messages as any, text, collector.webSearchSuccess);
+    text = schedulePlaceCheckFromIntent(messages, text, collector.webSearchSuccess);
   }
 
   if (!text.trim() && !needsConfirmation?.length) {

@@ -148,7 +148,7 @@ export const defaultFetchHtml: FetchHtml = async (urlStr: string): Promise<strin
 };
 
 export interface CaptureLinkOptions {
-  messages: { role: string; content?: string | null }[];
+  messages: { role: string; content?: unknown }[];
   user?: unknown;
   provider?: string;
   model?: string;
@@ -163,8 +163,9 @@ export interface CaptureLinkOptions {
  * Never throws; returns the saved entry or null (no link / dup / fetch failed).
  */
 export async function captureLinkFromMessage(opts: CaptureLinkOptions): Promise<LibraryEntry | null> {
-  const lastUser = [...opts.messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() || "";
-  const url = firstUrlInText(lastUser);
+  const lastUserRaw = [...opts.messages].reverse().find((m) => m.role === "user" && m.content)?.content;
+  const lastUserText = typeof lastUserRaw === "string" ? lastUserRaw : String(lastUserRaw ?? "");
+  const url = firstUrlInText(lastUserText);
   if (!url) return null;
   try {
     const html = await (opts.fetchHtml ?? defaultFetchHtml)(url);
@@ -203,7 +204,7 @@ export async function captureLinkFromMessage(opts: CaptureLinkOptions): Promise<
  * confirmation suffix so the user knows it was saved. Never throws.
  */
 export function scheduleLinkCapture(
-  messages: { role: string; content?: string | null }[],
+  messages: { role: string; content?: unknown }[],
   user: unknown,
   provider?: string,
   model?: string,
@@ -212,8 +213,9 @@ export function scheduleLinkCapture(
   hasPendingConfirmation = false,
 ): string {
   try {
-    const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() || "";
-    if (!firstUrlInText(lastUser)) return text;
+    const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content;
+    const lastUserText = String(lastUser ?? "");
+    if (!firstUrlInText(lastUserText)) return text;
     void captureLinkFromMessage({ messages, user, provider, model });
     if (!hasPendingConfirmation && !/simpan|saved|kurangkum|rangkum|kuarsipkan|daftar bacaan|bookmark/i.test(text)) {
       return `${text.trim()} (Udah kusimpan link-nya ke daftar bacaan — bilang "daftar bacaan-ku" kalau mau kubuka lagi ya 🌸)`.trim();
