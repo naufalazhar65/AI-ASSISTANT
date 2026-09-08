@@ -7,7 +7,7 @@
 **Jenis Dokumen:** Product Requirements Document
 **Target Platform:** Web (voice + text), Telegram Bot, Discord Bot, (future: channel lain)
 **Interaksi Utama:** Multi-channel — chat text real-time, voice conversation, task automation
-**Inspirasi Produk:** OpenClaw, Siri, ChatGPT Voice, Gemini Live
+**Inspirasi Produk:** Mia, Siri, ChatGPT Voice, Gemini Live
 
 ---
 
@@ -36,7 +36,7 @@ Tujuan utama:
 
 > **"Sebuah asisten AI pribadi yang selalu ada, di channel mana pun kamu berada — mengetik di Telegram, berbicara di web, atau mengobrol di Discord — dan bisa mengerjakan hal-hal untukmu secara otomatis."**
 
-Filosofi OpenClaw: asisten tidak terikat pada satu platform. Ia hadir di channel yang penggunanya pakai, menggunakan memory dan tools yang sama di semua channel, sehingga pengalaman konsisten di mana pun.
+Filosofi Mia: asisten tidak terikat pada satu platform. Ia hadir di channel yang penggunanya pakai, menggunakan memory dan tools yang sama di semua channel, sehingga pengalaman konsisten di mana pun.
 
 ---
 

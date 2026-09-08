@@ -15,7 +15,7 @@ Fondasi dari project voice assistant tidak dibuang — menjadi landasan Fase 1�
 [x] Explicit conversation state machine (IDLE→LISTENING→PROCESSING→SPEAKING→…)
 [x] Web chat text (PromptInput) + hands-free voice (VAD, barge-in)
 [x] Conversation context + history (per-user, resumable, multi-session)
-[x] Memory/persona otomatis (OpenClaw-style auto-capture ke persona .md)
+[x] Memory/persona otomatis (Mia-style auto-capture ke persona .md)
 [x] Tool calling + konfirmasi risky (web_search, calculate, file_read, notes, remind_me)
 [x] Reminders / scheduler (per-user, disk store, SSE push web)
 [x] Sanitasi user / auth-lite (persona/notes/reminders terisolasi per nama)
@@ -138,8 +138,8 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [x] Webhook trigger untuk automation — `POST /api/webhook` dengan `{secret, prompt, user?, provider?}` → `runAssistantTurn` + `pushToOwner` (🔔 webhook); `WEBHOOK_SECRET` env (optional, tapi required jika di-set); `GET` untuk health; verify via curl (2026-09-04)
 [x] Heartbeat / periodic agent check-in — `heartbeat.ts` every `HEARTBEAT_INTERVAL_MINUTES` (default 30m, 0=off) checks active tasks with `dueAt` for overdue/due-soon and pushes via `pushToOwner` (💓 heartbeat); silent when nothing pending; started in `instrumentation-node.ts`; verify.ts `runHeartbeatTick` OK (2026-09-04). **2026-09-07:** tick kini juga memanggil `checkMonitorsAndAlert` (watchlist crypto/web + monitor Mac) — sebelumnya fungsi ini tidak PERNAH dipanggil siapa pun (bug laten: watchlist tak pernah alert); alert sekali per penyeberangan + re-arm (👁️ *Monitor*)
 [x] Daily memory (`memory/YYYY-MM-DD.md` + `memory_get`) — per-user per-day markdown at `.data/users/<user>/memory/YYYY-MM-DD.md` (`today`/`yesterday` alias) via `dailyMemory.ts`; `agent.ts` appends snippet each turn; `rag.ts` indexes into `search_memory`; tool `memory_get` (read, auto); verify.ts OK (2026-09-04)
-[ ] Media generation (image / video / music) & image/video input understanding  — gap checklist OpenClaw Multimodal (saat ini uploads text-only)
-[ ] Node/device (macOS/iOS/Android: camera, screen, location, device command)  — gap checklist OpenClaw Devices (macOS sebagian besar done — lihat Fase 4; iOS/Android eksekusi lebih dalam masih gap)
+[x] Vision — image input understanding — Mia bisa lihat gambar via web/Telegram/Discord (multimodal image_url, auto-switch ke vision model)
+[ ] Node/device (macOS/iOS/Android: camera, screen, location, device command)  — gap checklist Mia Devices (macOS sebagian besar done — lihat Fase 4; iOS/Android eksekusi lebih dalam masih gap)
 [ ] x_search (X/Twitter)  — SKIP: web_search (DuckDuckGo + scrape) sudah menutupi kebutuhan dasar; X API resmi berbayar (Grok/x.ai) + scraping tidak stabil/ToS-risky — tidak sebanding utk asisten pribadi. Revisit jika butuh data post X real-time spesifik (2026-09-06)
 ```
 
@@ -155,7 +155,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [ ] Secure credential handling (token, key di env; tak pernah ke client)
 [x] Audit log — catat setiap tool/command yang dieksekusi (siapa, kapan, arg)  — auditLog.ts (`AUDIT_*.log` per-day di `.data/audit/`, append-only JSON: ts/user/action/detail, prune `AUDIT_KEEP_DAYS`=7, `AUDIT_ENABLED`=1; di-wire di `executeTool` (tool:*) + `runAssistantTurn` (turn_error/turn_rate_limited/tool_confirm_denied); best-effort, tidak pernah memblokir turn) (2026-09-06)
 [x] Rate limiting app-level — throttle panggilan LLM/tool per user (kini rely pada 429 provider)  — rateLimit.ts sliding-window per user (`RATE_LIMIT_TURNS_PER_MIN` default 30, 0=off, in-memory) dipasang di `runAssistantTurn` (chokepoint semua channel); `RateLimitError` → HTTP 429 di `/api/llm` (2026-09-06)
-[x] Sandbox penuh untuk exec — container/SSH/isolasi bila tool `exec` ditambahkan  — gap checklist OpenClaw Security (saat ini console; allowlist `resolveInSandbox` dipakai sebagai pengganti isolasi proses berat)
+[x] Sandbox penuh untuk exec — container/SSH/isolasi bila tool `exec` ditambahkan  — gap checklist Mia Security (saat ini console; allowlist `resolveInSandbox` dipakai sebagai pengganti isolasi proses berat)
 [x] Backup & recovery (memory, notes, reminders, sessions)  — backup.ts (backupNow, listBackups, restoreBackup, auto prune max 5, auto-backup on server boot) + command /backup di Telegram & Discord
 [x] Observability ringan (log turn, latency, error count)  — turnStats.ts in-memory counters (turns ok/fail, errorRate, toolCalls, avg/last latency, topErrors, 50 recent) di-feed dari `runAssistantTurn` + `executeTool`; muncul di `GET /api/llm` dan `/status` (Since boot: …) (2026-09-06)
 ```
@@ -185,11 +185,11 @@ MVP personal assistant dianggap berfungsi bila:
 3. **Fase 2.4 — Message Handling & Command System** — DONE (unified command parser + normalisasi input/output di lib/channelMessage.ts; wiring Telegram & Discord; live test /provider yang berhasil ganti model).
 4. **Fase 3 — Personal Assistant Capabilities** — DONE (notif push, task management, scheduler tahan-restart, uploads, read_upload, scheduled automations, rate-limit resilience, quota alert, /status, web interaction incl. fetch_url). Fase 3 SELESAI.
 5. **Fase 3/5 — Konfirmasi + logging** untuk kenyamanan pribadi.
-6. **Gap OpenClaw berikutnya (urutan saran):** 1) `exec` shell tool ✅ DONE, 2) `write`/`edit` file tool ✅ DONE, 3) Daily memory + `memory_get` ✅ DONE, 4) Heartbeat ✅ DONE, 5) Webhook ✅ DONE. Item-item ini dicatat di Fase 4 & 5.
+6. **Gap Mia berikutnya (urutan saran):** 1) `exec` shell tool ✅ DONE, 2) `write`/`edit` file tool ✅ DONE, 3) Daily memory + `memory_get` ✅ DONE, 4) Heartbeat ✅ DONE, 5) Webhook ✅ DONE. Item-item ini dicatat di Fase 4 & 5.
 
 ---
 
-## Pemetaan Fitur OpenClaw → Mia (dari `openclaw-features-tools-list.md`)
+## Pemetaan Fitur Mia → Mia (dari `mia-features-tools-list.md`)
 
 Ringkasan gap agar mudah dipantau (detail lengkap di checklist §24–26 file referensi):
 

@@ -1,6 +1,6 @@
 # 🌸 Mia — Personal AI Assistant
 
-Multi-platform OpenClaw-style assistant reachable via **Web (text + voice)**, **Telegram**, and **Discord** sharing one memory, one persona, and one tool set.
+Multi-platform Mia-style assistant reachable via **Web (text + voice)**, **Telegram**, and **Discord** sharing one memory, one persona, and one tool set.
 
 ## Quick Start
 
