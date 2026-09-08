@@ -8,7 +8,7 @@
 
 const COOKIE = "mia_auth";
 /** Paths that must stay reachable without auth (login, external callbacks…). */
-const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/api/webhook", "/api/spotify/"];
+const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/api/webhook", "/api/spotify/", "/api/gmail/"];
 
 export function authToken(): string | undefined {
   const t = process.env.AUTH_TOKEN;

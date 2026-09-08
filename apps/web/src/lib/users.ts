@@ -17,6 +17,18 @@ export function sanitizeUser(user: unknown): string | null {
   return trimmed;
 }
 
+// Owner aliases — same person, one inbox/memory (Zigen = naufalazhar652952 on Discord)
+const OWNER_ALIASES: Record<string, string> = {
+  Zigen: "naufalazhar652952",
+  naufalazhar65: "naufalazhar652952",
+};
+
+export function canonicalUserKey(user: unknown): string | null {
+  const k = sanitizeUser(user);
+  if (!k) return null;
+  return OWNER_ALIASES[k] || k;
+}
+
 /**
  * Stable repo-root anchor. The dev server starts with cwd = `apps/web`, but
  * `verify.ts` / tsx proofs run with cwd = repo root. Both share the same

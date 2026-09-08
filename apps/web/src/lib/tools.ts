@@ -20,6 +20,7 @@ import { startSongGame, guessSong, quitSongGame } from "./game";
 import { holidayInfo } from "./holiday";
 import { buildEveningRecap } from "./recap";
 import { buildWeeklyInsight } from "./weeklyInsight";
+import { gmailAuthUrl, gmailConfigured, gmailConnected, gmailList, gmailRead, gmailSearch } from "./email";
 
 /** Human-readable reminder state for the model: upcoming (unfired) first, then
  *  today's delivered — so it can talk about reminders HONESTLY instead of
@@ -1804,6 +1805,101 @@ const toolRegistry: ToolPlugin[] = [
       },
     },
     execute: (_, ctx) => remindersListText(ctx.rawUser),
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "gmail_link",
+        description: "Get Gmail connect URL. Use when user wants to connect email or when gmail_not_connected. Returns auth link.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: (_, ctx) => {
+      if (!gmailConfigured()) return "Gmail belum dikonfigurasi — hubungi admin untuk set GMAIL_CLIENT_ID/SECRET.";
+      if (gmailConnected(ctx.rawUser)) return "Gmail sudah terhubung ✓";
+      return `Buka link ini untuk hubungkan Gmail: ${gmailAuthUrl(ctx.rawUser)}`;
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "gmail_list",
+        description: "List recent Gmail inbox (10 latest). Shows id, subject, from, date, snippet. Use for inbox overview.",
+        parameters: {
+          type: "object",
+          properties: {
+            maxResults: { type: "string", description: "Number 1-20, default 10" },
+          },
+          required: [],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const n = Math.min(20, Math.max(1, parseInt(String(args.maxResults || "10"), 10) || 10));
+        return await gmailList(ctx.rawUser, n);
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        if (m.includes("gmail_not_connected")) return `Gmail belum terhubung — ${gmailAuthUrl(ctx.rawUser)}`;
+        return `Error: ${m}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "gmail_read",
+        description: "Read full Gmail message by id (from gmail_list). Returns headers + body text.",
+        parameters: {
+          type: "object",
+          properties: { id: { type: "string", description: "Message id from gmail_list" } },
+          required: ["id"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        return await gmailRead(ctx.rawUser, String(args.id || ""));
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        if (m.includes("gmail_not_connected")) return `Gmail belum terhubung — ${gmailAuthUrl(ctx.rawUser)}`;
+        return `Error: ${m}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "gmail_search",
+        description: "Search Gmail (Gmail query syntax: from:, subject:, after:, etc). Returns matching messages.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Gmail search query, e.g. 'from:boss after:2024/01/01'" },
+            maxResults: { type: "string", description: "Number 1-20, default 10" },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const n = Math.min(20, Math.max(1, parseInt(String(args.maxResults || "10"), 10) || 10));
+        return await gmailSearch(ctx.rawUser, String(args.query || ""), n);
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        if (m.includes("gmail_not_connected")) return `Gmail belum terhubung — ${gmailAuthUrl(ctx.rawUser)}`;
+        return `Error: ${m}`;
+      }
+    },
   },
 ];
 
