@@ -1,3 +1,5 @@
+import { broadcastMiaState } from "@/lib/miaState";
+
 /**
  * Discord channel adapter (PRD v2.0 §8.1 FR-101 / ROADMAP Fase 2.3).
  *
@@ -518,6 +520,7 @@ async function runTurn(
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
     console.log(`[discord] turn start (provider=${state.provider})`);
+    broadcastMiaState("PROCESSING");
     result = await withTyping(msg.channel as unknown as SendableChannel, () =>
       runAssistantTurn({
         messages: turnMessages,
@@ -529,8 +532,11 @@ async function runTurn(
       })
     );
     console.log(`[discord] turn done (text len=${(result.text || "").length})`);
+    broadcastMiaState(result.text ? "SPEAKING" : "IDLE", result.text || undefined);
+    setTimeout(() => broadcastMiaState("IDLE"), 8000);
   } catch (err) {
     console.error("[discord] turn failed:", err instanceof Error ? err.message : String(err));
+    broadcastMiaState("IDLE");
     await replyMia(msg, classifyAssistantError(err).userMessage);
     return;
   }
@@ -571,12 +577,13 @@ async function runTurnWithVision(
   state.history.push({ role: "user", content: textPart || "[gambar]" });
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
-    console.log(`[discord] vision turn start (provider=${state.provider})`);
+    broadcastMiaState("PROCESSING"); console.log(`[discord] vision turn start (provider=${state.provider})`);
     result = await withTyping(msg.channel as unknown as SendableChannel, () =>
       runAssistantTurn({ messages: turnMessages as never, provider: state.provider, model: state.model, user, channel: "discord" })
     );
-    console.log(`[discord] vision turn done (text len=${(result.text || "").length})`);
+    console.log(`[discord] vision turn done (text len=${(result.text || "").length})`); broadcastMiaState(result.text ? "SPEAKING" : "IDLE", result.text || undefined); setTimeout(() => broadcastMiaState("IDLE"), 8000);
   } catch (err) {
+    broadcastMiaState("IDLE");
     console.error("[discord] vision turn failed:", err instanceof Error ? err.message : String(err));
     await replyMia(msg, classifyAssistantError(err).userMessage);
     return;

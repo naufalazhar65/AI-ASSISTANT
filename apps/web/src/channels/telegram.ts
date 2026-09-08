@@ -1,3 +1,5 @@
+import { broadcastMiaState } from "@/lib/miaState";
+
 /**
  * Telegram channel adapter (PRD v2.0 §8.1 FR-101).
  *
@@ -478,6 +480,7 @@ async function runTurn(
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
     console.log(`[telegram] turn start (provider=${state.provider})`);
+    broadcastMiaState("PROCESSING");
     result = await withTyping(ctx, () =>
       runAssistantTurn({
         messages: turnMessages,
@@ -489,8 +492,11 @@ async function runTurn(
       })
     );
     console.log(`[telegram] turn done (text len=${(result.text || "").length})`);
+    broadcastMiaState(result.text ? "SPEAKING" : "IDLE", result.text || undefined);
+    setTimeout(() => broadcastMiaState("IDLE"), 8000);
   } catch (err) {
     console.error("[telegram] turn failed:", err instanceof Error ? err.message : String(err));
+    broadcastMiaState("IDLE");
     await replyMia(ctx, classifyAssistantError(err).userMessage);
     return;
   }
@@ -534,12 +540,13 @@ async function runTurnWithVision(
   state.history.push({ role: "user", content: textPart || "[gambar]" });
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
-    console.log(`[telegram] vision turn start (provider=${state.provider})`);
+    broadcastMiaState("PROCESSING"); console.log(`[telegram] vision turn start (provider=${state.provider})`);
     result = await withTyping(ctx, () =>
       runAssistantTurn({ messages: turnMessages as never, provider: state.provider, model: state.model, user, channel: "text" })
     );
-    console.log(`[telegram] vision turn done (text len=${(result.text || "").length})`);
+    console.log(`[telegram] vision turn done (text len=${(result.text || "").length})`); broadcastMiaState(result.text ? "SPEAKING" : "IDLE", result.text || undefined); setTimeout(() => broadcastMiaState("IDLE"), 8000);
   } catch (err) {
+    broadcastMiaState("IDLE");
     console.error("[telegram] vision turn failed:", err instanceof Error ? err.message : String(err));
     await replyMia(ctx, classifyAssistantError(err).userMessage);
     return;

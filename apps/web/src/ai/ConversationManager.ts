@@ -237,6 +237,18 @@ export class ConversationManager {
         this.activeAssistantEntry = null;
         this.activeUserEntry = null;
         this.emitMachine("RESPONSE_READY");
+        // Share the reply with the PWA eyes (HP Android) so it can speak + lip-sync.
+        if (typeof window !== "undefined") {
+          try {
+            if (!ConversationManager.bc) ConversationManager.bc = new BroadcastChannel("mia-state");
+            ConversationManager.bc.postMessage({ state: "SPEAKING", text: event.text });
+          } catch {}
+          fetch("/api/mia-state", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ state: "SPEAKING", text: event.text }),
+          }).catch(() => {});
+        }
         break;
 
       case "audio_complete":
@@ -266,9 +278,23 @@ export class ConversationManager {
     }
   }
 
+  private static bc: BroadcastChannel | null = null;
   private emitMachine(event: StateEvent): void {
     const next = this.machine.transition(event);
-    if (next) this.emit({ type: "state", state: next });
+    if (next) {
+      this.emit({ type: "state", state: next });
+      if (typeof window !== "undefined") {
+        try {
+          if (!ConversationManager.bc) ConversationManager.bc = new BroadcastChannel("mia-state");
+          ConversationManager.bc.postMessage({ state: next });
+        } catch {}
+        fetch("/api/mia-state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state: next }),
+        }).catch(() => {});
+      }
+    }
   }
 
   private emit(event: ConversationEvent): void {
