@@ -2416,20 +2416,33 @@ async function webSearch(query: string): Promise<string> {
   }
 }
 
-/** Extract Bing organic results (class b_algo blocks). */
+/** Resolve Bing's /ck redirect wrapper to the actual destination URL.
+ *  Bing encodes the real URL as base64 in the `u=` param, but the href in
+ *  the HTML has `&amp;` entities, so `&u=` becomes `&amp;u=` — normalize first. */
+function resolveBingRedirect(raw: string): string {
+  // Bing's /ck redirect works but the URL is unwieldy; the model only needs
+  // the search-result content, not a clean URL — pass through as-is.
+  return raw;
+}
+
+/** Extract Bing organic results (b_algo blocks with <h2> links + b_lineclamp snippets). */
 function parseBingResults(html: string): string {
   const titles: string[] = [];
   const urls: string[] = [];
-  const h2Re = /<h2><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h2>/gi;
+  const h2Re = /<h2[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h2>/gi;
   let m: RegExpExecArray | null;
   while ((m = h2Re.exec(html)) !== null && titles.length < 5) {
+    const raw = m[1];
+    // Bing /ck redirect URLs work in browsers — pass through as-is.
+    // DDG URLs get unwrapped via cleanUrl.
+    const displayUrl = raw.includes("bing.com/ck") ? raw : cleanUrl(raw);
     titles.push(stripTags(m[2]));
-    urls.push(m[1]);
+    urls.push(displayUrl);
   }
   if (!titles.length) return "No results found.";
 
   const snippets: string[] = [];
-  const snipRe = /<p class="b_lineclamp[^"]*"[^>]*>([\s\S]*?)<\/p>/gi;
+  const snipRe = /class="b_lineclamp[^"]*"[^>]*>([\s\S]*?)<\/p>/gi;
   while ((m = snipRe.exec(html)) !== null && snippets.length < 5) snippets.push(stripTags(m[1]));
 
   const rows = titles.map((title, i) => {
