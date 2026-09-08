@@ -64,6 +64,8 @@ export interface AIProvider {
   /** Optional: interim transcription of in-progress utterances (FR-016). */
   sendPartialAudio?(audio: ArrayBuffer): void;
   sendText(text: string): void;
+  /** Optional: send text + images (vision). Falls back to sendText if unsupported. */
+  sendVision?(text: string, imageDataUrls: string[]): void;
   /**
    * Optional: resolve a tool call paused for user confirmation (FR-014).
    * `allow` true runs the tool; false declines it. Only meaningful after a

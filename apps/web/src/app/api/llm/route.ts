@@ -27,7 +27,7 @@ export const runtime = "nodejs";
  */
 export async function POST(request: NextRequest) {
   let body: {
-    messages?: { role: string; content: string; tool_calls?: unknown; tool_call_id?: unknown }[];
+    messages?: { role: string; content: string | Array<{ type: string; text?: string; image_url?: unknown }>; tool_calls?: unknown; tool_call_id?: unknown }[];
     confirm_call?: { call: ToolCall; allow: boolean };
     model?: string;
     provider?: string;

@@ -44,6 +44,13 @@ export function parsePersonaTag(text: string): FactEntry[] {
   return entries;
 }
 
+function contentToText(c: unknown): string {
+  if (!c) return "";
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) return (c as Array<{ text?: string }>).filter((p) => p.text).map((p) => p.text!).join("\n");
+  return String(c);
+}
+
 const EXTRACT_PROMPT = [
   "You are the memory layer of a personal AI assistant. Below is a short transcript of ",
   "the user's latest turn and your answer.",
@@ -63,7 +70,7 @@ type ExtractionOpts = {
   apiKey: string;
   defaultModel: string;
   persona: string;
-  messages: { role: string; content: string | null }[];
+  messages: { role: string; content: string | Array<{ type: string; text?: string; image_url?: unknown }> | null }[];
 };
 
 /** Non-streaming extraction against any OpenAI-compatible endpoint. */
@@ -73,7 +80,7 @@ async function extractFactsOpenAi(opts: ExtractionOpts): Promise<FactEntry[]> {
   const probe = messages
     .filter((m) => m.role === "user" && m.content)
     .slice(-4)
-    .map((m) => m.content)
+    .map((m) => contentToText(m.content))
     .join("\n");
   const body = JSON.stringify({
     model: defaultModel,
@@ -107,7 +114,7 @@ async function extractFactsOpenCode(opts: Omit<ExtractionOpts, "url" | "apiKey" 
   const probe = messages
     .filter((m) => m.role === "user" && m.content)
     .slice(-4)
-    .map((m) => m.content)
+    .map((m) => contentToText(m.content))
     .join("\n");
   const systemPrompt = [
     "Reply to the following memory-extraction request. Follow its output format exactly.",
@@ -133,7 +140,7 @@ export type CaptureArgs = {
   apiKey?: string;
   defaultModel?: string;
   persona: string;
-  messages: { role: string; content: string | null }[];
+  messages: { role: string; content: string | Array<{ type: string; text?: string; image_url?: unknown }> | null }[];
   rawUser?: unknown;
 };
 
@@ -144,7 +151,12 @@ export type CaptureArgs = {
  */
 export async function captureFactsFromTurn(args: CaptureArgs): Promise<number> {
   try {
-    const hasUserContent = args.messages.some((m) => m.role === "user" && m.content && m.content.trim());
+    const hasUserContent = args.messages.some((m) => {
+      if (!m.content) return false;
+      if (typeof m.content === "string") return !!m.content.trim();
+      if (Array.isArray(m.content)) return m.content.some((p: unknown) => typeof (p as { text?: string }).text === "string" && (p as { text: string }).text.trim());
+      return false;
+    });
     if (!hasUserContent) return 0;
 
     let facts: FactEntry[] = [];

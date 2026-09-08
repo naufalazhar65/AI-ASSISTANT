@@ -338,20 +338,21 @@ export async function startDiscordBot(): Promise<void> {
         (msg.channel as { sendTyping: () => Promise<unknown> }).sendTyping().catch(() => {});
       }
 
+      const visionParts: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> = [];
       if (!isVoice) {
         for (const att of atts) {
           try {
             const res = await fetch(att.url);
             if (!res.ok) continue;
             const buf = Buffer.from(await res.arrayBuffer());
-            const meta = saveUpload(
-              user,
-              att.name || "file.bin",
-              att.contentType || "application/octet-stream",
-              buf
-            );
+            const mime = att.contentType || "application/octet-stream";
+            const meta = saveUpload(user, att.name || "file.bin", mime, buf);
             const kb = (meta.size / 1024).toFixed(1);
-            if (meta.isText && meta.textContent !== undefined) {
+            if (meta.isImage && buf.length < 4_000_000) {
+              const b64 = buf.toString("base64");
+              visionParts.push({ type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } });
+              fileContexts.push(`[Image "${meta.name}" (${kb} KB) — sent as vision]`);
+            } else if (meta.isText && meta.textContent !== undefined) {
               fileContexts.push(`[The user uploaded file "${meta.name}" (${kb} KB). It is already saved by the system; do not save it again. Its text content:\n${meta.textContent.slice(0, 6000)}\n]`);
             } else {
               fileContexts.push(`[The user uploaded file "${meta.name}" (${kb} KB). It is already saved by the system; do not save it again.]`);
@@ -369,12 +370,13 @@ export async function startDiscordBot(): Promise<void> {
       const chatId = msg.channelId;
       const state = getState(chatId);
 
-      if (fileContexts.length) {
+      const hasVision = visionParts.length > 0;
+      if (fileContexts.length && !hasVision) {
         const prefix = fileContexts.join("\n");
         text = text ? `${prefix}\n\n${text}` : prefix;
       }
 
-      if (text.startsWith("/")) {
+      if (!hasVision && text.startsWith("/")) {
         await handleCommand(msg, state, text, user);
         return;
       }
@@ -384,7 +386,12 @@ export async function startDiscordBot(): Promise<void> {
         return;
       }
 
-      await runTurn(msg, state, user, undefined, text, isVoice);
+      if (hasVision) {
+        const visionContent = [{ type: "text" as const, text: text || "Tolong jelaskan gambar ini dengan rapi" }, ...visionParts];
+        await runTurnWithVision(msg, state, user, visionContent, isVoice);
+      } else {
+        await runTurn(msg, state, user, undefined, text, isVoice);
+      }
     } catch (err) {
       console.error("[discord] handler error:", err instanceof Error ? (err.stack || err.message) : String(err));
       await msg.reply("Maaf, ada kendala internal. Coba lagi ya.").catch(() => {});
@@ -550,4 +557,38 @@ async function runTurn(
     result.text || "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸",
     voiceTurn
   );
+}
+
+async function runTurnWithVision(
+  msg: Message,
+  state: ChatState,
+  user: string,
+  visionContent: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>,
+  voiceTurn = false
+): Promise<void> {
+  const textPart = visionContent.find((p) => p.type === "text")?.text || "";
+  const turnMessages = [...state.history, { role: "user", content: visionContent as unknown as string }];
+  state.history.push({ role: "user", content: textPart || "[gambar]" });
+  let result: Awaited<ReturnType<typeof runAssistantTurn>>;
+  try {
+    console.log(`[discord] vision turn start (provider=${state.provider})`);
+    result = await withTyping(msg.channel as unknown as SendableChannel, () =>
+      runAssistantTurn({ messages: turnMessages as never, provider: state.provider, model: state.model, user, channel: "discord" })
+    );
+    console.log(`[discord] vision turn done (text len=${(result.text || "").length})`);
+  } catch (err) {
+    console.error("[discord] vision turn failed:", err instanceof Error ? err.message : String(err));
+    await replyMia(msg, classifyAssistantError(err).userMessage);
+    return;
+  }
+  if (result.needsConfirmation?.length) {
+    state.pending = { messages: turnMessages as never, call: result.needsConfirmation[0] };
+    const call = result.needsConfirmation[0];
+    let args = "";
+    try { args = JSON.stringify(JSON.parse(call.arguments || "{}")); } catch {}
+    await replyMia(msg, `Mia ingin melakukan aksi berikut: **${call.name}**${args ? ` — \`${args}\`` : ""}\nBalas \`ya\` untuk lanjut, atau \`tidak\` untuk membatalkan.`);
+    return;
+  }
+  state.history.push({ role: "assistant", content: result.text });
+  await replyMiaVoice(msg, result.text || "…", voiceTurn);
 }

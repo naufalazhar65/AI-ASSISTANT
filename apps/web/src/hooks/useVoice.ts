@@ -44,6 +44,7 @@ export interface UseVoiceResult {
   stop: () => void;
   toggleMic: () => Promise<void>;
   sendText: (text: string) => void;
+  sendVision: (text: string, imageDataUrls: string[]) => void;
   interrupt: () => void;
 }
 
@@ -495,6 +496,13 @@ export function useVoice(): UseVoiceResult {
     [manager]
   );
 
+  const sendVision = useCallback(
+    (text: string, imageDataUrls: string[]) => {
+      manager.sendVision(text, imageDataUrls);
+    },
+    [manager]
+  );
+
   const interrupt = useCallback(() => {
     manager.interrupt();
   }, [manager]);
@@ -551,6 +559,7 @@ export function useVoice(): UseVoiceResult {
     stop,
     toggleMic,
     sendText,
+    sendVision,
     interrupt,
   };
 }

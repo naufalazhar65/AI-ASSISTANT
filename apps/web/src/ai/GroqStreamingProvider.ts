@@ -104,6 +104,11 @@ async sendAudio(audio: ArrayBuffer): Promise<void> {
     void this.runTextTurn(text);
   }
 
+  sendVision(text: string, imageDataUrls: string[]): void {
+    if (!this.connected || (!text.trim() && !imageDataUrls.length)) return;
+    void this.runVisionTurn(text, imageDataUrls);
+  }
+
   /** Resolve a tool call paused for user confirmation (FR-014). */
   confirmTool(callId: string, allow: boolean): void {
     const call = this.pendingTools.find((c) => c.id === callId);
@@ -145,6 +150,16 @@ async sendAudio(audio: ArrayBuffer): Promise<void> {
   private async runTextTurn(text: string): Promise<void> {
     this.messages.push({ role: "user", content: text });
     this.emit({ type: "final_transcript", transcript: text });
+    await this.generateAndSpeak();
+  }
+
+  private async runVisionTurn(text: string, imageDataUrls: string[]): Promise<void> {
+    const content: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> = [
+      { type: "text", text: text || "Jelaskan gambar ini" },
+      ...imageDataUrls.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+    ];
+    this.messages.push({ role: "user", content: content as unknown as string });
+    this.emit({ type: "final_transcript", transcript: text || "[gambar]" });
     await this.generateAndSpeak();
   }
 

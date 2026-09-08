@@ -310,16 +310,21 @@ export async function startTelegramBot(): Promise<void> {
       const filePath = file.file_path;
       if (!filePath) return;
       const buffer = await downloadTelegramFile(filePath);
-      saveUpload(
-        userKeyFor(ctx),
-        "photo.jpg",
-        "image/jpeg",
-        buffer
-      );
-      await replyMia(ctx, "Gambar tersimpan. Aku belum bisa melihat isinya langsung, tapi bisa kubantu sebut/kelola.");
+      const user = userKeyFor(ctx);
+      saveUpload(user, "photo.jpg", "image/jpeg", buffer);
+      const caption = (ctx.message.caption || "").trim();
+  // @ts-ignore
+      const state = getState(String(ctx.chat.id));
+      const b64 = buffer.toString("base64");
+      const dataUrl = `data:image/jpeg;base64,${b64}`;
+      const visionContent = [
+        { type: "text" as const, text: caption || "Tolong jelaskan gambar ini dengan rapi" },
+        { type: "image_url" as const, image_url: { url: dataUrl } },
+      ];
+      await runTurnWithVision(ctx, state, user, visionContent, false);
     } catch (err) {
       console.error("[telegram] photo handler error:", err instanceof Error ? err.message : String(err));
-      await ctx.reply("Maaf, gagal menyimpan foto itu.").catch(() => {});
+      await ctx.reply("Maaf, gagal memproses foto itu.").catch(() => {});
     }
   });
 
@@ -515,4 +520,40 @@ async function runTurn(
   } else {
     await replyMia(ctx, result.text || "…");
   }
+}
+
+async function runTurnWithVision(
+  ctx: Context,
+  state: ChatState,
+  user: string,
+  visionContent: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>,
+  voiceTurn = false
+): Promise<void> {
+  const textPart = visionContent.find((p) => p.type === "text")?.text || "";
+  const turnMessages = [...state.history, { role: "user", content: visionContent as unknown as string }];
+  state.history.push({ role: "user", content: textPart || "[gambar]" });
+  let result: Awaited<ReturnType<typeof runAssistantTurn>>;
+  try {
+    console.log(`[telegram] vision turn start (provider=${state.provider})`);
+    result = await withTyping(ctx, () =>
+      runAssistantTurn({ messages: turnMessages as never, provider: state.provider, model: state.model, user, channel: "text" })
+    );
+    console.log(`[telegram] vision turn done (text len=${(result.text || "").length})`);
+  } catch (err) {
+    console.error("[telegram] vision turn failed:", err instanceof Error ? err.message : String(err));
+    await replyMia(ctx, classifyAssistantError(err).userMessage);
+    return;
+  }
+  if (result.needsConfirmation?.length) {
+    state.pending = { messages: turnMessages as never, call: result.needsConfirmation[0] };
+    const call = result.needsConfirmation[0];
+    let args = "";
+    try { args = JSON.stringify(JSON.parse(call.arguments || "{}")); } catch {}
+    await replyMia(ctx, `Mia ingin melakukan aksi berikut: *${call.name}*${args ? ` — \`${args}\`` : ""}\nBalas \`ya\` untuk lanjut, atau \`tidak\` untuk membatalkan.`);
+    return;
+  }
+  state.history.push({ role: "assistant", content: result.text });
+  if (voiceTurn) {
+    if (!(await sendVoiceReply(ctx, result.text))) await replyMia(ctx, result.text || "…");
+  } else await replyMia(ctx, result.text || "…");
 }

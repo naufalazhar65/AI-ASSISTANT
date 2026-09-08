@@ -253,6 +253,7 @@ interface AIChatCardProps {
   messages: AIChatMessage[];
   isTyping?: boolean;
   onSend: (text: string) => void;
+  onSendVision?: (text: string, imageDataUrls: string[]) => void;
   orb?: React.ReactNode;
   micActive?: boolean;
   onToggleMic?: () => void;
@@ -310,6 +311,7 @@ export default function AIChatCard({
   messages,
   isTyping = false,
   onSend,
+  onSendVision,
   orb,
   micActive = false,
   onToggleMic,
@@ -347,11 +349,29 @@ export default function AIChatCard({
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, isTyping]);
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
+
   const handleSend = () => {
     const text = input.trim();
-    if (!text) return;
-    onSend(text);
+    if (!text && !pendingImage) return;
+    if (pendingImage && onSendVision) {
+      onSendVision(text || "Jelaskan gambar ini", [pendingImage]);
+      setPendingImage(null);
+    } else {
+      onSend(text);
+    }
     setInput("");
+  };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    if (file.size > 4_000_000) { alert("Gambar terlalu besar (max 4MB)"); return; }
+    const reader = new FileReader();
+    reader.onload = () => setPendingImage(reader.result as string);
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   return (
@@ -812,7 +832,16 @@ export default function AIChatCard({
               </button>
             ))}
 
+          {pendingImage && (
+            <div className="mb-2 flex items-center gap-2 rounded-xl bg-white/5 px-2 py-1.5">
+              <img src={pendingImage} alt="preview" className="h-10 w-10 rounded object-cover" />
+              <span className="text-xs text-white/40">Gambar siap</span>
+              <button type="button" onClick={() => setPendingImage(null)} className="ml-auto text-xs text-white/40 hover:text-white">✕</button>
+            </div>
+          )}
           <div className="flex items-center gap-2 w-full rounded-full glass px-2.5 py-1.5">
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+            <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/60 hover:bg-white/20" aria-label="Attach image">📎</button>
             <input
               className="flex-1 bg-transparent px-2 py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none"
               placeholder="Type a message…"

@@ -49,6 +49,7 @@ export default function Home() {
     deleteSession,
     toggleMic,
     sendText,
+    sendVision,
     interrupt,
   } = useVoice();
 
@@ -108,6 +109,7 @@ export default function Home() {
           }))}
           isTyping={state === "PROCESSING"}
           onSend={(text) => sendText(text)}
+          onSendVision={(text, imgs) => (sendVision ? sendVision(text, imgs) : sendText(text))}
           orb={
             <div className="h-16 w-16">
               <VoicePoweredOrb

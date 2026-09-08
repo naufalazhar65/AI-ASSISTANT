@@ -123,6 +123,15 @@ export class ConversationManager {
     }
   }
 
+  /** User submitted text + images (vision). */
+  sendVision(text: string, imageDataUrls: string[]): void {
+    if ((!text.trim() && !imageDataUrls.length) || this.machine.current === "PROCESSING") return;
+    for (const provider of this.providers) {
+      if (provider.sendVision) provider.sendVision(text, imageDataUrls);
+      else provider.sendText(text || "[gambar]");
+    }
+  }
+
   /** A chunk of mic audio arrived; forward to providers async-current (PRD §32). */
   sendAudio(audio: ArrayBuffer): void {
     for (const provider of this.providers) {
