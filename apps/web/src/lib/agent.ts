@@ -694,9 +694,15 @@ async function runAgent(
   // All read-only tools: execute them server-side and continue (FR-013).
   if (round < MAX_TOOL_ROUNDS) {
     for (const call of toolCalls2) {
-      const content = await executeTool(call, user);
+      let content = await executeTool(call, user);
+      // When web_search returns "No results found." for a search query, add
+      // guidance so the model stops retrying the same tool — otherwise it
+      // keeps calling web_search until MAX_TOOL_ROUNDS exhaustion.
+      if (call.name === "web_search" && /^No results found/i.test(content)) {
+        content += "\n\n(Sudah dicoba 2 kali — jawab dari pengetahuan atau sarankan kata kunci berbeda)";
+      }
       messages.push({ role: "tool", tool_call_id: call.id, content });
-      if (call.name === "web_search" && !/^error:/i.test(content.trim())) collector.webSearchSuccess = true;
+      if (call.name === "web_search" && !/^error:|^No results found/i.test(content)) collector.webSearchSuccess = true;
     }
     return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
   }
