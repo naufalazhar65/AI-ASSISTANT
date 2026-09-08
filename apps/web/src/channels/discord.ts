@@ -345,19 +345,23 @@ export async function startDiscordBot(): Promise<void> {
         for (const att of atts) {
           try {
             const res = await fetch(att.url);
-            if (!res.ok) continue;
+            if (!res.ok) { console.warn(`[discord] attachment fetch ${res.status}: ${att.name}`); continue; }
             const buf = Buffer.from(await res.arrayBuffer());
-            const mime = att.contentType || "application/octet-stream";
+            // Discord mobile (camera) may omit contentType — images always have
+            // width/height set, so use that as a fallback signal.
+            const mime = att.contentType || (att.width && att.height ? "image/png" : "application/octet-stream");
             const meta = saveUpload(user, att.name || "file.bin", mime, buf);
             const kb = (meta.size / 1024).toFixed(1);
-            if (meta.isImage && buf.length < 4_000_000) {
+            if (meta.isImage && buf.length < 10_000_000) {
               const b64 = buf.toString("base64");
               visionParts.push({ type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } });
               fileContexts.push(`[Image "${meta.name}" (${kb} KB) — sent as vision]`);
+              console.log(`[discord] vision image: ${meta.name} ${mime} ${kb}KB`);
             } else if (meta.isText && meta.textContent !== undefined) {
               fileContexts.push(`[The user uploaded file "${meta.name}" (${kb} KB). It is already saved by the system; do not save it again. Its text content:\n${meta.textContent.slice(0, 6000)}\n]`);
             } else {
               fileContexts.push(`[The user uploaded file "${meta.name}" (${kb} KB). It is already saved by the system; do not save it again.]`);
+              console.log(`[discord] attachment NOT vision: ${meta.name} ${mime} ${kb}KB isImage=${meta.isImage}`);
             }
           } catch (e) {
             console.warn("[discord] attachment fetch failed:", e instanceof Error ? e.message : String(e));
