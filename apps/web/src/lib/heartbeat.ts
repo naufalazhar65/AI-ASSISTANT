@@ -6,7 +6,7 @@
 
 import { readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { userDataRoot } from "./users";
+import { userDataRoot, isTestUserKey } from "./users";
 import { readTasks } from "./tasks";
 import { pushToOwner } from "../channels/pushTarget";
 import { heartbeatMinutes } from "./config";
@@ -28,7 +28,7 @@ function allUserKeys(): string[] {
     return readdirSync(root, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
-      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n));
+      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
   } catch {
     return [];
   }

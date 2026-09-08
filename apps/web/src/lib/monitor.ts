@@ -376,11 +376,21 @@ export async function checkMonitorsAndAlert(rawUser?: unknown): Promise<string[]
     if (alert) {
       m.alertedAt = Date.now();
       alerts.push(alert);
-    } else if (m.alertedAt !== undefined) {
-      // Price is back to the safe side — re-arm so the next crossing alerts again.
+    } else if (m.alertedAt !== undefined && !stillNearThreshold(m, value)) {
+      // Re-arm only once the value has clearly LEFT the threshold zone —
+      // re-arming at the exact boundary made storage hover 89↔90% and re-alert
+      // every heartbeat overnight (the 2026-09-08 flood).
       delete m.alertedAt;
     }
   }
   writeMonitors(monitors, userKey);
   return alerts;
+}
+
+/** Hysteresis band: ±5 around a device percent threshold. While the value is
+ *  still inside the band we do NOT re-arm, so a 90% storage reading that dips
+ *  to 89% and back cannot trigger alert → re-arm → alert loops. */
+function stillNearThreshold(m: MonitorTarget, value: number): boolean {
+  if (m.kind !== "device" || m.threshold === undefined) return false;
+  return Math.abs(value - m.threshold) < 5;
 }

@@ -16,7 +16,7 @@ import { pushToOwner } from "../channels/pushTarget";
 import { briefingEnabled, briefingHour } from "./config";
 import { logInfo, logError } from "./appLogger";
 import { existsSync, readdirSync } from "node:fs";
-import { userDataRoot } from "./users";
+import { userDataRoot, isTestUserKey } from "./users";
 
 let timer: NodeJS.Timeout | null = null;
 let started = false;
@@ -146,7 +146,10 @@ export function buildMorningBriefing(rawUser?: unknown, now = new Date()): strin
     if (neg > pos) lines.push("Kemarin catatan moodmu agak berat. Semoga hari ini lebih lega — kalau ada yang masih nyangkut, cerita aja.");
     else if (yMoods.length) lines.push("Kemarin moodmu oke. Semoga stabil hari ini juga.");
     if (hasMemory) {
-      const snippets = yesterday.split("\n").map((l) => l.trim()).filter(Boolean).filter((l) => !/^#/.test(l) && !/\(automation\)/.test(l)).map((l) => l.replace(/^(User|Assistant):\s*/, "")).slice(0, 2);
+      const snippets = yesterday.split("\n").map((l) => l.trim()).filter(Boolean)
+        .filter((l) => !/^#/.test(l) && !/\(automation\)/.test(l) && !/laporan terjadwal/i.test(l))
+        .filter((l) => !/^\[persona\]/i.test(l) && !/^Mia:/i.test(l))
+        .map((l) => l.replace(/^(User|Assistant):\s*/, "")).slice(0, 2);
       if (snippets.length) lines.push(`Pelan-pelan sambung dari kemarin: ${snippets[0].slice(0, 140)}`);
     }
   }
@@ -172,7 +175,7 @@ function allUserKeys(): string[] {
     return readdirSync(root, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
-      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n));
+      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
   } catch {
     return [];
   }

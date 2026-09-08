@@ -15,7 +15,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { appRoot, userDataRoot } from "./users";
+import { appRoot, userDataRoot, isTestUserKey } from "./users";
 import { readMoods, MoodEntry } from "./mood";
 import { readTasks } from "./tasks";
 import { readDailyMemory } from "./dailyMemory";
@@ -253,7 +253,7 @@ function allUserKeys(): string[] {
     return readdirSync(root, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
-      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n));
+      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
   } catch {
     return [];
   }

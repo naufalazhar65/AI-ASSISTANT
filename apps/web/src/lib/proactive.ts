@@ -7,7 +7,7 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { userDataRoot } from "./users";
+import { userDataRoot, isTestUserKey } from "./users";
 import { readMoods } from "./mood";
 import { readDailyMemory, todayStr } from "./dailyMemory";
 import { pushToOwner } from "../channels/pushTarget";
@@ -92,7 +92,13 @@ export function buildProactiveMessage(rawUser?: unknown, now = new Date()): stri
   if (!negative.length) return "";
 
   const mem = readDailyMemory(rawUser, "yesterday");
-  const snippet = /^(No memory|\(empty memory)/.test(mem) ? "" : mem.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 1)[0] ?? "";
+  // First MEANINGFUL line — skip timestamp headers, [persona] captures, Mia's
+  // own lines, and automation junk (a raw "## 2026-09-07T14:40:…Z" leaked into
+  // the push otherwise).
+  const snippet = /^(No memory|\(empty memory)/.test(mem) ? "" :
+    mem.split("\n").map((l) => l.trim()).filter(Boolean)
+      .filter((l) => !/^##\s/.test(l) && !/^\[persona\]/i.test(l) && !/^Mia:/i.test(l) && !/\(automation\)/.test(l) && !/laporan terjadwal/i.test(l))
+      .map((l) => l.replace(/^User:\s*/, ""))[0] ?? "";
 
   const lines = ["💙 *Inisiatif Mia* — kemarin mood-mu sempat kerasa berat (aku catat sendiri dari yang kamu ceritakan)."];
   if (snippet) lines.push(`  • ${snippet.slice(0, 140)}`);
@@ -120,7 +126,7 @@ function allUserKeys(): string[] {
     return readdirSync(root, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
-      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n));
+      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
   } catch {
     return [];
   }

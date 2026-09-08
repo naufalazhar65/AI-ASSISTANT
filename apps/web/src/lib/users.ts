@@ -44,6 +44,16 @@ export function repoRoot(): string {
  * explicitly listed dirs are permitted — the agent never slides outside the
  * repo by default. Returns absolute, normalized paths.
  */
+/**
+ * User keys created by verify tests/probes. Periodic runners (heartbeat,
+ * briefing, proactive, recap, weekly insight) MUST skip these: a leftover temp
+ * user with seeded data otherwise pushes its own notifications to the owner's
+ * channel — the 2026-09-08 overnight flood (7× briefing, 6× proactive).
+ */
+export function isTestUserKey(key: string): boolean {
+  return /^(verify_|probe|monitorprobe|naufalprobe|recapprobe|remprobe|greet_probe|mock_roll_probe|owner_roll_probe|owner_smoke|tztest|wtheme|http_probe_|test$|bob$|s$)/i.test(key);
+}
+
 export function allowedWorkspaces(): string[] {
   const raw = process.env.ALLOWED_WORKSPACES || "";
   const out: string[] = [];

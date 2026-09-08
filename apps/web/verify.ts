@@ -925,6 +925,26 @@ async function main() {
   rmSync(join(userDataRoot(), mUser), { recursive: true, force: true });
   console.log(`mac monitor: OK (intents, battery alert fires+re-arms, storage ${storagePct}%)`);
 
+  // --- Hysteresis: a value sitting ON the threshold (storage 90% @ ambang 90)
+  // must alert ONCE, then stay silent while it hovers (the overnight
+  // alert/re-arm flood). Re-arm happens only when clearly away (>=5 away). ---
+  const { addMonitor: addMonH, checkMonitorsAndAlert: checkMonH } = await import("./src/lib/monitor");
+  const hUser = `verify_mon_${Date.now()}`;
+  addMonH({ name: "Storage Mac", kind: "device", subject: "storage", threshold: 90, direction: "above", rawUser: hUser });
+  const a1 = await checkMonH(hUser);
+  if (!a1.length) throw new Error("hysteresis: first crossing should alert");
+  const a2 = await checkMonH(hUser);
+  if (a2.length) throw new Error("hysteresis: still-on-threshold must NOT re-alert");
+  const a3 = await checkMonH(hUser);
+  if (a3.length) throw new Error("hysteresis: hovering must stay silent");
+  for (const m of (await import("./src/lib/monitor")).readMonitors(hUser)) removeMonitor(m.id, hUser);
+  rmSync(join(userDataRoot(), hUser), { recursive: true, force: true });
+  const { isTestUserKey } = await import("./src/lib/users");
+  if (!isTestUserKey("verify_x") || !isTestUserKey("probe-go") || isTestUserKey("naufalazhar652952") || isTestUserKey("shared")) {
+    throw new Error("isTestUserKey classification wrong");
+  }
+  console.log("monitor hysteresis + test-user guard: OK");
+
   // --- reminders_list: honest reminder state for the model (scheduled vs
   // delivered), so it never invents "nanti ... udah lewat" from stale facts. ---
   const rUser = `verify_remlist_${Date.now()}`;
