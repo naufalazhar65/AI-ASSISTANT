@@ -21,6 +21,8 @@ import { captureFactsFromTurn } from "./autoMemory";
 import { detectReminderIntents } from "./reminderIntent";
 import { addReminder } from "./reminders";
 import { detectMoodIntent, logDetectedMood } from "./moodIntent";
+import { detectCorrection } from "./correctionIntent";
+import { addCorrection } from "./corrections";
 import { enrichReminderVariants } from "./reminderVariants";
 import { detectMonitorIntents, detectMonitorIntent, cryptoSubject } from "./monitorIntent";
 import { addMonitor } from "./monitor";
@@ -51,10 +53,13 @@ export type ChatMessage = {
 
 /** Channel kinds the shared core can be invoked from. "voice" keeps replies plain
  *  (TTS-friendly); "text" (Telegram) and "discord" allow platform markdown. */
-export function messageText(content: string | ContentPart[] | null): string {
+export function messageText(content: unknown): string {
   if (!content) return "";
   if (typeof content === "string") return content;
-  return content.filter((p) => p.type === "text").map((p) => (p as { text: string }).text).join("\n");
+  if (Array.isArray(content)) {
+    return (content as ContentPart[]).filter((p) => p.type === "text").map((p) => (p.text ?? "")).join("\n");
+  }
+  return "";
 }
 
 export type Channel = "voice" | "text" | "discord";
@@ -717,7 +722,7 @@ export type TurnResult = {
 function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
-  const intents = detectReminderIntents(messageText(lastUser.content as any));
+  const intents = detectReminderIntents(messageText(lastUser.content));
   if (!intents?.length) return text;
   try {
     for (const intent of intents) {
@@ -788,7 +793,7 @@ function scheduleMonitorFromIntent(messages: ChatMessage[], user: unknown, text:
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
   // Compound-aware: "storage 90% … terus batre 20%" registers BOTH monitors.
-  const intents = detectMonitorIntents(messageText(lastUser.content as any));
+  const intents = detectMonitorIntents(messageText(lastUser.content));
   if (!intents.length) return text;
   try {
     const targets = intents.map((intent) =>
@@ -842,7 +847,7 @@ async function scheduleSpotifyFromIntent(
   if (!lastUser?.content) return text;
   // "play lagi / putar lagi lagunya" → RESUME the current (paused) track.
   // Never reuse a stale query from history — that replays the wrong song.
-  if (detectSpotifyResume(messageText(lastUser.content as any))) {
+  if (detectSpotifyResume(messageText(lastUser.content))) {
     let resumeResult: string;
     try {
       resumeResult = await spotifyPlay(user, "");
@@ -855,7 +860,7 @@ async function scheduleSpotifyFromIntent(
     if (stubR) return ` (Sudah kulanjutkan: ${resumeResult})`;
     return okR && /spotify|putar|play|lagu/i.test(trimmedR) ? text : `${trimmedR} (Sudah kulanjutkan: ${resumeResult})`.trim();
   }
-  const intent = detectSpotifyIntent(messageText(lastUser.content as any));
+  const intent = detectSpotifyIntent(messageText(lastUser.content));
   const query = fallbackQuery ?? intent?.query ?? null;
   if (!query) return text;
   let played: string;
@@ -884,7 +889,7 @@ async function scheduleSpotifyFromIntent(
 async function scheduleSpotifyControlFromIntent(messages: ChatMessage[], user: unknown, text: string): Promise<string> {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
-  const ctrl = detectSpotifyControl(messageText(lastUser.content as any));
+  const ctrl = detectSpotifyControl(messageText(lastUser.content));
   if (!ctrl) return text;
   let result: string;
   try {
@@ -960,7 +965,7 @@ function fmtPriceLocal(n: number): string {
 async function schedulePriceFromIntent(messages: ChatMessage[], user: unknown, text: string): Promise<string> {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
-  const intent = detectPriceIntent(messageText(lastUser.content as any));
+  const intent = detectPriceIntent(messageText(lastUser.content));
   if (!intent) return text;
   // If the model already reported a price in its reply, leave it.
   if (/\$|rm|rp|usd|dolar|[\d,]+\.?\d*\s*(usd|dolar)/i.test(text)) return text;
@@ -1001,7 +1006,7 @@ async function schedulePriceFromIntent(messages: ChatMessage[], user: unknown, t
 function schedulePlaceCheckFromIntent(messages: ChatMessage[], text: string, webSearchSuccess?: boolean): string {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
-  const detected = detectPlaceIntent(messageText(lastUser.content as any) as any);
+  const detected = detectPlaceIntent(messageText(lastUser.content));
   if (!detected) return text;
 
   // If the turn ran web_search and it succeeded, the answer is grounded in a
@@ -1056,8 +1061,7 @@ function logMoodFromMessages(messages: ChatMessage[], user: unknown): void {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return;
   try {
-  // @ts-ignore
-    logDetectedMood(lastUser.content, user);
+    logDetectedMood(messageText(lastUser.content), user);
   } catch { /* best-effort */ }
 }
 
@@ -1065,12 +1069,8 @@ function logCorrection(messages: ChatMessage[], user: unknown): void {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return;
   try {
-  // @ts-ignore
-    const { detectCorrection } = require("./correctionIntent") as typeof import("./correctionIntent");
-  // @ts-ignore
-    const hit = detectCorrection(lastUser.content);
+    const hit = detectCorrection(messageText(lastUser.content));
     if (!hit) return;
-    const { addCorrection } = require("./corrections") as typeof import("./corrections");
     addCorrection(hit.original, hit.corrected, user);
   } catch { /* silent, no push */ }
 }
@@ -1255,7 +1255,7 @@ async function runAssistantTurnImpl(opts: {
   // Auto-recall: the last user ask is semantically matched against long-term
   // memory (notes/tasks/memory persona) and injected into the system prompt so
   // Mia remembers without the user having to ask for it. Silent on failure.
-  const lastUserText = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content as any).trim() ?? "";
+  const lastUserText = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content).trim() ?? "";
   const recall = opts.user ? await recallContext(opts.user, lastUserText).catch(() => "") : "";
   if (recall) systemPrompt += memoryRecallBlock(recall);
 
@@ -1306,15 +1306,15 @@ async function runAssistantTurnImpl(opts: {
     logCorrection(messages, opts.user);
     try {
       const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
-      if (lastUser?.content && /mau tidur|selamat malam|good night/i.test(messageText(lastUser.content as any))) {
+      if (lastUser?.content && /mau tidur|selamat malam|good night/i.test(messageText(lastUser.content))) {
         const { logSleep } = await import("./windDown");
         logSleep(opts.user);
       }
     } catch {}
     opencodeText = ensureMoodReplyQuality(messages, opencodeText);
     try {
-      const lastUser = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content as any).trim() || "";
-      if (!isInternalUserTurn(messageText(lastUser as any)) && (lastUser || opencodeText.trim())) {
+      const lastUser = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content).trim() || "";
+      if (!isInternalUserTurn(lastUser) && (lastUser || opencodeText.trim())) {
         const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", opencodeText.trim() ? `Mia: ${opencodeText.trim().slice(0, 800)}` : ""].filter(Boolean).join("\n");
         appendDailyMemory(opts.user, snippet);
       }
@@ -1442,7 +1442,7 @@ async function runAssistantTurnImpl(opts: {
     // model (fire-and-forget) for a variants pool so the push rotates Mia-style
     // wordings instead of the static template.
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && m.content);
-    const reminderHit = lastUserMsg?.content ? detectReminderIntents(messageText(lastUserMsg.content as any)) : null;
+    const reminderHit = lastUserMsg?.content ? detectReminderIntents(messageText(lastUserMsg.content)) : null;
     if (reminderHit?.length) {
       for (const intent of reminderHit) {
         void enrichReminderVariants(opts.user, intent.text, {
@@ -1462,7 +1462,7 @@ async function runAssistantTurnImpl(opts: {
   if (!monitorAddAlreadyHandled(opts)) {
     if (needsConfirmation?.some((c) => c.name === "monitor_add")) {
       const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
-      if (lastUser?.content && detectMonitorIntent(messageText(lastUser.content as any))) {
+      if (lastUser?.content && detectMonitorIntent(messageText(lastUser.content))) {
         needsConfirmation = needsConfirmation.filter((c) => c.name !== "monitor_add");
       }
     }
@@ -1483,7 +1483,7 @@ async function runAssistantTurnImpl(opts: {
   if (!spotifyConfirmRan) {
     const playCall = pendingSpotify.find((c) => c.name === "spotify_play");
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content;
-    const ctrl = lastUserMsg ? detectSpotifyControl(messageText(lastUserMsg as any)) : null;
+    const ctrl = lastUserMsg ? detectSpotifyControl(messageText(lastUserMsg)) : null;
     if (ctrl) {
       // Deterministic single action from the user's own words — this is the
       // source of truth. Native spotify_* calls are ignored here so a
@@ -1526,7 +1526,7 @@ async function runAssistantTurnImpl(opts: {
   text = scheduleLinkCapture(messages, opts.user, providerId, model, text, (needsConfirmation?.length ?? 0) > 0);
   if (needsConfirmation?.some((c) => c.name === "fetch_url")) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
-    if (lastUser?.content && detectPriceIntent(messageText(lastUser.content as any)) && /Harga .*USD/i.test(text)) {
+    if (lastUser?.content && detectPriceIntent(messageText(lastUser.content)) && /Harga .*USD/i.test(text)) {
       // Deterministic price already answered — drop the model's redundant
       // fetch_url confirm so the user isn't asked twice for the same number.
       needsConfirmation = needsConfirmation.filter((c) => c.name !== "fetch_url");
@@ -1539,7 +1539,7 @@ async function runAssistantTurnImpl(opts: {
   // Wind-down: catat jam tidur jika user bilang mau tidur (silent)
   try {
     const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
-    if (lastUser?.content && /mau tidur|selamat malam|good night/i.test(messageText(lastUser.content as any))) {
+    if (lastUser?.content && /mau tidur|selamat malam|good night/i.test(messageText(lastUser.content))) {
       const { logSleep } = await import("./windDown");
       logSleep(opts.user);
     }
@@ -1550,9 +1550,9 @@ async function runAssistantTurnImpl(opts: {
   // This provides the YYYY-MM-DD.md files that memory_get reads and that
   // search_memory indexes via rag.ts.
   try {
-    const lastUser = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content as any).trim() || "";
+    const lastUser = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content).trim() || "";
     const lastAssistant = text.trim();
-    if (!isInternalUserTurn(messageText(lastUser as any)) && (lastUser || lastAssistant)) {
+    if (!isInternalUserTurn(lastUser) && (lastUser || lastAssistant)) {
       const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", lastAssistant ? `Mia: ${lastAssistant.slice(0, 800)}` : ""].filter(Boolean).join("\n");
       appendDailyMemory(opts.user, snippet);
     }

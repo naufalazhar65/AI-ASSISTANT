@@ -15,12 +15,34 @@ import { holidayInfo } from "./holiday";
 import { pushToOwner } from "../channels/pushTarget";
 import { briefingEnabled, briefingHour } from "./config";
 import { logInfo, logError } from "./appLogger";
-import { existsSync, readdirSync } from "node:fs";
-import { userDataRoot, isTestUserKey } from "./users";
+import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { userDataRoot, isTestUserKey, appRoot } from "./users";
 
 let timer: NodeJS.Timeout | null = null;
 let started = false;
-let lastBriefingDay = "";
+let lastBriefingDay = (() => {
+  // Persisted dedup: a restart during the briefing hour must not double-push
+  // (same lesson as recap.ts / weeklyInsight.ts).
+  try {
+    const f = join(appRoot(), ".data", "briefing-state.json");
+    if (existsSync(f)) {
+      const parsed = JSON.parse(readFileSync(f, "utf8")) as { lastFiredDate?: unknown };
+      return typeof parsed.lastFiredDate === "string" ? parsed.lastFiredDate : "";
+    }
+  } catch { /* best-effort */ }
+  return "";
+})();
+
+function saveBriefingDay(day: string): void {
+  try {
+    const f = join(appRoot(), ".data", "briefing-state.json");
+    mkdirSync(dirname(f), { recursive: true });
+    const tmp = `${f}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ lastFiredDate: day }, null, 2));
+    renameSync(tmp, f);
+  } catch { /* best-effort */ }
+}
 
 export function localDayJkt(date: Date): string {
   try {
@@ -188,6 +210,7 @@ async function tick(): Promise<void> {
   const target = briefingHour();
   if (!briefingEnabled() || Number.isNaN(hour) || !target || hour !== target || lastBriefingDay === day) return;
   lastBriefingDay = day;
+  saveBriefingDay(day);
   for (const user of allUserKeys()) {
     try {
       const msg = buildMorningBriefing(user, now);
