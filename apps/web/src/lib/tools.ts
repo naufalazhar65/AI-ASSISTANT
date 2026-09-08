@@ -2378,8 +2378,21 @@ const USER_AGENT =
  * 000), and without a fallback web_search returns nothing for current/factual
  * questions. All keyless; graceful on failure either way.
  */
+/**
+ * Strip conversational particles from a search query so Bing gets the
+ * useful keywords, not Indonesian filler ("cari", "dong", "kamu tau", etc.)
+ */
+function cleanSearchQuery(raw: string): string {
+  return raw
+    .replace(/\b(cari|cariin|kasih\s+tau\s+kalau|kamu\s+tau|coba\s+cari|soal|soalnya|tentang|dengan\s+web_search|web_search)\b/gi, " ")
+    .replace(/\b(dong|ya|yah|yuk|be|beb|mas|bang|kak|please|plis|tolong|web_search)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b(\w+)\s+\1\b/gi, "$1");
+}
+
 async function webSearch(query: string): Promise<string> {
-  const q = query.trim().slice(0, 200);
+  const q = cleanSearchQuery(query.trim().slice(0, 200));
   if (!q) return "Error: empty search query";
 
   const instant = await fetchInstantAnswer(q);
@@ -2425,18 +2438,20 @@ function resolveBingRedirect(raw: string): string {
   return raw;
 }
 
-/** Extract Bing organic results (b_algo blocks with <h2> links + b_lineclamp snippets). */
+/** Extract Bing organic results (b_algo blocks with <h2> links + b_lineclamp snippets).
+ *  Filters out Bing's own "Search Images" / feature links at the top. */
 function parseBingResults(html: string): string {
   const titles: string[] = [];
   const urls: string[] = [];
   const h2Re = /<h2[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h2>/gi;
   let m: RegExpExecArray | null;
   while ((m = h2Re.exec(html)) !== null && titles.length < 5) {
+    const title = stripTags(m[2]);
     const raw = m[1];
-    // Bing /ck redirect URLs work in browsers — pass through as-is.
-    // DDG URLs get unwrapped via cleanUrl.
+    // Skip Bing's own feature links ("Search Images", "Bing Camera", etc.)
+    if (/^(?:Search|Bing)\s/i.test(title) || /bing\.com\/(?!ck)/i.test(raw)) continue;
     const displayUrl = raw.includes("bing.com/ck") ? raw : cleanUrl(raw);
-    titles.push(stripTags(m[2]));
+    titles.push(title);
     urls.push(displayUrl);
   }
   if (!titles.length) return "No results found.";
