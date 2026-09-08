@@ -67,6 +67,12 @@ export async function registerNode(): Promise<void> {
     logError("weekly", `failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
+    const { startWindDownRunner } = await import("@/lib/windDown");
+    startWindDownRunner();
+  } catch (err) {
+    logError("winddown", `failed to start: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
     const { startContextSampler } = await import("@/lib/context");
     startContextSampler();
   } catch (err) {

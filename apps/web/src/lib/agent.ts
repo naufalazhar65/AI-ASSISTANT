@@ -146,7 +146,7 @@ const SYSTEM_PROMPT = [
   "never contradict the clock. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, gmail_link, gmail_list, gmail_read, gmail_search, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, and briefing. ",
+  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, habit_log, habit_stats, add_task, list_tasks, complete_task, cancel_task, reschedule_task, list_uploads, read_upload, create_automation, fetch_url, search_memory, memory_get, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, gmail_link, gmail_list, gmail_read, gmail_search, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, and briefing. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
   "show saved notes, delete_note to remove one, file_read to read a project ",
@@ -1253,6 +1253,13 @@ async function runAssistantTurnImpl(opts: {
     // the model never emits a tool call (deterministic, fire-and-forget).
     logMoodFromMessages(messages, opts.user);
     logCorrection(messages, opts.user);
+    try {
+      const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+      if (lastUser?.content && /mau tidur|selamat malam|good night/i.test(lastUser.content)) {
+        const { logSleep } = await import("./windDown");
+        logSleep(opts.user);
+      }
+    } catch {}
     opencodeText = ensureMoodReplyQuality(messages, opencodeText);
     try {
       const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() || "";
@@ -1475,6 +1482,14 @@ async function runAssistantTurnImpl(opts: {
   // how the user is feeling and can tailor replies / offer support.
   logMoodFromMessages(messages, opts.user);
   logCorrection(messages, opts.user);
+  // Wind-down: catat jam tidur jika user bilang mau tidur (silent)
+  try {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+    if (lastUser?.content && /mau tidur|selamat malam|good night/i.test(lastUser.content)) {
+      const { logSleep } = await import("./windDown");
+      logSleep(opts.user);
+    }
+  } catch {}
   text = ensureMoodReplyQuality(messages, text);
 
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).

@@ -20,6 +20,7 @@ import { startSongGame, guessSong, quitSongGame } from "./game";
 import { holidayInfo } from "./holiday";
 import { buildEveningRecap } from "./recap";
 import { buildWeeklyInsight } from "./weeklyInsight";
+import { habitStats, logHabit } from "./habits";
 import { gmailAuthUrl, gmailConfigured, gmailConnected, gmailList, gmailRead, gmailSearch } from "./email";
 
 /** Human-readable reminder state for the model: upcoming (unfired) first, then
@@ -1805,6 +1806,32 @@ const toolRegistry: ToolPlugin[] = [
       },
     },
     execute: (_, ctx) => remindersListText(ctx.rawUser),
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "habit_log",
+        description: "Log a habit for today (minum air, olahraga, tidur tepat waktu). Creates habit if new, deduped per day.",
+        parameters: { type: "object", properties: { name: { type: "string", description: "habit name" } }, required: ["name"] },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        return logHabit(String(args.name || ""), ctx.rawUser);
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: { name: "habit_stats", description: "Show habit consistency this week (7 days).", parameters: { type: "object", properties: {}, required: [] } },
+    },
+    execute: (_, ctx) => habitStats(ctx.rawUser),
   },
   {
     definition: {

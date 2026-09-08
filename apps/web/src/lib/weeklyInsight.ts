@@ -19,6 +19,7 @@ import { appRoot, userDataRoot, isTestUserKey } from "./users";
 import { readMoods, MoodEntry } from "./mood";
 import { readTasks } from "./tasks";
 import { readDailyMemory } from "./dailyMemory";
+import { readHabits } from "./habits";
 import { tokenize } from "./rag";
 import { pushToOwner } from "../channels/pushTarget";
 import { logInfo, logError } from "./appLogger";
@@ -240,6 +241,14 @@ export function buildWeeklyInsight(rawUser: unknown, now = new Date()): string {
     const listed = themes.map((t) => `${t.word} (${t.dayCount} hari)`).join(", ");
     lines.push(`Yang paling sering kepikiran minggu ini: ${listed}.`);
   }
+  try {
+    const hs = readHabits(rawUser);
+    if (hs.length) {
+      const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+      const stats = hs.map((h) => `${h.name} ${h.logs.filter((l) => l.at >= weekAgo).length}/7`).join(", ");
+      lines.push(`Habit: ${stats}.`);
+    }
+  } catch {}
 
   if (lines.length <= 2) return ""; // only title+opener → nothing to say
   lines.push(pickFrom(CLOSERS, dates[0] + dates[0]));
