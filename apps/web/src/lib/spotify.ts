@@ -477,21 +477,34 @@ export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "play
         }
 
         // Fallback: If deeplink opened the app but didn't start playing automatically,
-        // wait for the device to register and explicitly issue the start command ONCE.
-        const deadline = Date.now() + 10000;
+        // Wait for the app to register as a device (cold start can take 15-40s),
+        // then explicitly issue the start command. ensureDevice is retried once
+        // mid-poll in case the device appears but isn't "active" yet.
+        const deadline = Date.now() + 30000;
         let played = false;
+        let transferred = false;
         while (Date.now() < deadline) {
           await new Promise((r) => setTimeout(r, 1500));
-          if (!(await listDevices(rawUser)).length) continue;
+          const devices = await listDevices(rawUser);
+          if (!devices.length) {
+            if (!transferred && Date.now() > deadline - 15000) {
+              transferred = !!(await ensureDevice(rawUser));
+            }
+            continue;
+          }
           try {
             await start([String(track.uri)]);
             played = true;
             break;
           } catch {
+            if (!transferred) transferred = !!(await ensureDevice(rawUser));
             /* device not ready yet; keep polling */
           }
         }
         if (!played) {
+          // Last check: playback may have started via the deeplink after all.
+          const final = await currentPlayer(rawUser);
+          if (final?.isPlaying) return await confirmTrack(track);
           return `Spotify sudah kubuka, tapi belum kedeteksi sebagai device — cek aplikasi Spotify-nya dan pastikan ada device aktif ya.`;
         }
         return await confirmTrack(track);

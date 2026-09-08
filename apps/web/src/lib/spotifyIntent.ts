@@ -14,6 +14,22 @@ export interface SpotifyIntent {
   kind?: "playlist" | "album" | "track";
 }
 
+/**
+ * Resume intent: "play lagi", "putar lagi lagunya", "lanjutin lagu" — the user
+ * wants the CURRENT (paused) track, not a search. Must be checked before the
+ * search path, otherwise the model reuses a stale query from history and
+ * replays the wrong (older) song.
+ */
+export function detectSpotifyResume(text: string): boolean {
+  if (!text) return false;
+  const t = text.replace(/\s+/g, " ").trim().slice(0, 200);
+  return (
+    /\b(?:play|putar(?:in|kan)?)\s+lagi\b/i.test(t) ||
+    /\b(?:lagu|musik)\s+(?:lagi|tadi)\b/i.test(t) ||
+    /\blanjut(?:in|kan)?\s+(?:lagu|musik|laginya|lagunya)\b/i.test(t)
+  );
+}
+
 export function detectSpotifyIntent(text: string): SpotifyIntent | null {
   const strong = STRONG_RE.test(text);
   if (!strong) return null;

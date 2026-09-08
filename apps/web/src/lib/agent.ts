@@ -24,7 +24,7 @@ import { detectMoodIntent, logDetectedMood } from "./moodIntent";
 import { enrichReminderVariants } from "./reminderVariants";
 import { detectMonitorIntents, detectMonitorIntent, cryptoSubject } from "./monitorIntent";
 import { addMonitor } from "./monitor";
-import { detectSpotifyControl, detectSpotifyIntent, SpotifyControlIntent } from "./spotifyIntent";
+import { detectSpotifyControl, detectSpotifyIntent, detectSpotifyResume, SpotifyControlIntent } from "./spotifyIntent";
 import { detectPriceIntent } from "./priceIntent";
 import { detectPlaceIntent, placeNudge } from "./placeIntent";
 import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume } from "./spotify";
@@ -840,6 +840,21 @@ async function scheduleSpotifyFromIntent(
 ): Promise<string> {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
+  // "play lagi / putar lagi lagunya" → RESUME the current (paused) track.
+  // Never reuse a stale query from history — that replays the wrong song.
+  if (detectSpotifyResume(messageText(lastUser.content as any))) {
+    let resumeResult: string;
+    try {
+      resumeResult = await spotifyPlay(user, "");
+    } catch (err) {
+      return appendSpotifyError(text, err);
+    }
+    const okR = /dilanjutkan/i.test(resumeResult);
+    const trimmedR = (text || "").trim();
+    const stubR = trimmedR === "" || /^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(trimmedR);
+    if (stubR) return ` (Sudah kulanjutkan: ${resumeResult})`;
+    return okR && /spotify|putar|play|lagu/i.test(trimmedR) ? text : `${trimmedR} (Sudah kulanjutkan: ${resumeResult})`.trim();
+  }
   const intent = detectSpotifyIntent(messageText(lastUser.content as any));
   const query = fallbackQuery ?? intent?.query ?? null;
   if (!query) return text;

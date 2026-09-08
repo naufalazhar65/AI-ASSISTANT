@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { broadcastMiaState, getMiaState, subscribeMiaState } from "@/lib/miaState";
+import { broadcastMiaState, getMiaState, getMiaText, subscribeMiaState } from "@/lib/miaState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
