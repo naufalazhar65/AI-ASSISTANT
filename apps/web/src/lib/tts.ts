@@ -42,36 +42,41 @@ export function detectTtsModel(text: string): { model: string; voices: readonly 
  * TtsError on provider failure; the API key stays server-side.
  */
 export async function synthesizeSpeech(input: { text: string; voice?: string }): Promise<Buffer> {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    throw new TtsError("GROQ_API_KEY is not set", 500);
-  }
+  const provider = cfgStr("TTS_PROVIDER", "groq").toLowerCase();
   const text = (input.text ?? "").trim().slice(0, MAX_INPUT_CHARS);
-  if (!text) {
-    throw new TtsError("missing text", 400);
+  if (!text) throw new TtsError("missing text", 400);
+
+  if (provider === "elevenlabs") {
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) throw new TtsError("ELEVENLABS_API_KEY is not set", 500);
+    const voiceId = input.voice || cfgStr("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM");
+    const modelId = cfgStr("ELEVENLABS_MODEL_ID", "eleven_multilingual_v2");
+    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg",
+      },
+      body: JSON.stringify({ text, model_id: modelId, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
+    });
+    if (!res.ok) {
+      const detail = await res.text();
+      throw new TtsError(`ElevenLabs TTS failed (${res.status}): ${detail.slice(0, 300)}`);
+    }
+    return Buffer.from(await res.arrayBuffer());
   }
 
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new TtsError("GROQ_API_KEY is not set", 500);
   const { model, voices } = detectTtsModel(text);
   const defaultVoice =
-    model === MODEL_AR
-      ? cfgStr("GROQ_VOICE_AR", ARABIC_DEFAULT_VOICE)
-      : cfgStr("GROQ_VOICE", "hannah");
-  const voice = (voices as readonly string[]).includes(input.voice ?? "")
-    ? input.voice!
-    : defaultVoice;
-
+    model === MODEL_AR ? cfgStr("GROQ_VOICE_AR", ARABIC_DEFAULT_VOICE) : cfgStr("GROQ_VOICE", "hannah");
+  const voice = (voices as readonly string[]).includes(input.voice ?? "") ? input.voice! : defaultVoice;
   const res = await fetch(GROQ_TTS_URL, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      input: text,
-      voice,
-      response_format: "wav",
-    }),
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, input: text, voice, response_format: "wav" }),
   });
   if (!res.ok) {
     const detail = await res.text();
