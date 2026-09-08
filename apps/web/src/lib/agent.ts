@@ -1123,6 +1123,20 @@ function isTelegraphicReply(text: string): boolean {
   return sentences.every((s) => s.split(/\s+/).filter(Boolean).length <= 4);
 }
 
+/** Choppy robotic reply: many short sentences in a row (avg ≤7 words,
+ *  3+ sentences) AND no question marks AND no emoji — purely declarative,
+ *  no emotional tone — e.g. quota message above. Warm short replies
+ *  (questions, emojis, personal touch) are left untouched. */
+function isChoppyReply(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (/\?/.test(t) || /[\p{Emoji}\u2600-\u27BF]/u.test(t)) return false;
+  const sentences = t.split(/[.!?\n]+/).map((s) => s.trim()).filter(Boolean);
+  if (sentences.length < 3) return false;
+  const total = sentences.reduce((n, s) => n + s.split(/\s+/).filter(Boolean).length, 0);
+  return total / sentences.length <= 7;
+}
+
 /** Short social greeting/thanks ("hai mia ku sayang", "makasih ya", "mau tidur
  *  dulu"). Excludes reminder asks that mention a clock ("jam 1 siang"). */
 const GREETING_RE =
@@ -1140,29 +1154,82 @@ const GREETING_EMPATHY = [
   "Heey beb 🌸 Untung kamu nyapa — mau cerita apa sekadar nge-chat aja nih?",
 ];
 
-/** If the user shared a mood or a greeting and the model's reply is telegraphic,
- *  replace it with a warm deterministic line (rotated by day so it doesn't feel
- *  copy-pasted). Normal replies and other turns pass through untouched. */
-export function ensureMoodReplyQuality(messages: ChatMessage[], text: string): string {
-  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
-  // @ts-ignore
-  if (!lastUser?.content) return text;
-  // @ts-ignore
-  if (!isTelegraphicReply(text)) return text;
-  // @ts-ignore
-  const moodHit = detectMoodIntent(lastUser.content);
-  if (moodHit) {
-  // @ts-ignore
-    const variants = MOOD_EMPATHY[moodHit.mood] ?? MOOD_EMPATHY.okay;
-  // @ts-ignore
-    return variants[Math.floor(Date.now() / 86400000) % variants.length];
-  // @ts-ignore
+/** Detect rigid listy structure: colon labels, bullets, numbered lines, or
+ *  standalone heading words followed by ':' — the 9router "Saran:"/'Kuota
+ *  habis karena:' pattern. */
+function isStructuredReply(text: string): boolean {
+  const lines = text.split(/\n/).map((s) => s.trim()).filter(Boolean);
+  const HEADING_RE = /^\s*(Saran|Kesimpulan|Catatan|Penyebab|Alasan|Solusi|Tips|Note|Warning|Akibat)\s*:/i;
+  const LABEL_RE = /^\s*[A-Z][A-Za-z ]{1,30}:\s/;
+  let labelCount = 0;
+  let bulletCount = 0;
+  for (const line of lines) {
+    if (HEADING_RE.test(line) || LABEL_RE.test(line)) labelCount++;
+    if (/^\s*[-•*]\s/.test(line) || /^\s*\d+[.)]\s/.test(line)) bulletCount++;
   }
-  // @ts-ignore
-  if (detectGreetingTurn(lastUser.content)) {
+  return labelCount >= 2 || bulletCount >= 2 || (labelCount >= 1 && bulletCount >= 1);
+}
+
+/** Reflow a rigid listy reply into warm flowing sentences by stripping
+ *  heading labels and joining fragments. Content preserved, labels dropped. */
+function reflowStructuredReply(text: string): string {
+  const lines = text.split(/\n/).map((s) => s.trim()).filter(Boolean);
+  const HEADING_RE = /^\s*(Saran|Kesimpulan|Catatan|Penyebab|Alasan|Solusi|Tips|Note|Warning|Akibat)\s*:\s*$/i;
+  const LABEL_RE = /^\s*[A-Z][A-Za-z ]{1,30}:\s*/;
+  const BULLET_RE = /^\s*[-•*]\s*/;
+  const NUM_RE = /^\s*\d+[.)]\s*/;
+  const fragments: string[] = [];
+  for (const line of lines) {
+    // Pure heading line (e.g. "Saran:"): drop it, its children are below.
+    if (HEADING_RE.test(line)) continue;
+    let content = line;
+    // Strip label prefix: "Kuota habis karena: ..." → "...", keep content after colon.
+    content = content.replace(LABEL_RE, "").replace(BULLET_RE, "").replace(NUM_RE, "");
+    if (!content.trim()) continue;
+    fragments.push(content.trim().replace(/[,;]\s*$/, "").replace(/\.\s*$/, ""));
+  }
+  if (fragments.length < 2) return text;
+  // Join: first sentence full, rest lowercased to flow, with comma/dot joins.
+  const joined = fragments.join(". ");
+  let out = joined.replace(/\.\s*\./g, ".").replace(/\s+/g, " ").trim();
+  if (!out.endsWith(".")) out += ".";
+  if (!/ya beb|beb 🌸/.test(out)) out = out.replace(/\.$/, " ya beb 🌸");
+  return out;
+}
+
+function rewriteGenericTelegraphic(text: string): string {
+  const frags = text.split(/[.!?\n]+/).map((s) => s.trim()).filter(Boolean);
+  if (frags.length < 2) return text;
+  const sentences: string[] = [];
+  for (let i = 0; i < frags.length; i += 2) {
+    const chunk = frags.slice(i, i + 2).join(", ");
+    const cap = chunk.charAt(0).toUpperCase() + chunk.slice(1);
+    sentences.push(cap);
+  }
+  let out = sentences.join(". ").replace(/\s+/g, " ").trim();
+  if (!out.endsWith(".")) out += ".";
+  if (!/🌸/.test(out)) out = out.replace(/\.$/, " ya beb 🌸");
+  return out;
+}
+
+/** If the reply is telegraphic (every sentence ≤4 words), replace it with a
+ *  warm line. Mood/greeting get curated variants; other turns get a generic
+ *  de-telegraphing rewrite so 9router's fragment style never reaches the user. */
+export function ensureMoodReplyQuality(messages: ChatMessage[], text: string): string {
+  if (isStructuredReply(text)) return reflowStructuredReply(text);
+  if (!isTelegraphicReply(text) && !isChoppyReply(text)) return text;
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content) return text;
+  const lastTxt = messageText(lastUser.content);
+  const moodHit = detectMoodIntent(lastTxt);
+  if (moodHit) {
+    const variants = MOOD_EMPATHY[moodHit.mood] ?? MOOD_EMPATHY.okay;
+    return variants[Math.floor(Date.now() / 86400000) % variants.length];
+  }
+  if (detectGreetingTurn(lastTxt)) {
     return GREETING_EMPATHY[Math.floor(Date.now() / 86400000) % GREETING_EMPATHY.length];
   }
-  return text;
+  return rewriteGenericTelegraphic(text);
 }
 
 /**
@@ -1228,6 +1295,12 @@ async function runAssistantTurnImpl(opts: {
   const providerId: ProviderId = isProviderId(requested) ? requested : defaultProviderId();
   const channel = opts.channel ?? "voice";
   let systemPrompt = buildSystemPrompt(opts.user, channel);
+  // 9router (qwen-class) ignores warm-style instructions and defaults to
+  // stiff, listy output. Append a concise, format-level tone memo so even
+  // when the base prompt is ignored, this small addendum nudges the model.
+  if (providerId === "9router") {
+    systemPrompt += "\n\nFORMATTING RULE: respond as ONE warm flowing message — no bullet lists, no 'Saran:'/'Catatan:'/'Penyebab:' labels, no colon headings, no numbered steps, no '→' arrows. Just 1–3 natural sentences. Even for technical answers, weave facts into conversational prose, not a slide deck.";
+  }
 
   // Rolling summary: when the conversation grew very long, the oldest messages
   // are compressed into one short "previous conversation" message (cache-per-

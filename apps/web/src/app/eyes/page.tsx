@@ -93,7 +93,6 @@ export default function EyesPage() {
       const px = x * sx, py = y * sy, pw = w * sx, ph = h * sy, r = 5 * sx;
       ctx.fillStyle = "white";
       ctx.beginPath();
-      // @ts-expect-error Canvas roundRect not in lib.dom yet
       if ((ctx as unknown as { roundRect?: unknown }).roundRect) (ctx as unknown as { roundRect: (x: number, y: number, w: number, h: number, r: number) => void }).roundRect(px, py, pw, ph, r);
       else { ctx.moveTo(px + r, py); ctx.arcTo(px + pw, py, px + pw, py + ph, r); ctx.arcTo(px + pw, py + ph, px, py + ph, r); ctx.arcTo(px, py + ph, px, py, r); ctx.arcTo(px, py, px + pw, py, r); }
       ctx.fill();
@@ -168,8 +167,7 @@ export default function EyesPage() {
 
   const requestWakeLock = async () => {
     try {
-      // @ts-expect-error
-      const lock = await navigator.wakeLock?.request("screen");
+      const lock = await (navigator as unknown as { wakeLock?: { request: (s: string) => Promise<WakeLockSentinel> } }).wakeLock?.request("screen");
       if (lock) setWakeLock(lock);
     } catch {}
   };
