@@ -5,6 +5,7 @@ import { readTasks } from "./tasks";
 import { readReminders } from "./reminders";
 import { readAutomations } from "./automations";
 import { readMoods } from "./mood";
+import { readCorrections } from "./corrections";
 import { embedTexts, cosine, embedModel } from "./embed";
 import { cfgStr } from "./config";
 
@@ -72,6 +73,11 @@ function collectDocs(rawUser?: unknown): DocChunk[] {
       const when = new Date(moods[i].at).toISOString().slice(0, 10);
       docs.push({ id: `mood:${i}`, source: "moods", text: `${moods[i].mood} ${moods[i].note ?? ""} (${when})` });
     }
+  } catch { /* ignore */ }
+
+  try {
+    const corrs = readCorrections(rawUser);
+    for (let i = 0; i < corrs.length; i++) docs.push({ id: `correction:${corrs[i].id}`, source: "corrections", text: corrs[i].corrected });
   } catch { /* ignore */ }
 
   try {

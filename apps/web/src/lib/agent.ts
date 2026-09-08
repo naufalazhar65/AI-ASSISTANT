@@ -1029,6 +1029,18 @@ function logMoodFromMessages(messages: ChatMessage[], user: unknown): void {
   } catch { /* best-effort */ }
 }
 
+function logCorrection(messages: ChatMessage[], user: unknown): void {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content || typeof lastUser.content !== "string") return;
+  try {
+    const { detectCorrection } = require("./correctionIntent") as typeof import("./correctionIntent");
+    const hit = detectCorrection(lastUser.content);
+    if (!hit) return;
+    const { addCorrection } = require("./corrections") as typeof import("./corrections");
+    addCorrection(hit.original, hit.corrected, user);
+  } catch { /* silent, no push */ }
+}
+
 /** Empathetic mood replies (rotated daily) — used when the model's own reply to
  *  a mood statement comes out telegraphic ("Beb lelah. Hari berat. Istirahat.")
  *  despite prompt rules, which 9router-class models keep doing. Deterministic
@@ -1240,6 +1252,7 @@ async function runAssistantTurnImpl(opts: {
     // Mood tracking: register "aku lagi stres/capek/.." statements even when
     // the model never emits a tool call (deterministic, fire-and-forget).
     logMoodFromMessages(messages, opts.user);
+    logCorrection(messages, opts.user);
     opencodeText = ensureMoodReplyQuality(messages, opencodeText);
     try {
       const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content?.trim() || "";
@@ -1461,6 +1474,7 @@ async function runAssistantTurnImpl(opts: {
   // Mood tracking: log state-of-mind statements (fire-and-forget) so Mia knows
   // how the user is feeling and can tailor replies / offer support.
   logMoodFromMessages(messages, opts.user);
+  logCorrection(messages, opts.user);
   text = ensureMoodReplyQuality(messages, text);
 
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
