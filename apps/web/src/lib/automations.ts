@@ -221,3 +221,15 @@ export function describeSchedule(schedule: AutomationSchedule): string {
   const mm = String(schedule.minute).padStart(2, "0");
   return `setiap hari pukul ${hh}:${mm}`;
 }
+
+export function listAutomationsText(rawUser?: unknown): string {
+  const autos = readAutomations(rawUser);
+  if (!autos.length) return "Belum ada cronjob (automation) beb — mau bikin yang baru? 🌸";
+  const lines = [`Daftar cronjob kamu beb — ${autos.length} automation 🌸`];
+  for (const a of autos) {
+    const when = describeSchedule(a.schedule);
+    const next = new Date(a.nextAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
+    lines.push(`• ${a.id.slice(0,6)} — "${a.prompt.slice(0,60)}" — ${when} (next ${next}) [${a.enabled ? "aktif" : "mati"}]`);
+  }
+  return lines.join("\n").slice(0, 4000);
+}

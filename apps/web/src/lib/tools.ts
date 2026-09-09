@@ -456,11 +456,30 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
+      risk: "read",
+      function: {
+        name: "automation_list",
+        description: "List all cronjob automations for the user (the scheduled prompts). Use when user asks 'cronjob kamu apa aja?'",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: (_args, ctx) => {
+      try {
+        const { listAutomationsText } = require("./automations") as typeof import("./automations");
+        return listAutomationsText(ctx.rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot list automations"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
       risk: "write",
       function: {
         name: "create_automation",
         description:
-          "Create a recurring automation that runs a prompt on a schedule and pushes the result to the user.",
+          "Create a recurring automation that runs a prompt on a schedule and pushes the result to the user. Only when user explicitly says 'buatin cronjob/automation' — do NOT call when user just asks to list.",
         parameters: {
           type: "object",
           properties: {
