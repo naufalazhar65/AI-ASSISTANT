@@ -128,7 +128,7 @@ function cleanReminderText(clause: string): string {
     .replace(INTENT_RE, " ")
     .replace(/jam\s*\d{1,2}(?:[.:]\d{2})?\s*(pagi|siang|sore|malam|subuh|dini\s*hari|am|pm)?/gi, " ")
     .replace(/\b\d{1,2}(?:[.:]\d{2})?\s*(pagi|siang|sore|malam|subuh|am|pm)?\b/gi, " ")
-    .replace(/\b(aku|gue|saya|ya|dong|tolong|plis|please|nanti|yaa|udaa+h+|gak|nggak|menerima|mengeyel|beb)\b/gi, " ")
+    .replace(/\b(aku|gue|saya|ya|dong|tolong|plis|please|nanti|yaa|udaa+h+|gak|nggak|menerima|mengeyel|beb|buatin|bikin|buat|mau|di|app|reminders?|mac)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
   s = s.replace(/^[,\-–—\s]+|[,\-–—\s]+$/g, "").trim();

@@ -1428,6 +1428,8 @@ const toolRegistry: ToolPlugin[] = [
         if (!notes) notes = imaginativeNotes(title);
         if (/^nonton cars$/i.test(title.trim()) && !/[^\x00-\x7F]/.test(title)) {
           title = "Nonton Cars 🚗 — Pixar marathon, siap popcorn!";
+        } else if (/^nonton up$/i.test(title.trim()) && !/[^\x00-\x7F]/.test(title)) {
+          title = "Nonton Up 🎈 — Petualangan Rumah Terbang!";
         }
         const { addToMacReminders } = await import("./calendar");
         const res = await addToMacReminders(title, new Date(dueMs), notes);
@@ -2299,6 +2301,7 @@ function deleteNote(index: number, userKey: string | null): string {
 function imaginativeNotes(title: string): string | undefined {
   const t = title.toLowerCase();
   if (t.includes("cars")) return "Pixar marathon — Lightning McQueen nostalgia, siap popcorn & minuman dingin 🚗🌸";
+  if (t.includes("up") && t.includes("nonton")) return "Petualangan Rumah Terbang — Carl & Russell, siap selimut & cemilan 🎈🌸";
   if (t.includes("nonton") || t.includes("film") || t.includes("movie")) return "Waktunya santai, siap cemilan & nikmati ceritanya 🌸";
   if (t.includes("meeting") || t.includes("rapat")) return "Siap agenda & jangan telat, Mia ingetin lagi 5 menit sebelum 🌸";
   if (t.includes("belajar") || t.includes("study")) return "Fokus 25 menit, istirahat sejenak, kamu pasti bisa 🌸";
@@ -2322,9 +2325,11 @@ function scheduleReminder(text: string, isoWhen: string, rawUser: unknown, repea
   let enrichedText = text;
   let enrichedNotes = notes;
   if (!enrichedNotes) enrichedNotes = imaginativeNotes(enrichedText);
-  // If title is still raw (no emoji), add a gentle touch for Cars
+  // If title is still raw (no emoji), add a gentle touch for Cars/Up
   if (/^nonton cars$/i.test(enrichedText.trim()) && !/[^\x00-\x7F]/.test(enrichedText)) {
     enrichedText = "Nonton Cars 🚗 — Pixar marathon, siap popcorn!";
+  } else if (/^nonton up$/i.test(enrichedText.trim()) && !/[^\x00-\x7F]/.test(enrichedText)) {
+    enrichedText = "Nonton Up 🎈 — Petualangan Rumah Terbang!";
   }
   const r = addReminder(enrichedText, atMs, rawUser, { repeat, notes: enrichedNotes });
   const freq = repeat === "daily" ? "daily" : "once";
