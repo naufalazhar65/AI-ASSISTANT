@@ -683,6 +683,9 @@ async function runAgent(
     for (const call of autoDenied) {
       const content = await executeTool(call, user);
       messages.push({ role: "tool", tool_call_id: call.id, content });
+      if (/^error:/i.test(content.trim())) {
+        try { addCorrection(`${call.name} ${call.arguments.slice(0,120)}`, `Error: ${content.slice(0,200)} → use correct tool/args with delivery`, user); appendDailyMemory(user, `[self-correct] ${call.name} failed: ${content.slice(0,200)}`); } catch { /* best-effort */ }
+      }
       if (call.name === "web_search" && !/^error:/i.test(content.trim())) collector.webSearchSuccess = true;
     }
     if (round < MAX_TOOL_ROUNDS) {
@@ -701,6 +704,9 @@ async function runAgent(
       // keeps calling web_search until MAX_TOOL_ROUNDS exhaustion.
       if (call.name === "web_search" && /^No results found/i.test(content)) {
         content += "\n\n(Sudah dicoba 2 kali — jawab dari pengetahuan atau sarankan kata kunci berbeda)";
+      }
+      if (/^error:/i.test(content.trim())) {
+        try { addCorrection(`${call.name} ${call.arguments.slice(0,120)}`, `Error: ${content.slice(0,200)} → use correct tool/args`, user); appendDailyMemory(user, `[self-correct] ${call.name} failed: ${content.slice(0,200)}`); } catch { /* best-effort */ }
       }
       messages.push({ role: "tool", tool_call_id: call.id, content });
       if (call.name === "web_search" && !/^error:|^No results found/i.test(content)) collector.webSearchSuccess = true;

@@ -11,6 +11,8 @@ import { subscribeAutomations, Automation } from "./automations";
 import { runAssistantTurn } from "./agent";
 import { defaultProviderId } from "./providers";
 import { pushToOwner } from "../channels/pushTarget";
+import { addCorrection } from "./corrections";
+import { appendDailyMemory } from "./dailyMemory";
 
 const running = new Set<string>();
 
@@ -43,9 +45,21 @@ async function runOne(automation: Automation, user: string): Promise<void> {
     const delivered = await pushToOwner(`🌸 ${text}\n\n(ini buat jadwal yang kamu minta: ${automation.prompt})`);
     if (!delivered) {
       console.warn(`[automation] no active channel to deliver "${automation.prompt}"`);
+      // Self-correction: remember that delivery failed so next time we ensure Telegram channel
+      try {
+        addCorrection(`automation "${automation.prompt}" delivery failed (no active channel)`, `automation "${automation.prompt}" must deliver via pushToOwner to Telegram`, user);
+        appendDailyMemory(user, `[self-correct] automation "${automation.prompt}" delivery failed — no active channel, will ensure Telegram delivery next time`);
+      } catch { /* best-effort */ }
+    } else {
+      // Successful delivery clears any prior correction? No — keep history for learning
     }
   } catch (err) {
-    console.error("[automation] failed:", err instanceof Error ? err.message : String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[automation] failed:", msg);
+    try {
+      addCorrection(`automation "${automation.prompt}" exec failed: ${msg}`, `automation "${automation.prompt}" should use remind_me or correct tool with delivery`, user);
+      appendDailyMemory(user, `[self-correct] automation "${automation.prompt}" exec failed: ${msg} — will use correct tool with delivery next time`);
+    } catch { /* best-effort */ }
   } finally {
     running.delete(automation.id);
   }
