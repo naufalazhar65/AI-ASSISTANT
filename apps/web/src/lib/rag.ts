@@ -239,7 +239,7 @@ export async function searchMemory(query: string, rawUser?: unknown, topK = 5): 
 }
 
 /** Relevant long-term memory for the current query, or "" when none is strong enough. */
-export async function recallContext(rawUser?: unknown, query?: string, topK = 3): Promise<string> {
+export async function recallContext(rawUser?: unknown, query?: string, topK = 5): Promise<string> {
   const q = (query ?? "").trim();
   if (!q) return "";
   const userKey = sanitizeUser(rawUser);

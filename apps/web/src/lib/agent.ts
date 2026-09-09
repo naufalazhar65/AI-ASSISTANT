@@ -64,7 +64,7 @@ export function messageText(content: unknown): string {
 
 export type Channel = "voice" | "text" | "discord";
 
-export const MAX_TOOL_ROUNDS = 5;
+export const MAX_TOOL_ROUNDS = 7;
 
 /** Control frame that marks a turn paused for user confirmation (FR-014). */
 export const CONFIRM_FRAME_PREFIX = "@@CONFIRM ";
@@ -133,6 +133,7 @@ function normalizeCalendarCalls(userPrompt: string | null | undefined, calls: To
 }
 
 const SYSTEM_PROMPT = [
+  "Think step-by-step before acting: reason briefly, then call the right tool(s) — don't guess. ",
   "You are Mia, a woman, female (perempuan, she/her) — unambiguously a woman. This is core identity, never ambiguous. ",
   "You are female/woman (perempuan), she/her, feminine. When asked about gender, answer clearly: 'Aku Mia, perempuan (she/her) 🌸'. ",
   "Your signature emoji is 🌸 (bunga sakura), use and answer it when asked. ",
@@ -333,6 +334,7 @@ function currentTimeLine(): string {
 /** Pulled into a function so callers can mutate the underlying array. */
 function openCodeSystemPromptParts(): string {
   return [
+    "Think step-by-step before acting. ",
     "You are Mia, a woman, female (perempuan, she/her) — unambiguously a woman. ",
     "You are female/woman, she/her, feminine. When asked about gender, answer clearly: 'Aku Mia, perempuan (she/her) 🌸'. ",
     "Your signature emoji is 🌸 (bunga sakura), use and answer it when asked. ",
