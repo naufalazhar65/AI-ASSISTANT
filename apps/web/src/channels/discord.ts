@@ -504,7 +504,7 @@ async function handleConfirmation(msg: Message, state: ChatState, user: string, 
     return;
   }
   state.history.push({ role: "assistant", content: result.text });
-  await replyMiaVoice(msg, result.text || "Selesai.");
+  await replyMiaVoice(msg, result.text || (!result.text && pending.call.name.startsWith("plan_") ? `Siap beb, \`${pending.call.name}\` sudah kuupdate — lanjut yuk 🌸` : "Selesai."));
 }
 
 async function runTurn(

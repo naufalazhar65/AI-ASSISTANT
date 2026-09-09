@@ -456,7 +456,10 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
   }
   state.history.push({ role: "assistant", content: result.text });
   if (!(await sendVoiceReply(ctx, result.text))) {
-    await replyMia(ctx, result.text || "Selesai.");
+    const fallback = !result.text && pending.call.name.startsWith("plan_")
+      ? `Siap beb, \`${pending.call.name}\` sudah kuupdate — lanjut yuk 🌸`
+      : "Selesai.";
+    await replyMia(ctx, result.text || fallback);
   }
 }
 
