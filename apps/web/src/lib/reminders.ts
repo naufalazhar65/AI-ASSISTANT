@@ -265,3 +265,16 @@ export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[
     return { ...r, text };
   });
 }
+
+export function deleteReminders(rawUser: unknown, query: string): number {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return 0;
+  const q = query.trim().toLowerCase();
+  if (!q) return 0;
+  const all = readReminders(rawUser);
+  const before = all.length;
+  const kept = all.filter((r) => !r.text.toLowerCase().includes(q));
+  if (kept.length === before) return 0;
+  writeReminders(kept, userKey);
+  return before - kept.length;
+}

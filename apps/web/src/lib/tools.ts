@@ -697,7 +697,30 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
-      risk: "external",
+      risk: "write",
+      function: {
+        name: "cancel_reminder",
+        description: "Cancel/delete reminders matching a keyword (e.g. 'sikat gigi' deletes sikat gigi reminders). Use when user says 'hapus reminder sikat gigi' or 'cancel sikat gigi'.",
+        parameters: { type: "object", properties: { query: { type: "string", description: "Keyword to match reminder text, e.g. 'sikat gigi'" } }, required: ["query"] },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const q = typeof args.query === "string" ? args.query : "";
+        if (!q.trim()) return "Error: query required";
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { deleteReminders } = require("./reminders") as typeof import("./reminders");
+        const n = deleteReminders(ctx.rawUser, q);
+        return n ? `Dihapus ${n} reminder mengandung "${q}" beb 🌸` : `Tidak ada reminder mengandung "${q}"`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot delete"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
       function: {
         name: "fetch_url",
         description:
