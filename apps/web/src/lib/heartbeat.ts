@@ -54,20 +54,21 @@ async function tick(): Promise<void> {
       if (overdue.length || dueSoon.length) {
         const lines: string[] = [];
         if (overdue.length) {
-          lines.push(`⚠️ *Overdue* (${overdue.length}):`);
+          lines.push(`⚠️ *Ketinggalan* (${overdue.length}) — ayo sikat beb:`);
           for (const t of overdue.slice(0, 5)) {
             const ago = Math.round((now - t.dueAt!) / 60000);
-            lines.push(`• ${t.text} — lewat ${ago}m`);
+            const agoTxt = ago < 60 ? `${ago}m lewat` : `${Math.floor(ago/60)}j ${ago%60}m lewat`;
+            lines.push(`• ${t.text} — ${agoTxt} ⏰ yuk selesaikan`);
           }
         }
         if (dueSoon.length) {
-          lines.push(`⏰ *Due soon* (${dueSoon.length}):`);
+          lines.push(`⏰ *Segera* (${dueSoon.length}) — siap-siap:`);
           for (const t of dueSoon.slice(0, 5)) {
             const mins = Math.round((t.dueAt! - now) / 60000);
-            lines.push(`• ${t.text} — dalam ${mins}m`);
+            lines.push(`• ${t.text} — ${mins}m lagi 🌸`);
           }
         }
-        taskMsg = `💓 *Heartbeat* — cek tugas\n${lines.join("\n")}`;
+        taskMsg = `💓 *Heartbeat Mia* — cek tugas\n${lines.join("\n")}`;
       }
 
       // Watchlist + Mac health monitors (crypto/web/device thresholds). This is

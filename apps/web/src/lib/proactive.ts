@@ -76,6 +76,12 @@ function hash(s: string): string {
   return h.toString(36);
 }
 
+function pickFrom<T>(arr: T[], seed: string): T {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return arr[h % arr.length];
+}
+
 /** Build the proactive nudge for a user, or "" when there's nothing worth saying. */
 export function buildProactiveMessage(rawUser?: unknown, now = new Date()): string {
   if (!proactiveEnabled()) return "";
@@ -100,9 +106,22 @@ export function buildProactiveMessage(rawUser?: unknown, now = new Date()): stri
       .filter((l) => !/^##\s/.test(l) && !/^\[persona\]/i.test(l) && !/^Mia:/i.test(l) && !/\(automation\)/.test(l) && !/laporan terjadwal/i.test(l))
       .map((l) => l.replace(/^User:\s*/, ""))[0] ?? "";
 
-  const lines = ["💙 *Inisiatif Mia* — kemarin mood-mu sempat kerasa berat (aku catat sendiri dari yang kamu ceritakan)."];
-  if (snippet) lines.push(`  • ${snippet.slice(0, 140)}`);
-  lines.push("Kamu nggak usah buru-buru balas. Kalau ada yang mau diceritain atau mau aku bantu kecil-kecilin bebannya, aku di sini. 🌸");
+  const seed = `${String(rawUser ?? "shared")}|${yday}`;
+  const opener = pickFrom([
+    "💙 *Inisiatif Mia* — kemarin mood-mu sempat kerasa berat (aku catat sendiri dari yang kamu ceritakan).",
+    "💙 *Hai beb* — kemarin aku notice kamu agak berat, mau aku temenin sebentar? 🌸",
+    "💙 *Check-in pagi* — kemarin ada yang ngganjel dan agak berat ya, aku di sini kalau mau cerita.",
+    "💙 *Mia di sini* — kemarin kerasa capek dan berat, aku simpen sebagai pengingat buat lebih gentle hari ini.",
+  ], seed + ":o");
+  const closer = pickFrom([
+    "Kamu nggak usah buru-buru balas. Kalau ada yang mau diceritain atau mau aku bantu kecil-kecilin bebannya, aku di sini. 🌸",
+    "Santai aja beb, cerita kalau mau — kalau enggak, aku tetap standby di sampingmu.",
+    "Mau spill sedikit atau cuma mau ditemenin silent, aku ikut ritmemu ya.",
+    "Pelan-pelan aja hari ini — aku siap bantu hal kecil apa pun.",
+  ], seed + ":c");
+  const lines = [opener];
+  if (snippet) lines.push(`  • "${snippet.slice(0, 140)}" — aku inget ini kemarin ✨`);
+  lines.push(closer);
   return lines.join("\n");
 }
 

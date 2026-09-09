@@ -146,24 +146,40 @@ export function buildEveningRecap(rawUser?: unknown, now = new Date()): string {
   // Nothing meaningful to reflect on — stay silent rather than push filler.
   if (!snippets.length && !moods.length) return "";
 
+  const seed = `${String(rawUser ?? "shared")}|${localDay(now)}`;
   const moodLine =
     moods.length === 0
-      ? null // don't nag about "not writing a mood" — say nothing or a gentle nod
+      ? null
       : negative > positive
-        ? `Hari ini ada beberapa hal yang terasa berat (${positive}x baik, ${negative}x berat). Terima kasih sudah jalanin — aku di sini kalau mau cerita.`
-        : `Mood-mu hari ini lumayan baik ya (${positive}x positif${negative ? `, ${negative}x agak berat` : ""}) — senangnya.`;
-
-  const seed = `${String(rawUser ?? "shared")}|${localDay(now)}`;
+        ? pickFrom([
+            `Hari ini agak menguras ya (${positive}x baik, ${negative}x berat) — terima kasih sudah bertahan, aku di sini kalau mau cerita 🌸`,
+            `Beberapa momen hari ini kerasa berat (${negative}x berat), tapi kamu tetap jalanin — keren beb`,
+            `Hari ini ada naik-turun, yang berat ${negative}x nongol. Istirahat yang enak ya malam ini.`,
+          ], seed + ":mood")
+        : positive > 0
+          ? pickFrom([
+              `Mood-mu hari ini lumayan baik (${positive}x positif${negative ? `, ${negative}x agak berat` : ""}) — seneng lihatnya! ✨`,
+              `Hari ini vibes kamu oke (${positive}x positif) — pertahankan ya beb 🌸`,
+              `Hari ini banyak momen baik (${positive}x) — aku simpan sebagai energi buat besok!`,
+            ], seed + ":pos")
+          : `Hari ini kamu story-telling banyak, tapi mood belum ke-log — gapapa, aku dengerin terus.`;
   const openers = [
     "Tadi kita sempat ngobrol seru soal:",
     "Sebentar-sebentar aku inget kita tadi ngobrol soal:",
     "Tadi yang kita omongin antara lain:",
+    "Hari ini jejak obrolan kita:",
+    "Kalau di-rewind, tadi kita ngulik:",
+    "Highlight hari ini — kita bahas:",
   ];
   const closers = [
     "Besok tinggal lanjutin pelan-pelan aja. Aku selalu standby. 🌸",
     "Jangan lupa tidur cukup — besok masih ada hari baru buat kamu. 😄",
     "Sip, hari ini selesai. Besok kita bikin hari lebih baik lagi. 🌸",
     "Apa pun yang tadi kerasa berat, kamu udah lewatin. Bangga dikit sama diri sendiri.",
+    "Malam ini rebahan yang enak ya — besok kita lanjut petualangan baru ✨",
+    "Kamu udah keren hari ini. Selamat istirahat, beb 🌙",
+    "Sampai besok — aku jaga memory hari ini baik-baik.",
+    "Tidur nyenyak, mimpi indah — besok kita bikin lebih seru lagi!",
   ];
   const opener = pickFrom(openers, seed + ":o");
   const closer = pickFrom(closers, seed);

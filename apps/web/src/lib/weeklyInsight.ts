@@ -153,13 +153,25 @@ function moodLine(moods: MoodEntry[]): string {
   const pos = moods.length - neg;
   const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
   const named = top.map(([m, n]) => `${MOOD_LABEL_ID[m] ?? m} ${n}x`).join(", ");
+  const seed = named;
   if (neg > pos) {
-    return `Mood-mu minggu ini agak berat ya — ${named}. Semoga minggu depan lebih lega; cerita aja kalau berat.`;
+    return pickFrom([
+      `Mood-mu minggu ini agak berat ya — ${named}. Semoga minggu depan lebih lega; cerita aja kalau berat 🌸`,
+      `Minggu ini lumayan menguras — ${named}. Kamu udah kuat jalanin, istirahat yang cukup ya beb`,
+      `Ada naik-turun minggu ini, yang berat ${neg}x nongol (${named}). Aku di sini kalau mau cerita.`,
+    ], seed);
   }
   if (pos >= neg) {
-    return `Mood-mu minggu ini lumayan terjaga — ${named}. Pertahankan ya beb.`;
+    return pickFrom([
+      `Mood-mu minggu ini lumayan terjaga — ${named}. Pertahankan ya beb ✨`,
+      `Minggu ini vibes kamu oke — ${named}. Seneng lihatnya, lanjutkan!`,
+      `Energi minggu ini stabil — ${named}. Aku simpan sebagai bekal buat minggu depan 🌸`,
+    ], seed + ":pos");
   }
-  return "Kamu nggak banyak cerita soal perasaan minggu ini — gapapa, kalau mau cerita, aku standby.";
+  return pickFrom([
+    "Kamu nggak banyak cerita soal perasaan minggu ini — gapapa, kalau mau cerita, aku standby 🌸",
+    "Minggu ini kamu lebih banyak action daripada curhat — keren, tapi aku tetap dengerin kalau mau spill.",
+  ], seed);
 }
 
 /** Top conversation themes across the week's User lines, counted by DISTINCT
@@ -195,12 +207,23 @@ function pickFrom<T>(arr: T[], seed: string): T {
   return arr[h % arr.length];
 }
 
-const OPENERS = ["Rekap mingguanmu siap 🌸", "Satu minggu berlalu — ini catatanku 🌸", "Minggu ini, dalam angka dan cerita 🌸"];
+const OPENERS = [
+  "Rekap mingguanmu siap 🌸",
+  "Satu minggu berlalu — ini catatanku 🌸",
+  "Minggu ini, dalam angka dan cerita 🌸",
+  "Minggu ini kita lewatin bareng — ini highlight-nya ✨",
+  "7 hari terangkum — dari mood sampai obrolan yang nempel 🌸",
+  "Cerita minggu ini, versi Mia — singkat tapi hangat",
+];
 const CLOSERS = [
   "Semoga minggu depan lebih ringan — istirahat yang cukup ya beb 🌸",
   "Terima kasih udah seminggu ini bareng aku. Pelan-pelan aja minggu depan 🌸",
   "Minggu depan kita bikin lebih baik lagi ya. Aku standby 🌸",
   "Kamu udah kerja keras minggu ini. Jangan lupa sayang diri sendiri 🌸",
+  "Minggu depan kita atur lebih santai, tapi tetap produktif ya ✨",
+  "Bangga sama kamu minggu ini — tidur nyenyak, beb 🌙",
+  "Sampai minggu depan — aku jaga memory minggu ini baik-baik",
+  "Istirahat yang enak, recharge dulu — aku tunggu cerita minggu depan!",
 ];
 
 /**
@@ -230,23 +253,23 @@ export function buildWeeklyInsight(rawUser: unknown, now = new Date()): string {
   if (tasks.length) {
     const parts: string[] = [];
     if (active.length) {
-      parts.push(`${active.length} task masih jalan${overdue.length ? `, ${overdue.length} lewat deadline` : ""}`);
+      parts.push(`${active.length} task masih jalan${overdue.length ? `, ${overdue.length} lewat deadline — yuk sikat satu-satu 🌸` : " — semangat!"}`);
     }
     const doneCount = tasks.filter((t) => t.status === "done").length;
-    if (doneCount) parts.push(`${doneCount} task sudah kelar`);
+    if (doneCount) parts.push(`${doneCount} task sudah kelar ✨ keren!`);
     if (parts.length) lines.push(`Soal task: ${parts.join(", ")}.`);
   }
 
   if (themes.length) {
     const listed = themes.map((t) => `${t.word} (${t.dayCount} hari)`).join(", ");
-    lines.push(`Yang paling sering kepikiran minggu ini: ${listed}.`);
+    lines.push(`Yang paling sering kepikiran minggu ini: ${listed} — kayaknya ini yang lagi nempel di kepala ya beb ✨`);
   }
   try {
     const hs = readHabits(rawUser);
     if (hs.length) {
       const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
       const stats = hs.map((h) => `${h.name} ${h.logs.filter((l) => l.at >= weekAgo).length}/7`).join(", ");
-      lines.push(`Habit: ${stats}.`);
+      lines.push(`Habit minggu ini: ${stats} — konsisten keren, kalau bolong gapapa, lanjut lagi 🌸`);
     }
   } catch {}
 

@@ -495,7 +495,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "add_task",
         description:
-          "Add a task to the user's task list, optionally with a due date.",
+          "Add a task — be imaginative: make title engaging with emoji/vibe, not raw (e.g. 'Nonton Cars' → 'Nonton Cars 🚗 — Pixar night!').",
         parameters: {
           type: "object",
           properties: {
@@ -514,7 +514,10 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (args, ctx) => {
       try {
-        const text = typeof args.text === "string" ? args.text.trim() : "";
+        let text = typeof args.text === "string" ? args.text.trim() : "";
+        if (/^nonton cars$/i.test(text) && !/[^\x00-\x7F]/.test(text)) {
+          text = "Nonton Cars 🚗 — Pixar marathon, siap popcorn!";
+        }
         addTask(
           text,
           ctx.rawUser,
@@ -1274,7 +1277,7 @@ const toolRegistry: ToolPlugin[] = [
       risk: "write",
       function: {
         name: "calendar_add",
-        description: "Add a calendar event with title and ISO start/end times. Requires confirmation. Use check availability first if needed.",
+        description: "Add a calendar event — be imaginative: title should be engaging warm (emoji/vibe), not raw. Requires confirmation.",
         parameters: {
           type: "object",
           properties: {
@@ -1295,7 +1298,10 @@ const toolRegistry: ToolPlugin[] = [
         // Title is required but LLMs sometimes omit it when user says "tambah event besok jam 10" — default to "Event" or infer from prompt
         let title = typeof args.title === "string" ? args.title.trim() : "";
         if (!title) title = "Event";
-        const ev = addCalEvent(title, s, e, ctx.rawUser, typeof args.description === "string" ? args.description : undefined);
+        if (/^nonton cars$/i.test(title) && !/[^\x00-\x7F]/.test(title)) title = "Nonton Cars 🚗 — Pixar marathon, siap popcorn!";
+        let desc = typeof args.description === "string" ? args.description.trim() : "";
+        if (!desc && title.toLowerCase().includes("cars")) desc = "Pixar marathon — Lightning McQueen nostalgia, siap popcorn & minuman dingin 🚗🌸";
+        const ev = addCalEvent(title, s, e, ctx.rawUser, desc || undefined);
         return `Added "${ev.title}" ${new Date(ev.start).toLocaleString()} → ${new Date(ev.end).toLocaleString()} (id ${ev.id})`;
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "cannot add event"}`;

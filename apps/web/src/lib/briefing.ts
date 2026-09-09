@@ -139,6 +139,7 @@ export function buildMorningBriefing(rawUser?: unknown, now = new Date()): strin
 
   const dayLabel = new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", weekday: "long", day: "numeric", month: "long" }).format(now);
   const greeting = greetingFor(now);
+  const seed = `${String(rawUser ?? "shared")}|${today}`;
 
   const lines: string[] = [];
   lines.push(`${greeting === "Pagi" ? "☀️" : "🌤️"} *Briefing ${greeting}* — ${dayLabel}`);
@@ -165,24 +166,35 @@ export function buildMorningBriefing(rawUser?: unknown, now = new Date()): strin
 
   if (hasMemory || yMoods.length) {
     lines.push("");
-    if (neg > pos) lines.push("Kemarin catatan moodmu agak berat. Semoga hari ini lebih lega — kalau ada yang masih nyangkut, cerita aja.");
-    else if (yMoods.length) lines.push("Kemarin moodmu oke. Semoga stabil hari ini juga.");
+    if (neg > pos) lines.push(pickFrom([
+      "Kemarin agak berat ya beb, aku notice. Hari ini kita bikin lebih ringan pelan-pelan 🌸",
+      "Kemarin moodmu naik-turun agak berat, gapapa — hari ini fresh start, aku temenin.",
+      "Kemarin kerasa capek dan berat, aku catat. Semoga tidurmu cukup, hari ini kita atur santai.",
+    ], seed + ":mood"));
+    else if (yMoods.length) lines.push(pickFrom([
+      "Kemarin moodmu oke — pertahankan vibes ini ya beb 🌸",
+      "Kemarin lumayan cerah, seneng lihatnya. Semoga hari ini lanjut cerah!",
+      "Kemarin kamu oke, aku simpan sebagai energi buat hari ini.",
+    ], seed + ":moodPos"));
     if (hasMemory) {
       const snippets = yesterday.split("\n").map((l) => l.trim()).filter(Boolean)
         .filter((l) => !/^#/.test(l) && !/\(automation\)/.test(l) && !/laporan terjadwal/i.test(l))
         .filter((l) => !/^\[persona\]/i.test(l) && !/^Mia:/i.test(l))
         .map((l) => l.replace(/^(User|Assistant):\s*/, "")).slice(0, 2);
-      if (snippets.length) lines.push(`Pelan-pelan sambung dari kemarin: ${snippets[0].slice(0, 140)}`);
+      if (snippets.length) lines.push(`Kemarin kita ngobrol soal "${snippets[0].slice(0, 120)}" — aku inget, mau lanjutin hari ini? ✨`);
     }
   }
 
-  const seed = `${String(rawUser ?? "shared")}|${today}`;
   lines.push("", pickFrom(
     [
       `Oke, muka baru day-nya. Kebut pelan-pelan, aku standby. 🌸`,
       `Gitu doang? Beres. Mulai hari, aku temenin. 🌸`,
       `Semangat buat hari ini — apa pun yang belum kelar, kita babat bareng. 💪`,
       `Siap day-nya. Kalo butuh diingetin atau mau bagi rencana, tinggal panggil. 🌸`,
+      `Pagi ini aku udah siapin kopinya (virtual) — tinggal kamu eksekusi, beb ☕🌸`,
+      `Hari baru, cerita baru. Apa yang mau kita bikin memorable hari ini? ✨`,
+      `Kita jalanin hari ini dengan santai tapi produktif ya — aku di sampingmu.`,
+      `Udara pagi masih fresh, ide-ide juga. Gas pelan-pelan! 🚗`,
     ],
     seed,
   ));
