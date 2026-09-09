@@ -1270,11 +1270,21 @@ async function polishReplyWithProvider(
   }
 }
 
+/** Cold formal greeting template that small models love: "Siang, butuh bantuan apa ya? Ceritakan saja..." — never warm. */
+function isColdGreetingReply(text: string): boolean {
+  return /butuh bantuan|ceritakan saja|bantu rapikan|ada yang bisa dibantu|silakan sampaikan/i.test(text);
+}
+
 /** If the reply is telegraphic (every sentence ≤4 words), replace it with a
  *  warm line. Mood/greeting get curated variants; other turns get a generic
  *  de-telegraphing rewrite so 9router's fragment style never reaches the user. */
 export function ensureMoodReplyQuality(messages: ChatMessage[], text: string): string {
   if (isStructuredReply(text)) return reflowStructuredReply(text);
+  // Greeting cold-formal should be warm even if not telegraphic/choppy
+  const lastUserG = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content)) && isColdGreetingReply(text)) {
+    return GREETING_EMPATHY[Math.floor(Date.now() / 86400000) % GREETING_EMPATHY.length];
+  }
   if (!isTelegraphicReply(text) && !isChoppyReply(text)) return text;
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
