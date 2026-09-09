@@ -77,25 +77,19 @@ export function listDailyMemories(rawUser: unknown): string[] {
 }
 
 export function loadDailyMemoryPrompt(rawUser: unknown): string {
-  const userKey = sanitizeUser(rawUser) || "shared";
   const today = todayStr();
-  const yesterday = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    try {
-      const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" });
-      return fmt.format(d);
-    } catch {
-      return d.toISOString().slice(0, 10);
-    }
-  })();
+  // Only today — yesterday is reachable via RAG/search_memory on demand, not every turn
   const parts: string[] = [];
-  for (const date of [today, yesterday]) {
+  for (const date of [today]) {
     try {
       const path = dailyMemoryPath(rawUser, date);
       if (existsSync(path)) {
         const content = readFileSync(path, "utf8").trim();
-        if (content) parts.push(`Daily memory ${date}:\n${content.slice(0, 3000)}`);
+        // Keep only the tail (most recent turns) — head is old, tail is relevant
+        if (content) {
+          const tail = content.length > 1500 ? content.slice(-1500) : content;
+          parts.push(`Daily memory ${date} (recent):\n${tail}`);
+        }
       }
     } catch { /* ignore */ }
   }

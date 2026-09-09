@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { execFile, execFile as execFileCb } from "node:child_process";
+import { execFile } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
 import { addReminder, readReminders } from "./reminders";
@@ -10,7 +10,7 @@ import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
 import { ensureFreshIndex, rebuildIndex, searchCodebaseIn, indexSummary } from "./codebaseIndex";
 import { readDailyMemory } from "./dailyMemory";
-import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate, browserClose } from "./browser";
+import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate } from "./browser";
 import { listDevicesText, deviceExec, deviceScreenshot, pairDevice } from "./devices";
 import { listCalText, addCalEvent, checkCalAvailability } from "./calendar";
 import { addMood, listMoods, moodTrend } from "./mood";
@@ -411,13 +411,13 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "remind_me",
         description:
-          "Schedule a reminder notification. Set repeat to \"daily\" for a recurring reminder (e.g. wake-up every day at 7).",
+          "Schedule a reminder notification. Set repeat to \"daily\" for a recurring reminder (e.g. wake-up every day at 7). MIA should be imaginative: make the title engaging (emoji, vibe) and add a warm notes field with creative details — don't leave title raw and notes empty.",
         parameters: {
           type: "object",
           properties: {
             text: {
               type: "string",
-              description: "What to remind about, e.g. 'call mom'",
+              description: "Imaginative title, e.g. 'Nonton Cars 🚗 — Pixar marathon, siap popcorn!'",
             },
             when: {
               type: "string",
@@ -428,6 +428,10 @@ const toolRegistry: ToolPlugin[] = [
               enum: ["daily"],
               description: "Optional: 'daily' to repeat every day at the same time",
             },
+            notes: {
+              type: "string",
+              description: "Optional warm/imaginative body/notes, e.g. 'Nostalgia Lightning McQueen, jangan lupa siapin cemilan!'",
+            },
           },
           required: ["text", "when"],
         },
@@ -436,11 +440,13 @@ const toolRegistry: ToolPlugin[] = [
     execute: (args, ctx) => {
       try {
         const repeatArg = args.repeat === "daily" ? "daily" : undefined;
+        const notes = typeof args.notes === "string" ? args.notes : undefined;
         return scheduleReminder(
           typeof args.text === "string" ? args.text : "",
           typeof args.when === "string" ? args.when : "",
           ctx.rawUser,
-          repeatArg
+          repeatArg,
+          notes
         );
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid reminder"}`;
@@ -1387,6 +1393,62 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
+      risk: "write",
+      function: {
+        name: "reminders_mac_add",
+        description: "Add a reminder to the Mac's Reminders.app via AppleScript (visible in the Reminders app). Be imaginative: make title engaging with emoji/vibe and add warm notes — don't leave title raw. Requires confirmation. Use when user says 'di app reminder' / 'Reminders.app' / 'Apple Reminders'.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Imaginative title, e.g. 'Nonton Cars 🚗 — Pixar marathon!'" },
+            due: { type: "string", description: "ISO due date, e.g. 2026-09-09T12:00:00+07:00" },
+            notes: { type: "string", description: "Optional warm/imaginative body, e.g. 'Siap popcorn, nostalgia Lightning McQueen!'" },
+          },
+          required: ["title", "due"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const dueMs = Date.parse(typeof args.due === "string" ? args.due : "");
+        if (!Number.isFinite(dueMs)) throw new Error("invalid due ISO");
+        let title = typeof args.title === "string" ? args.title.trim() : "";
+        if (!title) title = "Reminder";
+        let notes = typeof args.notes === "string" ? args.notes.trim().slice(0, 500) : undefined;
+        if (!notes) notes = imaginativeNotes(title);
+        if (/^nonton cars$/i.test(title.trim()) && !/[^\x00-\x7F]/.test(title)) {
+          title = "Nonton Cars 🚗 — Pixar marathon, siap popcorn!";
+        }
+        const { addToMacReminders } = await import("./calendar");
+        const res = await addToMacReminders(title, new Date(dueMs), notes);
+        return `Added "${title}" to Mac Reminders (due ${new Date(dueMs).toLocaleString("id-ID")}) — ${res}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot add Mac reminder"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "reminders_mac_list",
+        description: "List reminders from the Mac's Reminders.app via AppleScript.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      try {
+        const { listMacReminders } = await import("./calendar");
+        return await listMacReminders();
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot list Mac reminders"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
       risk: "read",
       function: {
         name: "send_channel",
@@ -2054,7 +2116,16 @@ function deleteNote(index: number, userKey: string | null): string {
   return `Deleted note #${index} "${removed.content}".`;
 }
 
-function scheduleReminder(text: string, isoWhen: string, rawUser: unknown, repeat?: "daily"): string {
+function imaginativeNotes(title: string): string | undefined {
+  const t = title.toLowerCase();
+  if (t.includes("cars")) return "Pixar marathon — Lightning McQueen nostalgia, siap popcorn & minuman dingin 🚗🌸";
+  if (t.includes("nonton") || t.includes("film") || t.includes("movie")) return "Waktunya santai, siap cemilan & nikmati ceritanya 🌸";
+  if (t.includes("meeting") || t.includes("rapat")) return "Siap agenda & jangan telat, Mia ingetin lagi 5 menit sebelum 🌸";
+  if (t.includes("belajar") || t.includes("study")) return "Fokus 25 menit, istirahat sejenak, kamu pasti bisa 🌸";
+  return undefined;
+}
+
+function scheduleReminder(text: string, isoWhen: string, rawUser: unknown, repeat?: "daily", notes?: string): string {
   const parsed = new Date(isoWhen);
   if (Number.isNaN(parsed.getTime())) throw new Error(`cannot parse time "${isoWhen}" — use ISO-8601 with offset`);
   // Safety net: a model without a live clock sometimes emits a past/stale date
@@ -2067,9 +2138,18 @@ function scheduleReminder(text: string, isoWhen: string, rawUser: unknown, repea
     dateStyle: "medium",
     timeStyle: "short",
   });
-  const r = addReminder(text, atMs, rawUser, { repeat });
+  // Imaginative fallback: if LLM left title raw & notes empty, enrich deterministically
+  let enrichedText = text;
+  let enrichedNotes = notes;
+  if (!enrichedNotes) enrichedNotes = imaginativeNotes(enrichedText);
+  // If title is still raw (no emoji), add a gentle touch for Cars
+  if (/^nonton cars$/i.test(enrichedText.trim()) && !/[^\x00-\x7F]/.test(enrichedText)) {
+    enrichedText = "Nonton Cars 🚗 — Pixar marathon, siap popcorn!";
+  }
+  const r = addReminder(enrichedText, atMs, rawUser, { repeat, notes: enrichedNotes });
   const freq = repeat === "daily" ? "daily" : "once";
-  return `Reminder set (${freq}): "${r.text}" at ${whenText}. The user will be notified then.`;
+  const notePart = r.notes ? ` Notes: ${r.notes}` : "";
+  return `Reminder set (${freq}): "${r.text}" at ${whenText}.${notePart} The user will be notified then.`;
 }
 
 // File access tool (Phase 4). Read-only, sandboxed to the project root
@@ -2429,9 +2509,8 @@ async function webSearch(query: string): Promise<string> {
   }
 }
 
-/** Resolve Bing's /ck redirect wrapper to the actual destination URL.
- *  Bing encodes the real URL as base64 in the `u=` param, but the href in
- *  the HTML has `&amp;` entities, so `&u=` becomes `&amp;u=` — normalize first. */
+/** Resolve Bing's /ck redirect wrapper — passthrough (kept for future use). */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function resolveBingRedirect(raw: string): string {
   // Bing's /ck redirect works but the URL is unwieldy; the model only needs
   // the search-result content, not a clean URL — pass through as-is.

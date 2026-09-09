@@ -5,7 +5,6 @@
 // and nudges the owner if something needs attention. Silent when nothing is pending.
 
 import { readdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
 import { userDataRoot, isTestUserKey, canonicalUserKey } from "./users";
 import { readTasks } from "./tasks";
 import { pushToOwner } from "../channels/pushTarget";

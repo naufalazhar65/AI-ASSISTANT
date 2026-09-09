@@ -15,6 +15,7 @@
 import { NextRequest } from "next/server";
 import { takeDueReminders, subscribeReminders, Reminder } from "@/lib/reminders";
 import { sanitizeUser } from "@/lib/users";
+import { checkRateLimit, RateLimitError } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,15 @@ function frame(r: Reminder): string {
 
 export async function GET(request: NextRequest) {
   const userKey = sanitizeUser(request.nextUrl.searchParams.get("user") ?? undefined);
+  // Rate-limit SSE opens (prevent EventSource loop DoS); reuses turn limiter
+  try {
+    if (userKey) checkRateLimit(`stream:${userKey}`);
+  } catch (e) {
+    if (e instanceof RateLimitError) {
+      return new Response(e.message, { status: 429, headers: { "Retry-After": String(Math.ceil(e.retryAfterMs / 1000)) } });
+    }
+    throw e;
+  }
 
   // Replay reminders that came due while the client was closed. takeDueReminders
   // atomically marks them fired so a later reconnect (or the live timer) never

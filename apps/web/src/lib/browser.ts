@@ -3,6 +3,7 @@
 // read/write via exec-style allowlist: open/snapshot are read, click/type are write.
 
 import { chromium, Browser, Page } from "playwright";
+import { checkRateLimit } from "./rateLimit";
 
 let browser: Browser | null = null;
 let page: Page | null = null;
@@ -27,6 +28,7 @@ async function ensurePage(): Promise<Page> {
 }
 
 export async function browserOpen(url: string): Promise<string> {
+  try { checkRateLimit("browser:global"); } catch (e) { throw e; }
   const u = url.trim();
   if (!u) throw new Error("empty url");
   let parsed: URL;

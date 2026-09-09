@@ -18,8 +18,10 @@ import { sanitizeUser, userDataRoot } from "./users";
 
 export interface Reminder {
   id: string;
-  /** What to be reminded about, in plain words. */
+  /** What to be reminded about, in plain words (Mia-imaginative title). */
   text: string;
+  /** Optional warm/imaginative notes (Mia's creative body). */
+  notes?: string;
   /** Epoch milliseconds at which the reminder is due. */
   at: number;
   /** True once the reminder has been delivered to an SSE stream. */
@@ -143,12 +145,13 @@ export function addReminder(
   text: string,
   atMs: number,
   rawUser?: unknown,
-  opts: { repeat?: "daily"; variants?: string[] } = {}
+  opts: { repeat?: "daily"; variants?: string[]; notes?: string } = {}
 ): Reminder {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const trimmed = text.trim().slice(0, 300);
   if (!trimmed) throw new Error("empty reminder text");
+  const notes = typeof opts.notes === "string" ? opts.notes.trim().slice(0, 500) : undefined;
   const reminders = readReminders(rawUser);
   const { repeat, variants } = opts;
 
@@ -167,7 +170,7 @@ export function addReminder(
 
   let reminder: Reminder;
   if (existingIdx >= 0) {
-    const existing = { ...reminders[existingIdx], text: trimmed };
+    const existing = { ...reminders[existingIdx], text: trimmed, ...(notes ? { notes } : {}) };
     if (repeat === "daily") existing.repeat = "daily";
     if (variants?.length) existing.variants = variants;
     if (variants?.length) existing.variantIdx = existing.variantIdx ?? 0;
@@ -177,6 +180,7 @@ export function addReminder(
     reminder = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       text: trimmed,
+      ...(notes ? { notes } : {}),
       at: atMs,
       fired: false,
       ...(repeat ? { repeat } : {}),

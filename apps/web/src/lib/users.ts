@@ -63,7 +63,9 @@ export function repoRoot(): string {
  * channel — the 2026-09-08 overnight flood (7× briefing, 6× proactive).
  */
 export function isTestUserKey(key: string): boolean {
-  return /^(verify_|probe|monitorprobe|naufalprobe|recapprobe|remprobe|greet_probe|mock_roll_probe|owner_roll_probe|owner_smoke|tztest|wtheme|http_probe_|test$|bob$|s$)/i.test(key);
+  // Prefix-based for synthetic users; old `s$` removed (matched any user ending in 's').
+  return /^(verify_|probe|monitorprobe|naufalprobe|recapprobe|remprobe|http_probe_)/i.test(key) ||
+    /^(test|bob|tztest|wtheme|greet_probe|mock_roll_probe|owner_roll_probe|owner_smoke)$/i.test(key);
 }
 
 export function allowedWorkspaces(): string[] {

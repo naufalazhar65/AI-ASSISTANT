@@ -355,9 +355,9 @@ export function hygienizeAllUsers(): HygieneResult[] {
 
 /** Per-section caps (characters). Keep them modest. */
 export const PERSONA_MAX_CHARS = 4000;
-export const DAY_LOG_MAX_CHARS = 2000;
+export const DAY_LOG_MAX_CHARS = 1200;
 /** Global cap across all injected persona + daily-memory sections combined. */
-export const PERSONA_TOTAL_MAX_CHARS = 12000;
+export const PERSONA_TOTAL_MAX_CHARS = 8000;
 
 /** Clip `text` to `maxChars`, appending a marker when anything was dropped. */
 export function truncateWithMarker(text: string, maxChars: number): string {

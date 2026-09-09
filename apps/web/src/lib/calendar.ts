@@ -153,3 +153,50 @@ export async function listMacCalendar(days = 7): Promise<string> {
     });
   });
 }
+
+// --- macOS Reminders sync (AppleScript via osascript) ---
+// Mirrors Calendar sync but targets Reminders.app. Uses `remind me date` property.
+
+export async function addToMacReminders(title: string, due: Date, notes?: string): Promise<string> {
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const toAppleDate = (name: string, d: Date) => `set ${name} to current date
+  set year of ${name} to ${d.getFullYear()}
+  set month of ${name} to ${MONTHS[d.getMonth()]}
+  set day of ${name} to ${d.getDate()}
+  set hours of ${name} to ${d.getHours()}
+  set minutes of ${name} to ${d.getMinutes()}
+  set seconds of ${name} to ${d.getSeconds()}`;
+  const safeTitle = title.replace(/"/g, '\\"');
+  const safeNotes = (notes || "").replace(/"/g, '\\"').slice(0, 500);
+  const bodyProp = safeNotes ? `, body:"${safeNotes}"` : "";
+  const script = `
+    ${toAppleDate("dueDate", due)}
+    tell application "Reminders"
+      activate
+      set targetList to list 1
+      try
+        set targetList to list "Reminders"
+      end try
+      set newReminder to make new reminder in targetList with properties {name:"${safeTitle}"${bodyProp}}
+      set remind me date of newReminder to dueDate
+    end tell
+  `;
+  return new Promise((resolve, reject) => {
+    execFile("osascript", ["-e", script], { timeout: 30000 }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(stderr?.trim() || err.message || "Reminders AppleScript failed — check Reminders permission"));
+      resolve(stdout.trim() || "Added to Mac Reminders");
+    });
+  });
+}
+
+export async function listMacReminders(): Promise<string> {
+  const { exec } = await import("node:child_process");
+  return new Promise((resolve, reject) => {
+    exec(`osascript -e 'tell application "Reminders" to get name of every reminder of list 1'`, { timeout: 8000 }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(stderr?.trim() || err.message));
+      const out = stdout.trim();
+      if (!out) return resolve("No reminders in Mac Reminders");
+      resolve(out.split(", ").slice(0, 20).join("\n").slice(0, 4000) || "No reminders");
+    });
+  });
+}
