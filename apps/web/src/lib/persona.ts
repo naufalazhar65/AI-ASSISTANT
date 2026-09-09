@@ -50,6 +50,36 @@ export function ensureUserPersona(rawUser: unknown): string | null {
   return userKey;
 }
 
+function extractInjectableBody(file: string, body: string): string {
+  // IDENTITY/DREAMS are static narrative already in SYSTEM_PROMPT — skip full
+  // injection to avoid ~500 tok duplication every turn. Only dynamic USER/SOUL
+  // facts matter for personalization.
+  if (file === "IDENTITY.md" || file === "DREAMS.md") {
+    // Inject a one-line anchor only, not the full narrative
+    const firstLine = body.split("\n").find((l) => l.trim() && !l.trim().startsWith("#"))?.trim() ?? "";
+    return firstLine ? `${file.replace(".md", "")} anchor: ${firstLine.slice(0, 120)}` : "";
+  }
+  // For USER/SOUL, inject only the fact/style block (deduplicating preamble)
+  const headers = FACT_SECTIONS[file];
+  if (headers?.length) {
+    const header = headers[0];
+    const idx = body.indexOf(header);
+    if (idx !== -1) {
+      const block = body.slice(idx).trim();
+      // If block is just the header with no facts, fall back to key facts elsewhere
+      if (block.length > header.length + 10) return block;
+      // SOUL has no facts under ## Style yet — extract tone lines as fallback
+      const toneLines = body
+        .split("\n")
+        .filter((l) => /^\s*-\s*tone:/i.test(l))
+        .join("\n")
+        .trim();
+      if (toneLines) return `${header}\n\n${toneLines}`;
+    }
+  }
+  return body.trim();
+}
+
 export function loadPersonaPrompt(rawUser?: unknown): string {
   const userKey = sanitizeUser(rawUser);
   if (userKey) ensureUserPersona(userKey); // seed per-user persona on first load
@@ -59,10 +89,13 @@ export function loadPersonaPrompt(rawUser?: unknown): string {
     const path = join(dir, file);
     if (!existsSync(path)) continue;
     try {
-      const body = readFileSync(path, "utf8").trim();
-      // Trim oversized persona files (OpenClaw-style truncation-with-marker) so
-      // a growing lived persona never bloats the prompt or TTFT budget.
-      sections.push(`${file.replace(".md", "")}:\n${truncateWithMarker(body, PERSONA_MAX_CHARS)}`);
+      const raw = readFileSync(path, "utf8").trim();
+      if (!raw) continue;
+      const body = extractInjectableBody(file, raw);
+      if (!body) continue;
+      // Trim oversized persona files so growing lived persona never bloats TTFT
+      const cap = file === "USER.md" || file === "SOUL.md" ? PERSONA_MAX_CHARS : 300;
+      sections.push(`${file.replace(".md", "")}:\n${truncateWithMarker(body, cap)}`);
     } catch {
       // Unreadable persona file: ignore rather than break every turn.
     }
@@ -196,6 +229,17 @@ function collapseBlanks(lines: string[]): string {
 
 const FACT_LINE_RE = /^\s*-\s*([^:]{1,120}?):\s*(.*?)\s*$/;
 
+// Transient/internal keys that must never persist as persona facts (drift/noise)
+const DISALLOWED_USER_KEYS = new Set([
+  "ios_device_pairing_requested",
+  "status", // transient ("working") — not a stable fact
+  "tool", // bare `tool:` duplicates `preference.tool:` and is volatile
+  "preference.crypto_monitor",
+  "preference.crypto_threshold",
+  "preference.crypto_direction",
+  "preference.monitor_product",
+]);
+
 function hygienizeUserFile(path: string): HygieneResult {
   const result: HygieneResult = { file: "USER.md", removed: 0, changed: false, conflicts: [] };
   const original = readFileSync(path, "utf8");
@@ -208,6 +252,16 @@ function hygienizeUserFile(path: string): HygieneResult {
     if (m) {
       const key = m[1].trim();
       const value = m[2].trim();
+      // Drop transient/internal keys and empty-bloated values
+      if (DISALLOWED_USER_KEYS.has(key.toLowerCase())) {
+        result.removed++;
+        continue;
+      }
+      if (value.length > 200) {
+        // Overlong value likely junk/prose — skip
+        result.removed++;
+        continue;
+      }
       const prev = seen.get(key);
       if (prev !== undefined) {
         const old = facts[prev].value;

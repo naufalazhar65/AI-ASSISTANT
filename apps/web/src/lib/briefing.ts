@@ -17,7 +17,7 @@ import { briefingEnabled, briefingHour } from "./config";
 import { logInfo, logError } from "./appLogger";
 import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { userDataRoot, isTestUserKey, appRoot } from "./users";
+import { userDataRoot, isTestUserKey, appRoot, canonicalUserKey } from "./users";
 
 let timer: NodeJS.Timeout | null = null;
 let started = false;
@@ -199,7 +199,6 @@ function allUserKeys(): string[] {
       .map((d) => d.name)
       .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
     // alias Zigen/naufalazhar65 -> same owner, dedupe via canonical key
-    const { canonicalUserKey } = require("./users") as typeof import("./users");
     const seen = new Set<string>();
     const out: string[] = [];
     for (const k of raw) {

@@ -7,7 +7,7 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { userDataRoot, isTestUserKey } from "./users";
+import { userDataRoot, isTestUserKey, canonicalUserKey } from "./users";
 import { readMoods } from "./mood";
 import { readDailyMemory, todayStr } from "./dailyMemory";
 import { pushToOwner } from "../channels/pushTarget";
@@ -127,7 +127,6 @@ function allUserKeys(): string[] {
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
       .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
-    const { canonicalUserKey } = require("./users") as typeof import("./users");
     const seen = new Set<string>();
     const out: string[] = [];
     for (const k of raw) {
