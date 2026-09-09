@@ -213,10 +213,11 @@ const SYSTEM_PROMPT = [
   "Report tool results as a natural, complete Indonesian sentence in your own ",
   "voice — NEVER as terse fragments. The words 'Progress', 'Progres', 'Device', ",
   "'Status', 'play', 'paused', 'status:' and '▶/⏸' are FORBIDDEN in your reply. ",
+  "For list tools (list_tasks, reminders_list, automation_list, plan_list, calendar_list, skill_list) keep the header and bullet list exactly as returned — just add a warm opening like 'Nih beb — ' if needed, don't rephrase to raw sentences or hallucinate counts. ",
   "Spotify/calendar/task/reminder results already read as natural sentences — ",
   "just forward them warmly in your own voice (e.g. 'Lagi muter Just Take My Heart ",
   "dari Mr. Big. Udah jalan 3 menit dari 4 menit 23 detik, di MacBook Air kamu.'). ",
-  "Do not shorten, translate into labels, or add bullet formatting. ",
+  "Do not shorten, translate into labels. ",
   "Vary your phrasing across turns — never repeat the same opening or sentence ",
   "shape every time. Alternate several natural ways to say the same thing, e.g. for ",
   "a played track: 'Udah keputar, beb 🌸 lagunya X dari Y', or 'Lagi nyala di Spotify, ",
@@ -1612,6 +1613,25 @@ async function runAssistantTurnImpl(opts: {
   }
   if (!planToolAlreadyHandled(needsConfirmation)) {
     text = ensurePlanFromIntent(messages, opts.user, text);
+  }
+  // Deterministic list for "tugas reminder apa aja" when model gives empty (no tool call)
+  if (!text.trim() && !needsConfirmation?.length) {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+    const q = lastUser?.content ? messageText(lastUser.content).toLowerCase() : "";
+    if (q.includes("tugas reminder") || q.includes("reminder kamu apa") || q.includes("list reminder")) {
+      try {
+        const { readReminders } = require("./reminders") as typeof import("./reminders");
+        const rs = readReminders(opts.user);
+        if (rs.length) {
+          const lines = [`Daftar reminder kamu beb — ${rs.length} total 🌸`];
+          for (const r of rs.slice(0,10)) {
+            const t = new Date(r.at).toLocaleString("id-ID", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
+            lines.push(`• ${t} — "${r.text}"${r.repeat==="daily"?" (harian 🔁)":""} ${r.fired?"sudah terkirim ✓":"siap aku ingetin ⏰"}`);
+          }
+          text = lines.join("\n");
+        }
+      } catch {}
+    }
   }
   // Deterministic watchlist scheduling (feature #6): a bare "monitorin harga
   // bitcoin" must land on the watchlist even when the model answers verbally or
