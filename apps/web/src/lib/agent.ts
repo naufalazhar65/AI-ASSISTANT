@@ -759,6 +759,27 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
   }
 }
 
+function ensurePlanFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
+  if (/remind|ingat|alarm|bangun/i.test(text)) return text; // already has reminder suffix
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content) return text;
+  const txt = messageText(lastUser.content);
+  const m = txt.match(/(?:buatin|bikin|buat)\s+plan\s+(.+)/i);
+  if (!m) return text;
+  const goalRaw = m[1].trim().slice(0, 200);
+  if (!goalRaw) return text;
+  try {
+    const { createPlan, planToText } = require("./planning") as typeof import("./planning");
+    const p = createPlan(goalRaw.slice(0, 60), goalRaw, user);
+    // If plan already had steps (dedup), just return warm confirmation, don't re-create
+    if (text && text.includes(p.title)) return text;
+    const suffix = ` (Plan "${p.title}" sudah kubuat beb — ${p.steps.length} step, cek plan_list ya 🌸)`;
+    return (text || "").trimEnd() + suffix;
+  } catch {
+    return text;
+  }
+}
+
 /** True when this turn already went through a `remind_me` tool call/confirm. */
 function remindToolAlreadyHandled(opts: {
   confirm_call?: { call: ToolCall; allow: boolean };
@@ -1431,6 +1452,7 @@ async function runAssistantTurnImpl(opts: {
     // so detect a "remind/bangunin di <waktu>" intent directly and schedule it
     // with the same store the `remind_me` tool uses.
     opencodeText = scheduleReminderFromIntent(messages, opts.user, opencodeText);
+    opencodeText = ensurePlanFromIntent(messages, opts.user, opencodeText);
     // Link intelligence: a URL in the message is fetched + summarized + saved
     // in the background (never blocks the turn).
     opencodeText = scheduleLinkCapture(messages, opts.user, providerId, model, opencodeText);
@@ -1567,6 +1589,9 @@ async function runAssistantTurnImpl(opts: {
   // Deterministic reminder scheduling for providers that may answer verbally
   // without calling the `remind_me` tool (skipped when the tool already handled
   // it, to avoid double-scheduling). Mirrors the opencode path.
+  function planToolAlreadyHandled(needs: typeof needsConfirmation): boolean {
+    return !!needs?.some((c) => c.name === "plan_create");
+  }
   if (!remindToolAlreadyHandled(opts, needsConfirmation)) {
     text = scheduleReminderFromIntent(messages, opts.user, text);
     // Model-authored reminder variety for the deterministic path too: ask the
@@ -1583,6 +1608,9 @@ async function runAssistantTurnImpl(opts: {
         });
       }
     }
+  }
+  if (!planToolAlreadyHandled(needsConfirmation)) {
+    text = ensurePlanFromIntent(messages, opts.user, text);
   }
   // Deterministic watchlist scheduling (feature #6): a bare "monitorin harga
   // bitcoin" must land on the watchlist even when the model answers verbally or

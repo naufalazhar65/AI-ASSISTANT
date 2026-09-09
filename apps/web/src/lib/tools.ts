@@ -1462,7 +1462,7 @@ const toolRegistry: ToolPlugin[] = [
       risk: "write",
       function: {
         name: "plan_create",
-        description: "Create a planning board for a complex multi-step request — Mia's internal todo. Use when user asks something complex that needs breakdown (e.g. 'bikin app', 'research + buat laporan'). Be imaginative in title/goal, not raw.",
+        description: "Create a planning board ONLY when user explicitly says 'buatin plan/bikin plan/buat rencana' for a new complex task. Do NOT call for 'coba cari/lanjut/next step' — use web_search or plan_update_step instead. Be imaginative in title/goal, not raw.",
         parameters: {
           type: "object",
           properties: {

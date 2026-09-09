@@ -456,9 +456,12 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
   }
   state.history.push({ role: "assistant", content: result.text });
   if (!(await sendVoiceReply(ctx, result.text))) {
-    const fallback = !result.text && pending.call.name.startsWith("plan_")
-      ? `Siap beb, \`${pending.call.name}\` sudah kuupdate — lanjut yuk 🌸`
-      : "Selesai.";
+    let fallback = "Selesai.";
+    if (!result.text && pending.call.name.startsWith("plan_")) {
+      fallback = pending.call.name === "plan_create"
+        ? `Plan sudah kubuat beb — cek plan_list untuk lihat step-stepnya 🌸`
+        : `Siap beb, step sudah kuupdate — lanjut ke step berikutnya yuk 🌸`;
+    }
     await replyMia(ctx, result.text || fallback);
   }
 }

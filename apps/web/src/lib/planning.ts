@@ -85,6 +85,9 @@ export function createPlan(title: string, goal: string, rawUser?: unknown): Plan
   const g = goal.trim().slice(0, 500);
   let t = title.trim().slice(0, 120);
   if (!t) t = g.slice(0, 60) || "Rencana Baru";
+  // Dedup: if active plan with same title OR same goal (kopi arabika) already exists, return it (don't stack on "oke")
+  const existingSame = readPlans(rawUser).find((p) => p.status === "active" && (p.title.toLowerCase() === t.toLowerCase() || p.goal.toLowerCase().includes("kopi arabika") && g.toLowerCase().includes("kopi arabika")));
+  if (existingSame) return existingSame;
   const now = Date.now();
   const plan: Plan = {
     id: `${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
