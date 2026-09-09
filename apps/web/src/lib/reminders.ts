@@ -156,16 +156,15 @@ export function addReminder(
   const { repeat, variants } = opts;
 
   const atClock = new Date(atMs);
-  // Merge only when the NEW reminder is recurring: a one-shot is an explicit
-  // single event (two distinct one-shots at the same clock must both fire), so
-  // it never merges. A daily ask adopts an existing UNFIRED slot at the same
-  // clock time (overwriting its text/options and converting it to daily) — this
-  // is what collapses repeated "setiap hari jam 7" asks into ONE record and kills
-  // the "notif banyak" stacking flood.
+  // Dedup: daily merges on same clock time (any text) to kill "setiap hari jam 7" stacking.
+  // One-shot dedup: same text + same clock time + same date → merge (kills double "pasar 13:00" from 2 turns)
   const existingIdx = reminders.findIndex((r) => {
-    if (repeat !== "daily" || r.fired) return false;
+    if (r.fired) return false;
     const rAt = new Date(r.at);
-    return rAt.getHours() === atClock.getHours() && rAt.getMinutes() === atClock.getMinutes();
+    const sameClock = rAt.getHours() === atClock.getHours() && rAt.getMinutes() === atClock.getMinutes();
+    if (repeat === "daily") return sameClock;
+    // one-shot: same text + same date+clock → dedup
+    return r.text.trim().toLowerCase() === trimmed.toLowerCase() && r.at === atMs;
   });
 
   let reminder: Reminder;
