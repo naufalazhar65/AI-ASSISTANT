@@ -1585,6 +1585,44 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "skill_list",
+        description: "List all skills in Mia's marketplace (apps/web/skills/*/SKILL.md).",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: () => {
+      try {
+        const { searchSkillsText } = require("./skills") as typeof import("./skills");
+        return searchSkillsText("");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot list skills"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "skill_search",
+        description: "Search skills in the marketplace by keyword.",
+        parameters: { type: "object", properties: { query: { type: "string", description: "Search keyword" } }, required: ["query"] },
+      },
+    },
+    execute: (args) => {
+      try {
+        const { searchSkillsText } = require("./skills") as typeof import("./skills");
+        return searchSkillsText(typeof args.query === "string" ? args.query : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot search skills"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "send_channel",
         description:
           "Forward a message to another registered channel (e.g. Telegram or Discord). Use when the user asks to relay a message to a different platform than the one they are chatting on.",

@@ -79,6 +79,13 @@ export async function registerNode(): Promise<void> {
     logError("context", `failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
+    const { loadSkills } = await import("@/lib/skills");
+    const n = loadSkills();
+    logInfo("skills", `loaded ${n} skill(s) from marketplace`);
+  } catch (err) {
+    logError("skills", `failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
     const { backupNow } = await import("@/lib/backup");
     const dest = backupNow();
     logInfo("backup", `auto backup created at ${dest}`);
