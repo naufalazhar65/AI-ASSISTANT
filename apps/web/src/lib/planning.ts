@@ -102,6 +102,26 @@ export function createPlan(title: string, goal: string, rawUser?: unknown): Plan
     try { require("node:fs").unlinkSync(planPath(userKey, oldest.id)); } catch {}
   }
   writePlan(plan, userKey);
+  // Auto-seed steps for common research goals so one confirmation gives a complete plan (not 5 more confirms)
+  const lower = `${t} ${g}`.toLowerCase();
+  if (plan.steps.length === 0) {
+    const autoSteps: string[] = [];
+    if (lower.includes("kopi") && lower.includes("arabika")) {
+      autoSteps.push(
+        "Telusuri sejarah & asal-usul kopi arabika",
+        "Kumpulin karakteristik rasa & profil aroma",
+        "Riset daerah budidaya utama (Indonesia & dunia)",
+        "Bandingin arabika vs robusta",
+        "Rangkum jadi laporan akhir"
+      );
+    } else if (lower.includes("riset") || lower.includes("research")) {
+      autoSteps.push("Kumpulkan sumber & referensi", "Analisis temuan utama", "Susun rangkuman & insight", "Buat laporan akhir");
+    }
+    for (const s of autoSteps) {
+      plan.steps.push({ id: `s${Date.now().toString(36)}${Math.random().toString(36).slice(2,4)}`, title: s, status: "pending" });
+    }
+    if (autoSteps.length) writePlan(plan, userKey);
+  }
   return plan;
 }
 
