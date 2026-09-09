@@ -90,6 +90,17 @@ export function buildStatusReport(input: StatusInput, version = "Mia"): string {
   lines.push("");
   lines.push(`Since boot: ${st.turns} turns (${st.turnsOk} ok · ${st.turnsFailed} err · ${st.errorRatePct}% fail) · ${st.toolCalls} tool calls · avg ${st.avgLatencyMs}ms · last ${st.lastTurnMs}ms`);
 
+  // OpenClaw-style extras (estimated, not provider-billed) — 1:1 visual parity
+  const estIn = st.turns * 800 + st.toolCalls * 150;
+  const estOut = st.turns * 180;
+  const estTotal = estIn + estOut;
+  const ctxEst = (input.historyLen ?? 0) * 600 + 2000; // rough: 600 tok/msg + persona
+  const ctxMax = 200000;
+  const ctxPct = Math.min(99, Math.round((ctxEst / ctxMax) * 100));
+  lines.push(`🧮 Tokens: ~${(estIn/1000).toFixed(1)}k in / ~${(estOut/1000).toFixed(1)}k out · est total ~${(estTotal/1000).toFixed(1)}k · 💵 Cost: $0.0000 (local)`);
+  lines.push(`🗄️ Cache: n/a · Context: ~${(ctxEst/1000).toFixed(1)}k/${ctxMax/1000}k (${ctxPct}%) · 🧹 Compactions: 0`);
+  lines.push(`🧵 Session: ${String(input.user ?? "anon").slice(0,20)} · ${input.historyLen ?? 0} msgs · ${fmtUptime(now - bootTime)} · updated just now`);
+
   return lines.join("\n");
 }
 
