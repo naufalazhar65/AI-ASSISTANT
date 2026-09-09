@@ -17,7 +17,6 @@ const BODIES = [
 const TAILS = [
   "Sip, jangan lupa ya hehe 🌸",
   "Semangat! 🌸",
-  "Oke, ku pastiin kamu inget. 🌸",
   "Jangan sampek kelewat ya 😄",
 ];
 
