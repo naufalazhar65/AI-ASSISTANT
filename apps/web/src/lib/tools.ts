@@ -1459,6 +1459,130 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
+      risk: "write",
+      function: {
+        name: "plan_create",
+        description: "Create a planning board for a complex multi-step request — Mia's internal todo. Use when user asks something complex that needs breakdown (e.g. 'bikin app', 'research + buat laporan'). Be imaginative in title/goal, not raw.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Short plan title, e.g. 'Riset Kopi Arabika'" },
+            goal: { type: "string", description: "What the plan should achieve" },
+          },
+          required: ["title", "goal"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const { createPlan, planToText } = require("./planning") as typeof import("./planning");
+        const p = createPlan(typeof args.title === "string" ? args.title : "", typeof args.goal === "string" ? args.goal : "", ctx.rawUser);
+        return `Plan created ${p.id}:\n${planToText(p)}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot create plan"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "plan_add_step",
+        description: "Add a step to an existing plan. Use to break down the plan into actionable steps.",
+        parameters: {
+          type: "object",
+          properties: {
+            plan_id: { type: "string", description: "Plan id from plan_create" },
+            title: { type: "string", description: "Step title" },
+          },
+          required: ["plan_id", "title"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const { addPlanStep, readPlan, planToText } = require("./planning") as typeof import("./planning");
+        const s = addPlanStep(typeof args.plan_id === "string" ? args.plan_id : "", typeof args.title === "string" ? args.title : "", ctx.rawUser);
+        const p = readPlan(ctx.rawUser, typeof args.plan_id === "string" ? args.plan_id : "");
+        return `Step added ${s.id}:\n${p ? planToText(p) : s.title}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot add step"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "plan_update_step",
+        description: "Update a plan step status (pending/in_progress/completed/cancelled). Use to track progress.",
+        parameters: {
+          type: "object",
+          properties: {
+            plan_id: { type: "string", description: "Plan id" },
+            step_id: { type: "string", description: "Step id" },
+            status: { type: "string", enum: ["pending", "in_progress", "completed", "cancelled"], description: "New status" },
+            notes: { type: "string", description: "Optional notes" },
+          },
+          required: ["plan_id", "step_id", "status"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const { updatePlanStep, readPlan, planToText } = require("./planning") as typeof import("./planning");
+        const s = updatePlanStep(typeof args.plan_id === "string" ? args.plan_id : "", typeof args.step_id === "string" ? args.step_id : "", typeof args.status === "string" ? (args.status as any) : "pending", ctx.rawUser, typeof args.notes === "string" ? args.notes : undefined);
+        const p = readPlan(ctx.rawUser, typeof args.plan_id === "string" ? args.plan_id : "");
+        return `Step ${s.id} → ${s.status}\n${p ? planToText(p) : ""}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot update step"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "plan_list",
+        description: "List all planning boards for the user.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: (_args, ctx) => {
+      try {
+        const { listPlansText } = require("./planning") as typeof import("./planning");
+        return listPlansText(ctx.rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot list plans"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "plan_get",
+        description: "Get a single plan with all its steps by id.",
+        parameters: { type: "object", properties: { plan_id: { type: "string", description: "Plan id" } }, required: ["plan_id"] },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const { readPlan, planToText } = require("./planning") as typeof import("./planning");
+        const p = readPlan(ctx.rawUser, typeof args.plan_id === "string" ? args.plan_id : "");
+        return p ? planToText(p) : "Error: plan not found";
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot get plan"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
       risk: "read",
       function: {
         name: "send_channel",
