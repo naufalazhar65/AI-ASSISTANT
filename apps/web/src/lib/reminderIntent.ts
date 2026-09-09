@@ -128,11 +128,13 @@ function cleanReminderText(clause: string): string {
     .replace(INTENT_RE, " ")
     .replace(/jam\s*\d{1,2}(?:[.:]\d{2})?\s*(pagi|siang|sore|malam|subuh|dini\s*hari|am|pm)?/gi, " ")
     .replace(/\b\d{1,2}(?:[.:]\d{2})?\s*(pagi|siang|sore|malam|subuh|am|pm)?\b/gi, " ")
-    .replace(/\b(aku|gue|saya|ya|dong|tolong|plis|please|nanti|yaa)\b/gi, " ")
+    .replace(/\b(aku|gue|saya|ya|dong|tolong|plis|please|nanti|yaa|udaa+h+|gak|nggak|menerima|mengeyel|beb)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
   s = s.replace(/^[,\-–—\s]+|[,\-–—\s]+$/g, "").trim();
-  return s || "pengingat";
+  // after strip, "sikat gigi terus tidur sekarang" -> keep; "Udaaah" alone -> fallback
+  if (!s || /^[^a-z0-9]+$/i.test(s)) return "pengingat";
+  return s;
 }
 
 export function splitReminderRequests(userText: string): Array<{ text: string; hour: number; minute: number; suffixed?: boolean }> {

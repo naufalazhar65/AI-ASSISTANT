@@ -194,10 +194,19 @@ function allUserKeys(): string[] {
   const root = userDataRoot();
   if (!existsSync(root)) return [];
   try {
-    return readdirSync(root, { withFileTypes: true })
+    const raw = readdirSync(root, { withFileTypes: true })
       .filter((d) => d.isDirectory())
       .map((d) => d.name)
       .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
+    // alias Zigen/naufalazhar65 -> same owner, dedupe via canonical key
+    const { canonicalUserKey } = require("./users") as typeof import("./users");
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const k of raw) {
+      const c = canonicalUserKey(k) || k;
+      if (!seen.has(c)) { seen.add(c); out.push(c); }
+    }
+    return out;
   } catch {
     return [];
   }
