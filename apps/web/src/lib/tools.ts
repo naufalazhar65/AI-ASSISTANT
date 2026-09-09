@@ -1475,6 +1475,7 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (args, ctx) => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { createPlan, planToText } = require("./planning") as typeof import("./planning");
         const p = createPlan(typeof args.title === "string" ? args.title : "", typeof args.goal === "string" ? args.goal : "", ctx.rawUser);
         return `Plan created ${p.id}:\n${planToText(p)}`;
@@ -1502,6 +1503,7 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (args, ctx) => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { addPlanStep, readPlan, planToText } = require("./planning") as typeof import("./planning");
         const s = addPlanStep(typeof args.plan_id === "string" ? args.plan_id : "", typeof args.title === "string" ? args.title : "", ctx.rawUser);
         const p = readPlan(ctx.rawUser, typeof args.plan_id === "string" ? args.plan_id : "");
@@ -1532,7 +1534,9 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (args, ctx) => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { updatePlanStep, readPlan, planToText } = require("./planning") as typeof import("./planning");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const s = updatePlanStep(typeof args.plan_id === "string" ? args.plan_id : "", typeof args.step_id === "string" ? args.step_id : "", typeof args.status === "string" ? (args.status as any) : "pending", ctx.rawUser, typeof args.notes === "string" ? args.notes : undefined);
         const p = readPlan(ctx.rawUser, typeof args.plan_id === "string" ? args.plan_id : "");
         return `Step ${s.id} → ${s.status}\n${p ? planToText(p) : ""}`;
@@ -1553,6 +1557,7 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (_args, ctx) => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { listPlansText } = require("./planning") as typeof import("./planning");
         return listPlansText(ctx.rawUser);
       } catch (err) {
@@ -1572,6 +1577,7 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (args, ctx) => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { readPlan, planToText } = require("./planning") as typeof import("./planning");
         const p = readPlan(ctx.rawUser, typeof args.plan_id === "string" ? args.plan_id : "");
         return p ? planToText(p) : "Error: plan not found";
@@ -1592,6 +1598,7 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: () => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { searchSkillsText } = require("./skills") as typeof import("./skills");
         return searchSkillsText("");
       } catch (err) {
@@ -1611,6 +1618,7 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (args) => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { searchSkillsText } = require("./skills") as typeof import("./skills");
         return searchSkillsText(typeof args.query === "string" ? args.query : "");
       } catch (err) {

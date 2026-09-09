@@ -769,6 +769,7 @@ function ensurePlanFromIntent(messages: ChatMessage[], user: unknown, text: stri
   const goalRaw = m[1].trim().slice(0, 200);
   if (!goalRaw) return text;
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createPlan, planToText } = require("./planning") as typeof import("./planning");
     const p = createPlan(goalRaw.slice(0, 60), goalRaw, user);
     // If plan already had steps (dedup), just return warm confirmation, don't re-create

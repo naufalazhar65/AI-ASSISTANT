@@ -4,7 +4,7 @@
 // .data/users/<user>/plans/<id>.json, so it survives restarts and can be
 // inspected via tools. No LLM call, deterministic, works offline.
 
-import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
 
@@ -102,7 +102,7 @@ export function createPlan(title: string, goal: string, rawUser?: unknown): Plan
   const existing = readPlans(rawUser);
   if (existing.length >= MAX_PLANS) {
     const oldest = existing.sort((a, b) => a.createdAt - b.createdAt)[0];
-    try { require("node:fs").unlinkSync(planPath(userKey, oldest.id)); } catch {}
+    try { unlinkSync(planPath(userKey, oldest.id)); } catch {}
   }
   writePlan(plan, userKey);
   // Auto-seed steps for common research goals so one confirmation gives a complete plan (not 5 more confirms)
