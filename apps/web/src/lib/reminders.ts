@@ -99,6 +99,15 @@ export function listUsersWithReminders(): string[] {
   }
 }
 
+/** Prune one-shot reminders that fired >24h ago (daily stays). */
+function pruneOldOneShots(reminders: Reminder[], now = Date.now()): Reminder[] {
+  const cutoff = now - 24 * 60 * 60 * 1000;
+  return reminders.filter((r) => {
+    if (!r.fired || r.repeat === "daily") return true;
+    return r.at > cutoff; // keep if fired within 24h, else delete
+  });
+}
+
 /** Read a user's reminders; empty for missing/per-user-invalid/corrupt files. */
 export function readReminders(rawUser?: unknown): Reminder[] {
   const userKey = sanitizeUser(rawUser);
@@ -107,10 +116,16 @@ export function readReminders(rawUser?: unknown): Reminder[] {
     const raw = readFileSync(remindersPath(userKey), "utf8");
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
+    const filtered = parsed.filter(
       (r): r is Reminder =>
         !!r && typeof (r as Reminder).text === "string" && typeof (r as Reminder).at === "number"
     );
+    const pruned = pruneOldOneShots(filtered);
+    if (pruned.length !== filtered.length) {
+      try { writeReminders(pruned, userKey); } catch { /* best-effort */ }
+      return pruned;
+    }
+    return filtered;
   } catch {
     return [];
   }
