@@ -79,15 +79,15 @@ export function listCalText(rawUser?: unknown, days = 7): string {
   const now = Date.now();
   const to = now + days * 24 * 3600 * 1000;
   const events = listCalEvents(rawUser, now, to);
-  if (!events.length) return `No events in next ${days} day(s).`;
-  return events
+  if (!events.length) return `Kosong beb — ${days} hari ke depan free, mau isi apa? ✨🌸`;
+  const header = `Kalendermu beb — ${events.length} agenda ${days} hari ke depan 🌸`;
+  return `${header}\n${events
     .map((e) => {
       const s = new Date(e.start).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
       const en = new Date(e.end).toLocaleString("id-ID", { timeStyle: "short" });
-      return `- ${e.title} — ${s} → ${en}${e.description ? ` (${e.description})` : ""}`;
+      return `• ${e.title} — ${s} → ${en}${e.description ? ` (${e.description})` : ""}`;
     })
-    .join("\n")
-    .slice(0, 4000);
+    .join("\n")}`.slice(0, 4000);
 }
 
 export function checkCalAvailability(rawUser: unknown, start: number, end: number): { free: boolean; conflicts: CalEvent[] } {

@@ -79,12 +79,16 @@ export function addTask(text: string, rawUser?: unknown, dueAt?: number): Task {
 /** Human-readable summary of the user's tasks, in insertion order (newest last). */
 export function listTasks(rawUser?: unknown): string {
   const tasks = readTasks(rawUser);
-  if (!tasks.length) return "You have no tasks yet.";
-  const fmt = (t: Task): string => {
-    const due = t.dueAt ? ` (due ${new Date(t.dueAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })})` : "";
-    return `- ${t.text}${due} [${t.status}]`;
+  if (!tasks.length) return "Belum ada tugas beb — santai dulu, mau buat apa? 🌸";
+  const active = tasks.filter((t) => t.status === "active").length;
+  const done = tasks.filter((t) => t.status === "done").length;
+  const header = `Daftar tugasmu beb — ${tasks.length} tugas (${active} aktif${done ? `, ${done} kelar ✨` : ""}) 🌸`;
+  const fmt = (t: Task, i: number): string => {
+    const due = t.dueAt ? ` ⏰ ${new Date(t.dueAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}` : "";
+    const icon = t.status === "done" ? "✅" : t.status === "cancelled" ? "❌" : "•";
+    return `${i + 1}. ${icon} ${t.text}${due} [${t.status}]`;
   };
-  return tasks.map(fmt).join("\n").slice(0, 3000);
+  return `${header}\n${tasks.map(fmt).join("\n")}`.slice(0, 3000);
 }
 
 /** Index of a task by its 1-based number (same insertion order as listTasks). */

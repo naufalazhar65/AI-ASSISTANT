@@ -29,19 +29,19 @@ import { gmailAuthUrl, gmailConfigured, gmailConnected, gmailList, gmailRead, gm
 function remindersListText(rawUser: unknown): string {
   const now = Date.now();
   const rs = readReminders(rawUser);
-  if (!rs.length) return "Belum ada reminder terpasang.";
+  if (!rs.length) return "Belum ada reminder beb — mau aku ingetin apa? 🌸";
   const fmt = (ms: number): string =>
     new Date(ms).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const upcoming = rs.filter((r) => !r.fired && r.at >= now).sort((a, b) => a.at - b.at).slice(0, 10);
   const deliveredToday = rs.filter((r) => r.fired && now - r.at < 24 * 60 * 60 * 1000).sort((a, b) => b.at - a.at).slice(0, 5);
-  const lines: string[] = [];
+  const lines: string[] = [`Daftar reminder kamu beb — ${rs.length} total 🌸`];
   for (const r of upcoming) {
-    lines.push(`• ${fmt(r.at)} — "${r.text}"${r.repeat === "daily" ? " (harian)" : ""} — terjadwal`);
+    lines.push(`• ${fmt(r.at)} — "${r.text}"${r.repeat === "daily" ? " (harian 🔁)" : ""} — siap aku ingetin ⏰ (terjadwal)`);
   }
   for (const r of deliveredToday) {
-    lines.push(`• ${fmt(r.at)} — "${r.text}" — sudah terkirim ✓`);
+    lines.push(`• ${fmt(r.at)} — "${r.text}" — sudah kuingetin tadi ✓ (sudah terkirim)`);
   }
-  return lines.length ? lines.join("\n") : "Belum ada reminder terjadwal (yang lama sudah terkirim).";
+  return lines.length > 1 ? lines.join("\n") : "Belum ada reminder terjadwal beb — yang lama sudah kekirim semua 🌸";
 }
 import { auditLog } from "./auditLog";
 import { toolsDeny } from "./config";
@@ -723,9 +723,11 @@ const toolRegistry: ToolPlugin[] = [
         },
       },
     },
-    execute: (args, ctx) => {
+    execute: async (args, ctx) => {
       try {
-        return searchMemory(typeof args.query === "string" ? args.query : "", ctx.rawUser);
+        const res = await searchMemory(typeof args.query === "string" ? args.query : "", ctx.rawUser);
+        if (/^No |empty query/i.test(res.trim())) return res;
+        return `Aku inget ini beb — hasil memory untuk "${String(args.query).slice(0,60)}" 🌸\n${res}`;
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid search"}`;
       }
@@ -914,7 +916,9 @@ const toolRegistry: ToolPlugin[] = [
         if (!q.trim()) return "Error: query required";
         const idx = ensureFreshIndex();
         if (!idx) return "Error: codebase index unavailable";
-        return searchCodebaseIn(idx, q);
+        const res = searchCodebaseIn(idx, q);
+        if (/^No |Error:/i.test(res.trim())) return res;
+        return `Nih beb — aku temuin di codebase untuk "${q.slice(0,60)}" 🌸\n${res}`;
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "codebase search failed"}`;
       }
