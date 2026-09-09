@@ -82,9 +82,9 @@ function writePlan(plan: Plan, userKey: string): void {
 export function createPlan(title: string, goal: string, rawUser?: unknown): Plan {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
-  const t = title.trim().slice(0, 120);
-  if (!t) throw new Error("title required");
   const g = goal.trim().slice(0, 500);
+  let t = title.trim().slice(0, 120);
+  if (!t) t = g.slice(0, 60) || "Rencana Baru";
   const now = Date.now();
   const plan: Plan = {
     id: `${now.toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
