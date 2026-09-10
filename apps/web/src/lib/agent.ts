@@ -701,6 +701,24 @@ async function runAgent(
 
   // All read-only tools: execute them server-side and continue (FR-013).
   if (round < MAX_TOOL_ROUNDS) {
+    // Verbatim list tools: keep bullet list warm, don't rephrase to single sentence
+    const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight"]);
+    const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
+    if (verbatimCalls.length >= 1) {
+      for (const vcall of verbatimCalls) {
+        const content = await executeTool(vcall, user);
+        if (!/^error:/i.test(content.trim())) {
+          collector.collect(content);
+          for (const other of toolCalls2.filter((c) => !VERBATIM_LIST.has(c.name))) {
+            const oc = await executeTool(other, user);
+            messages.push({ role: "tool", tool_call_id: other.id, content: oc });
+          }
+          return { needsConfirmation: null };
+        }
+        messages.push({ role: "tool", tool_call_id: vcall.id, content });
+        return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
+      }
+    }
     for (const call of toolCalls2) {
       let content = await executeTool(call, user);
       // When web_search returns "No results found." for a search query, add
@@ -1620,6 +1638,7 @@ async function runAssistantTurnImpl(opts: {
     const q = lastUser?.content ? messageText(lastUser.content).toLowerCase() : "";
     if (q.includes("tugas reminder") || q.includes("reminder kamu apa") || q.includes("list reminder")) {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { readReminders } = require("./reminders") as typeof import("./reminders");
         const rs = readReminders(opts.user);
         if (rs.length) {

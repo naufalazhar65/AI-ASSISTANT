@@ -465,6 +465,7 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (_args, ctx) => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { listAutomationsText } = require("./automations") as typeof import("./automations");
         return listAutomationsText(ctx.rawUser);
       } catch (err) {
