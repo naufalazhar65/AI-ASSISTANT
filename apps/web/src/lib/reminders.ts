@@ -99,12 +99,13 @@ export function listUsersWithReminders(): string[] {
   }
 }
 
-/** Prune one-shot reminders that fired >24h ago (daily stays). */
-function pruneOldOneShots(reminders: Reminder[], now = Date.now()): Reminder[] {
-  const cutoff = now - 24 * 60 * 60 * 1000;
+/** Prune one-shot reminders that already fired (daily stays — it reschedules).
+ *  Delivered one-shots are dropped from the store immediately on delivery by
+ *  `takeDueReminders`; this is the safety net for legacy `fired` records. */
+function pruneOldOneShots(reminders: Reminder[]): Reminder[] {
   return reminders.filter((r) => {
     if (!r.fired || r.repeat === "daily") return true;
-    return r.at > cutoff; // keep if fired within 24h, else delete
+    return false; // any fired one-shot is obsolete — never accumulate
   });
 }
 
@@ -235,7 +236,8 @@ export function attachVariants(rawUser: unknown, text: string, variants: string[
  * Due-and-unfired reminders for one user. Every returned reminder is marked
  * handled before returning so it's broadcast only once: daily reminders are
  * rescheduled 24h ahead (still unfired) with their variant index advanced;
- * one-shot reminders are marked fired. Invalid users yield none.
+ * one-shot reminders are dropped from the store right after delivery (no
+ * lingering "sudah terkirim" clutter). Invalid users yield none.
  */
 export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[] {
   const userKey = sanitizeUser(rawUser);
@@ -246,16 +248,15 @@ export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[
   if (!due.length) return [];
   const dueIds = new Set(due.map((r) => r.id));
   writeReminders(
-    reminders.map((r) => {
-      if (!dueIds.has(r.id)) return r;
-      if (r.repeat === "daily") {
-        // Reschedule to the next 24h slot, rotating the variant pool so each
-        // delivery gets a different message when the user asked for variety.
+    reminders
+      .filter((r) => !dueIds.has(r.id) || r.repeat === "daily")
+      .map((r) => {
+        if (!dueIds.has(r.id)) return r;
+        // Daily: reschedule to the next 24h slot, rotating the variant pool so
+        // each delivery gets a different message when the user asked for variety.
         const variantIdx = r.variants?.length ? (r.variantIdx ?? 0) + 1 : undefined;
         return { ...r, at: r.at + 24 * 60 * 60 * 1000, fired: false, variantIdx };
-      }
-      return { ...r, fired: true };
-    }),
+      }),
     userKey
   );
   // Deliver the current text (or the next variant) so listeners see one variation.

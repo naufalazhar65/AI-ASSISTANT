@@ -23,9 +23,9 @@ import { buildWeeklyInsight } from "./weeklyInsight";
 import { habitStats, logHabit } from "./habits";
 import { gmailAuthUrl, gmailConfigured, gmailConnected, gmailList, gmailRead, gmailSearch } from "./email";
 
-/** Human-readable reminder state for the model: upcoming (unfired) first, then
- *  today's delivered — so it can talk about reminders HONESTLY instead of
- *  inventing status from stale persona facts. */
+/** Human-readable reminder state for the model: upcoming (unfired) only — a
+ *  delivered one-shot is dropped from the store immediately, so there's never
+ *  a "sudah terkirim" section to fetch (keeps the list honest and clean). */
 function remindersListText(rawUser: unknown): string {
   const now = Date.now();
   const rs = readReminders(rawUser);
@@ -33,15 +33,11 @@ function remindersListText(rawUser: unknown): string {
   const fmt = (ms: number): string =>
     new Date(ms).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const upcoming = rs.filter((r) => !r.fired && r.at >= now).sort((a, b) => a.at - b.at).slice(0, 10);
-  const deliveredToday = rs.filter((r) => r.fired && now - r.at < 24 * 60 * 60 * 1000).sort((a, b) => b.at - a.at).slice(0, 5);
   const lines: string[] = [`Daftar reminder kamu beb — ${rs.length} total 🌸`];
   for (const r of upcoming) {
     lines.push(`• ${fmt(r.at)} — "${r.text}"${r.repeat === "daily" ? " (harian 🔁)" : ""} — siap aku ingetin ⏰ (terjadwal)`);
   }
-  for (const r of deliveredToday) {
-    lines.push(`• ${fmt(r.at)} — "${r.text}" — sudah kuingetin tadi ✓ (sudah terkirim)`);
-  }
-  return lines.length > 1 ? lines.join("\n") : "Belum ada reminder terjadwal beb — yang lama sudah kekirim semua 🌸";
+  return lines.length > 1 ? lines.join("\n") : "Belum ada reminder terjadwal beb 🌸";
 }
 import { auditLog } from "./auditLog";
 import { toolsDeny } from "./config";

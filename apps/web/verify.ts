@@ -945,19 +945,24 @@ async function main() {
   }
   console.log("monitor hysteresis + test-user guard: OK");
 
-  // --- reminders_list: honest reminder state for the model (scheduled vs
-  // delivered), so it never invents "nanti ... udah lewat" from stale facts. ---
+  // --- reminders_list: honest reminder state for the model (scheduled only —
+  // delivered one-shots drop out of the store immediately, so the list never
+  // accumulates "sudah terkirim" clutter). ---
   const rUser = `verify_remlist_${Date.now()}`;
   const { addReminder: addRem, readReminders } = await import("./src/lib/reminders");
   addRem("minum", Date.now() + 3600_000, rUser);
   addRem("bangun", Date.now() - 1000, rUser);
-  takeDueV(rUser); // fire the past one → delivered
+  takeDueV(rUser); // fire the past one → dropped from store
+  const remaining = readReminders(rUser);
+  if (remaining.some((r) => r.text.includes("bangun") || r.fired)) {
+    throw new Error(`fired one-shot should be dropped from store: ${JSON.stringify(remaining)}`);
+  }
   const { executeTool: execToolR } = await import("./src/lib/tools");
   const rl = await execToolR({ id: "r1", name: "reminders_list", arguments: "{}" }, rUser);
   if (!rl.includes("terjadwal") || !rl.includes("minum")) throw new Error(`reminders_list scheduled: ${rl}`);
-  if (!rl.includes("sudah terkirim") || !rl.includes("bangun")) throw new Error(`reminders_list delivered: ${rl}`);
+  if (rl.includes("sudah terkirim") || rl.includes("bangun")) throw new Error(`reminders_list should not show delivered: ${rl}`);
   rmSync(join(userDataRoot(), rUser), { recursive: true, force: true });
-  console.log("reminders_list: OK (scheduled + delivered both listed)");
+  console.log("reminders_list: OK (scheduled listed, delivered dropped from store)");
 }
 
 main().catch((err) => {

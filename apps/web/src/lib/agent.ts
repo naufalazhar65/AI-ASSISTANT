@@ -1649,7 +1649,7 @@ async function runAssistantTurnImpl(opts: {
           const lines = [`Daftar reminder kamu beb — ${rs.length} total 🌸`];
           for (const r of rs.slice(0,10)) {
             const t = new Date(r.at).toLocaleString("id-ID", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
-            lines.push(`• ${t} — "${r.text}"${r.repeat==="daily"?" (harian 🔁)":""} ${r.fired?"sudah terkirim ✓":"siap aku ingetin ⏰"}`);
+            lines.push(`• ${t} — "${r.text}"${r.repeat==="daily"?" (harian 🔁)":""} — siap aku ingetin ⏰`);
           }
           text = lines.join("\n");
         }
