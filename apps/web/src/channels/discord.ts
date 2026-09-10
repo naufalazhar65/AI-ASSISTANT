@@ -27,7 +27,7 @@ import { chunkText, DISCORD_MAX } from "./replyChunk";
  *   DISCORD_USER                  fallback user key for persona (default "naufal")
  */
 
-import { Client, Events, GatewayIntentBits, Message, Partials, REST, Routes, SlashCommandBuilder} from "discord.js";
+import { Client, Events, GatewayIntentBits, Message, MessageFlags, Partials, REST, Routes, SlashCommandBuilder} from "discord.js";
 import { runAssistantTurn, ChatMessage } from "@/lib/agent";
 import { ToolCall } from "@/lib/tools";
 import { subscribeReminders, Reminder } from "@/lib/reminders";
@@ -434,10 +434,13 @@ async function replyMia(msg: Message, text: string): Promise<Message> {
   const safe = text ?? "";
   // Discord renders GitHub-flavoured Markdown natively and caps messages at
   // 2000 chars; send as-is (chunked) replying to the triggering message, falling
-  // back to a plain channel send per chunk on any error.
+  // back to a plain channel send per chunk on any error. SuppressEmbeds hides
+  // the automatic link-preview cards (e.g. Google News "Comprehensive up-to-date"
+  // cards rendered from every news.google.com anchor URL) while anchors stay
+  // tappable.
   let last!: Message;
   for (const chunk of chunkText(safe, DISCORD_MAX)) {
-    last = await msg.reply(chunk).catch(
+    last = await msg.reply({ content: chunk, flags: [MessageFlags.SuppressEmbeds] }).catch(
       () => (msg.channel as unknown as SendableChannel).send(`> ${chunk}`) as Promise<Message>
     );
   }

@@ -135,6 +135,36 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "google_news",
+        description:
+          "Fetch Google News headlines — top stories, or a keyword search scoped to a language edition. Returns recent headlines with source and link. Use when the user asks about current news, breaking stories, or 'berita terbaru'.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Optional keyword to search. Omit for top headlines.",
+            },
+            language: {
+              type: "string",
+              description: "Edition, e.g. 'id-ID' (default), 'en-US'. Maps to Google News hl/gl.",
+            },
+          },
+          required: [],
+        },
+      },
+    },
+    execute: (args) =>
+      googleNews(
+        typeof args.query === "string" ? args.query : "",
+        typeof args.language === "string" ? args.language : "id-ID"
+      ),
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "calculate",
         description:
           "Evaluate a simple arithmetic expression and return the numeric result.",
@@ -2741,6 +2771,60 @@ function resolveBingRedirect(raw: string): string {
   return raw;
 }
 
+const GOOGLE_NEWS_RSS = "https://news.google.com/rss";
+const GN_MAX_ITEMS = 6;
+
+/**
+ * Google News headlines via the official RSS endpoint (keyless). `query` empty
+ * → latest headlines; otherwise news.google.com keyword search. `language`
+ * like "id-ID" or "en-US" maps to hl/gl/ceid edition params. Returns a terse
+ * per-item list (title — source + date · source hostname). The RSS `<link>`/
+ * `<description>` carry 400+ char base64 redirect URLs that would render as
+ * ugly link previews, so the article link is embedded as a compact markdown
+ * anchor `[host](url)`. "No results" or short "Error: ..." on failure so it
+ * degrades safely.
+ */
+async function googleNews(query: string, language: string): Promise<string> {
+  const lang = /^[a-z]{2}(-[A-Z]{2})$/.test(language) ? language : "id-ID";
+  const [hl, gl] = lang.split("-");
+  const params = new URLSearchParams({ hl, gl, ceid: `${gl}:${hl}` });
+  if (query.trim()) {
+    params.set("q", query.trim().slice(0, 200));
+  }
+  let xml: string;
+  try {
+    const res = await fetch(`${GOOGLE_NEWS_RSS}${query.trim() ? "/search" : ""}?${params}`, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/rss+xml, application/xml, text/xml" },
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!res.ok) return "Error: google news fetch failed";
+    xml = await res.text();
+  } catch {
+    return "Error: google news fetch failed";
+  }
+  const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, GN_MAX_ITEMS);
+  if (!items.length) return "No news found.";
+
+  const rows: string[] = [];
+  for (const [, body] of items) {
+    const title = stripTags(body.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "").replace(/^Google News:\s+/i, "");
+    const srcAttr = body.match(/<source url="([^"]*)"[^>]*>([\s\S]*?)<\/source>/i);
+    const source = stripTags(srcAttr?.[2] ?? "");
+    const titleClean = source && title.endsWith(` - ${source}`) ? title.slice(0, -(` - ${source}`.length)) : title;
+    const pub = body.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim() ?? "";
+    const when = pub ? ` — ${new Date(pub).toLocaleDateString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : "";
+    if (!titleClean) continue;
+    const host = (() => { try { return srcAttr?.[1] ? new URL(srcAttr[1]).hostname.replace(/^www\./, "") : ""; } catch { return ""; } })();
+    const article = body.match(/<link>\s*(?:<\!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/link>/i)?.[1]?.trim() ?? "";
+    rows.push(`• ${titleClean} (${source || "berita"}${when})${host ? ` — [${host}](${article})` : ""}`);
+  }
+  if (!rows.length) return "No news found.";
+  const head = query.trim()
+    ? `Nih berita soal "${query.trim()}" — ${items.length} result 🌸`
+    : `Ini headline terbaru 🌸 — ${items.length} result`;
+  return [head, ...rows].join("\n").slice(0, 4000);
+}
+
 /** Extract Bing organic results (b_algo blocks with <h2> links + b_lineclamp snippets).
  *  Filters out Bing's own "Search Images" / feature links at the top. */
 function parseBingResults(html: string): string {
@@ -2816,6 +2900,7 @@ function stripTags(htmlText: string): string {
     .replace(/<[^>]*>/g, "")
     .replace(/&quot;/g, '"')
     .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")

@@ -103,6 +103,13 @@ async function main() {
   if (!(await executeTool({ id: "t", name: "nope", arguments: "{}" })).startsWith("Error:")) {
     throw new Error("unknown tool not rejected");
   }
+  {
+    const news = await executeTool({ id: "t", name: "google_news", arguments: "{}" });
+    if (news.startsWith("Error:")) throw new Error(`google_news failed: ${news}`);
+    if (!news.includes("•")) throw new Error(`google_news no bullet list: ${news.slice(0, 80)}`);
+    const newsQ = await executeTool({ id: "t", name: "google_news", arguments: JSON.stringify({ query: "OpenAI", language: "en-US" }) });
+    if (newsQ.startsWith("Error:")) throw new Error(`google_news query failed: ${newsQ}`);
+  }
 
   // --- persistent notes store (save/list/delete round-trip on disk) ---
   const tag = "verify note " + Date.now();

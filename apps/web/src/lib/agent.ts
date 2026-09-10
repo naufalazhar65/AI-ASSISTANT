@@ -164,8 +164,9 @@ const SYSTEM_PROMPT = [
   "VISION: when the user sends an image (it arrives as image_url), you CAN see it — describe it accurately and helpfully, never claim you cannot see images. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, cancel_reminder, reminders_mac_add, reminders_mac_list, habit_log, habit_stats, add_task, list_tasks, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, plan_list, plan_get, skill_list, skill_search, hello_world, list_uploads, read_upload, create_automation, automation_list, fetch_url, search_memory, memory_get, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, gmail_link, gmail_list, gmail_read, gmail_search, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, and briefing. ",
+  "You have tools: web_search, google_news, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, cancel_reminder, reminders_mac_add, reminders_mac_list, habit_log, habit_stats, add_task, list_tasks, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, plan_list, plan_get, skill_list, skill_search, hello_world, list_uploads, read_upload, create_automation, automation_list, fetch_url, search_memory, memory_get, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, gmail_link, gmail_list, gmail_read, gmail_search, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, and briefing. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
+  "google_news for current news headlines or a keyword news search (berita terbaru) — ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
   "show saved notes, delete_note to remove one, file_read to read a project ",
   "file or list a directory (path inside the repo root or any allowed workspace; ",
@@ -702,10 +703,16 @@ async function runAgent(
   // All read-only tools: execute them server-side and continue (FR-013).
   if (round < MAX_TOOL_ROUNDS) {
     // Verbatim list tools: keep bullet list warm, don't rephrase to single sentence
-    const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search"]);
+    const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news"]);
     const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
     if (verbatimCalls.length >= 1) {
+      // The model sometimes requests the same tool twice in one turn (e.g. two
+      // google_news calls) — execute+collect each tool name only once, otherwise
+      // the verbatim output would double.
+      const done = new Set<string>();
       for (const vcall of verbatimCalls) {
+        if (done.has(vcall.name)) continue;
+        done.add(vcall.name);
         const content = await executeTool(vcall, user);
         if (!/^error:/i.test(content.trim())) {
           collector.verbatimHit = true;
