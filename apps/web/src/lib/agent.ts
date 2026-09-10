@@ -1569,6 +1569,8 @@ function isColdGreetingReply(text: string): boolean {
  *  warm line. Mood/greeting get curated variants; other turns get a generic
  *  de-telegraphing rewrite so 9router's fragment style never reaches the user. */
 export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, isVerbatimList = false): string {
+  // Never touch lists — they must be warm and formatted precisely.
+  if (text.includes("\n- ") || text.includes("\n* ")) return text;
   if (isStructuredReply(text) && !isVerbatimList) return reflowStructuredReply(text);
   // Greeting cold-formal should be warm even if not telegraphic/choppy
   const lastUserG = [...messages].reverse().find((m) => m.role === "user" && m.content);
