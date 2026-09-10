@@ -606,7 +606,7 @@ async function runAgent(
   apiKey: string,
   defaultModel: string,
   systemPrompt: string,
-  collector: { collect: (text: string) => void; webSearchSuccess?: boolean },
+  collector: { collect: (text: string) => void; webSearchSuccess?: boolean; verbatimHit?: boolean },
   round: number,
   model?: string,
   user?: unknown,
@@ -708,6 +708,7 @@ async function runAgent(
       for (const vcall of verbatimCalls) {
         const content = await executeTool(vcall, user);
         if (!/^error:/i.test(content.trim())) {
+          collector.verbatimHit = true;
           collector.collect(content);
           for (const other of toolCalls2.filter((c) => !VERBATIM_LIST.has(c.name))) {
             const oc = await executeTool(other, user);
@@ -1322,8 +1323,8 @@ function isColdGreetingReply(text: string): boolean {
 /** If the reply is telegraphic (every sentence ≤4 words), replace it with a
  *  warm line. Mood/greeting get curated variants; other turns get a generic
  *  de-telegraphing rewrite so 9router's fragment style never reaches the user. */
-export function ensureMoodReplyQuality(messages: ChatMessage[], text: string): string {
-  if (isStructuredReply(text)) return reflowStructuredReply(text);
+export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, isVerbatimList = false): string {
+  if (isStructuredReply(text) && !isVerbatimList) return reflowStructuredReply(text);
   // Greeting cold-formal should be warm even if not telegraphic/choppy
   const lastUserG = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content)) && isColdGreetingReply(text)) {
@@ -1548,7 +1549,7 @@ async function runAssistantTurnImpl(opts: {
 
   let text = "";
   let needsConfirmation: ToolCall[] | null = null;
-  const collector: { collect: (t: string) => void; webSearchSuccess?: boolean } = {
+  const collector: { collect: (t: string) => void; webSearchSuccess?: boolean; verbatimHit?: boolean } = {
     collect: (t: string) => (text += t),
   };
   let result: { needsConfirmation: ToolCall[] | null };
@@ -1632,16 +1633,19 @@ async function runAssistantTurnImpl(opts: {
   if (!planToolAlreadyHandled(needsConfirmation)) {
     text = ensurePlanFromIntent(messages, opts.user, text);
   }
-  // Deterministic list for "tugas reminder apa aja" when model gives empty (no tool call)
-  if (!text.trim() && !needsConfirmation?.length) {
+  // Deterministic list fallback: some providers rephrase the `reminders_list`
+  // tool output into a single sentence or return empty. When the user explicitly
+  // ASKED to see the list and the reply has no bullets, rebuild it verbatim.
+  if (!needsConfirmation?.length) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
     const q = lastUser?.content ? messageText(lastUser.content).toLowerCase() : "";
-    if (q.includes("tugas reminder") || q.includes("reminder kamu apa") || q.includes("list reminder")) {
+    const isListAsk = (q.includes("tugas reminder") || q.includes("reminder kamu apa") || q.includes("list reminder") || q.includes("reminders_list") || /^reminder/.test(q.trim()));
+    if (isListAsk && !text.includes("•")) {
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { readReminders } = require("./reminders") as typeof import("./reminders");
         const rs = readReminders(opts.user);
-        if (rs.length) {
+        if (rs.length && !text.includes("•")) {
           const lines = [`Daftar reminder kamu beb — ${rs.length} total 🌸`];
           for (const r of rs.slice(0,10)) {
             const t = new Date(r.at).toLocaleString("id-ID", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
@@ -1745,13 +1749,13 @@ async function runAssistantTurnImpl(opts: {
   // then the deterministic rewrite as a final fallback. Checking isTelegraphic
   // AFTER the rewrite is wrong: the rewrite already makes it non-telegraphic,
   // so the polish would never fire.
-  const wasStiff = (text.trim()) && (isTelegraphicReply(text) || isChoppyReply(text) || isStructuredReply(text));
+  const wasStiff = !collector.verbatimHit && (text.trim()) && (isTelegraphicReply(text) || isChoppyReply(text) || isStructuredReply(text));
   if (wasStiff && (providerId === "9router" || providerId === "groq")) {
     try {
       text = await polishReplyWithProvider(text, resolved.url, resolved.apiKey, resolved.defaultModel);
     } catch { /* fall back to existing text */ }
   }
-  text = ensureMoodReplyQuality(messages, text);
+  text = ensureMoodReplyQuality(messages, text, collector.verbatimHit);
 
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
   // This provides the YYYY-MM-DD.md files that memory_get reads and that
