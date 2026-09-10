@@ -38,6 +38,7 @@ import { checkRateLimit, RateLimitError } from "./rateLimit";
 import { recordTurn } from "./turnStats";
 import { auditLog } from "./auditLog";
 import { fixAddressComma } from "./textStyle";
+import { dayRotated } from "./dayRotated";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -204,7 +205,7 @@ const SYSTEM_PROMPT = [
   "Use briefing to serve the morning/day digest when the user asks 'briefing', 'ringkasan pagi', 'apa agenda hari ini', 'rencana hari ini', or greets in the morning wanting their schedule — it assembles due/overdue tasks, today's reminders, yesterday's mood+memory, and any civil holiday today. It runs immediately, without confirmation." ,
   "Fun features, all immediate without confirmation: mala gives a daily fortune ('ramalan harian', stable all day) when the user asks to be told their luck/fortune; game_start starts a song-guess round (Mia secretly picks a song from the user's recently played Spotify history), game_guess checks the user's guess (correct → celebrate + score; wrong → next clue, max 3), game_quit reveals and stops; hari_libur answers Indonesian public holidays ('tanggal merah/libur nasional'), noting that moveable Islamic dates follow the official SKB — web_search them when the user needs exact current-year dates; recap wraps up the user's day from memory + moods when asked ('rekap hariku'); weekly_insight gives the 7-day digest (moods, tasks, recurring themes) when asked ('insight minggu ini', 'rekap mingguan').",
   "Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_next/spotify_previous/spotify_volume to control playback (they run immediately, no confirmation). If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
-  "Gmail inbox is read-only and tidy: gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. If not connected, call gmail_link for auth URL. All run immediately without confirmation and are paginated (max 20, default 10).",
+  "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. Present the returned list as one email per line.",
   "save_note, delete_note, library_remove, memory_hygiene, write_file, edit_file, browser_click, browser_type, browser_navigate, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
   "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, mac_open, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous and spotify_volume do NOT wait for confirmation — send/run them right away.",
@@ -212,7 +213,7 @@ const SYSTEM_PROMPT = [
   "Report tool results as a natural, complete Indonesian sentence in your own ",
   "voice — NEVER as terse fragments. The words 'Progress', 'Progres', 'Device', ",
   "'Status', 'play', 'paused', 'status:' and '▶/⏸' are FORBIDDEN in your reply. ",
-  "For list tools (list_tasks, reminders_list, automation_list, plan_list, calendar_list, skill_list) keep the header and bullet list exactly as returned — just add a warm opening like 'Nih beb — ' if needed, don't rephrase to raw sentences or hallucinate counts. ",
+  "For list tools (list_tasks, reminders_list, automation_list, plan_list, calendar_list, skill_list, gmail_list, gmail_search, device_list, library_list) keep the returned list structure — one item per line, keep each item's own details — and just add a warm opening like 'Nih beb — ' if needed. NEVER collapse a list into a single comma-run sentence, don't rephrase to raw sentences, and don't hallucinate counts. E.g. for emails show one email per line ('1. Gojek — diskon GoFood 9.9 s.d. 99rb') instead of one long sentence listing all of them. ",
   "Spotify/calendar/task/reminder results already read as natural sentences — ",
   "just forward them warmly in your own voice (e.g. 'Lagi muter Just Take My Heart ",
   "dari Mr. Big. Udah jalan 3 menit dari 4 menit 23 detik, di MacBook Air kamu.'). ",
@@ -701,7 +702,7 @@ async function runAgent(
   // All read-only tools: execute them server-side and continue (FR-013).
   if (round < MAX_TOOL_ROUNDS) {
     // Verbatim list tools: keep bullet list warm, don't rephrase to single sentence
-    const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight"]);
+    const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search"]);
     const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
     if (verbatimCalls.length >= 1) {
       for (const vcall of verbatimCalls) {
@@ -854,17 +855,39 @@ const REMINDER_ADD_LINES = [
   (t: string, rec: string) => `Kebukukan, ${rec}jam ${t} aku gedor-gedor ingatanmu`,
 ];
 export function reminderMoveSuffix(labels: string): string {
-  return REMINDER_MOVE_LINES[Math.floor(Date.now() / 86400000) % REMINDER_MOVE_LINES.length](labels);
+  return dayRotated(REMINDER_MOVE_LINES)(labels);
 }
 export function reminderAddSuffix(labels: string, recurring: string): string {
-  return REMINDER_ADD_LINES[Math.floor(Date.now() / 86400000) % REMINDER_ADD_LINES.length](labels, recurring);
+  return dayRotated(REMINDER_ADD_LINES)(labels, recurring);
 }
 
+const REMINDER_DELETE_LINES = [
+  () => "Udah kuhapus reminder itu ya, sekarang cuma yang lain yang tersisa.",
+  () => "Beres — yang itu sudah kubuang dari jadwal, sisanya aman di rumah.",
+  () => "Dihapus ya, biar daftarnya nggak berisik. Yang lain tetap jalan.",
+  () => "Gone! Reminder itu keluar dari radar, yang lain kubiarin aja.",
+  () => "Sudah kuhapus — jadwalku jadi lebih lega sekarang, sisanya utuh.",
+];
+
 /** "…hapus aja" with no remaining add intents → honest delete confirmation. */
-function appendDeleteSuffix(text: string): string {
+export function appendDeleteSuffix(text: string): string {
   const base = (text || "").trimEnd();
   if (/hapus|dihapus|didelete|cancel|dibatalkan|gak ada|nggak ada|udah aku hapus|sudah hapus/i.test(base)) return base;
-  return `${base} (Udah kuhapus reminder itu ya, sekarang cuma yang lain yang tersisa.)`.replace(/^\s+/, "");
+  const line = dayRotated(REMINDER_DELETE_LINES)();
+  return `${base} (${line})`.replace(/^\s+/, "");
+}
+
+const PLAN_CREATE_LINES = [
+  (title: string, steps: number) => `Plan "${title}" sudah kubuat beb — ${steps} step, cek plan_list ya 🌸`,
+  (title: string, steps: number) => `Kubikin plan "${title}" — ${steps} langkah siap, liat di plan_list ya 🌸`,
+  (title: string, steps: number) => `Beres, plan "${title}" masuk daftar — ${steps} step dieksekusi mulai sekarang, cek plan_list 😄`,
+  (title: string, steps: number) => `Plan "${title}" kususun jadi ${steps} tahap — kabarin aku kalau mau mulai, ya 🌸`,
+  (title: string, steps: number) => `Siap, plan "${title}" udah ke-booking dengan ${steps} step — plan_list buat ngintip ya ✨`,
+];
+
+/** Day-rotated plan-created suffix. */
+export function planCreateSuffix(title: string, steps: number): string {
+  return dayRotated(PLAN_CREATE_LINES)(title, steps);
 }
 
 function ensurePlanFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
@@ -882,7 +905,8 @@ function ensurePlanFromIntent(messages: ChatMessage[], user: unknown, text: stri
     const p = createPlan(goalRaw.slice(0, 60), goalRaw, user);
     // If plan already had steps (dedup), just return warm confirmation, don't re-create
     if (text && text.includes(p.title)) return text;
-    const suffix = ` (Plan "${p.title}" sudah kubuat beb — ${p.steps.length} step, cek plan_list ya 🌸)`;
+    const line = planCreateSuffix(p.title, p.steps.length);
+    const suffix = ` (${line})`;
     return (text || "").trimEnd() + suffix;
   } catch {
     return text;
@@ -941,6 +965,17 @@ function appendTurnResult(text: string, result: string): string {
  * "monitorin harga bitcoin" always lands on the watchlist and gets alerts via
  * the heartbeat. Duplicate rules are merged by `addMonitor`.
  */
+const MONITOR_ADD_LINES = [
+  (names: string) => `Sudah kupasang pantauan: ${names} — bakal kucek berkala dan kabarin begitu kena.`,
+  (names: string) => `Beres, sekarang ${names} masuk radar pantauanku — aku kirim kabar pas angkanya kena.`,
+  (names: string) => `Pantauan aktif buat ${names} — aku ngintipin terus, nanti kubilang kalau sudah nembus ambang.`,
+  (names: string) => `Oke, ${names} kumasukkan ke watchlist — begitu ada lintas, sore ini juga kukabari ya.`,
+  (names: string) => `Daftar pantauanku nambah: ${names} — sisanya biar aku yang jaga, chill aja 😄`,
+];
+export function monitorAddSuffix(names: string): string {
+  return dayRotated(MONITOR_ADD_LINES)(names);
+}
+
 function scheduleMonitorFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
@@ -964,7 +999,7 @@ function scheduleMonitorFromIntent(messages: ChatMessage[], user: unknown, text:
         ? `${t.name} (alert ${t.direction === "below" ? "di bawah" : "di atas"} ${t.threshold.toLocaleString("id-ID")}${unit})`
         : t.name;
     };
-    const confirmSuffix = ` (Sudah kupasang pantauan: ${targets.map(label).join(" dan ")} — bakal kucek berkala dan kabarin begitu kena.)`;
+    const confirmSuffix = ` (${monitorAddSuffix(targets.map(label).join(" dan "))})`;
     const trimmed = (text || "").trim();
     const stubOnly = trimmed === "" || /^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(trimmed);
     if (stubOnly) return confirmSuffix.trim();
@@ -973,6 +1008,15 @@ function scheduleMonitorFromIntent(messages: ChatMessage[], user: unknown, text:
     console.error("[agent] monitor intent scheduling failed:", err instanceof Error ? err.message : String(err));
     return text;
   }
+}
+
+/** Day-rotated Spotify "play" suffix. `ok`=false keeps the raw result (error text). */
+export function spotifyPlaySuffix(played: string, ok: boolean): string {
+  return ok ? ` (${dayRotated(SPOTIFY_PLAY_LINES)(played)})` : ` (${played})`;
+}
+/** Day-rotated Spotify "resume" suffix. */
+export function spotifyResumeSuffix(resumeResult: string): string {
+  return ` (${dayRotated(SPOTIFY_RESUME_LINES)(resumeResult)})`;
 }
 
 /**
@@ -1009,8 +1053,9 @@ async function scheduleSpotifyFromIntent(
     const okR = /dilanjutkan/i.test(resumeResult);
     const trimmedR = (text || "").trim();
     const stubR = trimmedR === "" || /^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(trimmedR);
-    if (stubR) return ` (Sudah kulanjutkan: ${resumeResult})`;
-    return okR && /spotify|putar|play|lagu/i.test(trimmedR) ? text : `${trimmedR} (Sudah kulanjutkan: ${resumeResult})`.trim();
+    const resumeSuffix = spotifyResumeSuffix(resumeResult);
+    if (stubR) return resumeSuffix;
+    return okR && /spotify|putar|play|lagu/i.test(trimmedR) ? text : `${trimmedR} ${resumeSuffix}`.trim();
   }
   const intent = detectSpotifyIntent(messageText(lastUser.content));
   const query = fallbackQuery ?? intent?.query ?? null;
@@ -1022,7 +1067,9 @@ async function scheduleSpotifyFromIntent(
     return appendSpotifyError(text, err);
   }
   const ok = /sudah (?:benar-)?benar keputar|mulai diputar|dilanjutkan/i.test(played);
-  const confirmSuffix = ok ? ` (Sudah kuputar: ${played})` : ` (${played})`;
+  // Play operator rotated daily so "putar lagu X" doesn't answer with the same
+  // opener every time; the played result text is kept verbatim in all variants.
+  const confirmSuffix = spotifyPlaySuffix(played, ok);
   const trimmed = (text || "").trim();
   const stubOnly =
     trimmed === "" ||
@@ -1090,16 +1137,55 @@ function appendSpotifyError(text: string, err: unknown): string {
   return `${trimmed} ${friendly}`.trim();
 }
 
-function confirmSuffixFor(c: SpotifyControlIntent): string {
+// Day-rotated Spotify playback openers — "putar lagu" answered with the same
+// "Sudah kuputar" starter every time reads robotic. `played` result text stays.
+const SPOTIFY_PLAY_LINES = [
+  (p: string) => `Sudah kuputar: ${p}`,
+  (p: string) => `Nah, sekarang ${p}`,
+  (p: string) => `Kusatukan, ${p}`,
+  (p: string) => `Langsung kupasang: ${p}`,
+  (p: string) => `Udah nyala — ${p}`,
+];
+const SPOTIFY_RESUME_LINES = [
+  (p: string) => `Sudah kulanjutkan: ${p}`,
+  (p: string) => `Kusambung lagi — ${p}`,
+  (p: string) => `Lanjut lagi ya: ${p}`,
+  (p: string) => `Dimulain balik — ${p}`,
+];
+
+const SPOTIFY_PAUSE_LINES = [
+  () => "Udah kupause dulu ya. 🌸",
+  () => "Di-pause, biar musiknya istirahat dulu 😄",
+  () => "Beres, lagunya kubentikan sejenak. 🌸",
+];
+const SPOTIFY_NEXT_LINES = [
+  () => "Udah kunext. 🌸",
+  () => "Geser ke lagu berikutnya, siap! 🌸",
+  () => "Lagu selanjutnya, beres. 😄",
+];
+const SPOTIFY_PREVIOUS_LINES = [
+  () => "Udah kuputar lagu sebelumnya. 🌸",
+  () => "Kembali ke lagu tadi, ya. 🌸",
+  () => "Satu langkah mundur — lagu sebelumnya nyala. 😄",
+];
+const SPOTIFY_VOLUME_LINES = [
+  (v: number) => `Volume kuset ke ${v}. 🌸`,
+  (v: number) => `Volume kutuah sampai ${v}. 🔈`,
+  (v: number) => `Suaranya kuset ${v}. 🌸`,
+];
+
+export function confirmSuffixFor(c: SpotifyControlIntent): string {
   switch (c.action) {
     case "pause":
-      return "Udah kupause dulu ya. 🌸";
+      return dayRotated(SPOTIFY_PAUSE_LINES)();
     case "next":
-      return "Udah kunext. 🌸";
+      return dayRotated(SPOTIFY_NEXT_LINES)();
     case "previous":
-      return "Udah kuputar lagu sebelumnya. 🌸";
+      return dayRotated(SPOTIFY_PREVIOUS_LINES)();
     default:
-      return c.value !== undefined ? `Volume kuset ke ${c.value}. 🌸` : "Volumenya kubiarin aja kalau gak disebut angka. 🌸";
+      return c.value !== undefined
+        ? dayRotated(SPOTIFY_VOLUME_LINES)(c.value)
+        : "Volumenya kubiarin aja kalau gak disebut angka. 🌸";
   }
 }
 
@@ -1422,7 +1508,7 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
   // Greeting cold-formal should be warm even if not telegraphic/choppy
   const lastUserG = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content)) && isColdGreetingReply(text)) {
-    return GREETING_EMPATHY[Math.floor(Date.now() / 86400000) % GREETING_EMPATHY.length];
+    return dayRotated(GREETING_EMPATHY);
   }
   if (!isTelegraphicReply(text) && !isChoppyReply(text)) return text;
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
@@ -1431,10 +1517,10 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
   const moodHit = detectMoodIntent(lastTxt);
   if (moodHit) {
     const variants = MOOD_EMPATHY[moodHit.mood] ?? MOOD_EMPATHY.okay;
-    return variants[Math.floor(Date.now() / 86400000) % variants.length];
+    return dayRotated(variants);
   }
   if (detectGreetingTurn(lastTxt)) {
-    return GREETING_EMPATHY[Math.floor(Date.now() / 86400000) % GREETING_EMPATHY.length];
+    return dayRotated(GREETING_EMPATHY);
   }
   return rewriteGenericTelegraphic(text);
 }

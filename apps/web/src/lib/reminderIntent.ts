@@ -8,7 +8,10 @@
  * turn fast and safe (no tool-permission stalls) while making reminders work.
  */
 
-const INTENT_RE = /\b(bangunin|banguni|bangunkan|bangun|ingetkan|ingatkan|ingetin|ingatkan|ingat|remind|reminder|set( an)? alarm|alarm|wake( me)? up|jangan lupa|kasih tahu|beritahu|bangun aku)\b/i;
+// Imperative reminder verbs only. Bare "ingat" is deliberately EXCLUDED: it's
+// the recall verb ("kamu masih ingat mood aku?") not a command, and matching it
+// scheduled junk reminders on innocent questions.
+const INTENT_RE = /\b(bangunin|banguni|bangunkan|bangun|ingetkan|ingatkan|ingetin|remind|reminder|set( an)? alarm|alarm|wake( me)? up|jangan lupa|kasih tahu|beritahu|bangun aku)\b/i;
 
 // "setiap hari / tiap hari / every day / harian" → recurring daily reminder.
 const REPEAT_RE = /\b(setiap\s*hari|tiap\s*hari|tiap[\s-]*tiap\s*hari|every\s*day|daily|harian)\b/i;
@@ -66,7 +69,10 @@ function normalizeClock(hourStr: string, minuteStr: string | undefined, suffix: 
  */
 export function parseClockTimes(text: string): ParsedTime[] {
   const out: ParsedTime[] = [];
-  const re = /(\d{1,2})(?:[.:](\d{2}))?\s*(am|pm|\bpagi\b|\bsiang\b|\bsore\b|\bmalam\b|\bsubuh\b|\bdini\s*hari\b)?/gi;
+  // `(?<!\w)` keeps embedded digits ("kemarin2", "2005") from being clocks —
+  // the "2" in "kemarin2" was the 2026-09-12 junk-reminder bug. Only a
+  // standalone number after a non-word boundary parses as a time.
+  const re = /(?<!\w)(\d{1,2})(?:[.:](\d{2}))?\s*(am|pm|\bpagi\b|\bsiang\b|\bsore\b|\bmalam\b|\bsubuh\b|\bdini\s*hari\b)?/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     const t = normalizeClock(m[1], m[2], m[3]);

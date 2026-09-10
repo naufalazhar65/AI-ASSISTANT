@@ -782,6 +782,23 @@ async function main() {
   }
   console.log("reminder bare clock: OK (evening→tonight 20:00, night→besok pagi, morning→hari ini)");
 
+  // --- Recall-verb guard (2026-09-12 bug): "kamu masih ingat mood aku
+  // kemarin2 gimana?" must NOT be read as a reminder. Two false triggers were
+  // stacked: bare "ingat" (recall, not a command) matched INTENT_RE, and the
+  // clock regex treated the "2" in "kemarin2" as 02:00 → Mia replied "...mood
+  // membaik" then appended "(Sudah kusetel pukul 02:00 PM, nanti kubangunkan🌸)".
+  // Regression: recall questions can't schedule reminders, and embedded digits
+  // in slang words can't parse as clocks. ---
+  const recall = detectReminderIntents("kamu masih ingat mood aku kemarin2 gimana?", Date.parse("2026-09-10T12:21:00+07:00"));
+  if (recall) throw new Error(`recall question should not schedule a reminder: ${JSON.stringify(recall)}`);
+  const { detectReminderCancels: recallCancels } = await import("./src/lib/reminderIntent");
+  if (recallCancels("kamu masih ingat mood aku kemarin2 gimana?").length) throw new Error(`recall question should not cancel reminders`);
+  const embedded = parseClockTime("mood aku kemarin2 gimana");
+  if (embedded) throw new Error(`embedded digit in "kemarin2" must not parse as clock: ${JSON.stringify(embedded)}`);
+  const realRem = detectReminderIntents("tolong ingetin aku sikat gigi jam 9 pagi", Date.parse("2026-09-10T12:21:00+07:00"));
+  if (!realRem?.length) throw new Error(`real imperative reminder should still schedule: ${JSON.stringify(realRem)}`);
+  console.log("reminder recall-guard: OK (masih ingat / kemarin2 → null; ingetin jam 9 pagi → bertahan)");
+
   // --- Inline tool-call prose: a call embedded mid-sentence is stripped while
   // the surrounding words survive. ---
   const inlineLeak = stripToolCallProse("Oke aku catat remind_me(text='x') ya beb");
@@ -1053,6 +1070,64 @@ async function main() {
     );
   }
   console.log(`reminder confirmation variety: OK (${moveLines.size}+${addLines.size} distinct lines across 7 days)`);
+
+  // --- Anti-repetition pass (2026-09-12): every other deterministic Mia
+  // confirmation (delete reminder / plan / monitor / spotify play-resume /
+  // spotify control / link-saved / wind-down) also rotates day by day. All use
+  // the shared `dayRotated` picker — a pool of 1 would mean no rotation, so
+  // each must yield ≥2 distinct lines across a week and differ from its neighbors. ---
+  const {
+    appendDeleteSuffix,
+    planCreateSuffix,
+    monitorAddSuffix,
+    spotifyPlaySuffix,
+    spotifyResumeSuffix,
+    confirmSuffixFor,
+  } = await import("./src/lib/agent");
+  const linkSavedPool = await import("./src/lib/library");
+  const windDown = await import("./src/lib/windDown");
+  const dedicatedPools: Record<string, () => string> = {
+    delete: () => appendDeleteSuffix("Oke, sudah."),
+    plan: () => planCreateSuffix("Bangun jam 6", 4),
+    monitor: () => monitorAddSuffix("batre (alert di bawah 20%)"),
+    spotifyPlay: () => spotifyPlaySuffix("Love Bites — In This Moment", true),
+    spotifyResume: () => spotifyResumeSuffix("dilanjutkan"),
+    spotifyPause: () => confirmSuffixFor({ action: "pause" }),
+    spotifyNext: () => confirmSuffixFor({ action: "next" }),
+    spotifyPrevious: () => confirmSuffixFor({ action: "previous" }),
+    spotifyVolume: () => confirmSuffixFor({ action: "volume", value: 50 }),
+    linkSaved: () => linkSavedPool.linkSavedSuffix(),
+    windDown: () => windDown.windDownMessage(),
+  };
+  for (const [name, fn] of Object.entries(dedicatedPools)) {
+    const seen = new Set<string>();
+    for (let i = 0; i < 7; i++) {
+      Date.now = () => realNow() + i * DAY;
+      try {
+        seen.add(fn());
+      } finally {
+        Date.now = realNow;
+      }
+    }
+    if (seen.size < 2) {
+      throw new Error(`anti-repetition pool "${name}" should rotate (got ${seen.size} distinct in 7 days): ${[...seen].join(" | ")}`);
+    }
+  }
+  const linkSavedLines = new Set<string>();
+  for (let i = 0; i < 7; i++) {
+    Date.now = () => realNow() + i * DAY;
+    try {
+      const l = linkSavedPool.linkSavedSuffix();
+      if (!l.includes("daftar bacaan")) throw new Error(`link-saved line must mention "daftar bacaan": ${l}`);
+      linkSavedLines.add(l);
+    } finally {
+      Date.now = realNow;
+    }
+  }
+  if (linkSavedLines.size < 2) throw new Error(`link-saved should rotate (${linkSavedLines.size} distinct in 7 days)`);
+  console.log(
+    `anti-repetition variety: OK (${Object.keys(dedicatedPools).length - 1} pools renewed day-by-day, link-saved rotates + keeps "daftar bacaan")`
+  );
 }
 
 main().catch((err) => {

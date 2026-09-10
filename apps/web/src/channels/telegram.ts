@@ -1,4 +1,5 @@
 import { broadcastMiaState } from "@/lib/miaState";
+import { chunkText, TELEGRAM_MAX } from "./replyChunk";
 
 /**
  * Telegram channel adapter (PRD v2.0 §8.1 FR-101).
@@ -98,16 +99,18 @@ function isMarkdownEntityError(err: unknown): boolean {
 /** Send a Mia reply with light Markdown, falling back to plain text on error. */
 async function replyMia(ctx: Context, text: string): Promise<void> {
   const safe = text ?? "";
-  try {
-    await ctx.reply(toTelegramMarkdown(safe), { parse_mode: "Markdown" });
-    console.log(`[telegram] replied (markdown) to chat ${ctx.chat?.id ?? "?"}`);
-  } catch (err) {
-    if (isMarkdownEntityError(err)) {
-      console.log(`[telegram] markdown rejected (${isMarkdownEntityError(err) ? "entity" : ""}); sending plain`);
-      await ctx.reply(safe).catch(() => {});
-    } else {
-      console.error("[telegram] reply error (rethrow):", err instanceof Error ? err.message : String(err));
-      throw err;
+  for (const chunk of chunkText(safe, TELEGRAM_MAX)) {
+    try {
+      await ctx.reply(toTelegramMarkdown(chunk), { parse_mode: "Markdown" });
+      console.log(`[telegram] replied (markdown) to chat ${ctx.chat?.id ?? "?"}`);
+    } catch (err) {
+      if (isMarkdownEntityError(err)) {
+        console.log(`[telegram] markdown rejected (${isMarkdownEntityError(err) ? "entity" : ""}); sending plain`);
+        await ctx.reply(chunk).catch(() => {});
+      } else {
+        console.error("[telegram] reply error (rethrow):", err instanceof Error ? err.message : String(err));
+        throw err;
+      }
     }
   }
 }

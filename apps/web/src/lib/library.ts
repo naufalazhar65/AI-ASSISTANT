@@ -17,6 +17,22 @@ import { appendDailyMemory } from "./dailyMemory";
 import { summarizeText } from "./summarize";
 import { canonicalizeUrl, assertPublicUrl } from "./tools";
 import { logInfo, logError } from "./appLogger";
+import { dayRotated } from "./dayRotated";
+
+// Day-rotated "link saved" suffix — every shared link anwered with the same
+// "(Udah kusimpan…)" line reads robotic. All variants keep "daftar bacaan" so
+// verify.ts (link intelligence) can assert the phrase is present.
+const LINK_SAVED_LINES = [
+  () => `Udah kusimpan link-nya ke daftar bacaan — bilang "daftar bacaan-ku" kalau mau kubuka lagi ya 🌸`,
+  () => `Kubuku-mark link-nya di daftar bacaan — tinggal bilang "daftar bacaan-ku" kalau mau dibaca ulang 🌸`,
+  () => `Tersimpan rapi di daftar bacaan — "daftar bacaan-ku" buat ngebuka kapan-kapan ya 🌸`,
+  () => `Link-nya udah masuk daftar bacaan — kapan mau dibaca lagi, panggil "daftar bacaan-ku" aja 😄`,
+  () => `Beres, link-nya diamankan di daftar bacaan — "daftar bacaan-ku" kalau kepingin baca lagi ya 🌸`,
+];
+
+export function linkSavedSuffix(): string {
+  return dayRotated(LINK_SAVED_LINES)();
+}
 
 export interface LibraryEntry {
   id: string;
@@ -218,7 +234,7 @@ export function scheduleLinkCapture(
     if (!firstUrlInText(lastUserText)) return text;
     void captureLinkFromMessage({ messages, user, provider, model });
     if (!hasPendingConfirmation && !/simpan|saved|kurangkum|rangkum|kuarsipkan|daftar bacaan|bookmark/i.test(text)) {
-      return `${text.trim()} (Udah kusimpan link-nya ke daftar bacaan — bilang "daftar bacaan-ku" kalau mau kubuka lagi ya 🌸)`.trim();
+      return `${text.trim()} (${linkSavedSuffix()})`.trim();
     }
   } catch {
     /* never break the turn over link capture */

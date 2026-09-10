@@ -1,4 +1,5 @@
 import { broadcastMiaState } from "@/lib/miaState";
+import { chunkText, DISCORD_MAX } from "./replyChunk";
 
 /**
  * Discord channel adapter (PRD v2.0 §8.1 FR-101 / ROADMAP Fase 2.3).
@@ -431,9 +432,16 @@ export async function startDiscordBot(): Promise<void> {
 
 async function replyMia(msg: Message, text: string): Promise<Message> {
   const safe = text ?? "";
-  // Discord renders GitHub-flavoured Markdown natively; send as-is. We reply to
-  // the triggering message; fall back to a plain channel send on any error.
-  return msg.reply(safe).catch(() => (msg.channel as unknown as SendableChannel).send(`> ${safe}`) as Promise<Message>);
+  // Discord renders GitHub-flavoured Markdown natively and caps messages at
+  // 2000 chars; send as-is (chunked) replying to the triggering message, falling
+  // back to a plain channel send per chunk on any error.
+  let last!: Message;
+  for (const chunk of chunkText(safe, DISCORD_MAX)) {
+    last = await msg.reply(chunk).catch(
+      () => (msg.channel as unknown as SendableChannel).send(`> ${chunk}`) as Promise<Message>
+    );
+  }
+  return last;
 }
 
 // Optionally reply with a spoken WAV (Groq Orpheus) — used ONLY for voice-note

@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { appRoot, isTestUserKey, userDataRoot } from "./users";
 import { pushToOwner } from "../channels/pushTarget";
 import { logInfo, logError } from "./appLogger";
+import { dayRotated } from "./dayRotated";
 
 function windDownHour(): number {
   const v = Number(process.env.WIND_DOWN_HOUR);
@@ -40,9 +41,23 @@ function stateFile(): string { return join(appRoot(), ".data", "winddown-state.j
 function readLast(): string { try { return JSON.parse(readFileSync(stateFile(), "utf8")).lastFiredDate || ""; } catch { return ""; } }
 function saveLast(d: string): void { try { mkdirSync(dirname(stateFile()), { recursive: true }); const t=`${stateFile()}.tmp`; writeFileSync(t, JSON.stringify({ lastFiredDate: d })); renameSync(t, stateFile()); } catch {} }
 
+// Day-rotated wind-down nudge — the same nightly line repeated forever would
+// be wallpaper after week one. All variants still carry the same instruction.
+const WIND_DOWN_LINES = [
+  `🌙 Waktunya wind-down, beb — siapin tidur yuk. Matikan layar, tarik napas pelan. Bilang "mau tidur" kalau sudah rebahan, nanti aku catat jam tidurmu 🌸`,
+  `🌙 Malam mulai turun, beb — lampu diredupkan, layar dimatikan. Bilang "mau tidur" kalau sudah clear, agar jam bobo-mu tercatat 🌸`,
+  `🌙 Wind-down time, beb — gepian berhenti, napas pelan-pelan. Pas sudah rebahan, tinggal bilang "mau tidur" — nanti kucatat ya 😴`,
+  `🌙 Udah waktunya slow-down sebelum bobo, beb. Matikan layar dulu ya — kalau sudah nyaman, bilang "mau tidur" biar tercatat jamnya 🌸`,
+];
+
 let lastFired = readLast();
 let timer: ReturnType<typeof setInterval> | null = null;
 let started = false;
+
+/** Day-rotated wind-down nudge line (exported for verify variety test). */
+export function windDownMessage(): string {
+  return dayRotated(WIND_DOWN_LINES);
+}
 
 async function tick(): Promise<void> {
   const now = new Date();
@@ -56,7 +71,7 @@ async function tick(): Promise<void> {
   if (!existsSync(root)) return;
   for (const n of readdirSync(root, { withFileTypes: true }).filter((d)=>d.isDirectory()).map((d)=>d.name).filter((n)=>/^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n))) {
     try {
-      const msg = `🌙 Waktunya wind-down, beb — siapin tidur yuk. Matikan layar, tarik napas pelan. Bilang "mau tidur" kalau sudah rebahan, nanti aku catat jam tidurmu 🌸`;
+      const msg = dayRotated(WIND_DOWN_LINES);
       const ok = await pushToOwner(msg);
       if (ok) logInfo("winddown", `pushed for ${n}`);
     } catch (e) { logError("winddown", String(e)); }
