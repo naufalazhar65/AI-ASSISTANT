@@ -137,7 +137,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "google_news",
         description:
-          "Fetch Google News headlines — top stories, or a keyword search scoped to a language edition. Returns recent headlines with source and link. Use when the user asks about current news, breaking stories, or 'berita terbaru'.",
+          "Fetch Google News headlines — top stories, or a keyword search scoped to one or more language editions, deduped across outlets. Use when the user asks about current news, breaking stories, or 'berita terbaru'.",
         parameters: {
           type: "object",
           properties: {
@@ -147,7 +147,15 @@ const toolRegistry: ToolPlugin[] = [
             },
             language: {
               type: "string",
-              description: "Edition, e.g. 'id-ID' (default), 'en-US'. Maps to Google News hl/gl.",
+              description: "Primary edition, e.g. 'id-ID' (default), 'en-US'. Maps to Google News hl/gl.",
+            },
+            region: {
+              type: "string",
+              description: "Optional extra comma-separated editions to merge, e.g. 'en-US,en-GB' (primary edition comes first).",
+            },
+            within: {
+              type: "number",
+              description: "Optional hours window: keep only stories published in the last N hours (e.g. 24).",
             },
           },
           required: [],
@@ -157,7 +165,49 @@ const toolRegistry: ToolPlugin[] = [
     execute: (args) =>
       googleNews(
         typeof args.query === "string" ? args.query : "",
-        typeof args.language === "string" ? args.language : "id-ID"
+        typeof args.language === "string" ? args.language : "id-ID",
+        typeof args.region === "string" ? args.region : undefined,
+        typeof args.within === "number" ? args.within : undefined
+      ),
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "research",
+        description:
+          "Multi-source research digest: merges Google News editions (deduped) + web search snippets + up to two article bodies into one summarized bundle with citation links. Best for questions needing cross-source synthesis ('riset', 'kabari lengkap', 'bagaimana perkembangan ...').",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Topic or question to research (required).",
+            },
+            language: {
+              type: "string",
+              description: "Primary edition, e.g. 'id-ID' (default), 'en-US'.",
+            },
+            region: {
+              type: "string",
+              description: "Optional extra comma-separated editions to merge, e.g. 'en-US,en-GB'.",
+            },
+            within: {
+              type: "number",
+              description: "Optional hours window: keep only stories published in the last N hours (e.g. 72).",
+            },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: (args) =>
+      research(
+        typeof args.query === "string" ? args.query : "",
+        typeof args.language === "string" ? args.language : "id-ID",
+        typeof args.region === "string" ? args.region : undefined,
+        typeof args.within === "number" ? args.within : undefined
       ),
   },
   {
@@ -2763,66 +2813,202 @@ async function webSearch(query: string): Promise<string> {
   }
 }
 
-/** Resolve Bing's /ck redirect wrapper — passthrough (kept for future use). */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+/** Resolve Bing's /ck redirect wrapper into the real publisher URL (or passthrough). */
 function resolveBingRedirect(raw: string): string {
-  // Bing's /ck redirect works but the URL is unwieldy; the model only needs
-  // the search-result content, not a clean URL — pass through as-is.
-  return raw;
+  // Bing encodes the actual target URL as a base64 `u=` query param, prefixed
+  // with a "1" marker character, and the href arrives HTML-escaped (&amp; → &).
+  const decodedQuery = raw.replace(/&amp;/g, "&");
+  const m = decodedQuery.match(/[?&]u=([^&]+)/);
+  if (!m) return raw;
+  try {
+    const b64 = m[1].startsWith("a1") ? m[1].slice(2) : m[1];
+    const decoded = Buffer.from(b64.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    return decoded.startsWith("http") ? decoded : raw;
+  } catch {
+    return raw;
+  }
 }
 
 const GOOGLE_NEWS_RSS = "https://news.google.com/rss";
 const GN_MAX_ITEMS = 6;
+const GN_FETCH_PER_EDITION = 12; // fetch more than shown so dedup has candidates
+const GN_SIMILARITY_THRESHOLD = 0.55;
+
+/** Lightweight stopword set so title-similarity dedup ignores filler tokens. */
+const GN_STOPWORDS = new Set([
+  "yang","dan","di","dari","untuk","dengan","pada","ini","itu","akan","tidak","para",
+  "saat","setelah","dalam","karena","polisi","berikut","antar","antarpulau","the","a","an",
+  "of","to","in","on","and","for","is","are","was","were","by","at","as","or","ke","set"
+]);
+
+/** One normalized Google News story. */
+type GNItem = {
+  title: string;
+  source: string;
+  when: string; // formatted " — 10 Sep, 04.47"
+  host: string;
+  url: string;
+  pubMs: number; // 0 = no valid date
+};
+
+function gnTokens(title: string): string[] {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !GN_STOPWORDS.has(w));
+}
+
+/** Dice coefficient on normalized token sets — same story across outlets ≈ ≥0.55. */
+function gnSimilar(a: string, b: string): boolean {
+  const A = gnTokens(a);
+  const B = gnTokens(b);
+  if (!A.length || !B.length) return a === b;
+  const setA = new Set(A);
+  let common = 0;
+  for (const t of B) if (setA.has(t)) common++;
+  return (2 * common) / (A.length + B.length) >= GN_SIMILARITY_THRESHOLD;
+}
+
+/** Build the ordered, deduped edition array from `language` + optional `region`. */
+function buildGnLangs(language: string, region?: string): string[] {
+  const seen = new Set<string>();
+  const langs: string[] = [];
+  const candidates = [
+    language || "id-ID",
+    ...(region ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+  ];
+  for (const c of candidates) {
+    const l = /^[a-z]{2}-[A-Z]{2}$/.test(c) ? c : null;
+    if (l && !seen.has(l)) {
+      seen.add(l);
+      langs.push(l);
+    }
+  }
+  return langs.length ? langs : ["id-ID"];
+}
 
 /**
- * Google News headlines via the official RSS endpoint (keyless). `query` empty
- * → latest headlines; otherwise news.google.com keyword search. `language`
- * like "id-ID" or "en-US" maps to hl/gl/ceid edition params. Returns a terse
- * per-item list (title — source + date · source hostname). The RSS `<link>`/
- * `<description>` carry 400+ char base64 redirect URLs that would render as
- * ugly link previews, so the article link is embedded as a compact markdown
- * anchor `[host](url)`. "No results" or short "Error: ..." on failure so it
- * degrades safely.
+ * Fetch one RSS edition into structured items. `withinHours` (0 = off) keeps
+ * only items published inside that window. Never throws — returns [] on failure.
  */
-async function googleNews(query: string, language: string): Promise<string> {
-  const lang = /^[a-z]{2}(-[A-Z]{2})$/.test(language) ? language : "id-ID";
+async function fetchGnEdition(query: string, lang: string, withinHours: number): Promise<GNItem[]> {
   const [hl, gl] = lang.split("-");
   const params = new URLSearchParams({ hl, gl, ceid: `${gl}:${hl}` });
-  if (query.trim()) {
-    params.set("q", query.trim().slice(0, 200));
-  }
+  if (query.trim()) params.set("q", query.trim().slice(0, 200));
   let xml: string;
   try {
     const res = await fetch(`${GOOGLE_NEWS_RSS}${query.trim() ? "/search" : ""}?${params}`, {
       headers: { "User-Agent": USER_AGENT, Accept: "application/rss+xml, application/xml, text/xml" },
       signal: AbortSignal.timeout(9000),
     });
-    if (!res.ok) return "Error: google news fetch failed";
+    if (!res.ok) return [];
     xml = await res.text();
   } catch {
-    return "Error: google news fetch failed";
+    return [];
   }
-  const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, GN_MAX_ITEMS);
-  if (!items.length) return "No news found.";
-
-  const rows: string[] = [];
-  for (const [, body] of items) {
+  const now = Date.now();
+  const out: GNItem[] = [];
+  for (const [, body] of xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
     const title = stripTags(body.match(/<title>([\s\S]*?)<\/title>/i)?.[1] ?? "").replace(/^Google News:\s+/i, "");
     const srcAttr = body.match(/<source url="([^"]*)"[^>]*>([\s\S]*?)<\/source>/i);
     const source = stripTags(srcAttr?.[2] ?? "");
     const titleClean = source && title.endsWith(` - ${source}`) ? title.slice(0, -(` - ${source}`.length)) : title;
-    const pub = body.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim() ?? "";
-    const when = pub ? ` — ${new Date(pub).toLocaleDateString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : "";
     if (!titleClean) continue;
+    const pub = body.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim() ?? "";
+    const pubMs = pub ? Date.parse(pub) : 0;
+    if (withinHours > 0 && pubMs && now - pubMs > withinHours * 3_600_000) continue;
+    const when = pubMs ? ` — ${new Date(pubMs).toLocaleDateString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}` : "";
     const host = (() => { try { return srcAttr?.[1] ? new URL(srcAttr[1]).hostname.replace(/^www\./, "") : ""; } catch { return ""; } })();
-    const article = body.match(/<link>\s*(?:<\!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/link>/i)?.[1]?.trim() ?? "";
-    rows.push(`• ${titleClean} (${source || "berita"}${when})${host ? ` — [${host}](${article})` : ""}`);
+    const url = body.match(/<link>\s*(?:<\!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?\s*<\/link>/i)?.[1]?.trim() ?? "";
+    out.push({ title: titleClean, source, when, host, url, pubMs });
   }
-  if (!rows.length) return "No news found.";
+  return out.slice(0, GN_FETCH_PER_EDITION);
+}
+
+/**
+ * Fetch all editions (primary first), merge, and dedup stories by title
+ * similarity so the same story from 6 outlets shows once. Capped at GN_MAX_ITEMS.
+ */
+async function fetchGnItems(query: string, langs: string[], withinHours: number): Promise<GNItem[]> {
+  const merged = (await Promise.all(langs.map((l) => fetchGnEdition(query, l, withinHours)))).flat();
+  const kept: GNItem[] = [];
+  for (const item of merged) {
+    if (kept.some((k) => gnSimilar(k.title, item.title))) continue;
+    kept.push(item);
+    if (kept.length >= GN_MAX_ITEMS) break;
+  }
+  return kept;
+}
+
+/**
+ * Google News headlines via the official RSS endpoint (keyless). `query` empty
+ * → latest headlines; otherwise news.google.com keyword search. `language`
+ * like "id-ID" or "en-US" maps to hl/gl/ceid edition params; `region` merges
+ * additional comma-separated editions (e.g. "en-US,en-GB"); `within` (hours)
+ * keeps only stories published in that window. Returns a terse per-item list
+ * (title — source + date · source hostname) deduped across outlets. The RSS
+ * `<link>` carries 400+ char base64 redirect URLs that render as ugly link
+ * previews, so the article link is embedded as a compact markdown anchor
+ * `[host](url)`. "No results" or short "Error: ..." on failure so it degrades.
+ */
+async function googleNews(query: string, language: string, region?: string, within?: number): Promise<string> {
+  const withinHours = typeof within === "number" && within > 0 ? Math.floor(within) : 0;
+  const items = await fetchGnItems(query, buildGnLangs(language, region), withinHours);
+  if (!items.length) return withinHours > 0 ? `No news in the last ${withinHours}h.` : "No news found.";
+  const rows = items.map((it) => `• ${it.title} (${it.source || "berita"}${it.when})${it.host ? ` — [${it.host}](${it.url})` : ""}`);
   const head = query.trim()
-    ? `Nih berita soal "${query.trim()}" — ${items.length} result 🌸`
-    : `Ini headline terbaru 🌸 — ${items.length} result`;
+    ? `Nih berita soal "${query.trim()}" — ${rows.length} result 🌸`
+    : `Ini headline terbaru 🌸 — ${rows.length} result`;
   return [head, ...rows].join("\n").slice(0, 4000);
+}
+
+/**
+ * Composite research tool: merges Google News editions + web search + up to two
+ * article bodies into one digest for the model to synthesize with citations.
+ * Degrades gracefully per source (a failing piece is skipped, never fatal).
+ * Article bodies are fetched from the publisher URLs found in web-search rows —
+ * Google News article links are a JS interstitial (~600KB, never resolvable
+ * server-side), so they are never fetched directly.
+ */
+async function research(query: string, language?: string, region?: string, within?: number): Promise<string> {
+  const q = query.trim().slice(0, 200);
+  if (!q) return "Error: empty research query";
+  const withinHours = typeof within === "number" && within > 0 ? Math.floor(within) : 0;
+  const items = await fetchGnItems(q, buildGnLangs(language || "id-ID", region), withinHours);
+  const newsLines = items.map((it) => `• ${it.title} (${it.source || "berita"}${it.when})${it.host ? ` — [${it.host}](${it.url})` : ""}`);
+  const webText = await webSearch(q).catch(() => "Error: web search failed");
+  // Publisher URLs from web-search rows (indented line holding a single URL).
+  // Skip search-engine chrome (bing.com/duckduckgo.com own pages) and Google
+  // News's own JS interstitial — none carry article content.
+  const webUrls: string[] = [];
+  if (webText && !webText.startsWith("Error:") && !webText.startsWith("No results")) {
+    for (const line of webText.split("\n")) {
+      const m = line.trim().match(/^https?:\/\/\S+$/);
+      if (!m) continue;
+      const u = m[0];
+      try {
+        const h = new URL(u).hostname.replace(/^www\./, "").toLowerCase();
+        if (!h || h === "bing.com" || h.endsWith(".bing.com") || h === "duckduckgo.com" || h.includes("news.google.com")) continue;
+      } catch { continue; }
+      if (webUrls.length < 4) webUrls.push(u);
+    }
+  }
+  const articleLines: string[] = [];
+  for (const u of webUrls.slice(0, 4)) {
+    if (articleLines.length >= 2) break;
+    try {
+      const txt = await fetchUrl(u);
+      const host = (() => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return "sumber"; } })();
+      const clean = txt.replace(/\s+/g, " ").trim();
+      if (clean.length >= 40) articleLines.push(`- ${host}: ${clean.slice(0, 500)}`);
+    } catch { /* article body unavailable — skip */ }
+  }
+  const parts = [`Nih hasil riset "${q}" 🌸`];
+  if (newsLines.length) parts.push("Berita:", ...newsLines);
+  if (webText && !webText.startsWith("Error:") && !webText.startsWith("No results")) parts.push("Web:", webText.slice(0, 1200));
+  if (articleLines.length) parts.push("Isi artikel:", ...articleLines);
+  return parts.join("\n").slice(0, 6000);
 }
 
 /** Extract Bing organic results (b_algo blocks with <h2> links + b_lineclamp snippets).
@@ -2837,7 +3023,7 @@ function parseBingResults(html: string): string {
     const raw = m[1];
     // Skip Bing's own feature links ("Search Images", "Bing Camera", etc.)
     if (/^(?:Search|Bing)\s/i.test(title) || /bing\.com\/(?!ck)/i.test(raw)) continue;
-    const displayUrl = raw.includes("bing.com/ck") ? raw : cleanUrl(raw);
+    const displayUrl = raw.includes("bing.com/ck") ? resolveBingRedirect(raw) : cleanUrl(raw);
     titles.push(title);
     urls.push(displayUrl);
   }
@@ -2915,7 +3101,7 @@ function cleanUrl(href: string): string {
 
 // ---- fetch_url tool (Web interaction: read a public page by URL) ----
 
-const FETCH_MAX_BYTES = 120_000; // ~ cap we feed to the LLM
+const FETCH_MAX_BYTES = 1_000_000; // ~ cap we feed to the LLM (news pages are JS-heavy)
 const FETCH_TIMEOUT_MS = 12_000;
 
 /**

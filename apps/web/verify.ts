@@ -109,6 +109,17 @@ async function main() {
     if (!news.includes("•")) throw new Error(`google_news no bullet list: ${news.slice(0, 80)}`);
     const newsQ = await executeTool({ id: "t", name: "google_news", arguments: JSON.stringify({ query: "OpenAI", language: "en-US" }) });
     if (newsQ.startsWith("Error:")) throw new Error(`google_news query failed: ${newsQ}`);
+    const newsRecent = await executeTool({ id: "t", name: "google_news", arguments: JSON.stringify({ query: "Indonesia", within: 72 }) });
+    if (newsRecent.startsWith("Error:")) throw new Error(`google_news within failed: ${newsRecent}`);
+  }
+  {
+    const res = await executeTool({ id: "t", name: "research", arguments: JSON.stringify({ query: "OpenAI", language: "en-US" }) });
+    if (res.startsWith("Error:")) throw new Error(`research failed: ${res}`);
+    if (!res.includes("•") && !res.includes("Web:")) throw new Error(`research digest empty: ${res.slice(0, 80)}`);
+  }
+  {
+    const resMulti = await executeTool({ id: "t", name: "google_news", arguments: JSON.stringify({ query: "AI", region: "id-ID,en-US" }) });
+    if (resMulti.startsWith("Error:")) throw new Error(`google_news multi-edition failed: ${resMulti}`);
   }
 
   // --- persistent notes store (save/list/delete round-trip on disk) ---
