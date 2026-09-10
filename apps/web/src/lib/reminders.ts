@@ -161,7 +161,7 @@ export function addReminder(
   text: string,
   atMs: number,
   rawUser?: unknown,
-  opts: { repeat?: "daily"; variants?: string[]; notes?: string } = {}
+  opts: { repeat?: "daily"; variants?: string[]; notes?: string; mergeAtClock?: boolean; repoint?: boolean } = {}
 ): Reminder {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
@@ -169,23 +169,30 @@ export function addReminder(
   if (!trimmed) throw new Error("empty reminder text");
   const notes = typeof opts.notes === "string" ? opts.notes.trim().slice(0, 500) : undefined;
   const reminders = readReminders(rawUser);
-  const { repeat, variants } = opts;
+  const { repeat, variants, mergeAtClock, repoint } = opts;
 
   const atClock = new Date(atMs);
   // Dedup: daily merges on same clock time (any text) to kill "setiap hari jam 7" stacking.
   // One-shot dedup: same text + same clock time + same date → merge (kills double "pasar 13:00" from 2 turns)
+  // Re-point merge (mergeAtClock): "jam 9 aja" resolves to the existing slot at 09:00
+  // instead of stacking a duplicate at the same time (user re-affirms an existing
+  // reminder rather than adding a second one at that clock).
   const existingIdx = reminders.findIndex((r) => {
     if (r.fired) return false;
     const rAt = new Date(r.at);
     const sameClock = rAt.getHours() === atClock.getHours() && rAt.getMinutes() === atClock.getMinutes();
     if (repeat === "daily") return sameClock;
+    if (mergeAtClock) return sameClock;
     // one-shot: same text + same date+clock → dedup
     return r.text.trim().toLowerCase() === trimmed.toLowerCase() && r.at === atMs;
   });
 
   let reminder: Reminder;
   if (existingIdx >= 0) {
-    const existing = { ...reminders[existingIdx], text: trimmed, ...(notes ? { notes } : {}) };
+    const existing = { ...reminders[existingIdx], at: atMs, ...(notes ? { notes } : {}) };
+    // A re-point ("jam 9 aja") re-affirms an existing slot: keep the existing
+    // (nicer) text rather than overwriting it with the cleaned junk clause.
+    if (!repoint) existing.text = trimmed;
     if (repeat === "daily") existing.repeat = "daily";
     if (variants?.length) existing.variants = variants;
     if (variants?.length) existing.variantIdx = existing.variantIdx ?? 0;
@@ -278,4 +285,90 @@ export function deleteReminders(rawUser: unknown, query: string): number {
   if (kept.length === before) return 0;
   writeReminders(kept, userKey);
   return before - kept.length;
+}
+
+/** Delete reminders due at a specific clock time (hour:minute, 24h) — used when
+ *  the user says "jam 7 pagi hapus aja" (references a slot, not a keyword). */
+export function deleteRemindersAtTime(rawUser: unknown, hour: number, minute: number): number {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return 0;
+  const all = readReminders(rawUser);
+  const before = all.length;
+  const kept = all.filter((r) => {
+    const d = new Date(r.at);
+    return !(d.getHours() === hour && d.getMinutes() === (minute || 0));
+  });
+  if (kept.length === before) return 0;
+  writeReminders(kept, userKey);
+  return before - kept.length;
+}
+
+// Indonesian stopwords + subject-verb filler that must never count as a
+// "topic" token when matching a re-point ("ubah bangunin tidurnya jadi jam 10").
+const REMINDER_STOP = new Set([
+  "aja", "saja", "jadi", "jadiin", "jadikan", "ubah", "ubahin", "ubahkan", "coba", "deh",
+  "mau", "yang", "di", "ke", "jam", "dan", "akan", "biar", "supaya", "nanti", "tolong",
+  "plis", "please", "buat", "bikin", "inget", "ingat", "remind", "reminder", "bangunin",
+  "banguni", "bangunkan", "wake", "alarm", "set", "harus", "jangan", "liat", "lihat",
+]);
+
+/** Minimal Indonesian stemmer for reminder-topic matching. Removes common
+ *  suffixes (nya/kan/in/an/i/ku/mu) so "tidurnya" ≈ "tidur", "sikat" ≈ "sikat". */
+function stemReminderToken(w: string): string {
+  let s = w.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (s.length <= 3) return s;
+  for (const suf of ["nya", "kan", "in", "an", "kan", "i", "ku", "mu"]) {
+    if (s.length > suf.length + 2 && s.endsWith(suf)) {
+      s = s.slice(0, -suf.length);
+      break;
+    }
+  }
+  return s;
+}
+
+function reminderTopicTokens(text: string): string[] {
+  const out = new Set<string>();
+  for (const w of text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)) {
+    if (!w) continue;
+    const s = stemReminderToken(w);
+    if (s.length >= 4 && !REMINDER_STOP.has(s)) out.add(s);
+  }
+  return [...out];
+}
+
+/**
+ * Re-point ("ubah/jadiin/pindah … jadi jam X"): relocate an existing UNFIRED
+ * reminder whose topic matches `anchor` to the new `atMs`, preserving its text
+ * (nicer title) and repeat cadence. Returns the moved reminder, or null when no
+ * good topic match exists (caller falls back to adding a new one).
+ */
+export function moveReminder(rawUser: unknown, anchor: string, atMs: number, opts: { text?: string } = {}): Reminder | null {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return null;
+  const anchorTokens = reminderTopicTokens(anchor);
+  if (!anchorTokens.length) return null;
+  const reminders = readReminders(rawUser);
+  let bestIdx = -1;
+  let bestScore = 0;
+  for (let i = 0; i < reminders.length; i++) {
+    const r = reminders[i];
+    if (r.fired) continue;
+    const rTokens = reminderTopicTokens(r.text);
+    let score = 0;
+    for (const a of anchorTokens) if (rTokens.includes(a)) score++;
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+  if (bestIdx < 0 || bestScore === 0) return null;
+  const moved = {
+    ...reminders[bestIdx],
+    at: atMs,
+    fired: false,
+    ...(typeof opts.text === "string" && opts.text.trim() ? { text: opts.text.trim().slice(0, 300) } : {}),
+  };
+  reminders[bestIdx] = moved;
+  writeReminders(reminders, userKey);
+  return moved;
 }

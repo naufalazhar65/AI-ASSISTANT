@@ -17,6 +17,18 @@ const REPEAT_RE = /\b(setiap\s*hari|tiap\s*hari|tiap[\s-]*tiap\s*hari|every\s*da
 // delivered message each day instead of repeating the same line.
 const VARIETY_RE = /\b(ganti[-\s]*ganti|ganti\s*pesan(nya)?|beda[-\s]*beda|variasi|selang[-\s]*seling|ganti[- ]*ganti|jangan\s*sama)\b/i;
 
+// "hapus/cancel/delete/remove" → this clause is a DELETION, not a new reminder.
+// "jam 7 pagi hapus aja", "cancel yang jam 8", "hapus reminder sikat gigi".
+// "jangan jam 9" (negation of a clock) also cancels that slot — but "jangan
+// lupa" is a reminder INTENT (keep it), so "jangan" only cancels when NOT
+// followed by "lupa".
+const CANCEL_RE = /\b(hapus|hapusin|hapuskan|cancel|delete|remove|buang|ilangin|nggak\s*usah|gak\s*usah|tidak\s*usah|jangan\s*(?!lupa\b)|jangan\s*(dipakai|dilanjutin)|stop)\b/i;
+
+/** Re-point / "just" language: "jam 9 aja ya", "jadiin jam 9", "pindah jam 9",
+ *  "ubahlah ke jam 9". These re-affirm an existing slot rather than adding a
+ *  fresh reminder, so a matching unfired reminder must NOT be duplicated. */
+const REPOINT_RE = /\b(aja|jadiin|jadikan|pindah|ubah|ganti|jadi)\b/i;
+
 type ParsedTime = { hour: number; minute: number; suffixed?: boolean };
 
 /**
@@ -114,6 +126,11 @@ export type ReminderIntent = {
   repeat?: "daily";
   /** Rotating message pool when the user wants the wording varied each time. */
   variants?: string[];
+  /** True when this clause is a DELETION ("jam 7 pagi hapus aja") not a new reminder. */
+  cancel?: boolean;
+  /** True for re-point language ("jam 9 aja / pindah jam 9"): resolves to an
+   *  existing slot at that clock instead of stacking a new reminder. */
+  repoint?: boolean;
 };
 
 /**
@@ -137,7 +154,7 @@ function cleanReminderText(clause: string): string {
   return s;
 }
 
-export function splitReminderRequests(userText: string): Array<{ text: string; hour: number; minute: number; suffixed?: boolean }> {
+export function splitReminderRequests(userText: string): Array<{ text: string; hour: number; minute: number; suffixed?: boolean; cancel?: boolean }> {
   const clauseRe = /\s*[,;，]|\s+\band\b|\s+dan\s+|\s+lalu\s+|\s+terus\s+/i;
   const clauses = userText.split(clauseRe);
   return clauses.flatMap((clause) => {
@@ -145,7 +162,7 @@ export function splitReminderRequests(userText: string): Array<{ text: string; h
     if (!times.length) return [];
     const text = cleanReminderText(clause);
     const t = times[0];
-    return [{ text, hour: t.hour, minute: t.minute, ...(t.suffixed ? {} : { suffixed: false }) }];
+    return [{ text, hour: t.hour, minute: t.minute, ...(t.suffixed ? {} : { suffixed: false }), ...(CANCEL_RE.test(clause) ? { cancel: true } : {}) }];
   });
 }
 
@@ -163,7 +180,7 @@ export function detectReminderIntents(userText: string, now = Date.now()): Remin
   const repeat = REPEAT_RE.test(userText) ? ("daily" as const) : undefined;
   const variants = VARIETY_RE.test(userText) ? WAKE_VARIANTS : undefined;
   const normalized = userText.replace(/\s+/g, " ").trim().slice(0, 200);
-  const segments = splitReminderRequests(normalized);
+  const segments = splitReminderRequests(normalized).filter((s) => !s.cancel);
   if (!segments.length) return null;
   return segments.map((seg) => ({
     text: seg.text,
@@ -175,7 +192,32 @@ export function detectReminderIntents(userText: string, now = Date.now()): Remin
       : nextOccurrence(seg.hour, seg.minute, now),
     ...(repeat ? { repeat } : {}),
     ...(variants?.length ? { variants } : {}),
+    // "jam 9 aja / pindah jam 9 / jadiin jam 9" re-points an existing slot
+    // instead of stacking a NEW reminder at that time.
+    ...(REPOINT_RE.test(seg.text) ? { repoint: true } : {}),
   }));
+}
+
+/**
+ * Detect DELETION clauses within a reminder request ("jam 7 pagi hapus aja",
+ * "cancel reminder makan siang"). These are not new reminders — they reference
+ * a slot/clock to delete. Returns matched clauses as {text (anchor keyword),
+ * hour/minute when a clock is present}, or [].
+ */
+export function detectReminderCancels(userText: string): Array<{ anchor: string; hour?: number; minute?: number }> {
+  if (!userText || !INTENT_RE.test(userText)) return [];
+  const normalized = userText.replace(/\s+/g, " ").trim().slice(0, 200);
+  return splitReminderRequests(normalized)
+    .filter((s) => s.cancel)
+    .map((s) => ({
+      // Anchor = clause text without its clock ("yang jam 7 pagi hapus aja" →
+      // "jadi yang hapus aja" after the clock is stripped → keep a safe subset
+      // of words to match against reminder titles, e.g. "hapus"). We use the
+      // cleaned text minus filler so delete-by-keyword has the best chance.
+      anchor: s.text,
+      hour: s.hour,
+      minute: s.minute,
+    }));
 }
 
 /**

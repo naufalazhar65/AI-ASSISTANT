@@ -18,8 +18,7 @@ import { ensureOpenCodeGoKey } from "./serverKeys";
 import { ProviderId, isProviderId, resolveProvider, findPublicProvider, defaultProviderId } from "./providers";
 import { runOpenCodeTurn, OpenCodeChatMessage } from "./opencode";
 import { captureFactsFromTurn } from "./autoMemory";
-import { detectReminderIntents } from "./reminderIntent";
-import { addReminder } from "./reminders";
+import { detectReminderCancels, detectReminderIntents } from "./reminderIntent";
 import { detectMoodIntent, logDetectedMood } from "./moodIntent";
 import { detectCorrection } from "./correctionIntent";
 import { addCorrection } from "./corrections";
@@ -758,25 +757,85 @@ export type TurnResult = {
 function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
-  const intents = detectReminderIntents(messageText(lastUser.content));
-  if (!intents?.length) return text;
+  const userText = messageText(lastUser.content);
+  let needDeleteSuffix = false;
+  let needMoveSuffix = false;
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const remindersMod = require("./reminders") as typeof import("./reminders");
+    const { addReminder: addRem, moveReminder, deleteRemindersAtTime, deleteReminders } = remindersMod;
+
+    // Re-point intents FIRST ("ubah … jadi jam 10 / pindah jam 9"): relocate an
+    // EXISTING reminder whose topic matches, preserving its nicer title and
+    // repeat cadence. A re-point is not a delete-then-add and must never create a
+    // junk-text duplicate like "mia coba ubah aja deh tidurnya jadi aja".
+    const intents = detectReminderIntents(userText) ?? [];
+    const toAdd: typeof intents = [];
     for (const intent of intents) {
-      addReminder(intent.text, intent.atMs, user, {
+      if (intent.repoint) {
+        try {
+          if (moveReminder(user, intent.text, intent.atMs)) {
+            needMoveSuffix = true;
+            continue;
+          }
+        } catch { /* fall through to add */ }
+      }
+      toAdd.push(intent);
+    }
+    for (const intent of toAdd) {
+      addRem(intent.text, intent.atMs, user, {
         repeat: intent.repeat,
         variants: intent.variants,
+        // Re-point resolves to an existing slot at the same clock (keeps the
+        // existing nicer text) rather than stacking a duplicate reminder.
+        mergeAtClock: intent.repoint,
+        repoint: intent.repoint,
       });
     }
-    const labels = intents.map((i) =>
-      new Date(i.atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    );
-    const recurring = intents[0].repeat === "daily" ? "setiap hari " : "";
-    const confirmSuffix = ` (Sudah kusetel reminder ${recurring}pukul ${labels.join(" dan ")}, nanti kubangunkan.)`;
-    return /remind|ingat|alarm|bangun/i.test(text) ? text : (text || "").trimEnd() + confirmSuffix;
+
+    // DELETION clauses ("jadi yang jam 7 pagi hapus aja", "jangan jam 9") run
+    // AFTER moves so a reminder just relocated to 10:00 is not swept by the
+    // "jangan jam 9" clause — the slot it left is already empty.
+    const cancels = detectReminderCancels(userText);
+    for (const c of cancels) {
+      let n = 0;
+      try {
+        if (c.hour !== undefined && c.minute !== undefined) n = deleteRemindersAtTime(user, c.hour, c.minute);
+        if (!n && c.anchor) n = deleteReminders(user, c.anchor);
+      } catch { /* best-effort */ }
+      if (n > 0) needDeleteSuffix = true;
+    }
+
+    if (needMoveSuffix || toAdd.length) {
+      const parts: string[] = [];
+      if (needMoveSuffix) {
+        const labels = intents.filter((i) => i.repoint).map((i) =>
+          new Date(i.atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        );
+        if (labels.length) parts.push(`Sudah kupindahkan ke pukul ${labels.join(" dan ")}`);
+      }
+      if (toAdd.length) {
+        const labels = toAdd.map((i) =>
+          new Date(i.atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        );
+        const recurring = toAdd[0].repeat === "daily" ? "setiap hari " : "";
+        parts.push(`Sudah kusetel reminder ${recurring}pukul ${labels.join(" dan ")}, nanti kubangunkan`);
+      }
+      const suffix = ` (${parts.join("; ")} ya.)`;
+      return /remind|ingat|alarm|bangun/i.test(text) ? text : (text || "").trimEnd() + suffix;
+    }
+    return needDeleteSuffix ? appendDeleteSuffix(text) : text;
   } catch (err) {
     console.error("[agent] reminder intent scheduling failed:", err instanceof Error ? err.message : String(err));
-    return text;
+    return needDeleteSuffix ? appendDeleteSuffix(text) : text;
   }
+}
+
+/** "…hapus aja" with no remaining add intents → honest delete confirmation. */
+function appendDeleteSuffix(text: string): string {
+  const base = (text || "").trimEnd();
+  if (/hapus|dihapus|didelete|cancel|dibatalkan|gak ada|nggak ada|udah aku hapus|sudah hapus/i.test(base)) return base;
+  return `${base} (Udah kuhapus reminder itu ya, sekarang cuma yang lain yang tersisa.)`.replace(/^\s+/, "");
 }
 
 function ensurePlanFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
@@ -1614,12 +1673,21 @@ async function runAssistantTurnImpl(opts: {
     return !!needs?.some((c) => c.name === "plan_create");
   }
   if (!remindToolAlreadyHandled(opts, needsConfirmation)) {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && m.content);
+    const reminderHit = lastUserMsg?.content ? detectReminderIntents(messageText(lastUserMsg.content)) : null;
+    // Defuse the model's misread `cancel_reminder`: when the user said "ubah …
+    // jadi jam 10" (a re-point) the deterministic path below MOVES the existing
+    // reminder — a pending cancel confirm for the same reminder must not land,
+    // or the user confirms a delete and the moved reminder dies (the 2026-09-10
+    // live bug: "ubah jadi jam 10, jangan jam 9" → model called cancel_reminder
+    // → user said "ya" → the real daily was deleted → junk re-point text added).
+    if (reminderHit?.some((i) => i.repoint) && needsConfirmation) {
+      needsConfirmation = needsConfirmation.filter((c) => c.name !== "cancel_reminder");
+    }
     text = scheduleReminderFromIntent(messages, opts.user, text);
     // Model-authored reminder variety for the deterministic path too: ask the
     // model (fire-and-forget) for a variants pool so the push rotates Mia-style
     // wordings instead of the static template.
-    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && m.content);
-    const reminderHit = lastUserMsg?.content ? detectReminderIntents(messageText(lastUserMsg.content)) : null;
     if (reminderHit?.length) {
       for (const intent of reminderHit) {
         void enrichReminderVariants(opts.user, intent.text, {

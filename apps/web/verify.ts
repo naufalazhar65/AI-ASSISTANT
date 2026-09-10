@@ -963,6 +963,71 @@ async function main() {
   if (rl.includes("sudah terkirim") || rl.includes("bangun")) throw new Error(`reminders_list should not show delivered: ${rl}`);
   rmSync(join(userDataRoot(), rUser), { recursive: true, force: true });
   console.log("reminders_list: OK (scheduled listed, delivered dropped from store)");
+
+  // --- Reminder cancel/repoint intent parsing: "jam 9 pagi aja, yang jam 7
+  // hapus aja" must DELETE the 07:00 slot and MERGE into the existing 09:00
+  // (keeping the nicer title) — never schedule junk like "jadi yang hapus aja"
+  // or stack a duplicate "bangunin tidurnya aja" at the same clock. ---
+  const rcUser = `verify_remcancel_${Date.now()}`;
+  const { addReminder: addRemC, readReminders: readRemC, deleteRemindersAtTime } = await import("./src/lib/reminders");
+  const { detectReminderIntents: detectInts, detectReminderCancels } = await import("./src/lib/reminderIntent");
+  const day7 = new Date(); day7.setHours(7, 0, 0, 0);
+  const day9 = new Date(); day9.setHours(9, 0, 0, 0);
+  addRemC("bangunin aku jam 7 pagi", day7.getTime() - 86400000, rcUser, { repeat: "daily" });
+  addRemC("Bangun tidur Mas Naufal! ☀️🌸", day9.getTime() - 86400000, rcUser, { repeat: "daily" });
+  const rcMsg = "Mia, reminder bangunin tidurnya jam 9 pagi aja ya, jadi yang jam 7 pagi hapus aja";
+  const cancels = detectReminderCancels(rcMsg);
+  if (!cancels.length || cancels[0].hour !== 7) throw new Error(`cancel clause not detected: ${JSON.stringify(cancels)}`);
+  for (const c of cancels) if (c.hour !== undefined && c.minute !== undefined) deleteRemindersAtTime(rcUser, c.hour, c.minute);
+  const rcIntents = detectInts(rcMsg) ?? [];
+  if (rcIntents.some((i) => i.cancel || i.text.includes("hapus"))) throw new Error(`cancel clause leaked into adds: ${JSON.stringify(rcIntents)}`);
+  for (const i of rcIntents) addRemC(i.text, i.atMs, rcUser, { mergeAtClock: i.repoint, repoint: i.repoint });
+  const rcAfter = readRemC(rcUser);
+  if (rcAfter.some((r) => r.text.includes("hapus") || r.text.includes("bangunin tidurnya"))) {
+    throw new Error(`junk reminders left behind: ${JSON.stringify(rcAfter)}`);
+  }
+  if (rcAfter.length !== 1 || !rcAfter[0].text.includes("Bangun tidur")) {
+    throw new Error(`re-point should merge into existing 09:00 and keep its title: ${JSON.stringify(rcAfter)}`);
+  }
+  rmSync(join(userDataRoot(), rcUser), { recursive: true, force: true });
+  console.log("reminder cancel/repoint: OK (07:00 deleted, 09:00 merged, no junk)");
+
+  // --- Reminder MOVE ("ubah bangunin tidurnya jadi jam 10 pagi aja, jangan jam
+  // 9"): the 09:00 daily must RELOCATE to 10:00 (keeping its nicer title and
+  // daily repeat) rather than the model's `cancel_reminder` deleting it + junk
+  // "mia coba ubah aja deh tidurnya jadi aja" / "jangan" being scheduled. ---
+  const rmvUser = `verify_remmove_${Date.now()}`;
+  const { moveReminder } = await import("./src/lib/reminders");
+  const day7v = new Date(); day7v.setHours(7, 0, 0, 0);
+  const day9v = new Date(); day9v.setHours(9, 0, 0, 0);
+  const day10 = new Date(); day10.setHours(10, 0, 0, 0);
+  addRemC("sunrise hero practice", day7v.getTime() - 86400000, rmvUser, { repeat: "daily" });
+  addRemC("Bangun tidur Mas Naufal! ☀️🌸", day9v.getTime() - 86400000, rmvUser, { repeat: "daily" });
+  const rmvMsg = "mia coba ubah aja deh bangunin tidurnya jadi jam 10 pagi aja, jangan jam 9";
+  const rmvIntents = detectInts(rmvMsg) ?? [];
+  const repoint = rmvIntents.find((i) => i.repoint);
+  if (!repoint) throw new Error(`re-point intent not detected: ${JSON.stringify(rmvIntents)}`);
+  if (repoint.text.includes("jangan")) throw new Error(`cancel clause leaked into move intent: ${JSON.stringify(rmvIntents)}`);
+  const moved = moveReminder(rmvUser, repoint.text, repoint.atMs);
+  if (!moved || !moved.text.includes("Bangun tidur Mas Naufal")) {
+    throw new Error(`move should relocate the wake daily (keep title): ${JSON.stringify(moved ?? null)}`);
+  }
+  const rmvAfter = readRemC(rmvUser);
+  if (rmvAfter.some((r) => r.text.includes("jadi aja") || r.text.includes("jangan") || r.text.includes("mia coba"))) {
+    throw new Error(`junk move text scheduled: ${JSON.stringify(rmvAfter)}`);
+  }
+  const at10 = rmvAfter.find((r) => new Date(r.at).getHours() === 10);
+  if (!at10 || !at10.text.includes("Bangun tidur") || at10.repeat !== "daily") {
+    throw new Error(`wake daily should now be 10:00 daily: ${JSON.stringify(rmvAfter)}`);
+  }
+  if (rmvAfter.filter((r) => new Date(r.at).getHours() === 9).length !== 0) {
+    throw new Error(`09:00 slot should be empty after move: ${JSON.stringify(rmvAfter)}`);
+  }
+  const rmvCancels = detectReminderCancels(rmvMsg);
+  const cancel9 = rmvCancels.find((c) => c.hour === 9);
+  if (!cancel9) throw new Error(`"jangan jam 9" should cancel slot 9: ${JSON.stringify(rmvCancels)}`);
+  rmSync(join(userDataRoot(), rmvUser), { recursive: true, force: true });
+  console.log("reminder move: OK (bangun tidur 09:00 → 10:00 daily, no junk, jangan jam 9 cancelled)");
 }
 
 main().catch((err) => {
