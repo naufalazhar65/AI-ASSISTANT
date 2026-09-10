@@ -853,10 +853,10 @@ const REMINDER_ADD_LINES = [
   (t: string, rec: string) => `Dimasukkan ke daftar, ${rec}pukul ${t} aku bentuk alarm dadakan`,
   (t: string, rec: string) => `Kebukukan, ${rec}jam ${t} aku gedor-gedor ingatanmu`,
 ];
-function reminderMoveSuffix(labels: string): string {
+export function reminderMoveSuffix(labels: string): string {
   return REMINDER_MOVE_LINES[Math.floor(Date.now() / 86400000) % REMINDER_MOVE_LINES.length](labels);
 }
-function reminderAddSuffix(labels: string, recurring: string): string {
+export function reminderAddSuffix(labels: string, recurring: string): string {
   return REMINDER_ADD_LINES[Math.floor(Date.now() / 86400000) % REMINDER_ADD_LINES.length](labels, recurring);
 }
 
@@ -889,11 +889,17 @@ function ensurePlanFromIntent(messages: ChatMessage[], user: unknown, text: stri
   }
 }
 
-/** True when this turn already went through a `remind_me` tool call/confirm. */
+/** True when this turn already went through a `remind_me` tool call/confirm, or
+ *  when a `cancel_reminder` just EXECUTED via the confirm continuation. In the
+ *  latter case the deterministic scheduler must NOT re-run against the stale
+ *  original user text: the tool already deleted the reminder, and addRem's
+ *  repoint fallback would mint a junk one-shot like "coba ganti aja deh tidurnya
+ *  jadi" (2026-09-11 live bug: "ubah jadi jam 8" → cancel ran → junk stored). */
 function remindToolAlreadyHandled(opts: {
   confirm_call?: { call: ToolCall; allow: boolean };
 }, needsConfirmation: ToolCall[] | null): boolean {
   if (opts.confirm_call?.call?.name === "remind_me") return true;
+  if (opts.confirm_call?.call?.name === "cancel_reminder" && opts.confirm_call.allow === true) return true;
   return !!needsConfirmation?.some((c) => c.name === "remind_me");
 }
 

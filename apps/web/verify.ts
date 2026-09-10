@@ -1028,6 +1028,31 @@ async function main() {
   if (!cancel9) throw new Error(`"jangan jam 9" should cancel slot 9: ${JSON.stringify(rmvCancels)}`);
   rmSync(join(userDataRoot(), rmvUser), { recursive: true, force: true });
   console.log("reminder move: OK (bangun tidur 09:00 → 10:00 daily, no junk, jangan jam 9 cancelled)");
+
+  // --- Reminder confirmation variety: the real reminderMoveSuffix /
+  // reminderAddSuffix helpers (exported from agent.ts) must rotate through all
+  // lines across a week — the user complained the old fixed
+  // "Sudah kupindahkan ke pukul X ya." read robotic on every "ubah jamnya". ---
+  const { reminderMoveSuffix, reminderAddSuffix } = await import("./src/lib/agent");
+  const moveLines = new Set<string>();
+  const addLines = new Set<string>();
+  const DAY = 86400000;
+  const realNow = Date.now;
+  for (let i = 0; i < 7; i++) {
+    Date.now = () => realNow() + i * DAY;
+    try {
+      moveLines.add(reminderMoveSuffix("10:00"));
+      addLines.add(reminderAddSuffix("10:00", "setiap hari "));
+    } finally {
+      Date.now = realNow;
+    }
+  }
+  if (moveLines.size < 7 || addLines.size < 7) {
+    throw new Error(
+      `reminder confirmations should rotate (moves ${moveLines.size}/7, adds ${addLines.size}/7 distinct)`
+    );
+  }
+  console.log(`reminder confirmation variety: OK (${moveLines.size}+${addLines.size} distinct lines across 7 days)`);
 }
 
 main().catch((err) => {
