@@ -812,16 +812,16 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
         const labels = intents.filter((i) => i.repoint).map((i) =>
           new Date(i.atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         );
-        if (labels.length) parts.push(`Sudah kupindahkan ke pukul ${labels.join(" dan ")}`);
+        if (labels.length) parts.push(reminderMoveSuffix(labels.join(" & ")));
       }
       if (toAdd.length) {
         const labels = toAdd.map((i) =>
           new Date(i.atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         );
         const recurring = toAdd[0].repeat === "daily" ? "setiap hari " : "";
-        parts.push(`Sudah kusetel reminder ${recurring}pukul ${labels.join(" dan ")}, nanti kubangunkan`);
+        parts.push(reminderAddSuffix(labels.join(" & "), recurring));
       }
-      const suffix = ` (${parts.join("; ")} ya.)`;
+      const suffix = ` (${parts.join(" ")}🌸)`;
       return /remind|ingat|alarm|bangun/i.test(text) ? text : (text || "").trimEnd() + suffix;
     }
     return needDeleteSuffix ? appendDeleteSuffix(text) : text;
@@ -829,6 +829,35 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
     console.error("[agent] reminder intent scheduling failed:", err instanceof Error ? err.message : String(err));
     return needDeleteSuffix ? appendDeleteSuffix(text) : text;
   }
+}
+
+/** Day-rotated imaginative re-point confirmation — the same boring
+ *  "Sudah kupindahkan ke pukul X ya." every time reads robotic. Mia's move
+ *  confirmations rotate daily so a repeated "ubah jamnya" ask never answers
+ *  with the identical line twice in a row. */
+const REMINDER_MOVE_LINES = [
+  (t: string) => `Sudah kupindahkan ke pukul ${t}`,
+  (t: string) => `Udah aku geser ke pukul ${t} ya`,
+  (t: string) => `Beres — kedengeran mamacu jam ${t} sekarang`,
+  (t: string) => `Aku taruh di jam ${t}, kita patuhi ya`,
+  (t: string) => `Udah aku pindahin ke ${t}, siap ditegur pagi-pagi`,
+  (t: string) => `Berubah drastis nih — jadinya ${t}`,
+  (t: string) => `Oke, jam nyanyi barunya ${t}`,
+];
+const REMINDER_ADD_LINES = [
+  (t: string, rec: string) => `Sudah kusetel ${rec}pukul ${t}, nanti kubangunkan`,
+  (t: string, rec: string) => `Udah masuk jadwal — ${rec}pukul ${t} aku cubit kamu`,
+  (t: string, rec: string) => `Berhasil dicatat, ${rec}jam ${t} aku nepuk bahumu`,
+  (t: string, rec: string) => `Tercatat rapi, ${rec}${t} aku berisik buat kamu`,
+  (t: string, rec: string) => `Siap — ${rec}${t} ada aku yang jaga`,
+  (t: string, rec: string) => `Dimasukkan ke daftar, ${rec}pukul ${t} aku bentuk alarm dadakan`,
+  (t: string, rec: string) => `Kebukukan, ${rec}jam ${t} aku gedor-gedor ingatanmu`,
+];
+function reminderMoveSuffix(labels: string): string {
+  return REMINDER_MOVE_LINES[Math.floor(Date.now() / 86400000) % REMINDER_MOVE_LINES.length](labels);
+}
+function reminderAddSuffix(labels: string, recurring: string): string {
+  return REMINDER_ADD_LINES[Math.floor(Date.now() / 86400000) % REMINDER_ADD_LINES.length](labels, recurring);
 }
 
 /** "…hapus aja" with no remaining add intents → honest delete confirmation. */
