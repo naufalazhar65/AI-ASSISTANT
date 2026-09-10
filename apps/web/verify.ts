@@ -173,6 +173,10 @@ async function main() {
     ["cat package-lock.json", "blocked path"],
     ["unknowncmd", "not allowlisted"],
     ["git status extra1 extra2 extra3 extra4 extra5", "too many args"],
+    ["cat /etc/passwd", "absolute path outside sandbox"],
+    ["ls /Users", "absolute dir outside sandbox"],
+    ["cat ../../etc/passwd", "relative escape outside sandbox"],
+    ["cat ~/.ssh/id_rsa", "tilde path"],
   ] as const) {
     const r = await ex(badCmd);
     if (!r.startsWith("Error:")) throw new Error(`exec not guarded: ${badCmd} -> ${r}`);
@@ -200,6 +204,11 @@ async function main() {
     if (!wBad.startsWith("Error:")) throw new Error(`write_file not guarded for .env: ${wBad}`);
     const eBad = await ef(join(tmpWriteWs, "hello.txt"), "not-exist-xyz", "x");
     if (!eBad.startsWith("Error:")) throw new Error(`edit_file not guarded for missing old_string: ${eBad}`);
+    // Byte-accurate limit: multibyte content must be capped by UTF-8 BYTES, not
+    // JS string length (a 40k-char emoji string is 160k bytes).
+    const emojiBig = "🌸".repeat(40000);
+    const wTooBig = await wf(join(tmpWriteWs, "emoji.txt"), emojiBig);
+    if (!wTooBig.startsWith("Error:")) throw new Error(`write_file byte limit not enforced: ${wTooBig.slice(0, 60)}`);
   } finally {
     if (prevWriteWs === undefined) delete process.env.ALLOWED_WORKSPACES;
     else process.env.ALLOWED_WORKSPACES = prevWriteWs;

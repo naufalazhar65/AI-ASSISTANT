@@ -66,8 +66,34 @@ export type Channel = "voice" | "text" | "discord";
 
 export const MAX_TOOL_ROUNDS = 7;
 
+/**
+ * Safety-net cap for verbatim tool output (briefing/recap/gmail_list/...).
+ * These tools bypass the LLM and their text is spoken (TTS) + rendered on
+ * every channel (Telegram hard-limit 4096 per message via replyChunk); a
+ * runaway verbatim reply would flood all of them. Individual tools already
+ * cap themselves (4000-8000 chars); this is the final guard at the single
+ * point where verbatim output enters the reply text.
+ */
+export const MAX_VERBATIM_CHARS = 12000;
+
 /** Control frame that marks a turn paused for user confirmation (FR-014). */
 export const CONFIRM_FRAME_PREFIX = "@@CONFIRM ";
+
+/**
+ * Idempotency guard for FR-014 confirmation continuations. The same
+ * confirm_call (user + call.id + allow) must never execute its risky tool
+ * twice — a duplicate POST (double-click, client retry of a failed stream)
+ * would otherwise re-run a delete/add side effect. Reuses the recorded tool
+ * result instead. Only allow=true performs a side effect, so only that path is
+ * cached. Entries expire after a short TTL so a genuinely new turn reusing the
+ * same id pattern is never blocked (call.ids are LLM-generated per turn).
+ */
+const CONFIRM_DEDUP_TTL_MS = 10 * 60_000;
+const confirmExecuted = new Map<string, { at: number; content: string }>();
+
+function confirmCacheKey(user: unknown, callId: string): string {
+  return `${String(user ?? "anon")}::${callId}`;
+}
 
 const CAL_EVENT_WORDS = /(?:event|meeting|agenda|rapat|pertemuan|janji|jadwal|appointment|acara)/i;
 const CAL_TIME_WORDS = /\b(?:besok|lusa|hari ini|nanti|kemarin|jam|pukul|pagi|siang|sore|malam|tomorrow|today|tonight|next|this|\d{1,2}(?::\d{2})?(?:\s*(?:am|pm))?|at|on|in|morning|afternoon|evening)\b/i;
@@ -615,7 +641,13 @@ async function runAgent(
   user?: unknown,
   autoDenyRisky = false
 ): Promise<{ needsConfirmation: ToolCall[] | null }> {
-  const withTools = round <= MAX_TOOL_ROUNDS;
+  // Tools are offered on every round EXCEPT the last (round == MAX_TOOL_ROUNDS
+  // forces a text answer). This is the off-by-one-correct form of FR-013's
+  // "last round omits tools": with `round <= MAX` the model could emit a tool
+  // call on the max round, the execution block (`round < MAX`) would skip it,
+  // and the round's results would be thrown away with a raw "too many tool
+  // rounds" error.
+  const withTools = round < MAX_TOOL_ROUNDS;
   // OpenCode Go requires a stable per-conversation session id for routing and
   // prompt caching (x-opencode-session), and prefers a client user agent over
   // a generic SDK name. Derive a stable id from the user key.
@@ -703,50 +735,74 @@ async function runAgent(
   }
 
   // All read-only tools: execute them server-side and continue (FR-013).
-  if (round < MAX_TOOL_ROUNDS) {
-    // Verbatim list tools: keep bullet list warm, don't rephrase to single sentence
-    const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news"]);
-    const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
-    if (verbatimCalls.length >= 1) {
-      // The model sometimes requests the same tool twice in one turn (e.g. two
-      // google_news calls) — execute+collect each tool name only once, otherwise
-      // the verbatim output would double.
-      const done = new Set<string>();
-      for (const vcall of verbatimCalls) {
-        if (done.has(vcall.name)) continue;
-        done.add(vcall.name);
-        const content = await executeTool(vcall, user);
-        if (!/^error:/i.test(content.trim())) {
-          collector.verbatimHit = true;
-          collector.collect(content);
-          for (const other of toolCalls2.filter((c) => !VERBATIM_LIST.has(c.name))) {
-            const oc = await executeTool(other, user);
-            messages.push({ role: "tool", tool_call_id: other.id, content: oc });
-          }
-          return { needsConfirmation: null };
+  // Note: NOT wrapped in `if (round < MAX_TOOL_ROUNDS)` — the accumulated tool
+  // results must always land in `messages` so the forced final completion below
+  // can answer from them (never throw a raw "too many tool rounds" 502).
+  const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news"]);
+  const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
+  if (verbatimCalls.length >= 1) {
+    // The model sometimes requests the same tool twice in one turn (e.g. two
+    // google_news calls) — execute+collect each tool name only once, otherwise
+    // the verbatim output would double.
+    const done = new Set<string>();
+    for (const vcall of verbatimCalls) {
+      if (done.has(vcall.name)) continue;
+      done.add(vcall.name);
+      const content = await executeTool(vcall, user);
+      if (!/^error:/i.test(content.trim())) {
+        collector.verbatimHit = true;
+        collector.collect(
+          content.length > MAX_VERBATIM_CHARS
+            ? `${content.slice(0, MAX_VERBATIM_CHARS)}\n… (jawaban dipotong — minta bagian tertentu untuk detail lengkap)`
+            : content
+        );
+        for (const other of toolCalls2.filter((c) => !VERBATIM_LIST.has(c.name))) {
+          const oc = await executeTool(other, user);
+          messages.push({ role: "tool", tool_call_id: other.id, content: oc });
         }
-        messages.push({ role: "tool", tool_call_id: vcall.id, content });
-        return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
+        return { needsConfirmation: null };
       }
+      messages.push({ role: "tool", tool_call_id: vcall.id, content });
+      return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
     }
-    for (const call of toolCalls2) {
-      let content = await executeTool(call, user);
-      // When web_search returns "No results found." for a search query, add
-      // guidance so the model stops retrying the same tool — otherwise it
-      // keeps calling web_search until MAX_TOOL_ROUNDS exhaustion.
-      if (call.name === "web_search" && /^No results found/i.test(content)) {
-        content += "\n\n(Sudah dicoba 2 kali — jawab dari pengetahuan atau sarankan kata kunci berbeda)";
-      }
-      if (/^error:/i.test(content.trim())) {
-        try { addCorrection(`${call.name} ${call.arguments.slice(0,120)}`, `Error: ${content.slice(0,200)} → use correct tool/args`, user); appendDailyMemory(user, `[self-correct] ${call.name} failed: ${content.slice(0,200)}`); } catch { /* best-effort */ }
-      }
-      messages.push({ role: "tool", tool_call_id: call.id, content });
-      if (call.name === "web_search" && !/^error:|^No results found/i.test(content)) collector.webSearchSuccess = true;
+  }
+  for (const call of toolCalls2) {
+    let content = await executeTool(call, user);
+    // When web_search returns "No results found." for a search query, add
+    // guidance so the model stops retrying the same tool — otherwise it
+    // keeps calling web_search until MAX_TOOL_ROUNDS exhaustion.
+    if (call.name === "web_search" && /^No results found/i.test(content)) {
+      content += "\n\n(Sudah dicoba 2 kali — jawab dari pengetahuan atau sarankan kata kunci berbeda)";
     }
+    if (/^error:/i.test(content.trim())) {
+      try { addCorrection(`${call.name} ${call.arguments.slice(0,120)}`, `Error: ${content.slice(0,200)} → use correct tool/args`, user); appendDailyMemory(user, `[self-correct] ${call.name} failed: ${content.slice(0,200)}`); } catch { /* best-effort */ }
+    }
+    messages.push({ role: "tool", tool_call_id: call.id, content });
+    if (call.name === "web_search" && !/^error:|^No results found/i.test(content)) collector.webSearchSuccess = true;
+  }
+
+  if (round < MAX_TOOL_ROUNDS) {
     return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
   }
 
-  throw new Error("too many tool rounds");
+  // Round budget exhausted: the accumulated tool results are already in
+  // `messages`, so force ONE final completion WITHOUT tools — the model must
+  // answer from the tool output already gathered, never throw a raw
+  // "too many tool rounds" 502 at the user. Only if even that fails do we
+  // surface a warm fallback line.
+  try {
+    const finalOnce = await runOneCompletion(messages, url, apiKey, systemPrompt, effectiveModel, false, extraHeaders);
+    const finalText = finalOnce.text?.trim();
+    if (finalText && finalOnce.toolCalls.length === 0) {
+      collector.collect(finalText);
+      return { needsConfirmation: null };
+    }
+  } catch { /* fall through to warm fallback */ }
+  collector.collect(
+    "Maaf, pembicaraan ini butuh beberapa langkah yang kuketuk terlalu lama — " +
+    "coba pecah pertanyaannya jadi lebih kecil ya. 🌸"
+  );
+  return { needsConfirmation: null };
 }
 
 /** Result of one turn: the final assistant text + any tools awaiting confirmation. */
@@ -1712,17 +1768,41 @@ async function runAssistantTurnImpl(opts: {
     if (!call || typeof call.id !== "string") {
       throw new Error("confirm_call requires a valid call");
     }
+    // Idempotency (invariant: risky tools execute at most once per call.id).
+    // A duplicate POST of the same confirm (double-click / client retry after a
+    // dropped stream) must NOT re-run a delete/add side effect — reuse the
+    // recorded tool result instead so the model still sees the outcome.
+    const cacheKey = confirmCacheKey(opts.user, call.id);
+    const cached = opts.confirm_call.allow ? confirmExecuted.get(cacheKey) : undefined;
+    const isDedup = !!cached && Date.now() - cached.at < CONFIRM_DEDUP_TTL_MS;
+    if (isDedup) {
+      // Prune stale entries occasionally so the map never grows unbounded.
+      if (confirmExecuted.size > 256) {
+        const now = Date.now();
+        for (const [k, v] of confirmExecuted) {
+          if (now - v.at >= CONFIRM_DEDUP_TTL_MS) confirmExecuted.delete(k);
+        }
+      }
+    }
+    let toolResult: string;
+    if (opts.confirm_call.allow) {
+      toolResult = isDedup
+        ? cached!.content
+        : await executeTool(call, opts.user);
+      confirmExecuted.set(cacheKey, { at: Date.now(), content: toolResult });
+    } else {
+      toolResult = "The user declined this action. Do NOT execute it; briefly tell the user you skipped it.";
+    }
     messages.push({
       role: "tool",
       tool_call_id: call.id,
-      content: opts.confirm_call.allow
-        ? await executeTool(call, opts.user)
-        : "The user declined this action. Do NOT execute it; briefly tell the user you skipped it.",
+      content: toolResult,
     });
     // Model-authored reminder variety: when a remind_me was just CONFIRMED, ask
     // the model (fire-and-forget) for a small variants pool so push time
-    // rotates Mia-style wordings instead of the static template.
-    if (opts.confirm_call.allow && call.name === "remind_me") {
+    // rotates Mia-style wordings instead of the static template. Skipped for a
+    // dedup replay (the turn was already enriched the first time).
+    if (opts.confirm_call.allow && !isDedup && call.name === "remind_me") {
       try {
         const args = JSON.parse(call.arguments || "{}") as { text?: unknown };
         if (typeof args.text === "string" && args.text.trim()) {

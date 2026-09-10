@@ -2173,7 +2173,7 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
-      risk: "read",
+      risk: "write",
       function: {
         name: "habit_log",
         description: "Log a habit for today (minum air, olahraga, tidur tepat waktu). Creates habit if new, deduped per day.",
@@ -2503,11 +2503,18 @@ function fileRead(rawPath: string): string {
 
 const FILE_WRITE_MAX_BYTES = 60000;
 
+/** Atomic file write (tmp + rename) — a crash mid-write never leaves a corrupt target. */
+function atomicWrite(abs: string, content: string): void {
+  const tmp = `${abs}.tmp`;
+  writeFileSync(tmp, content, "utf8");
+  renameSync(tmp, abs);
+}
+
 function fileWrite(rawPath: string, content: string): string {
   const p = (rawPath || "").trim();
   if (!p) throw new Error("empty path");
   if (p.includes("~")) throw new Error("tilde paths are not allowed");
-  if (content.length > FILE_WRITE_MAX_BYTES) throw new Error("content too large");
+  if (Buffer.byteLength(content, "utf8") > FILE_WRITE_MAX_BYTES) throw new Error("content too large");
   const abs = resolveInSandbox(p);
   if (!abs) throw new Error("path escapes every allowed sandbox root");
   const rel = abs.split(sep);
@@ -2523,8 +2530,8 @@ function fileWrite(rawPath: string, content: string): string {
     // file does not exist yet — ok, will create
   }
   mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, content, "utf8");
-  return `Wrote ${content.length} bytes to ${p}`;
+  atomicWrite(abs, content);
+  return `Wrote ${Buffer.byteLength(content, "utf8")} bytes to ${p}`;
 }
 
 function fileEdit(rawPath: string, oldStr: string, newStr: string): string {
@@ -2542,8 +2549,8 @@ function fileEdit(rawPath: string, oldStr: string, newStr: string): string {
   if (!cur.includes(oldStr)) throw new Error("old_string not found in file");
   // Only replace first occurrence to keep it predictable; use replaceAll if needed via multiple calls
   const next = cur.replace(oldStr, newStr);
-  if (next.length > FILE_WRITE_MAX_BYTES) throw new Error("result too large");
-  writeFileSync(abs, next, "utf8");
+  if (Buffer.byteLength(next, "utf8") > FILE_WRITE_MAX_BYTES) throw new Error("result too large");
+  atomicWrite(abs, next);
   return `Edited ${p}: replaced 1 occurrence`;
 }
 
@@ -2631,6 +2638,20 @@ function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
     if (EXEC_FORBIDDEN_SRC.test(trimmed)) {
       rejectPromise(new Error("command targets a blocked path"));
       return;
+    }
+    // Path-argument sandbox guard (invariant 5): `cat /etc/passwd` or
+    // `ls /Users` read outside the repo even though the base command is
+    // allowlisted. Resolve every non-flag argument against cwd and require it
+    // to stay within an allowed sandbox root. `df` is exempt — it reports
+    // mounted-volume stats, never file contents (its `/` is remapped below).
+    if (cmd !== "df") {
+      for (const a of args) {
+        if (a.startsWith("-")) continue;
+        if (!resolveInSandbox(resolve(cwd, a))) {
+          rejectPromise(new Error(`path argument "${a}" escapes every allowed sandbox root`));
+          return;
+        }
+      }
     }
     // macOS: `df /` reads the sealed SYSTEM snapshot (always ~40%) — remap to
     // the real data volume so any model-generated `df -h /` answers honestly.
