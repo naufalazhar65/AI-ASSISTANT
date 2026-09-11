@@ -202,10 +202,13 @@ const SYSTEM_PROMPT = [
   "write_file to create or overwrite a file with given content and edit_file to patch a file by replacing old_string with new_string (both require confirmation), ",
   "exec to run a safe read-only command (e.g. 'git status', 'ls src', ",
   "'node --version') whose output answers the user — pass `cwd` to target a ",
-  "different allowed workspace. For Mac storage use 'df -h /System/Volumes/Data' — that's the real data volume; plain 'df -h /' shows the sealed macOS system snapshot which is ALWAYS ~40% and would mislead. exec_write runs a write command (git add/commit/push, npm test / npm run <script> such as running a project's unit tests; one command per call — never chain with &&) ",
-  "when the user asks to commit, push, or run tests (requires confirmation), remind_me when ",
-  "the user asks to be reminded in the future (convert any relative time to a ",
-  "concrete ISO-8601 timestamp with offset). For remind_me, ALWAYS use the ",
+"different allowed workspace. For Mac storage use 'df -h /System/Volumes/Data' — that's the real data volume; plain 'df -h /' shows the sealed macOS system snapshot which is ALWAYS ~40% and would mislead. exec_write runs a write command (git add/commit/push, npm test / npm run <script> such as running a project's unit tests; one command per call — never chain with &&) ",
+   "when the user asks to commit, push, or run tests (requires confirmation), remind_me when ",
+   "the user asks to be reminded in the future (convert any relative time to a ",
+   "concrete ISO-8601 timestamp with offset). NEVER call remind_me unless the user explicitly asks ",
+   "to be reminded (e.g. 'ingetin aku jam X', 'set alarm', 'bangunin aku jam X'). If the user just ",
+   "muses or comments casually, answer naturally — do not schedule a reminder unprompted. ",
+   "For remind_me, ALWAYS use the ",
   "current date given below: a bare time like \"jam 3 sore\" means TODAY (or ",
   "TOMORROW if that time has already passed today). Never invent a date. ",
   "REMINDER HONESTY: never claim a reminder has fired/passed/is still pending from memory or guesses — call reminders_list to see the REAL state first, then answer from it (e.g. 'udah terkirim ✓' / 'masih terjadwal jam X').",
@@ -812,6 +815,24 @@ export type TurnResult = {
 };
 
 /**
+ * Extract a concrete reminder topic from recent chat context. When the
+ * user answers anaphorically ("boleh sekalin ingetin buat besok siang")
+ * without restating the subject, the detected intent text is generic
+ * ("pengingat"). This looks at the last user/assistant messages for a
+ * known noun (e.g. "Sate Maranggi") so the scheduled reminder carries
+ * a meaningful title instead of "pengingat".
+ */
+function extractTopicFromContext(messages: ChatMessage[]): string | null {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content) return null;
+  const txt = messageText(lastUser.content);
+  if (/\bSate Maranggi\b/i.test(txt)) return "Makan Sate Maranggi";
+  if (/\bmakan\s+siang\b/i.test(txt)) return "Makan siang";
+  if (/\bmakan\s+malam\b/i.test(txt)) return "Makan malam";
+  return null;
+}
+
+/**
  * Deterministic reminder scheduling (OpenClaw-style), provider-independent. The
  * models we use (esp. Groq qwen and local OpenCode) often answer "siap, aku
  * setel reminder" while ALSO failing to emit a `remind_me` tool call — so a
@@ -849,7 +870,14 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
       toAdd.push(intent);
     }
     for (const intent of toAdd) {
-      addRem(intent.text, intent.atMs, user, {
+      // Enrich generic/vague intent titles ("pengingat", "boleh sekalin") with
+      // a concrete topic from the chat context (e.g. "Makan Sate Maranggi").
+      let reminderText = intent.text;
+      if (/^pengingat$|^besok siang$|!/.test(reminderText) || /^(pengingat|boleh sekalin|besok siang)\s*$/i.test(reminderText.trim())) {
+        const topic = extractTopicFromContext(messages);
+        if (topic) reminderText = topic;
+      }
+      addRem(reminderText, intent.atMs, user, {
         repeat: intent.repeat,
         variants: intent.variants,
         // Re-point resolves to an existing slot at the same clock (keeps the
@@ -888,6 +916,37 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
         parts.push(reminderAddSuffix(labels.join(" & "), recurring));
       }
       const suffix = ` (${parts.join(" ")}🌸)`;
+      if (needMoveSuffix) {
+        // Only suppress the move suffix when the reply ALREADY states the target
+        // move time. Check for the exact destination labels ("14.00" — the same
+        // id-ID "HH.MM" format the list fallback uses) so a STALE list
+        // ("• 16.00 — kopi ☕", the pre-move hour) cannot silence the
+        // confirmation and the user reads the old time (2026-09-11 live).
+        const dstLabels = intents.filter((i) => i.repoint).map((i) =>
+          new Date(i.atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        );
+        const mentionsDst = dstLabels.some((l) => text.includes(l));
+        if (mentionsDst) return text;
+        // The model often answers a move request with a READ reminders list taken
+        // BEFORE the move — its hours are stale next to the "Sudah kupindah"
+        // suffix (2026-09-11 live: "ubah lagi jadi jam 2 siang" → list showed
+        // 13.00 while store became 14.00). Rebuild the list verbatim from the
+        // POST-move store so the hours match the confirmation.
+        const rebuilt = buildReminderList(user);
+        if (rebuilt && /•/.test(text)) return rebuilt + suffix;
+        return (text || "").trimEnd() + suffix;
+      }
+      // Pure add/recurring path: suppress only when the reply already mentions
+      // the reminder (model told the user it scheduled it). BUT a reply shaped
+      // like a READ reminders list ("Daftar reminder … • …") was fetched by the
+      // model BEFORE this turn's add — its contents are stale next to the
+      // "Sudah kutambah" suffix (2026-09-11 live: "mia ingetin aku makan jam 3
+      // sore" → answer listed 1 total while the store held 2 after the add).
+      // Rebuild the list verbatim from the POST-add store instead.
+      if (/•/.test(text)) {
+        const rebuilt = buildReminderList(user);
+        if (rebuilt) return rebuilt + suffix;
+      }
       return /remind|ingat|alarm|bangun/i.test(text) ? text : (text || "").trimEnd() + suffix;
     }
     return needDeleteSuffix ? appendDeleteSuffix(text) : text;
@@ -940,6 +999,25 @@ export function appendDeleteSuffix(text: string): string {
   if (/hapus|dihapus|didelete|cancel|dibatalkan|gak ada|nggak ada|udah aku hapus|sudah hapus/i.test(base)) return base;
   const line = dayRotated(REMINDER_DELETE_LINES)();
   return `${base} (${line})`.replace(/^\s+/, "");
+}
+
+/** Verbatim "Daftar reminder" listing from the CURRENT store (post-move /
+ * post-add times). Returns null when the store is empty or unreadable. */
+export function buildReminderList(user: unknown): string | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readReminders } = require("./reminders") as typeof import("./reminders");
+    const rs = readReminders(user);
+    if (!rs.length) return null;
+    const lines = [`Daftar reminder kamu beb — ${rs.length} total 🌸`];
+    for (const r of rs.slice(0, 10)) {
+      const t = new Date(r.at).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      lines.push(`• ${t} — "${r.text}"${r.repeat === "daily" ? " (harian 🔁)" : ""} — siap aku ingetin ⏰`);
+    }
+    return lines.join("\n");
+  } catch {
+    return null;
+  }
 }
 
 const PLAN_CREATE_LINES = [
@@ -1571,9 +1649,15 @@ function isColdGreetingReply(text: string): boolean {
 export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, isVerbatimList = false): string {
   // Never touch lists — they must be warm and formatted precisely.
   if (text.includes("\n- ") || text.includes("\n* ")) return text;
+  // Pure greeting MUST never be answered with a reminder list — 9router called
+  // reminders_list on "halo mia" (because the DM's recent turns were reminder
+  // asks), producing a stale "Daftar reminder" instead of a warm hello.
+  const lastUserG = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content)) && /^.*Daftar reminder|reminder kamu/i.test(text.trim()) && text.includes("•")) {
+    return dayRotated(GREETING_EMPATHY);
+  }
   if (isStructuredReply(text) && !isVerbatimList) return reflowStructuredReply(text);
   // Greeting cold-formal should be warm even if not telegraphic/choppy
-  const lastUserG = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content)) && isColdGreetingReply(text)) {
     return dayRotated(GREETING_EMPATHY);
   }
@@ -1884,18 +1968,25 @@ async function runAssistantTurnImpl(opts: {
   function planToolAlreadyHandled(needs: typeof needsConfirmation): boolean {
     return !!needs?.some((c) => c.name === "plan_create");
   }
+  const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  const reminderHit = lastUserMsg?.content ? detectReminderIntents(messageText(lastUserMsg.content)) : null;
+  // Defuse the model's misread `cancel_reminder`: when the user said "ubah …
+  // jadi jam 10" (a re-point) the deterministic path below MOVES the existing
+  // reminder — a pending cancel confirm for the same reminder must not land,
+  // or the user confirms a delete and the moved reminder dies (the 2026-09-10
+  // + 2026-09-11 live bugs: "ubah jadi jam 10, jangan jam 9" and "ubah dong jam
+  // makan siangnya jadi jam 1 siang" → model called cancel_reminder → user said
+  // "ya" → the real reminder was deleted). Filter out BOTH cancel_reminder and
+  // remind_me: the model's translation of a re-point is delete+re-add, so a
+  // remind_me present in needsConfirmation must not gate the defuse away
+  // (remindToolAlreadyHandled would otherwise be true and skip this) — the
+  // deterministic move is the single source of truth for a re-point ask.
+  if (reminderHit?.some((i) => i.repoint) && needsConfirmation) {
+    needsConfirmation = needsConfirmation.filter(
+      (c) => c.name !== "cancel_reminder" && c.name !== "remind_me"
+    );
+  }
   if (!remindToolAlreadyHandled(opts, needsConfirmation)) {
-    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && m.content);
-    const reminderHit = lastUserMsg?.content ? detectReminderIntents(messageText(lastUserMsg.content)) : null;
-    // Defuse the model's misread `cancel_reminder`: when the user said "ubah …
-    // jadi jam 10" (a re-point) the deterministic path below MOVES the existing
-    // reminder — a pending cancel confirm for the same reminder must not land,
-    // or the user confirms a delete and the moved reminder dies (the 2026-09-10
-    // live bug: "ubah jadi jam 10, jangan jam 9" → model called cancel_reminder
-    // → user said "ya" → the real daily was deleted → junk re-point text added).
-    if (reminderHit?.some((i) => i.repoint) && needsConfirmation) {
-      needsConfirmation = needsConfirmation.filter((c) => c.name !== "cancel_reminder");
-    }
     text = scheduleReminderFromIntent(messages, opts.user, text);
     // Model-authored reminder variety for the deterministic path too: ask the
     // model (fire-and-forget) for a variants pool so the push rotates Mia-style
@@ -1921,19 +2012,8 @@ async function runAssistantTurnImpl(opts: {
     const q = lastUser?.content ? messageText(lastUser.content).toLowerCase() : "";
     const isListAsk = (q.includes("tugas reminder") || q.includes("reminder kamu apa") || q.includes("list reminder") || q.includes("reminders_list") || /^reminder/.test(q.trim()));
     if (isListAsk && !text.includes("•")) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { readReminders } = require("./reminders") as typeof import("./reminders");
-        const rs = readReminders(opts.user);
-        if (rs.length && !text.includes("•")) {
-          const lines = [`Daftar reminder kamu beb — ${rs.length} total 🌸`];
-          for (const r of rs.slice(0,10)) {
-            const t = new Date(r.at).toLocaleString("id-ID", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
-            lines.push(`• ${t} — "${r.text}"${r.repeat==="daily"?" (harian 🔁)":""} — siap aku ingetin ⏰`);
-          }
-          text = lines.join("\n");
-        }
-      } catch {}
+      const rebuilt = buildReminderList(opts.user);
+      if (rebuilt && !text.includes("•")) text = rebuilt;
     }
   }
   // Deterministic watchlist scheduling (feature #6): a bare "monitorin harga

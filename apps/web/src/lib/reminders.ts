@@ -313,17 +313,26 @@ const REMINDER_STOP = new Set([
 ]);
 
 /** Minimal Indonesian stemmer for reminder-topic matching. Removes common
- *  suffixes (nya/kan/in/an/i/ku/mu) so "tidurnya" ≈ "tidur", "sikat" ≈ "sikat". */
+ *  suffixes (nya/kan/in/an/i/ku/mu) so "tidurnya" ≈ "tidur", "sikat" ≈ "sikat",
+ *  "makannya" ≈ "makan" (iterative strips, always keeping ≥4 chars, so a
+ *  suffixed and bare form of the same root converge — 2026-09-11 live bug:
+ *  "makannya"→"makan" but "makan"→"mak" never matched, so "ubah makannya jadi
+ *  jam 1 siang" failed to relocate the existing meal reminder and stacked a
+ *  junk duplicate instead). */
 function stemReminderToken(w: string): string {
   let s = w.toLowerCase().replace(/[^a-z0-9]/g, "");
   if (s.length <= 3) return s;
-  for (const suf of ["nya", "kan", "in", "an", "kan", "i", "ku", "mu"]) {
-    if (s.length > suf.length + 2 && s.endsWith(suf)) {
-      s = s.slice(0, -suf.length);
-      break;
+  for (;;) {
+    let stripped = false;
+    for (const suf of ["nya", "kan", "in", "an", "i", "ku", "mu"]) {
+      if (s.length - suf.length >= 4 && s.endsWith(suf)) {
+        s = s.slice(0, -suf.length);
+        stripped = true;
+        break;
+      }
     }
+    if (!stripped) return s;
   }
-  return s;
 }
 
 function reminderTopicTokens(text: string): string[] {
@@ -331,7 +340,7 @@ function reminderTopicTokens(text: string): string[] {
   for (const w of text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)) {
     if (!w) continue;
     const s = stemReminderToken(w);
-    if (s.length >= 4 && !REMINDER_STOP.has(s)) out.add(s);
+    if (s.length >= 3 && !REMINDER_STOP.has(s)) out.add(s);
   }
   return [...out];
 }

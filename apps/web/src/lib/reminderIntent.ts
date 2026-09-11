@@ -11,7 +11,18 @@
 // Imperative reminder verbs only. Bare "ingat" is deliberately EXCLUDED: it's
 // the recall verb ("kamu masih ingat mood aku?") not a command, and matching it
 // scheduled junk reminders on innocent questions.
-const INTENT_RE = /\b(bangunin|banguni|bangunkan|bangun|ingetkan|ingatkan|ingetin|remind|reminder|set( an)? alarm|alarm|wake( me)? up|jangan lupa|kasih tahu|beritahu|bangun aku)\b/i;
+// Note: "reminder_list" (the list command) must NOT match "reminder", so we
+// use a negative lookahead there.
+// Re-point verbs ("ubah/pindah/jadiin/geser … jadi jam X") are also intents:
+// "ubah aja deh makan satenya jam 1 siang" MUST relocate the existing reminder,
+// not silently promise it (2026-09-11 live bug: model answered "sudah aku ubah
+// ke jam 13.00" while the reminder stayed at 12:00 because the gate missed it).
+const INTENT_RE = /\b(bangunin|banguni|bangunkan|bangun|ingetkan|ingatkan|ingetin|remind|reminder(?!_list)|set( an)? alarm|alarm|wake( me)? up|jangan lupa|kasih tahu|beritahu|bangun aku|ubah|ubahin|ubahkan|jadiin|jadikan|pindah|pindahin|geser|geserin|ganti|gantiin|gantikan|gantinya)\b/i;
+
+/** Strong re-point/move verbs ("ubah … jadi jam X", "pindah ke jam X"). Plain
+ *  "aja"/"jadi"/"ganti" stay EXCLUDED here — they are too common in ordinary
+ *  speech for the repoint flag to key on. */
+const MOVE_RE = /\b(ubah|ubahin|ubahkan|jadiin|jadikan|pindah|pindahin|geser|geserin|ganti|gantiin|gantikan|gantinya)\b/i;
 
 // "setiap hari / tiap hari / every day / harian" → recurring daily reminder.
 const REPEAT_RE = /\b(setiap\s*hari|tiap\s*hari|tiap[\s-]*tiap\s*hari|every\s*day|daily|harian)\b/i;
@@ -151,7 +162,7 @@ function cleanReminderText(clause: string): string {
     .replace(INTENT_RE, " ")
     .replace(/jam\s*\d{1,2}(?:[.:]\d{2})?\s*(pagi|siang|sore|malam|subuh|dini\s*hari|am|pm)?/gi, " ")
     .replace(/\b\d{1,2}(?:[.:]\d{2})?\s*(pagi|siang|sore|malam|subuh|am|pm)?\b/gi, " ")
-    .replace(/\b(aku|gue|saya|ya|dong|tolong|plis|please|nanti|yaa|udaa+h+|gak|nggak|menerima|mengeyel|beb|buatin|bikin|buat|mau|di|app|reminders?|mac)\b/gi, " ")
+    .replace(/\b(aku|gue|saya|ya|dong|tolong|plis|please|nanti|yaa|udaa+h+|gak|nggak|menerima|mengeyel|beb|buatin|bikin|buat|mau|di|app|reminders?|mac|besok|pagi|siang|sore|malam|sekalin|inget|ingetin|ingatkan|ingetkan|ingat|lusa|lagi|ja|aja|mia|miaa|sayang|bebs?|kak|bang|deh|dong|lagi|jadwal|jadwalin)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
   s = s.replace(/^[,\-–—\s]+|[,\-–—\s]+$/g, "").trim();
@@ -198,9 +209,17 @@ export function detectReminderIntents(userText: string, now = Date.now()): Remin
       : nextOccurrence(seg.hour, seg.minute, now),
     ...(repeat ? { repeat } : {}),
     ...(variants?.length ? { variants } : {}),
-    // "jam 9 aja / pindah jam 9 / jadiin jam 9" re-points an existing slot
-    // instead of stacking a NEW reminder at that time.
-    ...(REPOINT_RE.test(seg.text) ? { repoint: true } : {}),
+    // Re-point language moves an existing slot instead of stacking a NEW
+    // reminder at that time. Two complementary signals keep every case covered:
+    //   - MOVE_RE / REPOINT_RE against the ORIGINAL userText, because
+    //     cleanReminderText strips the move/reassurance verbs ("ubah aja deh
+    //     makan satenya jam 1 siang" becomes "deh makan satenya", and "jam 9
+    //     pagi aja" becomes "tidurnya" — both would lose the repoint signal).
+    //     This is the 2026-09-11 live bug: the model verbosely claimed
+    //     "sudah aku ubah ke jam 13.00" while the reminder stayed at 12:00.
+    //   - REPOINT_RE against seg.text as a granular fallback for clauses
+    //     whose verb survives cleaning.
+    ...(MOVE_RE.test(userText) || REPOINT_RE.test(userText) || REPOINT_RE.test(seg.text) ? { repoint: true } : {}),
   }));
 }
 

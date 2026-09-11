@@ -771,6 +771,13 @@ async function main() {
   if (!/🌸/.test(greet) || greet === "Sapa terima. Beb panggil. Bantu apa?") throw new Error(`greeting not rewritten: ${greet}`);
   // Reminder asks that mention a clock are NOT greetings.
   if (ensureMoodReplyQuality([{ role: "user" as const, content: "ingetin aku ya jam 1 siang makan" }], "Siap, nanti kuingetin.") !== "Siap, nanti kuingetin.") throw new Error("reminder ask treated as greeting");
+  // Greeting MUST never be answered with a stale reminder list (9router called
+  // reminders_list on "halo mia"). The greeting-shortlist guard replaces it warm.
+  const greetList = ensureMoodReplyQuality(
+    [{ role: "user" as const, content: "halo mia" }],
+    "Daftar reminder kamu beb — 2 total 🌸\n• 11/09, 16.00 — \"Makan siang Mas Naufal 🍛\" — siap aku ingetin ⏰ (terjadwal)"
+  );
+  if (greetList.includes("Daftar reminder") || !/🌸/.test(greetList)) throw new Error(`greeting answered with reminder list: ${greetList}`);
   console.log("greeting reply quality: OK (telegraphic rewritten, reminder asks untouched)");
 
   // --- Indonesian clock parsing: "jam 1 siang" = 13:00 (NOT 12:00), 12 siang
@@ -969,12 +976,15 @@ async function main() {
   rmSync(join(userDataRoot(), mUser), { recursive: true, force: true });
   console.log(`mac monitor: OK (intents, battery alert fires+re-arms, storage ${storagePct}%)`);
 
-  // --- Hysteresis: a value sitting ON the threshold (storage 90% @ ambang 90)
-  // must alert ONCE, then stay silent while it hovers (the overnight
-  // alert/re-arm flood). Re-arm happens only when clearly away (>=5 away). ---
+  // --- Hysteresis: a value sitting ON the threshold (storage at its current
+  // percent @ that same threshold) must alert ONCE, then stay silent while it
+  // hovers (the overnight alert/re-arm flood). Re-arm happens only when clearly
+  // away (>=5 away). Threshold is pinned to the CURRENT storage percent read a
+  // few lines above so the test is deterministic on any host (a fixed 90 would
+  // fail on machines already below 90%, 2026-09-11). ---
   const { addMonitor: addMonH, checkMonitorsAndAlert: checkMonH } = await import("./src/lib/monitor");
   const hUser = `verify_mon_${Date.now()}`;
-  addMonH({ name: "Storage Mac", kind: "device", subject: "storage", threshold: 90, direction: "above", rawUser: hUser });
+  addMonH({ name: "Storage Mac", kind: "device", subject: "storage", threshold: storagePct as number, direction: "above", rawUser: hUser });
   const a1 = await checkMonH(hUser);
   if (!a1.length) throw new Error("hysteresis: first crossing should alert");
   const a2 = await checkMonH(hUser);
@@ -1007,6 +1017,24 @@ async function main() {
   if (rl.includes("sudah terkirim") || rl.includes("bangun")) throw new Error(`reminders_list should not show delivered: ${rl}`);
   rmSync(join(userDataRoot(), rUser), { recursive: true, force: true });
   console.log("reminders_list: OK (scheduled listed, delivered dropped from store)");
+
+  // --- buildReminderList (agent.ts): the verbatim "Daftar reminder … • …"
+  // reader used to REBUILD the reply list from the POST-move/POST-add store so
+  // a list the model fetched *before* this turn's action never shows stale
+  // hours (2026-09-11 live: "ubah lagi jadi jam 2 siang" replied "• 13.00 …"
+  // while the store already moved to 14.00). It must read live store state and
+  // be null when nothing is scheduled. ---
+  const { buildReminderList } = await import("./src/lib/agent");
+  const blUser = `verify_remlistbuild_${Date.now()}`;
+  if (buildReminderList(blUser) !== null) throw new Error("empty reminder store should build null list");
+  const b1 = new Date(); b1.setHours(16, 0, 0, 0);
+  addRem("kopi ☕", b1.getTime(), blUser);
+  const blText = buildReminderList(blUser);
+  if (!blText || !blText.includes("Daftar reminder") || !blText.includes("16.00") || !blText.includes("• ")) {
+    throw new Error(`buildReminderList should reflect the live store: ${JSON.stringify(blText)}`);
+  }
+  rmSync(join(userDataRoot(), blUser), { recursive: true, force: true });
+  console.log("reminders_list build: OK (buildReminderList reflects live store hours)");
 
   // --- Reminder cancel/repoint intent parsing: "jam 9 pagi aja, yang jam 7
   // hapus aja" must DELETE the 07:00 slot and MERGE into the existing 09:00
@@ -1072,6 +1100,88 @@ async function main() {
   if (!cancel9) throw new Error(`"jangan jam 9" should cancel slot 9: ${JSON.stringify(rmvCancels)}`);
   rmSync(join(userDataRoot(), rmvUser), { recursive: true, force: true });
   console.log("reminder move: OK (bangun tidur 09:00 → 10:00 daily, no junk, jangan jam 9 cancelled)");
+
+  // --- Reminder BARE re-point (2026-09-11 live bug): "ubah aja deh makan
+  // satenya jam 1 siang" contains NO imperative intent verb (no bangunin/
+  // ingetin/remind), yet MUST be detected as a repoint and the existing
+  // reminder relocated 12:00 → 13:00. Before the fix, detectReminderIntents
+  // returned null (INTENT_RE gate missed move verbs) and the model's verbal
+  // "sudah aku ubah ke jam 13.00" was a lie — the reminder stayed at 12:00. ---
+  const rbareUser = `verify_rembare_${Date.now()}`;
+  const { moveReminder: moveBare } = await import("./src/lib/reminders");
+  const noonB = new Date(); noonB.setHours(12, 0, 0, 0);
+  addRemC("Makan sate maranggi mas naufal 🍢🌸", noonB.getTime(), rbareUser);
+  const bareMsg = "ubah aja deh makan satenya jam 1 siang";
+  const bareIntents = detectInts(bareMsg) ?? [];
+  if (!bareIntents.length || !bareIntents.some((i) => i.repoint)) {
+    throw new Error(`bare repoint intent not detected: ${JSON.stringify(bareIntents)}`);
+  }
+  const bare = bareIntents.find((i) => i.repoint)!;
+  const bareMoved = moveBare(rbareUser, bare.text, bare.atMs);
+  if (!bareMoved || new Date(bareMoved.at).getHours() !== 13) {
+    throw new Error(`bare repoint should move sate reminder to 13:00: ${JSON.stringify(bareMoved ?? null)}`);
+  }
+  rmSync(join(userDataRoot(), rbareUser), { recursive: true, force: true });
+  console.log("reminder bare repoint: OK (ubah aja deh makan satenya jam 1 siang → 13:00)");
+
+  // --- Reminder GANTI re-point (2026-09-11 live Telegram bug): the user wrote
+  // "ganti lagi deh jadwal makan siangnya jadi jam 4 sore" — "ganti" is the
+  // move verb but was ALSO absent from INTENT_RE/MOVE_RE, so detectReminderIntents
+  // returned null (the 2026-09-11 "ubah" fix covered only ubah/jadiin/pindah/
+  // geser) and the reminder stayed at 14:00 while the model claimed to move it. ---
+  const rgantiUser = `verify_remganti_${Date.now()}`;
+  const { moveReminder: moveGanti } = await import("./src/lib/reminders");
+  const twoPmG = new Date(); twoPmG.setHours(14, 0, 0, 0);
+  const fourPmG = new Date(); fourPmG.setHours(16, 0, 0, 0);
+  addRemC("Makan siang Mas Naufal 🍛", twoPmG.getTime(), rgantiUser);
+  const gantiMsg = "ganti lagi deh jadwal makan siangnya jadi jam 4 sore";
+  const gantiIntents = detectInts(gantiMsg) ?? [];
+  if (!gantiIntents.length || !gantiIntents.some((i) => i.repoint)) {
+    throw new Error(`ganti repoint intent not detected: ${JSON.stringify(gantiIntents)}`);
+  }
+  const ganti = gantiIntents.find((i) => i.repoint)!;
+  const gantiMoved = moveGanti(rgantiUser, ganti.text, ganti.atMs);
+  if (!gantiMoved || new Date(gantiMoved.at).getHours() !== 16) {
+    throw new Error(`ganti repoint should move meal reminder to 16:00: ${JSON.stringify(gantiMoved ?? null)}`);
+  }
+  rmSync(join(userDataRoot(), rgantiUser), { recursive: true, force: true });
+  console.log("reminder ganti repoint: OK (ganti lagi deh jadwal makan siangnya jadi jam 4 sore → 16:00)");
+
+  // --- Reminder clean text strips the assistant name + vet "mia ingetin aku
+  // makan jam 3 sore" → "makan" (2026-09-11 live: the reminder was stored as
+  // "mia makan" because "mia" is the addressing word, not a topic noun). ---
+  const cleanInts = detectInts("mia ingetin aku makan jam 3 sore ya") ?? [];
+  if (!cleanInts.length || cleanInts[0].text !== "makan" || new Date(cleanInts[0].atMs).getHours() !== 15) {
+    throw new Error(`"mia ingetin aku makan jam 3 sore ya" should clean to "makan"@15:00: ${JSON.stringify(cleanInts)}`);
+  }
+  console.log("reminder clean mia: OK (\"mia ingetin aku makan jam 3 sore ya\" → \"makan\"@15:00)");
+
+  // --- Reminder STEM convergience (2026-09-11 live Telegram bug): the meal
+  // reminder text is "Waktunya makan Mas Naufal 🍴" but the re-point clause
+  // says "makannya". The stemmer must reduce both to the same token ("mak")
+  // — it previously stripped ONE suffix only, yielding "makannya"→"makan" vs
+  // "makan"→"mak", so the anchor never matched and the re-point stacked a junk
+  // duplicate ("deh ingetinnya makannya jadi") instead of relocating 15:00→13:00. ---
+  const rstemUser = `verify_remstem_${Date.now()}`;
+  const { moveReminder: moveStem } = await import("./src/lib/reminders");
+  const fivePmU = new Date(); fivePmU.setHours(15, 0, 0, 0);
+  const onePmU = new Date(); onePmU.setHours(13, 0, 0, 0);
+  addRemC("Waktunya makan Mas Naufal 🍴", fivePmU.getTime(), rstemUser);
+  const stemMsg = "ya ubah aja deh ingetinnya makannya jadi jam 1 siang";
+  const stemIntents = detectInts(stemMsg) ?? [];
+  if (!stemIntents.some((i) => i.repoint)) {
+    throw new Error(`stem repoint intent not detected: ${JSON.stringify(stemIntents)}`);
+  }
+  const stemMoved = moveStem(rstemUser, "deh ingetinnya makannya jadi", onePmU.getTime());
+  if (!stemMoved || new Date(stemMoved.at).getHours() !== 13 || !stemMoved.text.includes("Waktunya makan")) {
+    throw new Error(`stem move should relocate meal reminder to 13:00 keeping title: ${JSON.stringify(stemMoved ?? null)}`);
+  }
+  const stemAfter = readRemC(rstemUser);
+  if (stemAfter.filter((r) => new Date(r.at).getHours() === 13).length !== 1) {
+    throw new Error(`exactly one 13:00 reminder after stem move: ${JSON.stringify(stemAfter)}`);
+  }
+  rmSync(join(userDataRoot(), rstemUser), { recursive: true, force: true });
+  console.log("reminder stem convergence: OK (makannya ≈ makan → 15:00 moved to 13:00, no junk)");
 
   // --- Reminder confirmation variety: the real reminderMoveSuffix /
   // reminderAddSuffix helpers (exported from agent.ts) must rotate through all

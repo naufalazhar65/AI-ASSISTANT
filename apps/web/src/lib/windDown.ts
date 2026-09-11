@@ -67,15 +67,12 @@ async function tick(): Promise<void> {
   if (lastFired === day) return;
   lastFired = day;
   saveLast(day);
-  const root = userDataRoot();
-  if (!existsSync(root)) return;
-  for (const n of readdirSync(root, { withFileTypes: true }).filter((d)=>d.isDirectory()).map((d)=>d.name).filter((n)=>/^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n))) {
-    try {
-      const msg = dayRotated(WIND_DOWN_LINES);
-      const ok = await pushToOwner(msg);
-      if (ok) logInfo("winddown", `pushed for ${n}`);
-    } catch (e) { logError("winddown", String(e)); }
-  }
+  // Personal assistant: push the daily wind-down nudge to the
+  // owner's channel exactly once (no per-user loop — it would
+  // spam the owner once per discovered profile).
+  const msg = dayRotated(WIND_DOWN_LINES);
+  const ok = await pushToOwner(msg);
+  if (ok) logInfo("winddown", "pushed daily nudge");
 }
 
 export function startWindDownRunner(): void {

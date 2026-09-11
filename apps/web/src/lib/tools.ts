@@ -487,7 +487,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "remind_me",
         description:
-          "Schedule a reminder notification. Set repeat to \"daily\" for a recurring reminder (e.g. wake-up every day at 7). MIA should be imaginative: make the title engaging (emoji, vibe) and add a warm notes field with creative details — don't leave title raw and notes empty.",
+          "Schedule a reminder notification ONLY when the user explicitly asks to be reminded in the future (e.g. 'ingetin aku jam 12', 'set alarm buat besok'). Set repeat to \"daily\" for a recurring reminder (e.g. wake-up every day at 7). Make the title engaging (emoji, vibe) and add a warm notes field with creative details — but ONLY when the user actually asked for a reminder; never schedule a reminder unprompted.",
         parameters: {
           type: "object",
           properties: {
