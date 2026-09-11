@@ -31,6 +31,7 @@ import { detectPlaceIntent, placeNudge } from "./placeIntent";
 import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume } from "./spotify";
 import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
+import { readReminders } from "./reminders";
 import { appendDailyMemory } from "./dailyMemory";
 import { recallContext } from "./rag";
 import { scheduleLinkCapture } from "./library";
@@ -1534,6 +1535,11 @@ const GREETING_EMPATHY = [
   "Halo beb 🌸 Seneng kamu mampir — gimana harimu? Ada yang bisa kubantu?",
   "Heey beb 🌸 Untung kamu nyapa — mau cerita apa sekadar nge-chat aja nih?",
 ];
+const THANKS_EMPATHY = [
+  "Sama-sama beb 🌸 seneng bisa bantu!",
+  "Sama-sama sayang 🌸 kapan pun butuh aku, tinggal panggil ya!",
+  "Sama-sama beb 🌹 happy to help!",
+];
 
 /** Detect rigid listy structure: colon labels, bullets, numbered lines, or
  *  standalone heading words followed by ':' — the 9router "Saran:"/'Kuota
@@ -1640,7 +1646,7 @@ async function polishReplyWithProvider(
 
 /** Cold formal greeting template that small models love: "Siang, butuh bantuan apa ya? Ceritakan saja..." — never warm. */
 function isColdGreetingReply(text: string): boolean {
-  return /butuh bantuan|ceritakan saja|bantu rapikan|ada yang bisa dibantu|silakan sampaikan/i.test(text);
+  return /butuh (bantuan|apa)|ceritakan saja|bantu rapikan|ada yang bisa dibantu|silakan sampaikan/i.test(text);
 }
 
 /** If the reply is telegraphic (every sentence ≤4 words), replace it with a
@@ -1660,6 +1666,19 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
   // Greeting cold-formal should be warm even if not telegraphic/choppy
   if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content)) && isColdGreetingReply(text)) {
     return dayRotated(GREETING_EMPATHY);
+  }
+  // Thanks ("makasi") was answered with a generic greeting ("Halo beb...") — swap to thanks empathy.
+  if (lastUserG?.content && /\b(makasih|makasi|terima kasih)\b/i.test(messageText(lastUserG.content)) && /Halo beb|Hai beb|Heey beb/i.test(text)) {
+    return dayRotated(THANKS_EMPATHY);
+  }
+  // Single-sentence ultra-short greeting/thanks ("Sama-sama.", "Mas Naufal butuh apa.")
+  // slips past telegraphic (needs ≥2 sentences) — catch it warm.
+  if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content))) {
+    const w = text.trim().split(/\s+/).filter(Boolean).length;
+    if (w <= 4 && !/[\p{Emoji}\u2600-\u27BF]/u.test(text)) {
+      const isThanks = /\b(makasih|makasi|terima kasih)\b/i.test(messageText(lastUserG.content));
+      return dayRotated(isThanks ? THANKS_EMPATHY : GREETING_EMPATHY);
+    }
   }
   if (!isTelegraphicReply(text) && !isChoppyReply(text)) return text;
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
@@ -2003,6 +2022,51 @@ async function runAssistantTurnImpl(opts: {
   }
   if (!planToolAlreadyHandled(needsConfirmation)) {
     text = ensurePlanFromIntent(messages, opts.user, text);
+  }
+  // Specific reminder query: "jadwal gym jam brp?" or "jadwal ketemu client jam brp?"
+  // should answer only that topic, not the full dump. Handles KBBI abbreviations
+  // (yg/dg/utk/brp/dll) via expansion + typo fuzzy (keteku≈ketemu, Levenshtein≤2).
+  if (!needsConfirmation?.length && text.includes("•") && text.includes("Daftar reminder")) {
+    const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+    const qRaw = lastUser?.content ? messageText(lastUser.content).toLowerCase() : "";
+    const isSpecific = /\b(jadwal|jam brp|jam berapa|kapan)\b/.test(qRaw);
+    if (isSpecific) {
+      const abbr: Record<string, string> = { yg: "yang", dg: "dengan", dgn: "dengan", utk: "untuk", brp: "berapa", blm: "belum", sdh: "sudah", jd: "jadi", jdw: "jadwal", ktmu: "ketemu", ktemu: "ketemu", clnt: "client", skrg: "sekarang", bsk: "besok", mlm: "malam", sng: "siang", pg: "pagi" };
+      const q = qRaw.replace(/\b\w+\b/g, (w) => abbr[w] ?? w);
+      // fuzzy helper: keteku≈ketemu
+      const lev = (a: string, b: string): number => {
+        const m = a.length, n = b.length;
+        const dp = Array.from({ length: m + 1 }, (_, i) => Array(n + 1).fill(0).map((_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+        for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+        return dp[m][n];
+      };
+      const qTokens = q.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length >= 3 && !["jadwal", "jam", "berapa", "kapan", "yang", "untuk", "dengan"].includes(w));
+      if (qTokens.length) {
+        try {
+          const rems = readReminders(opts.user);
+          let bestLine: string | null = null;
+          let bestScore = 0;
+          const lines = text.split("\n").filter((l) => l.includes("•"));
+          for (const r of rems) {
+            const rLow = r.text.toLowerCase();
+            let score = 0;
+            for (const qt of qTokens) for (const rt of rLow.split(/[^a-z0-9]+/)) if (rt.length >= 3) {
+              if (rt === qt || rt.includes(qt) || qt.includes(rt) || lev(rt, qt) <= 2) { score++; break; }
+            }
+            if (score > bestScore) {
+              bestScore = score;
+              bestLine = lines.find((l) => l.toLowerCase().includes(rLow.slice(0, 12))) ?? lines.find((l) => l.toLowerCase().includes(rLow.split(/\s+/)[0])) ?? null;
+              // fallback: find line containing any token of this reminder
+              if (!bestLine) bestLine = lines.find((l) => qTokens.some((qt) => l.toLowerCase().includes(qt) || lev(l.toLowerCase().slice(0, 20), qt) <= 2)) ?? null;
+            }
+          }
+          if (bestLine) {
+            const header = text.split("\n")[0];
+            text = `${header.replace(/\d+ total/, "1 total")}\n${bestLine}`;
+          }
+        } catch {}
+      }
+    }
   }
   // Deterministic list fallback: some providers rephrase the `reminders_list`
   // tool output into a single sentence or return empty. When the user explicitly
