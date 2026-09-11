@@ -2051,13 +2051,13 @@ async function runAssistantTurnImpl(opts: {
             const rLow = r.text.toLowerCase();
             let score = 0;
             for (const qt of qTokens) for (const rt of rLow.split(/[^a-z0-9]+/)) if (rt.length >= 3) {
-              if (rt === qt || rt.includes(qt) || qt.includes(rt) || lev(rt, qt) <= 2) { score++; break; }
+              if (rt === qt || rt.includes(qt) || qt.includes(rt) || lev(rt, qt) <= 1) { score++; break; }
             }
             if (score > bestScore) {
               bestScore = score;
               bestLine = lines.find((l) => l.toLowerCase().includes(rLow.slice(0, 12))) ?? lines.find((l) => l.toLowerCase().includes(rLow.split(/\s+/)[0])) ?? null;
               // fallback: find line containing any token of this reminder
-              if (!bestLine) bestLine = lines.find((l) => qTokens.some((qt) => l.toLowerCase().includes(qt) || lev(l.toLowerCase().slice(0, 20), qt) <= 2)) ?? null;
+              if (!bestLine) bestLine = lines.find((l) => qTokens.some((qt) => l.toLowerCase().includes(qt) || lev(l.toLowerCase().slice(0, 20), qt) <= 1)) ?? null;
             }
           }
           if (bestLine) {
