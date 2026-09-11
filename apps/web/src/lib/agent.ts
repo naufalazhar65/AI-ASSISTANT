@@ -1522,7 +1522,7 @@ function isChoppyReply(text: string): boolean {
  *  dulu"). Excludes reminder asks that mention a clock ("jam 1 siang"). */
 const GREETING_RE =
   /\b(hai|halo|hei|hay|hi|pagi|siang|malam|sore|makasih|makasi|terima\s+kasih|sayang|pamit|mau\s+tidur|bobomain|met\s+bobo)\b/i;
-const GREETING_EXCLUDE_RE = /\bjam\s*\d|\bremind|ingetin|ingatkan|bangunin|alarm\b/i;
+const GREETING_EXCLUDE_RE = /\bjam\s*(\d|brp|berapa)|\bremind|ingetin|ingatkan|bangunin|alarm|jadwal\b/i;
 
 function detectGreetingTurn(userText: string): boolean {
   if (!GREETING_RE.test(userText) || GREETING_EXCLUDE_RE.test(userText)) return false;
