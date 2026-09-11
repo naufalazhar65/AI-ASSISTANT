@@ -14,7 +14,7 @@
 
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { sanitizeUser, userDataRoot } from "./users";
+import { isTestUserKey, sanitizeUser, userDataRoot } from "./users";
 
 export interface Reminder {
   id: string;
@@ -93,7 +93,8 @@ export function listUsersWithReminders(): string[] {
   try {
     return readdirSync(userDataRoot(), { withFileTypes: true })
       .filter((e) => e.isDirectory())
-      .map((e) => e.name);
+      .map((e) => e.name)
+      .filter((n) => !isTestUserKey(n));
   } catch {
     return [];
   }

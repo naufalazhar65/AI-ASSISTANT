@@ -64,7 +64,10 @@ export function repoRoot(): string {
  */
 export function isTestUserKey(key: string): boolean {
   // Prefix-based for synthetic users; old `s$` removed (matched any user ending in 's').
-  return /^(verify_|probe|monitorprobe|naufalprobe|recapprobe|remprobe|http_probe_)/i.test(key) ||
+  // Extended to catch defuse/cont repro probes and confirm/toolrounds temps that
+  // previously leaked into broadcastDue and caused the 11× bangun spam (2026-09-11).
+  return /^(verify_|probe|monitorprobe|naufalprobe|recapprobe|remprobe|http_probe_|defuse_probe|cont_repro|empty_turn|confirm_dedup|toolrounds_)/i.test(key) ||
+    /verify/i.test(key) ||
     /^(test|bob|tztest|wtheme|greet_probe|mock_roll_probe|owner_roll_probe|owner_smoke)$/i.test(key);
 }
 
