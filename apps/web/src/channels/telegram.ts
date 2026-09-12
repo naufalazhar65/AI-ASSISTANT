@@ -1,5 +1,5 @@
 import { broadcastMiaState } from "@/lib/miaState";
-import { chunkText, TELEGRAM_MAX, interimWaitText } from "./replyChunk";
+import { chunkText, TELEGRAM_MAX } from "./replyChunk";
 
 /**
  * Telegram channel adapter (PRD v2.0 §8.1 FR-101).
@@ -439,7 +439,6 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
     return;
   }
   state.pending = null;
-  await replyMia(ctx, interimWaitText());
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
     result = await withTyping(ctx, () =>

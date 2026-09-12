@@ -2291,6 +2291,44 @@ const toolRegistry: ToolPlugin[] = [
       }
     },
   },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "waze_route",
+        description:
+          "Cek traffic real-time via Waze Direct (gratis, tanpa API key). Beri durasi + jarak dengan traffic untuk alamat atau koordinat. Fallback OSRM bila Waze rate-limit. Pakai saat user tanya 'ke BSD macet ga', 'berapa menit ke PIK', 'rute tercepat'.",
+        parameters: {
+          type: "object",
+          properties: {
+            from: {
+              type: "string",
+              description: "Alamat asal atau 'lat,lon', mis. 'Monas, Jakarta' atau '-6.1754,106.8272'",
+            },
+            to: {
+              type: "string",
+              description: "Alamat tujuan atau 'lat,lon', mis. 'BSD City, Tangerang'",
+            },
+          },
+          required: ["from", "to"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const from = typeof args.from === "string" ? args.from : "";
+      const to = typeof args.to === "string" ? args.to : "";
+      if (!from || !to) return "Error: from dan to wajib diisi";
+      try {
+        const { getWazeRoute } = await import("./waze");
+        const r = await getWazeRoute(from, to);
+        const routesTxt = r.routes.map((x, i) => `${i === 0 ? "★" : " "} ${x.duration_min} menit (${x.distance_km} km) via ${x.name}`).join("\n");
+        return `${r.human}\n\n${routesTxt}\n\nJSON:\n${JSON.stringify({ from: r.from, to: r.to, routes: r.routes, fastest: r.fastest }, null, 2)}`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always

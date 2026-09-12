@@ -1,5 +1,5 @@
 import { broadcastMiaState } from "@/lib/miaState";
-import { chunkText, DISCORD_MAX, interimWaitText } from "./replyChunk";
+import { chunkText, DISCORD_MAX } from "./replyChunk";
 
 /**
  * Discord channel adapter (PRD v2.0 §8.1 FR-101 / ROADMAP Fase 2.3).
@@ -496,7 +496,8 @@ async function handleConfirmation(msg: Message, state: ChatState, user: string, 
   }
   state.pending = null;
   const channel = msg.channel as unknown as SendableChannel;
-  await replyMia(msg, interimWaitText());
+  // Use typing indicator only; the old interimWaitText left a permanent
+  // "Bentar, lagi kuproses…" bubble that looked like a real reply.
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
     result = await withTyping(channel, () =>
@@ -537,8 +538,8 @@ async function runTurn(
     turnMessages.push({ role: "user", content: userText });
     state.history.push({ role: "user", content: userText });
   }
-  await replyMia(msg, interimWaitText());
-
+  // No interim text bubble — withTyping shows the typing indicator instead
+  // (the old interimWaitText left a permanent extra message before the real reply).
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
     console.log(`[discord] turn start (provider=${state.provider})`);
