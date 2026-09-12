@@ -2367,6 +2367,35 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: () => reviewLearnings(),
   },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "weather",
+        description:
+          "Cek cuaca real-time (gratis wttr.in + Open-Meteo, no key). Pakai saat user tanya 'BSD hujan ga', 'besok perlu payung ga', 'cuaca Jakarta'. Beri suhu, deskripsi, humidity, wind.",
+        parameters: {
+          type: "object",
+          properties: {
+            location: { type: "string", description: "Lokasi atau 'lat,lon', mis. 'BSD City', 'Jakarta', '-6.30,106.64'" },
+          },
+          required: ["location"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const loc = typeof args.location === "string" ? args.location : "";
+      if (!loc) return "Error: location wajib diisi";
+      try {
+        const { getWeather } = await import("./weather");
+        const r = await getWeather(loc);
+        return `${r.human}\n\nJSON:\n${JSON.stringify({ location: r.location, temp_c: r.temp_c, desc: r.desc, humidity: r.humidity, wind_kmh: r.wind_kmh, time: r.time, source: r.source }, null, 2)}`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always
