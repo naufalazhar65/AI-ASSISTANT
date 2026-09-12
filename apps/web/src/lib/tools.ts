@@ -2428,6 +2428,73 @@ const toolRegistry: ToolPlugin[] = [
       }
     },
   },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "git_status",
+        description: "Cek git status --short --branch (read, no key). Pakai saat user tanya 'status git dong'.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { execFile: ef } = await import("node:child_process");
+      const { repoRoot } = await import("./users");
+      return new Promise<string>((resolve) => {
+        ef("git", ["status", "--short", "--branch"], { cwd: repoRoot(), timeout: 8000 }, (err, stdout, stderr) => {
+          if (err) resolve(`Error: ${stderr || err.message}`);
+          else resolve(stdout.trim() || "working tree clean");
+        });
+      });
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "git_commit",
+        description:
+          "Mia commit dong — git add -A + commit + push (write, perlu konfirmasi). Pakai saat user bilang 'Mia commit dong \"feat: X\"'.",
+        parameters: {
+          type: "object",
+          properties: {
+            message: { type: "string", description: "Pesan commit, mis. 'feat: tambah fitur X'" },
+          },
+          required: ["message"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const msg = typeof args.message === "string" ? args.message : "";
+      if (!msg) return "Error: message wajib diisi";
+      const { execFile: ef } = await import("node:child_process");
+      const { repoRoot } = await import("./users");
+      const cwd = repoRoot();
+      const run = (cmd: string, a: string[]) =>
+        new Promise<{ ok: boolean; out: string }>((res) =>
+          ef(cmd, a, { cwd, timeout: 15000 }, (err, stdout, stderr) => {
+            const out = (stdout + "\n" + stderr).trim();
+            res({ ok: !err, out: out || (err ? err.message : "done") });
+          })
+        );
+      const st = await run("git", ["status", "--porcelain"]);
+      if (!st.out) return "working tree clean — nothing to commit";
+      const add = await run("git", ["add", "-A"]);
+      if (!add.ok) return `Error add: ${add.out}`;
+      const diff = await run("git", ["diff", "--cached", "--quiet"]);
+      // diff --quiet exits 1 if staged, 0 if empty — execFile err when 1, so check via git status
+      const staged = await run("git", ["diff", "--cached", "--name-only"]);
+      if (!staged.out) return "working tree clean — nothing staged";
+      const cm = await run("git", ["commit", "-m", msg]);
+      if (!cm.ok) return `Error commit: ${cm.out}`;
+      const push = await run("git", ["push", "origin", "HEAD"]);
+      const hash = await run("git", ["rev-parse", "--short", "HEAD"]);
+      if (!push.ok) return `commit ${hash.out} done, push failed: ${push.out}`;
+      return `push done — ${hash.out}\n${cm.out.split("\n")[0]}`;
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always

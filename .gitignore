@@ -14,3 +14,7 @@ graphify-out/.graphify_root
 graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 openclaw-features-tools-list.md
 .learnings/
+Mia_Personal_AI_Assistant_Feature_List.md
+*_probe.ts
+apps/web/*_probe.ts
+apps/web/*probe.ts
