@@ -2979,8 +2979,8 @@ async function googleNews(query: string, language: string, region?: string, with
   if (!items.length) return withinHours > 0 ? `No news in the last ${withinHours}h.` : "No news found.";
   const rows = items.map((it) => `• ${it.title} (${it.source || "berita"}${it.when})${it.host ? ` — [${it.host}](${it.url})` : ""}`);
   const head = query.trim()
-    ? `Nih berita soal "${query.trim()}" — ${rows.length} result 🌸`
-    : `Ini headline terbaru 🌸 — ${rows.length} result`;
+    ? `Nih berita soal "${query.trim()}" — ${rows.length} hasil 🌸`
+    : `Ini headline terbaru 🌸 — ${rows.length} hasil`;
   return [head, ...rows].join("\n").slice(0, 4000);
 }
 

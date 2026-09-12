@@ -90,7 +90,16 @@ export function pairDevice(rawUser: unknown, secret: string, name: string, platf
 
 export function getDevice(rawUser: unknown, id: string): Device | null {
   const devices = readDevices(rawUser);
-  return devices.find((d) => d.id === id) || null;
+  const hit = devices.find((d) => d.id === id);
+  if (hit) return hit;
+  // Alias fallback: the model often hallucinates a device id ("macos-local",
+  // "local", …). On a single-device personal deploy that should resolve to the
+  // one local Mac instead of failing. Only when EXACTLY one macOS device exists.
+  if (id !== "local-mac") {
+    const locals = devices.filter((d) => d.platform === "macos");
+    if (locals.length === 1) return locals[0];
+  }
+  return null;
 }
 
 export function requireDeviceCapability(rawUser: unknown, id: string, cap: DeviceCapability): Device {
@@ -114,18 +123,41 @@ export function requireDeviceCapability(rawUser: unknown, id: string, cap: Devic
 
 export function deviceExec(rawUser: unknown, deviceId: string, command: string): Promise<string> {
   requireDeviceCapability(rawUser, deviceId, "exec");
-  const allowed = ["ls", "pwd", "cat", "git", "node", "npm", "pmset", "system_profiler", "ioreg", "uptime", "whoami", "hostname", "df", "ps", "blueutil"];
+  const allowed = ["ls", "pwd", "cat", "git", "node", "npm", "pmset", "system_profiler", "ioreg", "uptime", "whoami", "hostname", "df", "ps", "blueutil", "open"];
   const parts = command.trim().split(/\s+/);
   const cmd = parts[0];
   const isBlueutil = cmd === "blueutil" && (
     (parts.length === 2 && parts[1] === "-p") ||
     (parts.length === 3 && parts[1] === "-p" && (parts[2] === "0" || parts[2] === "1"))
   );
-  if (!allowed.includes(cmd) || (cmd === "blueutil" && !isBlueutil)) {
-    throw new Error(`device exec: command ${cmd} not allowed — try ls, pwd, cat, git status, pmset -g batt, blueutil -p (bluetooth on/off/status: 'blueutil -p 0' = off, 'blueutil -p 1' = on), etc.`);
+  // "open" launches an app via LaunchServices — strictly one of:
+  //   open -a <App Name>       (no slashes — LaunchServices resolves it; the
+  //                             app name may contain spaces, e.g. Android Studio)
+  //   open /Applications/<Name>.app   (explicit path inside /Applications)
+  let isOpenApp = false;
+  let openArgs: string[] = [];
+  if (cmd === "open") {
+    const stripQ = (s: string): string => s.replace(/^"+|"+$/g, "");
+    if (parts[1] === "-a" && parts.length >= 3 && parts.length <= 6) {
+      const app = parts.slice(2).map(stripQ).join(" ");
+      if (/^(?!\.)[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(app)) {
+        isOpenApp = true;
+        openArgs = ["-a", app];
+      }
+    } else {
+      const appPath = parts.slice(1).map(stripQ).join(" ");
+      if (/^\/Applications\/[A-Za-z0-9][A-Za-z0-9 ._-]*\.app$/.test(appPath)) {
+        isOpenApp = true;
+        openArgs = [appPath];
+      }
+    }
+  }
+  if (!allowed.includes(cmd) || (cmd === "blueutil" && !isBlueutil) || (cmd === "open" && !isOpenApp)) {
+    throw new Error(`device exec: command ${cmd} not allowed — try ls, pwd, cat, git status, pmset -g batt, blueutil -p (bluetooth on/off/status: 'blueutil -p 0' = off, 'blueutil -p 1' = on), or open -a <App Name> / open /Applications/<Name>.app to launch an app.`);
   }
   return new Promise((resolve, reject) => {
-    execFile(cmd, parts.slice(1), { timeout: 8000, maxBuffer: 60000 }, (err, stdout, stderr) => {
+    const args = cmd === "open" ? openArgs : parts.slice(1);
+    execFile(cmd, args, { timeout: 8000, maxBuffer: 60000 }, (err, stdout, stderr) => {
       if (err) {
         const msg = (err as NodeJS.ErrnoException).code === "ENOENT"
           ? `${cmd} belum terpasang di Mac ini${cmd === "blueutil" ? " — install via 'brew install blueutil'" : ""}`

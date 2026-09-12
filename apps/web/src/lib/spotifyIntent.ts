@@ -3,11 +3,19 @@
 // query that follows (strip platform mention + filler particles) so the search
 // hits the right track/playlist instead of the whole sentence.
 
-const STRONG_RE =
-  /\b(?:putar(?:in|kan)?|play|mainkan|dengerin|stel|nyalain)\s+(?:lagu|song|musik|music|playlist|album)\b/i;
+const NOUN = "(?:lagu|song|musik|music|playlist|album)";
+const VERB = "(?:putar(?:in|kan)?|play|mainkan|dengerin|stel|nyalain)";
+// A play verb or a polite particle followed by the music noun:
+//   "putar lagu X", "coba lagu X", "tolong lagu X", "mau dengerin lagu X".
+const STRONG_RE = new RegExp(
+  "\\b(?:(?:coba|tolong|mau|ingin|dengar(?:in|kan)?)\\s+)?" + VERB + "\\s+" + NOUN + "\\b|\\b(?:(?:coba|tolong\\s+)?)(" + NOUN + ")\\b",
+  "i"
+);
 
-const VERB_NOUN_RE =
-  /(?:putar(?:in|kan)?|play|mainkan|dengerin|stel|nyalain)\s+(lagu|song|musik|music|playlist|album)/i;
+const VERB_NOUN_RE = new RegExp(
+  "(?:(?:coba|tolong|mau|ingin|dengar(?:in|kan)?)\\s+)?" + VERB + "\\s+(" + NOUN + ")|(?:(?:coba|tolong)\\s+)(" + NOUN + ")",
+  "i"
+);
 
 export interface SpotifyIntent {
   query: string;
@@ -37,7 +45,7 @@ export function detectSpotifyIntent(text: string): SpotifyIntent | null {
   const m = text.match(VERB_NOUN_RE);
   if (!m) return null;
 
-  const noun = m[1].toLowerCase();
+  const noun = ((m[1] || m[2]) ?? "").toLowerCase();
   const kind =
     noun === "playlist" ? "playlist" : noun === "album" ? "album" : "track";
 

@@ -247,24 +247,36 @@ export async function recallContext(rawUser?: unknown, query?: string, topK = 5)
   const docs = collectDocs(rawUser);
   if (docs.length < 2) return "";
 
-  let vecDocs: VecDoc[];
-  let qv: number[];
-  try {
-    vecDocs = await refreshEmbeddings(userKey, docs);
-    qv = (await embedTexts([q]))[0];
-  } catch {
-    return "";
-  }
-
-  const threshold = cfgFloat("MEMORY_RECALL_MIN_COS", 0.28);
-  const hits = vecDocs
-    .map((d) => ({ d, cos: Math.max(0, cosine(d.vec, qv)) }))
-    .filter((h) => h.cos >= threshold)
-    .sort((a, b) => b.cos - a.cos)
+  const qTerms = tokenize(q);
+  const bm = bm25Scores(docs, qTerms)
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
     .slice(0, topK);
-  if (!hits.length) return "";
 
-  return hits.map((h) => `- [${h.d.source}/${h.d.id}] ${h.d.text.slice(0, 160)}`).join("\n").slice(0, 900);
+  // Semantic rerank is a quality boost, never a hard dependency — when the
+  // embedding endpoint is slow/unavailable it fast-fails (4s) and we serve the
+  // BM25 hits instead. This keeps recall fast on providers with no embed model.
+  try {
+    const vecDocs = await refreshEmbeddings(userKey, docs);
+    const qv = (await embedTexts([q]))[0];
+    const threshold = cfgFloat("MEMORY_RECALL_MIN_COS", 0.28);
+    const sem = vecDocs
+      .map((d) => ({ d, cos: Math.max(0, cosine(d.vec, qv)) }))
+      .filter((h) => h.cos >= threshold)
+      .sort((a, b) => b.cos - a.cos)
+      .slice(0, topK);
+    const hits = sem.length
+      ? sem
+      : bm.map((s) => ({ d: s.doc, cos: 0 }));
+    if (!hits.length) return "";
+    return hits
+      .map((h) => `- [${h.d.source}/${h.d.id}] ${h.d.text.slice(0, 160)}`)
+      .join("\n")
+      .slice(0, 900);
+  } catch {
+    if (!bm.length) return "";
+    return bm.map((s) => `- [${s.doc.source}/${s.doc.id}] ${s.doc.text.slice(0, 160)}`).join("\n").slice(0, 900);
+  }
 }
 
 export function clearEmbedCache(userKey: string): void {

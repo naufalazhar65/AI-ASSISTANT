@@ -180,6 +180,9 @@ const SYSTEM_PROMPT = [
   "every answer with the same 'Selalu ada buat kamu…' greeting), use natural flowing ",
   "Indonesian as in a real DM — short, warm, concrete; never echo commands back, ",
   "never list capabilities unless asked, never narrate what you're doing in telegraphese. ",
+  "LANGUAGE HARD RULE: always reply in Latin script only — NEVER emit CJK/Chinese, ",
+  "Japanese, Korean, or other non-Latin glyphs inside an Indonesian/English reply ",
+  "(e.g. write 'asup energi' never '摄入能量' or '能量'). A single non-Latin character is a bug. ",
   "TIME REFERENCES: you always know the current time — phrase schedule/wake-up talk ",
   "relative to it, naturally ('udah lewat jam bangunmu jam 7' when it is past 07:00, ",
   "'masih 2 jam lagi' when something is upcoming). Never invent a different time for ",
@@ -228,7 +231,7 @@ const SYSTEM_PROMPT = [
   "Use memory_get to retrieve a specific day's daily memory log (e.g. 'today', 'yesterday', or '2026-09-04').",
   "Use codebase_search to answer questions about the user's project code (where something is implemented, how a function works, file locations) — it searches the pre-indexed source of the repo and allowed workspaces and returns file:line references; search by identifier names (e.g. 'buildEveningRecap', 'reminder merge daily') and read the referenced file with file_read if the user needs more. codebase_refresh rebuilds that index when the user says the code just changed ('refresh index'). Both run immediately, without confirmation.",
   "Use browser_open to open a URL in a headless browser (for JS-heavy pages), browser_snapshot to see clickable elements, browser_click/browser_type to interact (require confirmation), and browser_navigate for back/forward/reload. IMPORTANT: those browser_* tools run an INVISIBLE automation browser — the user cannot see them. When the user wants to actually OPEN a site on their Mac to see it themselves ('buka youtube dong', 'open the site'), use mac_open with the plain http(s) URL — it opens their real browser visibly and runs immediately without confirmation.",
-  "Use device_list to see paired devices, device_pair to pair a new phone (ios/android) when asked, device_exec to run a safe command on a device (allowlisted: ls/cat/git status/pmset, and 'blueutil -p [0|1]' to check/toggle the Mac's Bluetooth power — 'matiin bluetooth' = 'blueutil -p 0'), device_screenshot to capture the Mac screen, device_location for location, device_camera for photos, and device_battery to check battery (pair/exec/screenshot/location/camera require confirmation except device_list and device_battery).",
+  "Use device_list to see paired devices, device_pair to pair a new phone (ios/android) when asked, device_exec to run a safe command on a device (allowlisted: ls/cat/git status/pmset, 'blueutil -p [0|1]' to check/toggle the Mac's Bluetooth power — 'matiin bluetooth' = 'blueutil -p 0', and 'open -a <App Name>' / 'open /Applications/<Name>.app' to LAUNCH an app like Xcode or 'Android Studio'), device_screenshot to capture the Mac screen, device_location for location, device_camera for photos, and device_battery to check battery (pair/exec/screenshot/location/camera require confirmation except device_list and device_battery).",
   "Use calendar_list to see upcoming events, calendar_check to check a slot, calendar_add to create an event (requires confirmation), and calendar_mac_add/calendar_mac_list to sync with the Mac's Calendar.app via AppleScript. RULE: plain 'jadwal ... jam X' (e.g. 'jadwal ketemu client jam 10 malam', 'jadwal gym jam 5') is a REMINDER (use remind_me), NOT a calendar event — only use calendar_* when the user explicitly says 'di kalender' / 'di Calendar' / 'Mac Calendar' / 'Calendar.app' / 'Google Calendar'. Same for Reminders.app: only use reminders_mac_add when the user says 'di app reminder' / 'Reminders.app' / 'Apple Reminders'. After an event is confirmed and created, do NOT ask 'lanjut?' or create a second event.",
   "Use send_channel with `to` = 'telegram' or 'discord' to relay a message to the other platform when the user asks (e.g. 'kirim ini ke discord'). It sends immediately without needing confirmation.",
   "When the user shares how they feel (e.g. 'aku stres', 'hari ini bahagia', 'capek banget'), their mood is recorded automatically by the system — reply with ONE warm, natural, flowing sentence of empathy plus one small caring suggestion or question, like a real friend texting ('Duh beb, capek banget ya 🌸 Istirahat dulu bentar, minum yang anget — mau aku temenin ngobrol?'). Never answer in clipped keyword fragments separated by periods, never narrate bookkeeping, and NEVER say you saved/logged/recorded their mood — that's internal. mood_recent shows their mood history/trend when asked (e.g. 'gimana mood-ku belakangan ini'). mood_recent runs immediately without confirmation.",
@@ -243,6 +246,7 @@ const SYSTEM_PROMPT = [
   "will pause for the user's confirmation before they run; do not claim the ",
   "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, mac_open, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous and spotify_volume do NOT wait for confirmation — send/run them right away.",
   "Tool results come from the server and should be trusted as fresh information.",
+  "If a tool returned an Error, tell the user plainly what failed and what to do — never reply 'Selesai.'/'done' or invent an outcome the tool did not report.",
   "Report tool results as a natural, complete Indonesian sentence in your own ",
   "voice — NEVER as terse fragments. The words 'Progress', 'Progres', 'Device', ",
   "'Status', 'play', 'paused', 'status:' and '▶/⏸' are FORBIDDEN in your reply. ",
@@ -389,6 +393,9 @@ function openCodeSystemPromptParts(): string {
     "every answer with the same 'Selalu ada buat kamu…' greeting), use natural flowing ",
     "Indonesian as in a real DM — short, warm, concrete; never echo commands back, ",
     "never list capabilities unless asked, never narrate in telegraphese. ",
+    "LANGUAGE HARD RULE: always reply in Latin script only — NEVER emit CJK/Chinese, ",
+    "Japanese, Korean, or other non-Latin glyphs inside an Indonesian/English reply ",
+    "(e.g. write 'asup energi' never '摄入能量' or '能量'). A single non-Latin character is a bug. ",
     "If the user switches language, answer in the same language. ",
     "For factual or live questions you are unsure about (weather, news, sports, ",
     "countries, people, events), use your READ-ONLY tool 'web_search' to look it ",
@@ -1154,13 +1161,31 @@ function scheduleMonitorFromIntent(messages: ChatMessage[], user: unknown, text:
   }
 }
 
-/** Day-rotated Spotify "play" suffix. `ok`=false keeps the raw result (error text). */
-export function spotifyPlaySuffix(played: string, ok: boolean): string {
-  return ok ? ` (${dayRotated(SPOTIFY_PLAY_LINES)(played)})` : ` (${played})`;
+/** Extract just the track label ("Broken Wings — Bryan Adams") from a play
+ *  result that may carry a trailing status clause ("... sudah muter di
+ *  Spotify macOS."). Used so SPOTIFY_PLAY_LINES can phrase the confirmation
+ *  naturally instead of duplicating the status ("Sudah kuputar: X sudah
+ *  muter."). Returns the input unchanged when no status clause is found. */
+export function playedLabel(played: string): string {
+  return played
+    .replace(/\s+(?:sudah|udah)\s+(?:benar-)?benar\s+keputar\b.*$/i, "")
+    .replace(/\s+(?:sudah|udah)\s+muter\s+\b.*$/i, "")
+    .replace(/\s+mulai\s+diputar.*$/i, "")
+    .replace(/\s+(?:sudah|udah)\s+keputar\b.*$/i, "")
+    .trim();
 }
-/** Day-rotated Spotify "resume" suffix. */
-export function spotifyResumeSuffix(resumeResult: string): string {
-  return ` (${dayRotated(SPOTIFY_RESUME_LINES)(resumeResult)})`;
+
+/** Day-rotated Spotify "play" line (no wrapping parens — it stands alone or is
+ *  appended after the model's own reply). `ok`=false keeps the raw result
+ *  (error text) since there is no confirmed track to phrase warmly. */
+export function spotifyPlaySuffix(played: string, ok: boolean): string {
+  if (!ok) return played.trim();
+  const label = playedLabel(played);
+  return dayRotated(SPOTIFY_PLAY_LINES)(label || played);
+}
+/** Day-rotated Spotify "resume" line (no wrapping parens). */
+export function spotifyResumeSuffix(_resumeResult: string): string {
+  return dayRotated(SPOTIFY_RESUME_LINES)();
 }
 
 /**
@@ -1202,7 +1227,15 @@ async function scheduleSpotifyFromIntent(
     return okR && /spotify|putar|play|lagu/i.test(trimmedR) ? text : `${trimmedR} ${resumeSuffix}`.trim();
   }
   const intent = detectSpotifyIntent(messageText(lastUser.content));
-  const query = fallbackQuery ?? intent?.query ?? null;
+  // Prefer the MORE specific query. 9router's native spotify_play often drops
+  // the artist ("bryan adams broken wings" -> "Broken Wings"), so a
+  // deterministic query carrying the artist wins over the model's truncation;
+  // the model's query wins only when it is longer (e.g. a contextual follow-up
+  // like "putar lagu yang tadi" where the intent extractor sees no title).
+  const query =
+    (fallbackQuery && intent?.query && intent.query.length >= fallbackQuery.length
+      ? intent.query
+      : (fallbackQuery ?? intent?.query)) ?? null;
   if (!query) return text;
   let played: string;
   try {
@@ -1210,7 +1243,7 @@ async function scheduleSpotifyFromIntent(
   } catch (err) {
     return appendSpotifyError(text, err);
   }
-  const ok = /sudah (?:benar-)?benar keputar|mulai diputar|dilanjutkan/i.test(played);
+  const ok = /sudah (?:benar-)?benar keputar|sudah muter\b|mulai diputar|dilanjutkan/i.test(played);
   // Play operator rotated daily so "putar lagu X" doesn't answer with the same
   // opener every time; the played result text is kept verbatim in all variants.
   const confirmSuffix = spotifyPlaySuffix(played, ok);
@@ -1219,8 +1252,8 @@ async function scheduleSpotifyFromIntent(
     trimmed === "" ||
     /^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(trimmed) ||
     /^(Error:)?\s*(Unexpected token|Unexpected non-whitespace|No number after minus sign|is not valid JSON)/i.test(trimmed);
-  if (stubOnly) return confirmSuffix.trim();
-  return ok && /spotify|putar|play/i.test(text.toLowerCase()) ? text : trimmed + confirmSuffix;
+  if (stubOnly) return confirmSuffix;
+  return ok && /spotify|putar|play/i.test(text.toLowerCase()) ? text : `${trimmed} ${confirmSuffix}`.trim();
 }
 
 /**
@@ -1284,17 +1317,21 @@ function appendSpotifyError(text: string, err: unknown): string {
 // Day-rotated Spotify playback openers — "putar lagu" answered with the same
 // "Sudah kuputar" starter every time reads robotic. `played` result text stays.
 const SPOTIFY_PLAY_LINES = [
-  (p: string) => `Sudah kuputar: ${p}`,
-  (p: string) => `Nah, sekarang ${p}`,
-  (p: string) => `Kusatukan, ${p}`,
-  (p: string) => `Langsung kupasang: ${p}`,
-  (p: string) => `Udah nyala — ${p}`,
+  (l: string) => `Oke, ${l} sekarang lagi muter nih 🎶`,
+  (l: string) => `Sip, ${l} udah keputar — nikmatin ya! 🎶`,
+  (l: string) => `Nah gini, ${l} lagi nyala, selamat dengerin 🌸`,
+  (l: string) => `Beres, ${l} udah muter — escucha bien~ 🎧`,
+  (l: string) => `${l} udah kusetel, jangan lupa nikmatin ya 😄`,
+  (l: string) => `Oke udah keputar: ${l}. Selamat! 🎵`,
+  (l: string) => `${l} sekarang muter, biar harimu makin asik 🌸`,
+  (l: string) => `Sudah ya, ${l} lagi nyetel sekarang 🎶`,
 ];
 const SPOTIFY_RESUME_LINES = [
-  (p: string) => `Sudah kulanjutkan: ${p}`,
-  (p: string) => `Kusambung lagi — ${p}`,
-  (p: string) => `Lanjut lagi ya: ${p}`,
-  (p: string) => `Dimulain balik — ${p}`,
+  () => "Oke, lanjut muter lagi ya 🎶",
+  () => "Siap, pemutaran dilanjutin 🌸",
+  () => "Lanjut lagi, nikmatin aja 😄",
+  () => "Sudah kulanjutin — lanjut dengerin ya 🎵",
+  () => "Oke udah nyambung lagi, selamat dengerin 🌸",
 ];
 
 const SPOTIFY_PAUSE_LINES = [
@@ -1523,11 +1560,24 @@ function isChoppyReply(text: string): boolean {
  *  dulu"). Excludes reminder asks that mention a clock ("jam 1 siang"). */
 const GREETING_RE =
   /\b(hai|halo|hei|hay|hi|pagi|(?<!makan\s)siang|(?<!makan\s)malam|sore|makasih|makasi|terima\s+kasih|sayang|pamit|mau\s+tidur|bobomain|met\s+bobo)\b/i;
-const GREETING_EXCLUDE_RE = /\bjam\s*(\d|brp|berapa)|\bremind|ingetin|ingatkan|bangunin|alarm|jadwal\b/i;
+const GREETING_EXCLUDE_RE = /\bjam\s*(\d|brp|berapa)|\b(remind|ingetin|ingatkan|bangunin|alarm|jadwal)\b/i;
+
+/** Collapse consecutive repeated letters ("haii"/"makasihh"/"halooo") so the
+ *  greeting/thanks detectors match casual texting. Word-joining "nggak" is not
+ *  a greeting word, so normalizing it is harmless for detection purposes. */
+function collapseRepeat(s: string): string {
+  return s.replace(/(\p{L})\1+/gu, "$1");
+}
 
 function detectGreetingTurn(userText: string): boolean {
-  if (!GREETING_RE.test(userText) || GREETING_EXCLUDE_RE.test(userText)) return false;
+  const t = collapseRepeat(userText);
+  if (!GREETING_RE.test(t) || GREETING_EXCLUDE_RE.test(userText)) return false;
   return userText.trim().split(/\s+/).length <= 8;
+}
+
+/** True when a user line reads as a thanks ("makasi", "makasihh"). */
+function isThanksTurn(raw: string): boolean {
+  return /\b(makasih|makasi|terima kasih)\b/i.test(collapseRepeat(raw));
 }
 
 const GREETING_EMPATHY = [
@@ -1538,7 +1588,7 @@ const GREETING_EMPATHY = [
 const THANKS_EMPATHY = [
   "Sama-sama beb 🌸 seneng bisa bantu!",
   "Sama-sama sayang 🌸 kapan pun butuh aku, tinggal panggil ya!",
-  "Sama-sama beb 🌹 happy to help!",
+  "Sama-sama beb 🌹 santai aja, emang ini tugasku kok.",
 ];
 
 /** Detect rigid listy structure: colon labels, bullets, numbered lines, or
@@ -1660,7 +1710,8 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
   // asks), producing a stale "Daftar reminder" instead of a warm hello.
   const lastUserG = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content)) && /^.*Daftar reminder|reminder kamu/i.test(text.trim()) && text.includes("•")) {
-    return dayRotated(GREETING_EMPATHY);
+    const isThanks = isThanksTurn(messageText(lastUserG.content));
+    return dayRotated(isThanks ? THANKS_EMPATHY : GREETING_EMPATHY);
   }
   if (isStructuredReply(text) && !isVerbatimList) return reflowStructuredReply(text);
   // Greeting cold-formal should be warm even if not telegraphic/choppy
@@ -1668,7 +1719,7 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
     return dayRotated(GREETING_EMPATHY);
   }
   // Thanks ("makasi") was answered with a generic greeting ("Halo beb...") — swap to thanks empathy.
-  if (lastUserG?.content && /\b(makasih|makasi|terima kasih)\b/i.test(messageText(lastUserG.content)) && /Halo beb|Hai beb|Heey beb/i.test(text)) {
+  if (lastUserG?.content && isThanksTurn(messageText(lastUserG.content)) && /Halo beb|Hai beb|Heey beb/i.test(text)) {
     return dayRotated(THANKS_EMPATHY);
   }
   // Single-sentence ultra-short greeting/thanks ("Sama-sama.", "Mas Naufal butuh apa.")
@@ -1676,7 +1727,7 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
   if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content))) {
     const w = text.trim().split(/\s+/).filter(Boolean).length;
     if (w <= 4 && !/[\p{Emoji}\u2600-\u27BF]/u.test(text)) {
-      const isThanks = /\b(makasih|makasi|terima kasih)\b/i.test(messageText(lastUserG.content));
+      const isThanks = isThanksTurn(messageText(lastUserG.content));
       return dayRotated(isThanks ? THANKS_EMPATHY : GREETING_EMPATHY);
     }
   }
@@ -2214,5 +2265,16 @@ async function runAssistantTurnImpl(opts: {
     console.error("[agent] empty turn text (debug): user=", JSON.stringify((messages[messages.length - 1]?.content ?? "").slice(0, 80)));
   }
 
-  return { text, needsConfirmation };
+  return { text: stripNonLatinChars(text), needsConfirmation };
+}
+
+/**
+ * Deterministic CJK / non-Latin scrub. Some Chinese-trained LLMs (GLM, DeepSeek)
+ * occasionally leak CJK glyphs into an Indonesian reply ("摄入能量"). The prompt
+ * bans them, but this is a hard guarantee on the final reply text — ever before
+ * it reaches the channel. Removes the char (keeps words around it intact,
+ * e.g. "Buruan摄入能量" → "Buruan能量").
+ */
+export function stripNonLatinChars(text: string): string {
+  return text.replace(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g, "");
 }

@@ -307,27 +307,42 @@ async function searchBestTrack(
 
   const candidates = cleanTracks.length ? cleanTracks : tracks;
   if (!candidates.length) return undefined;
+  // Normalize a word so "lo-fi" and "lofi" (and hyphens/3am etc.) match the
+  // same token. Split on whitespace (not [^a-z0-9]+) so hyphenated words stay
+  // whole — the old split turned "lo-fi" into ["lo","fi"] and the length>2
+  // filter then dropped both, leaving only "vibes" and letting either track
+  // with "vibes" in the title win the tie.
+  const normWord = (w: string): string => w.toLowerCase().replace(/[^a-z0-9]+/g, "");
   const qTokens = new Set(
-    query.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2),
+    query.toLowerCase().split(/\s+/).map(normWord).filter((w) => w.length > 1),
   );
   if (!qTokens.size) return candidates[0];
+  const qPhrase = [...qTokens].join(" ");
   let best = candidates[0];
   let bestScore = -Infinity;
   for (const t of candidates) {
     const title = String(t.name || "").toLowerCase();
-    const artists = ((t.artists as Record<string, string>[]) || []).map((a) => String(a.name || "").toLowerCase());
+    const titleNorm = title.split(/\s+/).map(normWord).filter((w) => w.length > 1).join(" ");
+    const titleWords = new Set(titleNorm.split(" "));
+    const artistWords = new Set(
+      ((t.artists as Record<string, string>[]) || [])
+        .flatMap((a) => String(a.name || "").toLowerCase().split(/\s+/).map(normWord))
+        .filter((w) => w.length > 1),
+    );
     let bonus = 0;
     for (const tok of qTokens) {
-      if (artists.some((a) => a.includes(tok))) bonus += 5; // Artist match is strong
-      if (title.includes(tok)) bonus += 4;                 // Title match is strong
+      if (artistWords.has(tok)) bonus += 5; // Artist match is strong
+      if (titleWords.has(tok)) bonus += 4;  // Title match is strong
     }
-    // Boost exact matches and penalize "karaoke" / "live" / "remix" if not in query
-    if (title.includes(query.toLowerCase())) bonus += 10;
+    // Boost exact (whole-query) matches, penalize unwanted versions
+    if (titleNorm.includes(qPhrase)) bonus += 10;
     if (title.includes("karaoke") && !query.toLowerCase().includes("karaoke")) bonus -= 15;
     if (title.includes("live") && !query.toLowerCase().includes("live")) bonus -= 15;
     if (title.includes("instrumental") && !query.toLowerCase().includes("instrumental")) bonus -= 15;
+    if (title.includes("remix") && !query.toLowerCase().includes("remix")) bonus -= 15;
 
-    const denom = 1 + Math.abs(artists.join(" ").length - String(query).length) / 50; // Normalize
+    const artistNames = ((t.artists as Record<string, string>[]) || []).map((a) => String(a.name || ""));
+    const denom = 1 + Math.abs(artistNames.join(" ").length - String(query).length) / 50; // Normalize
     const score = bonus / denom;
     if (score > bestScore) {
       bestScore = score;
@@ -453,6 +468,35 @@ export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "play
   };
   try {
     if (track) {
+      // SPOTIFY_FORCE_LOCAL=1: bypass the Web API play path entirely and drive
+      // the local macOS app via AppleScript — used to test the osascript route.
+      if (process.env.SPOTIFY_FORCE_LOCAL === "1" && process.platform === "darwin") {
+        const ok = await execFileAsync("osascript", [
+          "-e",
+          'tell application "Spotify"',
+          "-e",
+          "activate",
+          "-e",
+          `play track ${JSON.stringify(String(track.uri))}`,
+          "-e",
+          "end tell",
+        ], { timeout: 8000 }).then(() => true).catch(() => false);
+        if (!ok) {
+          return "Perintah buka Spotify lokal gagal — cek izin otomatisasi (TCC) untuk proses server ya.";
+        }
+        // The app can take a few seconds to load/decode the track before its
+        // player state flips from "stopped" to "playing" — poll instead of a
+        // single 1200ms snapshot so an honest "lagu sudah muter" isn't a
+        // premature "belum kedeteksi".
+        for (let attempt = 0; attempt < 6; attempt++) {
+          if (attempt) await new Promise((r) => setTimeout(r, 1200));
+          const snap = await spotifyOsascriptSnapshot().catch(() => null);
+          if (snap && snap.state === "playing" && snap.name) {
+            return `${snap.name}${snap.artist ? ` — ${snap.artist}` : ""} sudah muter di Spotify macOS.`;
+          }
+        }
+        return `Spotify sudah kubuka lewat app lokal, tapi belum kedeteksi muter — cek aplikasinya ya.`;
+      }
       await start([String(track.uri)]);
       return await confirmTrack(track);
     }
@@ -460,23 +504,43 @@ export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "play
     return await confirmResume();
   } catch (err) {
     // No active device (404). Two robust fallbacks before giving up:
-    //   1. macOS: open `spotify:track:<uri>` through LaunchServices — this
-    //      launches the app AND starts playback immediately, no wait for the
-    //      app to register as a device (waiting for registration is flaky).
+    //   1. macOS: activate Spotify and play the resolved track URI via
+    //      AppleScript (`play track`) — this launches the app AND starts
+    //      playback immediately, no wait for the app to register as a device
+    //      (waiting for registration is flaky). If the node process lacks the
+    //      Spotify Automation (TCC) grant, it silent-fails — fall back to the
+    //      `open spotify:track:<uri>` LaunchServices deeplink, which needs no
+    //      grant at all.
     //   2. Transfer playback to a listed device, then retry the play once.
     if (err instanceof Error && err.message === "spotify_no_active_device") {
       if (track && process.platform === "darwin") {
-        // Launch via deeplink: `open spotify:track:<id>` opens the Spotify app
-        // AND automatically triggers playback on macOS natively.
-        await execFileAsync("open", [String(track.uri)], { timeout: 4000 });
+        // AppleScript path first: `play track` takes the resolved track URI
+        // (`spotify:track:<id>`), not a search URI, so playback starts at once.
+        try {
+          await execFileAsync("osascript", [
+            "-e",
+            'tell application "Spotify"',
+            "-e",
+            "activate",
+            "-e",
+            `play track ${JSON.stringify(String(track.uri))}`,
+            "-e",
+            "end tell",
+          ], { timeout: 8000 });
+        } catch {
+          // osascript unavailable / TCC not granted for Spotify — LaunchServices
+          // deeplink opens the app and starts playback without any grant.
+          await execFileAsync("open", [String(track.uri)], { timeout: 4000 });
+        }
         
-        // Wait briefly for Spotify to spin up and confirm playback started from the deeplink.
+        // Wait briefly for Spotify to spin up and confirm playback started
+        // (osascript or deeplink path; playback can lag cold app start).
         const snap = await verifyPlayback(rawUser, String(track.uri), 8000);
         if (snap?.isPlaying) {
           return await confirmTrack(track);
         }
 
-        // Fallback: If deeplink opened the app but didn't start playing automatically,
+        // Fallback: If the launch path opened the app but didn't start playing automatically,
         // Wait for the app to register as a device (cold start can take 15-40s),
         // then explicitly issue the start command. ensureDevice is retried once
         // mid-poll in case the device appears but isn't "active" yet.
@@ -603,11 +667,74 @@ async function listDevices(rawUser: unknown): Promise<SpotifyDevice[]> {
   return devices;
 }
 
+/** Snapshot from the local Spotify app via AppleScript (state, track, artist).
+ *  `null` when not on macOS / osascript unavailable / TCC not granted. */
+interface SpotifyOsascriptSnapshot {
+  state: string;
+  name: string;
+  artist: string;
+}
+
+async function spotifyOsascriptSnapshot(): Promise<SpotifyOsascriptSnapshot | null> {
+  if (process.platform !== "darwin") return null;
+  try {
+    // Single `-e` `to return ...` — multi-`-e` `set st to ...` lines fail with
+    // `Expected expression but found "st"` (-2741); this form has been
+    // verified live. "|" separators avoid tab-escaping bugs in osascript.
+    const { stdout } = await execFileAsync("osascript", [
+      "-e",
+      'tell application "Spotify" to return ((player state as text) & "|" & (name of current track) & "|" & (artist of current track))',
+    ], { timeout: 8000 });
+    const [st, tn, ar] = String(stdout).trim().split("|");
+    return { state: st, name: tn ?? "", artist: ar ?? "" };
+  } catch {
+    return null;
+  }
+}
+
+/** Run a control verb against the local Spotify app via AppleScript
+ *  (`pause`, `next track`, `previous track`). Returns false when not on macOS
+ *  or osascript is unavailable / TCC not granted. */
+async function spotifyOsascriptAct(verb: "pause" | "next track" | "previous track"): Promise<boolean> {
+  if (process.platform !== "darwin") return false;
+  try {
+    await execFileAsync("osascript", [
+      "-e",
+      'tell application "Spotify"',
+      "-e",
+      "activate",
+      "-e",
+      verb,
+      "-e",
+      "end tell",
+    ], { timeout: 8000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function spotifyPause(rawUser: unknown): Promise<string> {
   try {
     await spotifyRequest<unknown>(rawUser, "PUT", "/me/player/pause");
   } catch (err) {
     if (err instanceof Error && err.message === "spotify_no_active_device") {
+      // Local app first: AppleScript pause works without any active device.
+      if (process.platform === "darwin") {
+        try {
+          const launched = await spotifyOsascriptAct("pause");
+          if (launched) {
+            await new Promise((r) => setTimeout(r, 800));
+            const snap = await spotifyOsascriptSnapshot();
+            if (snap && snap.state !== "playing") {
+              return "Pemutaran dijeda di Spotify macOS.";
+            }
+            return "Sudah kusuruh jeda di Spotify, tapi belum kedeteksi jedanya — cek aplikasinya ya.";
+          }
+        } catch {
+          /* fall through to web API device transfer */
+        }
+      }
       const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await spotifyRequest<unknown>(rawUser, "PUT", "/me/player/pause");
@@ -624,6 +751,23 @@ export async function spotifyNext(rawUser: unknown): Promise<string> {
     await spotifyRequest<unknown>(rawUser, "POST", "/me/player/next");
   } catch (err) {
     if (err instanceof Error && err.message === "spotify_no_active_device") {
+      // Local app first: AppleScript `next track` works without any active device.
+      if (process.platform === "darwin") {
+        try {
+          const before = await spotifyOsascriptSnapshot();
+          const launched = await spotifyOsascriptAct("next track");
+          if (launched) {
+            await new Promise((r) => setTimeout(r, 1200));
+            const after = await spotifyOsascriptSnapshot();
+            if (after && before && after.name !== before.name) {
+              return `Lagu berikutnya diputar${after.name ? `: ${after.name}${after.artist ? ` — ${after.artist}` : ""}` : " di Spotify macOS"}.`;
+            }
+            return `Sudah kusuruh geser ke lagu berikutnya di Spotify, tapi lagu di layar belum berubah — cek aplikasinya ya.`;
+          }
+        } catch {
+          /* fall through to web API device transfer */
+        }
+      }
       const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await spotifyRequest<unknown>(rawUser, "POST", "/me/player/next");
@@ -640,6 +784,23 @@ export async function spotifyPrevious(rawUser: unknown): Promise<string> {
     await spotifyRequest<unknown>(rawUser, "POST", "/me/player/previous");
   } catch (err) {
     if (err instanceof Error && err.message === "spotify_no_active_device") {
+      // Local app first: AppleScript `previous track` works without any active device.
+      if (process.platform === "darwin") {
+        try {
+          const before = await spotifyOsascriptSnapshot();
+          const launched = await spotifyOsascriptAct("previous track");
+          if (launched) {
+            await new Promise((r) => setTimeout(r, 1200));
+            const after = await spotifyOsascriptSnapshot();
+            if (after && before && after.name !== before.name) {
+              return `Lagu sebelumnya diputar${after.name ? `: ${after.name}${after.artist ? ` — ${after.artist}` : ""}` : " di Spotify macOS"}.`;
+            }
+            return `Sudah kusuruh geser ke lagu sebelumnya di Spotify, tapi lagu di layar belum berubah — cek aplikasinya ya.`;
+          }
+        } catch {
+          /* fall through to web API device transfer */
+        }
+      }
       const transferred = await ensureDevice(rawUser);
       if (transferred) {
         await spotifyRequest<unknown>(rawUser, "POST", "/me/player/previous");

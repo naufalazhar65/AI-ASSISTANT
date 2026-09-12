@@ -254,7 +254,7 @@ async function main() {
     const res = await searchMemory("mie favorit", semUser);
     if (!res.includes("mie favorit")) throw new Error(`search should degrade to BM25 when embeddings down: ${res.slice(0, 200)}`);
     const rc = await recallContext(semUser, "mie favorit");
-    if (rc !== "") throw new Error(`recall should be silent when embeddings unavailable: ${rc.slice(0, 120)}`);
+    if (!rc.includes("mie favorit")) throw new Error(`recall should degrade to BM25 when embeddings unavailable: ${rc.slice(0, 120)}`);
   } finally {
     if (prevEmbed === undefined) delete process.env.EMBED_API_BASE;
     else process.env.EMBED_API_BASE = prevEmbed;

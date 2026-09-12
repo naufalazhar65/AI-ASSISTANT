@@ -1,5 +1,5 @@
 import { broadcastMiaState } from "@/lib/miaState";
-import { chunkText, DISCORD_MAX } from "./replyChunk";
+import { chunkText, DISCORD_MAX, interimWaitText } from "./replyChunk";
 
 /**
  * Discord channel adapter (PRD v2.0 §8.1 FR-101 / ROADMAP Fase 2.3).
@@ -496,7 +496,7 @@ async function handleConfirmation(msg: Message, state: ChatState, user: string, 
   }
   state.pending = null;
   const channel = msg.channel as unknown as SendableChannel;
-  await replyMia(msg, "Oke, sebentar ya…");
+  await replyMia(msg, interimWaitText());
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
     result = await withTyping(channel, () =>
@@ -537,6 +537,7 @@ async function runTurn(
     turnMessages.push({ role: "user", content: userText });
     state.history.push({ role: "user", content: userText });
   }
+  await replyMia(msg, interimWaitText());
 
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
