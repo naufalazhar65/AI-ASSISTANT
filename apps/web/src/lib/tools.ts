@@ -9,6 +9,7 @@ import { listUploads, readUpload } from "./uploads";
 import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
 import { listLearnings, reviewLearnings, searchLearnings } from "./learnings";
+import { guard as safeGuard } from "./safeExec";
 import { ensureFreshIndex, rebuildIndex, searchCodebaseIn, indexSummary } from "./codebaseIndex";
 import { readDailyMemory } from "./dailyMemory";
 import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate } from "./browser";
@@ -2495,6 +2496,23 @@ const toolRegistry: ToolPlugin[] = [
       return `push done — ${hash.out}\n${cm.out.split("\n")[0]}`;
     },
   },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "safe_exec_list",
+        description: "List pending SafeExec requests (CRITICAL/HIGH intercepted, need approval). Auto, read.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { listPending } = await import("./safeExec");
+      const list = listPending();
+      if (!list.length) return "No pending SafeExec requests — all clear.";
+      return list.map((r) => `${r.id} | ${r.risk} | ${r.command} | ${r.reason} | ${r.createdAt}`).join("\n");
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always
@@ -2843,6 +2861,12 @@ function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
       rejectPromise(new Error("command targets a blocked path"));
       return;
     }
+    // SafeExec guard (CRITICAL/HIGH intercepted, agent auto-bypass for LOW/MEDIUM)
+    const safe = safeGuard(trimmed);
+    if (!safe.allow) {
+      rejectPromise(new Error(`Blocked by SafeExec (${safe.risk}): ${safe.reason} — pending ${safe.requestId}. Approve via safe-exec-approve ${safe.requestId} or set SAFE_EXEC_DISABLE=1`));
+      return;
+    }
     // Path-argument sandbox guard (invariant 5): `cat /etc/passwd` or
     // `ls /Users` read outside the repo even though the base command is
     // allowlisted. Resolve every non-flag argument against cwd and require it
@@ -2959,6 +2983,11 @@ function execWriteSafe(rawCommand: string, rawCwd = ""): Promise<string> {
     }
     if (EXEC_FORBIDDEN_SRC.test(trimmed)) {
       rejectPromise(new Error("command targets a blocked path"));
+      return;
+    }
+    const safe = safeGuard(trimmed);
+    if (!safe.allow) {
+      rejectPromise(new Error(`Blocked by SafeExec (${safe.risk}): ${safe.reason} — pending ${safe.requestId}. Approve via safe-exec-approve ${safe.requestId}`));
       return;
     }
     execFile(cmd, args, { cwd, timeout: EXEC_WRITE_TIMEOUT_MS, maxBuffer: EXEC_MAX_OUTPUT * 2 }, (err, stdout, stderr) => {
