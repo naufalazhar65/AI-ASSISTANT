@@ -22,6 +22,7 @@ import { detectReminderCancels, detectReminderIntents } from "./reminderIntent";
 import { detectMoodIntent, logDetectedMood } from "./moodIntent";
 import { detectCorrection } from "./correctionIntent";
 import { addCorrection } from "./corrections";
+import { logError, logFeatureRequest, logLearning } from "./learnings";
 import { enrichReminderVariants } from "./reminderVariants";
 import { detectMonitorIntents, detectMonitorIntent, cryptoSubject } from "./monitorIntent";
 import { addMonitor } from "./monitor";
@@ -194,7 +195,7 @@ const SYSTEM_PROMPT = [
   "VISION: when the user sends an image (it arrives as image_url), you CAN see it — describe it accurately and helpfully, never claim you cannot see images. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, research, google_news, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, cancel_reminder, reminders_mac_add, reminders_mac_list, habit_log, habit_stats, add_task, list_tasks, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, plan_list, plan_get, skill_list, skill_search, hello_world, list_uploads, read_upload, create_automation, automation_list, fetch_url, search_memory, memory_get, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, gmail_link, gmail_list, gmail_read, gmail_search, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, briefing, and waze_route. ",
+  "You have tools: web_search, research, google_news, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, cancel_reminder, reminders_mac_add, reminders_mac_list, habit_log, habit_stats, add_task, list_tasks, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, plan_list, plan_get, skill_list, skill_search, hello_world, list_uploads, read_upload, create_automation, automation_list, fetch_url, search_memory, memory_get, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_click, browser_type, browser_navigate, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, gmail_link, gmail_list, gmail_read, gmail_search, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, briefing, waze_route, learnings_search, and learnings_review. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "research for a multi-source digest (news + web + article bodies) on complex questions needing synthesis, ",
   "google_news for recent news headlines (berita terbaru) — always prefer google_news (with within:72 for the last 3 days) over web_search when the user asks for 'berita terbaru'/latest news, because web_search returns stale evergreen pages; ",
@@ -241,11 +242,12 @@ const SYSTEM_PROMPT = [
   "Use briefing to serve the morning/day digest when the user asks 'briefing', 'ringkasan pagi', 'apa agenda hari ini', 'rencana hari ini', or greets in the morning wanting their schedule — it assembles due/overdue tasks, today's reminders, yesterday's mood+memory, and any civil holiday today. It runs immediately, without confirmation." ,
   "Fun features, all immediate without confirmation: mala gives a daily fortune ('ramalan harian', stable all day) when the user asks to be told their luck/fortune; game_start starts a song-guess round (Mia secretly picks a song from the user's recently played Spotify history), game_guess checks the user's guess (correct → celebrate + score; wrong → next clue, max 3), game_quit reveals and stops; hari_libur answers Indonesian public holidays ('tanggal merah/libur nasional'), noting that moveable Islamic dates follow the official SKB — web_search them when the user needs exact current-year dates; recap wraps up the user's day from memory + moods when asked ('rekap hariku'); weekly_insight gives the 7-day digest (moods, tasks, recurring themes) when asked ('insight minggu ini', 'rekap mingguan').",
   "Use waze_route with from+to (address or lat,lon) for live traffic/duration/distance — e.g. 'ke BSD macet ga', 'berapa menit ke PIK' — it hits Waze (free) with OSRM fallback. It runs immediately without confirmation. "
+  + "Use learnings_search (query) to find past corrections/learnings or learnings_review for counts — when user asks 'learning apa', 'error apa aja', 'review learnings'. Both run immediately without confirmation. "
   + "Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_next/spotify_previous/spotify_volume to control playback (they run immediately, no confirmation). If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
   "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. Present the returned list as one email per line.",
   "save_note, delete_note, library_remove, memory_hygiene, write_file, edit_file, browser_click, browser_type, browser_navigate, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
-  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, mac_open, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume and waze_route do NOT wait for confirmation — send/run them right away.",
+  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, mac_open, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away.",
   "Tool results come from the server and should be trusted as fresh information.",
   "If a tool returned an Error, tell the user plainly what failed and what to do — never reply 'Selesai.'/'done' or invent an outcome the tool did not report.",
   "Report tool results as a natural, complete Indonesian sentence in your own ",
@@ -735,7 +737,7 @@ async function runAgent(
       const content = await executeTool(call, user);
       messages.push({ role: "tool", tool_call_id: call.id, content });
       if (/^error:/i.test(content.trim())) {
-        try { addCorrection(`${call.name} ${call.arguments.slice(0,120)}`, `Error: ${content.slice(0,200)} → use correct tool/args with delivery`, user); appendDailyMemory(user, `[self-correct] ${call.name} failed: ${content.slice(0,200)}`); } catch { /* best-effort */ }
+        try { addCorrection(`${call.name} ${call.arguments.slice(0,120)}`, `Error: ${content.slice(0,200)} → use correct tool/args with delivery`, user); appendDailyMemory(user, `[self-correct] ${call.name} failed: ${content.slice(0,200)}`); logError({ skill: call.name, summary: `${call.name} failed in autoDenyRisky`, error: content.slice(0, 800), context: `args ${call.arguments.slice(0,200)}`, relatedFiles: ["apps/web/src/lib/agent.ts"] }); } catch { /* best-effort */ }
       }
       if (call.name === "web_search" && !/^error:/i.test(content.trim())) collector.webSearchSuccess = true;
     }
@@ -787,7 +789,7 @@ async function runAgent(
       content += "\n\n(Sudah dicoba 2 kali — jawab dari pengetahuan atau sarankan kata kunci berbeda)";
     }
     if (/^error:/i.test(content.trim())) {
-      try { addCorrection(`${call.name} ${call.arguments.slice(0,120)}`, `Error: ${content.slice(0,200)} → use correct tool/args`, user); appendDailyMemory(user, `[self-correct] ${call.name} failed: ${content.slice(0,200)}`); } catch { /* best-effort */ }
+      try { addCorrection(`${call.name} ${call.arguments.slice(0,120)}`, `Error: ${content.slice(0,200)} → use correct tool/args`, user); appendDailyMemory(user, `[self-correct] ${call.name} failed: ${content.slice(0,200)}`); logError({ skill: call.name, summary: `${call.name} failed`, error: content.slice(0, 800), context: `args ${call.arguments.slice(0,200)}`, relatedFiles: ["apps/web/src/lib/agent.ts"] }); } catch { /* best-effort */ }
     }
     messages.push({ role: "tool", tool_call_id: call.id, content });
     if (call.name === "web_search" && !/^error:|^No results found/i.test(content)) collector.webSearchSuccess = true;
@@ -1489,9 +1491,17 @@ function logCorrection(messages: ChatMessage[], user: unknown): void {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return;
   try {
-    const hit = detectCorrection(messageText(lastUser.content));
-    if (!hit) return;
-    addCorrection(hit.original, hit.corrected, user);
+    const text = messageText(lastUser.content);
+    const hit = detectCorrection(text);
+    if (hit) {
+      addCorrection(hit.original, hit.corrected, user);
+      logLearning({ category: "correction", summary: `User correction: ${hit.corrected.slice(0, 120)}`, details: `original: ${hit.original.slice(0,300)} | corrected: ${hit.corrected.slice(0,500)} | user: ${String(user ?? "-")}`, priority: "medium", area: "backend", tags: ["correction", "user_feedback"], patternKey: "correction.user-feedback", source: "conversation", relatedFiles: ["apps/web/src/lib/correctionIntent.ts"] });
+    }
+    // Feature request heuristic: "tambahkan fitur", "bisa nggak ...", "kenapa tidak bisa"
+    const featRe = /\b(tambah(kan)? fitur|request fitur|bisa (nggak|gak|tidak) .* (fitur|bisa)|kenapa (tidak|nggak) bisa|bisakah kamu .* tapi|wish you could|i wish you)\b/i;
+    if (featRe.test(text) && text.length < 600) {
+      logFeatureRequest({ capability: text.slice(0, 200), context: `user ${String(user ?? "-")} asked: ${text.slice(0, 400)}`, complexity: "medium" });
+    }
   } catch { /* silent, no push */ }
 }
 

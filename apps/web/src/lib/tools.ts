@@ -8,6 +8,7 @@ import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
+import { listLearnings, reviewLearnings, searchLearnings } from "./learnings";
 import { ensureFreshIndex, rebuildIndex, searchCodebaseIn, indexSummary } from "./codebaseIndex";
 import { readDailyMemory } from "./dailyMemory";
 import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate } from "./browser";
@@ -2328,6 +2329,43 @@ const toolRegistry: ToolPlugin[] = [
         return `Error: ${e instanceof Error ? e.message : String(e)}`;
       }
     },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "learnings_search",
+        description:
+          "Cari learnings/errors/feature requests di .learnings/ (self-improving). Pakai saat user tanya 'apa learning terbaru', 'ada error apa', 'fitur apa yang diminta'.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Kata kunci, mis. 'waze', 'correction', 'error'" },
+            limit: { type: "number", description: "Maks entri (default 10)" },
+          },
+          required: [],
+        },
+      },
+    },
+    execute: (args) => {
+      const q = typeof args.query === "string" && args.query ? args.query : "";
+      const lim = typeof args.limit === "number" ? args.limit : 10;
+      if (q) return searchLearnings(q, lim);
+      return listLearnings(lim, "pending");
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "learnings_review",
+        description: "Review ringkas .learnings/ — hitung pending/resolved per file + kandidat promote (Recurrence>=3).",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: () => reviewLearnings(),
   },
 ];
 
