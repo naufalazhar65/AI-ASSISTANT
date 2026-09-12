@@ -69,12 +69,24 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Game tebak lagu** — dari riwayat Spotify, 3 clue, skor
 - **Hari libur** — kalender sipil + catatan SKB
 
-## 9. Email (Gmail, read-only)
+## 9. Travel & Live Data
+
+- **Waze Direct** — `waze_route` Nominatim → Waze `routing-livemap-row` (XML, retry 3×) → OSRM fallback, free, `waze.sh "Monas, Jakarta" "BSD City"`
+- **Weather Jakarta** — `weather` wttr.in `?format=j1` + Open-Meteo fallback, free, `weather.sh "BSD City"`
+- **Hotel Finder** — `hotel_search` Booking.com Playwright headless `id-ID`, `hotel.sh "Bandung" "400rb"`, 60–150% budget band
+
+## 10. Dev & Safety
+
+- **Git Helper** — `git_status` (auto) + `git_commit` (write, confirm) + `git.sh` / `safe-exec*.sh`
+- **SafeExec** — CRITICAL/HIGH/MEDIUM/LOW guard, pending `~/.openclaw/safe-exec/pending/`, audit `safe-exec-audit.log`, `safe_exec_list`, env `SAFE_EXEC_DISABLE` / `OPENCLAW_AGENT_CALL`
+- **Self-improving** — `.learnings/` (LRN/ERR/FEAT, Pattern-Key dedup, Recurrence-Count), hooks `bootstrap` + `sweep`, Mia tools `learnings_search`/`learnings_review`, promote `Recurrence>=3` → `AGENTS.md`/`SOUL.md`/`TOOLS.md`
+
+## 11. Email (Gmail, read-only)
 
 - **OAuth** — per-user `gmail.json`, auto-refresh, consent screen
 - **Tools** — `gmail_link`/`gmail_list`/`gmail_search`/`gmail_read`, paginated, truncated
 
-## 10. Quality Guards (anti-berisik & anti-bug)
+## 12. Quality Guards (anti-berisik & anti-bug)
 
 - **Hysteresis monitor ±5** — tidak re-alert saat hover di ambang
 - **isTestUserKey** — user test (verify_/probe) tidak pernah push
@@ -85,6 +97,6 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Wake lock + dedup persist** — recap/weekly/wind-down tidak dobel setelah restart
 - **Heartbeat wiring** — `checkMonitorsAndAlert` sekarang benar-benar dipanggil (bug laten fixed)
 
-## 11. Security (Fase 5)
+## 13. Security (Fase 5 + SafeExec)
 
-- Auth PIN/Bearer, allow-list owner per channel, TOOLS_DENY, audit log, rate limit, sandbox exec, backup otomatis, app log per-day
+- Auth PIN/Bearer, allow-list owner per channel, TOOLS_DENY, SafeExec (CRITICAL/HIGH pending + audit), audit log, rate limit, sandbox exec, backup otomatis, app log per-day

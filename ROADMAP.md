@@ -162,6 +162,19 @@ Mia benar-benar berguna sebagai asisten pribadi.
 
 ---
 
+## Fase 6 — Live Data & Safety (2026-09-12)
+
+```text
+[x] Waze Direct — waze.sh + lib/waze.ts (Nominatim → Waze livemap-row XML retry 3× → OSRM fallback), tool waze_route (read, auto), human +18 vs normal
+[x] Weather Jakarta — weather.sh + lib/weather.ts (wttr.in j1 + Open-Meteo fallback), tool weather (read, auto)
+[x] Hotel Finder — hotel.sh + lib/hotel.ts (Playwright Booking.com id-ID, 60–150% budget band, max 6), tool hotel_search (read, auto, WAJIB)
+[x] Git Helper — git.sh + tools git_status (read, auto) + git_commit (write, confirm) + .gitignore probe
+[x] SafeExec — lib/safeExec.ts (CRITICAL/HIGH/MEDIUM/LOW, pending req_*.json, audit safe-exec-audit.log, env SAFE_EXEC_DISABLE/OPENCLAW_AGENT_CALL), bash safe-exec*.sh, tool safe_exec_list, guard di exec/exec_write
+[x] Self-improving — .learnings/ (LRN/ERR/FEAT, Pattern-Key, Recurrence-Count), hooks bootstrap+sweep di ~/.openclaw/hooks/self-improvement, tools learnings_search/review, sync Mia auto-log correction/Error
+```
+
+---
+
 ## Kriteria Selesai MVP (v2.0)
 
 MVP personal assistant dianggap berfungsi bila:

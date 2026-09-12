@@ -37,7 +37,7 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 - **Core:** `apps/web/src/lib/agent.ts` — single turn implementation for every channel (`streaming → tools → follow-up → auto-memory → reminder intent → mood log`).
 - **Providers:** `apps/web/src/lib/providers.ts` — `groq` / `openrouter` / `9router` / `opencode (local)` / `mock`. Client sends only `{provider, model}`; server resolves keys/endpoints (Invariant 5).
 - **Channels:** `apps/web/src/channels/{telegram,discord}.ts` + `pushTarget.ts` sink for proactive pushes.
-- **Persistence:** per-user disk store under `apps/web/.data/users/<user>/` — notes, reminders, tasks, uploads, automations, mood log (`moods.json`), Spotify token (`spotify.json`), game state (`game.json`), persona, daily memory (`memory/YYYY-MM-DD.md`).
+- **Persistence:** per-user disk store under `apps/web/.data/users/<user>/` — notes, reminders, tasks, uploads, automations, mood log (`moods.json`), Spotify token (`spotify.json`), game state (`game.json`), persona, daily memory (`memory/YYYY-MM-DD.md`). Global: `.learnings/` (corrections/errors/features, gitignored, also in `~/.openclaw/workspace/.learnings/`), `~/.openclaw/safe-exec/` (pending + `safe-exec-audit.log`).
 - **Scheduling:** `lib/reminders.ts` + `lib/automations.ts` (daily / hourly) + `automationRunner.ts` + `heartbeat.ts` (periodic overdue/due-soon check, default 30m) + `POST /api/webhook` (external trigger with `WEBHOOK_SECRET`) — all started in `instrumentation-node.ts`.
 - **Channel adapter policy:** Discord DM requires `partials: [Channel, Message]` + `msg.fetch()` on `msg.partial` (first-ever DM would be dropped otherwise). While a turn is running, the Discord adapter keeps a live typing indicator on the channel (`withTyping`, re-pulses every 8s) so the owner sees the bot is working.
 
@@ -86,6 +86,13 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 | `game_start` / `game_guess` / `game_quit` | read | "Tebak Lagu" — guess a song from the user's recently played Spotify history (3 clues, per-user score) |
 | `hari_libur` | read | Indonesian public holidays ("tanggal merah") — fixed civil dates + note that moveable Islamic dates follow the official SKB |
 | `recap` | read | Evening recap of the day from today's memory + mood log (also auto-pushes nightly via `RECAP_HOUR`) |
+| `waze_route` | read | Live traffic Waze Direct (Nominatim geocode → Waze livemap-row XML + retry 3× → OSRM fallback, free) — `from`/`to` address or lat,lon |
+| `weather` | read | Live weather wttr.in + Open-Meteo fallback (free, no key) — `location` address or lat,lon |
+| `hotel_search` | read | Booking.com live via Playwright (no key) — `location` + `budget` (e.g. 600rb), 60–150% band, max 6 |
+| `git_status` | read | `git status --short --branch` (read, auto) |
+| `git_commit` | write | `git add -A` + `commit` + `push` (write, needs `ya` confirm) |
+| `safe_exec_list` | read | List pending SafeExec CRITICAL/HIGH (approve via `safe-exec-approve`) |
+| `learnings_search` / `learnings_review` | read | Search `.learnings/` (correction/insight) / review counts + promote candidates |
 | `send_channel` | read* | Relay a message to another registered channel (Telegram ↔ Discord, sends immediately, no confirmation) |
 
 Read-only tools auto-execute. Write/delete/transaction/external tools pause for inline `ya`/`tidak` confirmation (FR-014) — **except Spotify playback controls**, which run immediately (user preference, 2026-09-06).
@@ -99,9 +106,10 @@ Hands-free voice via the same core: browser mic → energy VAD → Whisper ASR �
 ```
 apps/web                  Next.js app (UI, hooks, audio, persona, /api/* proxies)
   src/ai                  ConversationManager, GroqStreamingProvider, VAD helpers
-  src/lib                 tools, agent, providers, persona, autoMemory, sessions,
-                          reminders, tasks, uploads, automations, mood, rag,
-                          status, backup, ...
+   src/lib                 tools, agent, providers, persona, autoMemory, sessions,
+                           reminders, tasks, uploads, automations, mood, rag,
+                           status, backup, waze, weather, hotel, safeExec,
+                           learnings, ...
   src/channels            telegram.ts, discord.ts, pushTarget.ts
   persona/                IDENTITY.md, SOUL.md, USER.md, DREAMS.md (template)
 packages/state-machine    Conversation state machine (invalid transitions impossible)
