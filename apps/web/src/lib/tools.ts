@@ -2396,6 +2396,38 @@ const toolRegistry: ToolPlugin[] = [
       }
     },
   },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "hotel_search",
+        description:
+          "Cari harga hotel live via Booking.com (Playwright, no key). WAJIB dipakai untuk semua pertanyaan hotel/lodging — jangan jawab dari memori. Beri nama + harga Rp + rating + link.",
+        parameters: {
+          type: "object",
+          properties: {
+            location: { type: "string", description: "Kota/daerah, mis. 'Bandung', 'Jakarta'" },
+            budget: { type: "string", description: "Budget, mis. '400rb', '600rb', '1jt' atau '600000' — opsional" },
+          },
+          required: ["location"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const loc = typeof args.location === "string" ? args.location : "";
+      const bud = typeof args.budget === "string" ? args.budget : undefined;
+      if (!loc) return "Error: location wajib diisi";
+      try {
+        const { getHotels } = await import("./hotel");
+        const r = await getHotels(loc, bud);
+        const json = JSON.stringify({ location: r.location, budget: r.budget, checkin: r.checkin, checkout: r.checkout, hotels: r.hotels }, null, 2);
+        return `${r.human}\n\nJSON:\n${json}`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always
