@@ -10,6 +10,7 @@ import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
 import { listLearnings, reviewLearnings, searchLearnings } from "./learnings";
 import { guard as safeGuard } from "./safeExec";
+import { cuaClick, cuaClickXY, cuaDoctor, cuaLaunch, cuaListApps, cuaListWindows, cuaType, cuaWindowState } from "./cua";
 import { ensureFreshIndex, rebuildIndex, searchCodebaseIn, indexSummary } from "./codebaseIndex";
 import { readDailyMemory } from "./dailyMemory";
 import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate } from "./browser";
@@ -2511,6 +2512,63 @@ const toolRegistry: ToolPlugin[] = [
       const list = listPending();
       if (!list.length) return "No pending SafeExec requests — all clear.";
       return list.map((r) => `${r.id} | ${r.risk} | ${r.command} | ${r.reason} | ${r.createdAt}`).join("\n");
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "cua_doctor", description: "Cek cua-driver health (doctor) — platform, daemon, TCC. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: () => cuaDoctor(),
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "cua_list_apps", description: "List running apps + windows (cua). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: () => cuaListApps(),
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "cua_launch", description: "Launch native app via cua (macOS bundle_id, e.g. com.apple.finder). Write, confirm.", parameters: { type: "object", properties: { bundle_id: { type: "string", description: "Bundle ID, mis. com.apple.TextEdit" } }, required: ["bundle_id"] } } },
+    execute: (args) => cuaLaunch(typeof args.bundle_id === "string" ? args.bundle_id : ""),
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "cua_window_state", description: "Snapshot window AX tree + screenshot (WAJIB sebelum click). Read, auto. Need pid+window_id from launch/list.", parameters: { type: "object", properties: { pid: { type: "number" }, window_id: { type: "number" }, no_screenshot: { type: "boolean" } }, required: ["pid", "window_id"] } } },
+    execute: (args) => cuaWindowState(Number(args.pid), Number(args.window_id), Boolean(args.no_screenshot)),
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "cua_click", description: "Click native app: by element_index (AX) atau x,y (pixel). WAJIB snapshot dulu. Write, confirm.", parameters: { type: "object", properties: { pid: { type: "number" }, window_id: { type: "number" }, element_index: { type: "number" }, x: { type: "number" }, y: { type: "number" } }, required: ["pid"] } } },
+    execute: (args) => {
+      const pid = Number(args.pid), wid = Number(args.window_id), ei = args.element_index !== undefined ? Number(args.element_index) : undefined;
+      if (ei !== undefined) return cuaClick(pid, wid, ei);
+      if (typeof args.x === "number" && typeof args.y === "number") return cuaClickXY(pid, Number(args.x), Number(args.y), wid || undefined);
+      return Promise.resolve("Error: need element_index or x,y");
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "cua_type", description: "Type text ke native app (AX atau pixel x,y). WAJIB snapshot dulu. Write, confirm.", parameters: { type: "object", properties: { pid: { type: "number" }, window_id: { type: "number" }, text: { type: "string" }, element_index: { type: "number" }, x: { type: "number" }, y: { type: "number" } }, required: ["pid", "window_id", "text"] } } },
+    execute: (args) => cuaType(Number(args.pid), Number(args.window_id), String(args.text || ""), args.element_index !== undefined ? Number(args.element_index) : undefined, args.x !== undefined ? Number(args.x) : undefined, args.y !== undefined ? Number(args.y) : undefined),
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "cua_start_session", description: "Start cua session (auto/window/desktop) — WAJIB sebelum browser typed. Write, confirm.", parameters: { type: "object", properties: { session: { type: "string" }, capture_scope: { type: "string", description: "auto|window|desktop" } }, required: ["session"] } } },
+    execute: (args) => {
+      const { cuaStartSession } = require("./cua") as typeof import("./cua");
+      return cuaStartSession(String(args.session || "default"), (args.capture_scope as "auto" | "window" | "desktop") || "auto");
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "cua_browser_state", description: "Browser typed: get_browser_state (bind pid/window_id+session atau target/tab+session). Read, auto.", parameters: { type: "object", properties: { pid: { type: "number" }, window_id: { type: "number" }, session: { type: "string" }, target_id: { type: "string" }, tab_id: { type: "string" } }, required: [] } } },
+    execute: (args) => {
+      const { cuaGetBrowserState } = require("./cua") as typeof import("./cua");
+      return cuaGetBrowserState(args as Record<string, unknown>);
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "cua_browser_click", description: "Browser typed click by ref (trusted/dom_event). Write, confirm. Need target_id/tab_id/ref+session.", parameters: { type: "object", properties: { target_id: { type: "string" }, tab_id: { type: "string" }, ref: { type: "string" }, session: { type: "string" } }, required: ["target_id", "tab_id", "ref", "session"] } } },
+    execute: (args) => {
+      const { cuaBrowserClick } = require("./cua") as typeof import("./cua");
+      return cuaBrowserClick(args as Record<string, unknown>);
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "cua_browser_type", description: "Browser typed type by ref. Write, confirm.", parameters: { type: "object", properties: { target_id: { type: "string" }, tab_id: { type: "string" }, ref: { type: "string" }, text: { type: "string" }, session: { type: "string" } }, required: ["target_id", "tab_id", "ref", "text", "session"] } } },
+    execute: (args) => {
+      const { cuaBrowserType } = require("./cua") as typeof import("./cua");
+      return cuaBrowserType(args as Record<string, unknown>);
     },
   },
 ];

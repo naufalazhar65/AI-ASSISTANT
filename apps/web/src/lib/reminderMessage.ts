@@ -7,27 +7,20 @@
 // only formats the push line.
 
 const BODIES = [
-  "eh, {text} dulu nih.",
-  "udah waktunya {text}, ya.",
-  "jangan lupa {text}, ya!",
-  "mumpung masih inget, {text} dulu yuk.",
+  "{text}",
+  "{text}",
+  "Beb, {text} 🌸",
+  "{text} — udah waktunya nih.",
   "saatnya {text} 🌸",
-  "prt prt, {text} udah jadwalnya nih.",
-  "{text} — jangan kabur dulu.",
-  "sempetin {text} dulu deh.",
-  "jamnya {text} nih, gas.",
-  "aku ingetin lagi: {text}, pelan-pelan aja.",
-  "{text}, sekarang deh, bukan nanti sore lagi.",
+  "{text}, yuk.",
 ];
 
 const TAILS = [
-  "jangan lupa ya hehe 🌸",
-  "Semangat! 🌸",
-  "Jangan sampe kelewat ya 😄",
-  "aku jagain jadwalmu, tinggal jalan.",
-  "oke, nanti ku kabari lagi.",
-  "sip — dulu-duluan dikit, sisanya nyusul.",
-  "lurus aja, aku di sini.",
+  "",
+  "",
+  "Semangat ya beb 🌸",
+  "Pelan-pelan aja, aku di sini 🌸",
+  "Jangan sampai kelewat ya 😄",
 ];
 
 function pick<T>(arr: T[]): T {
@@ -69,6 +62,7 @@ export function reminderMessage(text: string, timeLabel?: string): string {
   }
   body = body.replace("{text}", content);
   const tail = pick(TAILS);
-  const time = timeLabel ? ` (pukul ${timeLabel})` : "";
+  const time = timeLabel ? ` · pukul ${timeLabel}` : "";
+  if (!tail) return `${body}${time}`;
   return `${body}${time}\n${tail}`;
 }
