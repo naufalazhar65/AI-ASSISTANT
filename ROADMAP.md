@@ -173,6 +173,7 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [x] Self-improving — .learnings/ (LRN/ERR/FEAT, Pattern-Key, Recurrence-Count), hooks bootstrap+sweep di ~/.openclaw/hooks/self-improvement, tools learnings_search/review, sync Mia auto-log correction/Error
 [x] CUA Native GUI — cua.ts (daemon serve + 10 tools: cua_doctor/list_apps/window_state read + launch/click/type + browser typed start_session/browser_state/click/type), companion docs skills/cua-driver (SKILL+MACOS/BROWSER/WINDOWS/LINUX/RECORDING), prompt skip launch if already open
 [x] Health Tracker — health.ts (per-user health.json water/sleep atomic, cap 500, cups 1–20), tool health (read auto, action water/sleep/wake/stats/update/delete), prompt minum/tidur/bangun
+[x] Clawic Memory — clawicMemory.ts durable .memory/ (INDEX capped, Keywords/Facts dated+sourced/History, one fact one home, write before reply), tool memory (read auto, remember/recall/forget/stats)
 [x] Reminder aneh fix — reminderMessage.ts BODIES ["{text}","Beb, {text}"] + TAILS ["","Semangat"] + · pukul HH:MM (was double aku ingetin lagi + jangan lupa)
 ```
 

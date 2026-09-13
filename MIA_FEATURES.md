@@ -85,6 +85,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 ## 11. Health & CUA Fix
 
 - **Health Tracker** — `health` per-user `health.json` (water/sleep, atomic `tmp→rename`, cap 500), `minum 2 gelas`/`mau tidur`/`bangun`/`statistik` → `Tercatat …` + `Hari ini: X gelas`
+- **Clawic Memory** — `memory` durable kategoris di `.memory/` (INDEX capped, Keywords/Facts dated+sourced, History, one fact one home, write before reply) — `ingat ini: Alice pindah` → `people/alice-smith.md`
 - **CUA Reminder Fix** — `reminderMessage.ts` BODIES `["{text}","Beb, {text}"]` + TAILS `["","Semangat"]` + `· pukul HH:MM` (was double `aku ingetin lagi` + `jangan lupa`)
 
 ## 12. Email (Gmail, read-only)

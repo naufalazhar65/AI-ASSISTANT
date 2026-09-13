@@ -12,6 +12,7 @@ import { listLearnings, reviewLearnings, searchLearnings } from "./learnings";
 import { guard as safeGuard } from "./safeExec";
 import { cuaClick, cuaClickXY, cuaDoctor, cuaLaunch, cuaListApps, cuaListWindows, cuaType, cuaWindowState } from "./cua";
 import { addSleep, addWake, addWater, healthDeleteLast, healthStats, healthUpdateLast } from "./health";
+import { forget as clawicForget, memoryStats as clawicStats, recall as clawicRecall, remember as clawicRemember } from "./clawicMemory";
 import { ensureFreshIndex, rebuildIndex, searchCodebaseIn, indexSummary } from "./codebaseIndex";
 import { readDailyMemory } from "./dailyMemory";
 import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate } from "./browser";
@@ -2598,6 +2599,40 @@ const toolRegistry: ToolPlugin[] = [
       if (a === "update") return healthUpdateLast(cups, ctx.rawUser);
       if (a === "delete") return healthDeleteLast(ctx.rawUser);
       return healthStats(ctx.rawUser);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "memory",
+        description: "Clawic Memory — durable categorized store di .memory/ (plain markdown). remember: save this/don't forget; recall: what did I tell you about X; forget: delete. Write before reply, dated+sourced, one fact one home, INDEX capped.",
+        parameters: {
+          type: "object",
+          properties: {
+            action: { type: "string", description: "remember|recall|forget|stats", enum: ["remember", "recall", "forget", "stats"] },
+            category: { type: "string", description: "Kategori, mis. people, projects, decisions" },
+            name: { type: "string", description: "Nama entry, mis. alice-smith" },
+            fact: { type: "string", description: "Fakta 1 baris, mis. Moved to Northwind as PM" },
+            query: { type: "string", description: "Query untuk recall, mis. alpha project" },
+          },
+          required: ["action"],
+        },
+      },
+    },
+    execute: (args) => {
+      const a = String(args.action || "stats").toLowerCase();
+      if (a === "remember") {
+        const cat = typeof args.category === "string" ? args.category : "inbox";
+        const n = typeof args.name === "string" ? args.name : "entry";
+        const f = typeof args.fact === "string" ? args.fact : "";
+        if (!f) return "Error: fact wajib diisi untuk remember";
+        return clawicRemember(cat, n, f, "stated");
+      }
+      if (a === "recall") return clawicRecall(typeof args.query === "string" ? args.query : typeof args.name === "string" ? args.name : "");
+      if (a === "forget") return clawicForget(typeof args.query === "string" ? args.query : typeof args.name === "string" ? args.name : "");
+      return clawicStats();
     },
   },
 ];

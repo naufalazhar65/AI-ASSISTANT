@@ -5,16 +5,26 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { repoRoot } from "./users";
 
 export type Risk = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
 
-const SAFE_DIR = join(homedir(), ".openclaw", "safe-exec");
-const PENDING_DIR = join(SAFE_DIR, "pending");
-const AUDIT_LOG = join(homedir(), ".openclaw", "safe-exec-audit.log");
-const RULES_FILE = join(SAFE_DIR, "..", "safe-exec-rules.json");
+// Mandiri: local .self-improving/safe-exec first, fallback to global ~/.openclaw/safe-exec
+function safeDir(): string {
+  const local = join(repoRoot(), ".self-improving", "safe-exec");
+  // local-first: if .self-improving exists (mandiri), use it; else fallback global
+  if (existsSync(join(repoRoot(), ".self-improving"))) return local;
+  return join(homedir(), ".openclaw", "safe-exec");
+}
+function auditLogPath(): string {
+  if (existsSync(join(repoRoot(), ".self-improving"))) return join(repoRoot(), ".self-improving", "safe-exec-audit.log");
+  return join(homedir(), ".openclaw", "safe-exec-audit.log");
+}
+function pendingDir(): string { return join(safeDir(), "pending"); }
+function rulesFile(): string { return join(safeDir(), "..", "safe-exec-rules.json"); }
 
 function ensureDirs(): void {
-  mkdirSync(PENDING_DIR, { recursive: true });
+  mkdirSync(pendingDir(), { recursive: true });
 }
 
 export function isDisabled(): boolean { return process.env.SAFE_EXEC_DISABLE === "1"; }
@@ -42,8 +52,8 @@ const BUILTIN: Rule[] = [
 
 function loadRules(): Rule[] {
   try {
-    if (existsSync(RULES_FILE)) {
-      const raw = JSON.parse(readFileSync(RULES_FILE, "utf8")) as Rule[];
+    if (existsSync(rulesFile())) {
+      const raw = JSON.parse(readFileSync(rulesFile(), "utf8")) as Rule[];
       if (Array.isArray(raw)) return [...BUILTIN, ...raw];
     }
   } catch {}
@@ -87,7 +97,7 @@ export function audit(entry: { command: string; risk: Risk; mode: string; status
   try {
     ensureDirs();
     const line = JSON.stringify({ ts: new Date().toISOString(), ...entry });
-    appendFileSync(AUDIT_LOG, line + "\n");
+    appendFileSync(auditLogPath(), line + "\n");
   } catch {}
 }
 
@@ -95,7 +105,7 @@ export function createPending(command: string, risk: Risk, reason: string): stri
   ensureDirs();
   const id = `req_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const data = { id, command, risk, reason, createdAt: new Date().toISOString() };
-  writeFileSync(join(PENDING_DIR, `${id}.json`), JSON.stringify(data, null, 2));
+  writeFileSync(join(pendingDir(), `${id}.json`), JSON.stringify(data, null, 2));
   // In-session notification (stdout, no external)
   console.log(`\n🚨 Dangerous Operation Detected — Command Intercepted\nRisk: ${risk}\nCommand: \`${command}\`\nReason: ${reason}\nRequest ID: ${id}\nApprove: safe-exec-approve ${id} | Reject: safe-exec-reject ${id} | List: safe-exec-list\n`);
   return id;
@@ -104,13 +114,13 @@ export function createPending(command: string, risk: Risk, reason: string): stri
 export function listPending(): Array<{ id: string; command: string; risk: Risk; reason: string; createdAt: string }> {
   try {
     ensureDirs();
-    return readdirSync(PENDING_DIR).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(join(PENDING_DIR, f), "utf8"))).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return readdirSync(pendingDir()).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(join(pendingDir(), f), "utf8"))).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   } catch { return []; }
 }
 
 export function approve(id: string): boolean {
   try {
-    const p = join(PENDING_DIR, `${id}.json`);
+    const p = join(pendingDir(), `${id}.json`);
     if (!existsSync(p)) return false;
     unlinkSync(p);
     audit({ command: id, risk: "LOW", mode: "user_approved", status: "approved", requestId: id });
@@ -120,7 +130,7 @@ export function approve(id: string): boolean {
 
 export function reject(id: string): boolean {
   try {
-    const p = join(PENDING_DIR, `${id}.json`);
+    const p = join(pendingDir(), `${id}.json`);
     if (!existsSync(p)) return false;
     unlinkSync(p);
     audit({ command: id, risk: "LOW", mode: "user_rejected", status: "rejected", requestId: id });
