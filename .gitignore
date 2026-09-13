@@ -20,3 +20,4 @@ Mia_Personal_AI_Assistant_Feature_List.md
 apps/web/*_probe.ts
 apps/web/*probe.ts
 .memory/
+.evolver/

@@ -2635,6 +2635,77 @@ const toolRegistry: ToolPlugin[] = [
       return clawicStats();
     },
   },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "evolver_status",
+        description: "Cek status Evolver (Proxy mailbox, GEP assets, node). Read, auto, no confirm. Butuh A2A_NODE_ID.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { readFileSync, existsSync, readdirSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const { homedir } = await import("node:os");
+      const { repoRoot } = await import("./users");
+      const lines: string[] = [];
+      let nodeId = process.env.A2A_NODE_ID || "";
+      if (!nodeId) {
+        try {
+          const envLocal = readFileSync(join(repoRoot(), "apps/web/.env.local"), "utf8");
+          const m = envLocal.match(/^A2A_NODE_ID=(.*)$/m);
+          if (m) nodeId = m[1].trim();
+        } catch {}
+      }
+      if (!nodeId) nodeId = "(not set — export A2A_NODE_ID)";
+      lines.push(`A2A_NODE_ID: ${nodeId}`);
+      const proxySet = join(homedir(), ".evolver", "settings.json");
+      const localSet = join(repoRoot(), ".evolver", "settings.json");
+      lines.push(`Proxy settings: ${existsSync(proxySet) ? proxySet : localSet} ${existsSync(proxySet) || existsSync(localSet) ? "found" : "missing"}`);
+      // Proxy live check (best-effort, no throw)
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 1500);
+        const r = await fetch("http://127.0.0.1:19820/proxy/status", { signal: ctrl.signal });
+        clearTimeout(t);
+        lines.push(`Proxy live: ${r.ok ? "running" : `http ${r.status}`} (127.0.0.1:19820)`);
+      } catch {
+        lines.push("Proxy live: not running (auto-start on evolver --loop with EVOMAP_PROXY=1)");
+      }
+      const gepDir = join(repoRoot(), ".skills/capability-evolver", "assets", "gep");
+      if (existsSync(gepDir)) {
+        try { const files = readdirSync(gepDir); lines.push(`GEP assets: ${files.join(", ")}`); } catch {}
+        try { const genes = JSON.parse(readFileSync(join(gepDir, "genes.json"), "utf8")); lines.push(`Genes: ${Array.isArray(genes) ? genes.length : 0}`); } catch {}
+      } else lines.push("GEP assets: missing");
+      const localEvolver = join(repoRoot(), ".evolver");
+      lines.push(`Local .evolver: ${existsSync(localEvolver) ? "exists" : "missing"} (${existsSync(join(localEvolver, "assets/gep/genes.json")) ? "genes ok" : "no genes"})`);
+      return lines.join("\n");
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "evolver_review",
+        description: "Review mode evolver — analisis history tanpa nulis. Read, auto.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const { repoRoot } = await import("./users");
+      const events = join(repoRoot(), ".evolver", "assets/gep/events.jsonl");
+      if (!existsSync(events)) return "No events yet — run evolver loop first (EVOMAP_PROXY=1 node index.js --loop)";
+      try {
+        const lines = readFileSync(events, "utf8").trim().split("\n").slice(-5);
+        return `Last 5 GEP events:\n${lines.join("\n").slice(0, 2500)}`;
+      } catch (e) { return `Error: ${e instanceof Error ? e.message : String(e)}`; }
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always
