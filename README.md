@@ -89,6 +89,10 @@ Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
 | `waze_route` | read | Live traffic Waze Direct (Nominatim geocode → Waze livemap-row XML + retry 3× → OSRM fallback, free) — `from`/`to` address or lat,lon |
 | `weather` | read | Live weather wttr.in + Open-Meteo fallback (free, no key) — `location` address or lat,lon |
 | `hotel_search` | read | Booking.com live via Playwright (no key) — `location` + `budget` (e.g. 600rb), 60–150% band, max 6 |
+| `cua_doctor` / `cua_list_apps` / `cua_window_state` | read | CUA native GUI health/list/snapshot (Wajib before click) |
+| `cua_launch` / `cua_click` / `cua_type` | write | Drive native GUI app (macOS) without foreground — confirm |
+| `cua_start_session` / `cua_browser_state` / `cua_browser_click` / `cua_browser_type` | read/write | Browser typed Chromium (typed ref, per BROWSER.md) |
+| `health` | read | Water/sleep tracker per-user JSON — `water`/`sleep`/`wake`/`stats`/`update`/`delete` (minum X gelas, tidur, bangun) |
 | `git_status` | read | `git status --short --branch` (read, auto) |
 | `git_commit` | write | `git add -A` + `commit` + `push` (write, needs `ya` confirm) |
 | `safe_exec_list` | read | List pending SafeExec CRITICAL/HIGH (approve via `safe-exec-approve`) |
@@ -108,8 +112,8 @@ apps/web                  Next.js app (UI, hooks, audio, persona, /api/* proxies
   src/ai                  ConversationManager, GroqStreamingProvider, VAD helpers
    src/lib                 tools, agent, providers, persona, autoMemory, sessions,
                            reminders, tasks, uploads, automations, mood, rag,
-                           status, backup, waze, weather, hotel, safeExec,
-                           learnings, ...
+                           status, backup, waze, weather, hotel, cua, health,
+                           safeExec, learnings, ...
   src/channels            telegram.ts, discord.ts, pushTarget.ts
   persona/                IDENTITY.md, SOUL.md, USER.md, DREAMS.md (template)
 packages/state-machine    Conversation state machine (invalid transitions impossible)

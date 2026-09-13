@@ -11,6 +11,7 @@ import { searchMemory } from "./rag";
 import { listLearnings, reviewLearnings, searchLearnings } from "./learnings";
 import { guard as safeGuard } from "./safeExec";
 import { cuaClick, cuaClickXY, cuaDoctor, cuaLaunch, cuaListApps, cuaListWindows, cuaType, cuaWindowState } from "./cua";
+import { addSleep, addWake, addWater, healthDeleteLast, healthStats, healthUpdateLast } from "./health";
 import { ensureFreshIndex, rebuildIndex, searchCodebaseIn, indexSummary } from "./codebaseIndex";
 import { readDailyMemory } from "./dailyMemory";
 import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate } from "./browser";
@@ -2569,6 +2570,34 @@ const toolRegistry: ToolPlugin[] = [
     execute: (args) => {
       const { cuaBrowserType } = require("./cua") as typeof import("./cua");
       return cuaBrowserType(args as Record<string, unknown>);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "health",
+        description: "Track water/sleep (per-user JSON). water: minum X gelas, sleep: đi ngủ, wake: thức dậy/bangun, stats: thống kê. Auto, read (write water/sleep also auto, no confirm).",
+        parameters: {
+          type: "object",
+          properties: {
+            action: { type: "string", description: "water|sleep|wake|stats|update|delete", enum: ["water", "sleep", "wake", "stats", "update", "delete"] },
+            cups: { type: "number", description: "Jumlah gelas untuk water/update" },
+          },
+          required: ["action"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      const a = String(args.action || "stats").toLowerCase();
+      const cups = typeof args.cups === "number" ? args.cups : Number(args.cups);
+      if (a === "water") return addWater(Number.isFinite(cups) ? cups : 1, ctx.rawUser);
+      if (a === "sleep") return addSleep(ctx.rawUser);
+      if (a === "wake") return addWake(ctx.rawUser);
+      if (a === "update") return healthUpdateLast(cups, ctx.rawUser);
+      if (a === "delete") return healthDeleteLast(ctx.rawUser);
+      return healthStats(ctx.rawUser);
     },
   },
 ];

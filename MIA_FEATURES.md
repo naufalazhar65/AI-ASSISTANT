@@ -79,14 +79,20 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 
 - **Git Helper** — `git_status` (auto) + `git_commit` (write, confirm) + `git.sh` / `safe-exec*.sh`
 - **SafeExec** — CRITICAL/HIGH/MEDIUM/LOW guard, pending `~/.openclaw/safe-exec/pending/`, audit `safe-exec-audit.log`, `safe_exec_list`, env `SAFE_EXEC_DISABLE` / `OPENCLAW_AGENT_CALL`
+- **CUA Native GUI** — `cua.ts` daemon `cua-driver serve` + 10 tools: `cua_doctor`/`cua_list_apps`/`cua_window_state` (read, snapshot WAJIB), `cua_launch`/`cua_click`/`cua_type` (write, AX vs px), `cua_start_session`+`cua_browser_state`/`cua_browser_click`/`cua_browser_type` (typed Chromium per `BROWSER.md`)
 - **Self-improving** — `.learnings/` (LRN/ERR/FEAT, Pattern-Key dedup, Recurrence-Count), hooks `bootstrap` + `sweep`, Mia tools `learnings_search`/`learnings_review`, promote `Recurrence>=3` → `AGENTS.md`/`SOUL.md`/`TOOLS.md`
 
-## 11. Email (Gmail, read-only)
+## 11. Health & CUA Fix
+
+- **Health Tracker** — `health` per-user `health.json` (water/sleep, atomic `tmp→rename`, cap 500), `minum 2 gelas`/`mau tidur`/`bangun`/`statistik` → `Tercatat …` + `Hari ini: X gelas`
+- **CUA Reminder Fix** — `reminderMessage.ts` BODIES `["{text}","Beb, {text}"]` + TAILS `["","Semangat"]` + `· pukul HH:MM` (was double `aku ingetin lagi` + `jangan lupa`)
+
+## 12. Email (Gmail, read-only)
 
 - **OAuth** — per-user `gmail.json`, auto-refresh, consent screen
 - **Tools** — `gmail_link`/`gmail_list`/`gmail_search`/`gmail_read`, paginated, truncated
 
-## 12. Quality Guards (anti-berisik & anti-bug)
+## 13. Quality Guards (anti-berisik & anti-bug)
 
 - **Hysteresis monitor ±5** — tidak re-alert saat hover di ambang
 - **isTestUserKey** — user test (verify_/probe) tidak pernah push
@@ -97,6 +103,6 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Wake lock + dedup persist** — recap/weekly/wind-down tidak dobel setelah restart
 - **Heartbeat wiring** — `checkMonitorsAndAlert` sekarang benar-benar dipanggil (bug laten fixed)
 
-## 13. Security (Fase 5 + SafeExec)
+## 14. Security (Fase 5 + SafeExec)
 
 - Auth PIN/Bearer, allow-list owner per channel, TOOLS_DENY, SafeExec (CRITICAL/HIGH pending + audit), audit log, rate limit, sandbox exec, backup otomatis, app log per-day

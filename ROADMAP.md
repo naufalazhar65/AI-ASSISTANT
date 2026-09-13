@@ -171,6 +171,9 @@ Mia benar-benar berguna sebagai asisten pribadi.
 [x] Git Helper — git.sh + tools git_status (read, auto) + git_commit (write, confirm) + .gitignore probe
 [x] SafeExec — lib/safeExec.ts (CRITICAL/HIGH/MEDIUM/LOW, pending req_*.json, audit safe-exec-audit.log, env SAFE_EXEC_DISABLE/OPENCLAW_AGENT_CALL), bash safe-exec*.sh, tool safe_exec_list, guard di exec/exec_write
 [x] Self-improving — .learnings/ (LRN/ERR/FEAT, Pattern-Key, Recurrence-Count), hooks bootstrap+sweep di ~/.openclaw/hooks/self-improvement, tools learnings_search/review, sync Mia auto-log correction/Error
+[x] CUA Native GUI — cua.ts (daemon serve + 10 tools: cua_doctor/list_apps/window_state read + launch/click/type + browser typed start_session/browser_state/click/type), companion docs skills/cua-driver (SKILL+MACOS/BROWSER/WINDOWS/LINUX/RECORDING), prompt skip launch if already open
+[x] Health Tracker — health.ts (per-user health.json water/sleep atomic, cap 500, cups 1–20), tool health (read auto, action water/sleep/wake/stats/update/delete), prompt minum/tidur/bangun
+[x] Reminder aneh fix — reminderMessage.ts BODIES ["{text}","Beb, {text}"] + TAILS ["","Semangat"] + · pukul HH:MM (was double aku ingetin lagi + jangan lupa)
 ```
 
 ---
