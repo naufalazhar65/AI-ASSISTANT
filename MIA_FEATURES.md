@@ -107,3 +107,24 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 ## 14. Security (Fase 5 + SafeExec)
 
 - Auth PIN/Bearer, allow-list owner per channel, TOOLS_DENY, SafeExec (CRITICAL/HIGH pending + audit), audit log, rate limit, sandbox exec, backup otomatis, app log per-day
+
+## 15. Knowledge — ByteRover (2026-09-13, maksimal mandiri)
+
+- **CLI** `byterover-cli@3.16.1` `node_modules/.bin/brv`, storage `.brv/context-tree` (VC git terpisah, bukan `~/.openclaw`), provider `9router ngoding` (`openai-compatible localhost:20128/v1` weekly-unlimited)
+- **Lib** `byterover.ts` — `brvBin` local-first, `execBrv` 8–60s, `12k` cap, sandbox `resolveInSandbox`, dash-guard, `verifySwarm`
+- **Tools 16** — `brv_query` (LLM synthesis), `brv_search` (BM25 1–50, scope, json), `brv_curate` (write, 5 file), `brv_status/vc_status/vc_log/locations/review`, `brv_swarm_query/status/curate`, `brv_review_approve/reject`, `brv_curate_view/query_log_view/summary` — `swarm 2/2` (`byterover`+`local_markdown` persona+memory) RRF, auto-curate hook `autoMemory → brvCurate + approve + vc commit`
+- **Seed** 19 commits (persona, core arch, reminders, codebase, health, habits, mood, cua, browser, device, spotify, tasks, plans, winddown, safeExec, dailyMemory, demo) — `brv_search` 85–95% hit
+
+## 16. Summarize Pro + Humanizer (2026-09-13, maksimal mandiri)
+
+- **Summarize Pro** `summarizePro.ts` — 20 fitur `quick/tldr/bullets/eli5/takeaways/action_items/executive/meeting/email/thread/chapter/progressive` + smart + language + length + template — lokal `.data/summarize-pro/` (100 history, stats/gamification `Word Warrior`), deterministik + `9router` fallback, `30k` cap, `compare` short bug fixed
+- **Tools 6** — `summarize` (15 format), `summarize_history/saved/stats/template/default` — bridge `summarize → brv_curate`
+- **Humanizer** `humanizer.ts` — 24 Wikipedia patterns + soul (uniform/no I/no mixed) — `Additional→Also`, `—`→`,`, `**bold**` strip, inject `I keep thinking…` — `.data/humanizer/` 100 cap, `9router` polish, tools `humanize/history/stats`
+- **Browser-use** `browserUse.ts` — `browser-use 0.13.10` daemon `~50ms` (`new_tab/state/click_at_xy/input/js`), `14` tools `doctor/open/state/click/input/type/keys/screenshot/get/eval/scroll/tab/wait/close` — SSRF/dash guard, fallback ke Playwright `browser_open` kalau RD off
+
+## 17. FreeRide — Free Model Fallback (2026-09-13, maksimal mandiri)
+
+- **Lib** `freeride.ts` — fetch `openrouter.ai/api/v1/models` free `pricing 0`, ranking `qwen/nemotron/deepseek/context_length`, cache 6h `.data/freeride/cache.json`, config `.data/freeride/config.json` `primary + 5 fallbacks` (`openrouter/free` first), atomic, `15s` timeout
+- **Agent** — `runAgent` loop `freerideChain` on `429/rate_limit/quota` (`300ms` backoff, warn), `freerideGetConfig` — `9router` tetap weekly-unlimited, OpenRouter key dari `.env.local` (`sk-or-v1-...`)
+- **Watcher** `freerideWatcher.ts` — `30s warmup + 60s` `freerideWatcherOnce` probe `openrouter` `8s`, auto `rotate` — wired `instrumentation-node.ts` bareng `heartbeat`
+- **Tools 7** — `freeride_status/list` (read), `freeride_auto/switch/refresh/rotate/watcher` (write/read) — total `154` tools, no collision

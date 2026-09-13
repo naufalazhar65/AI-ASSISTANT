@@ -1,155 +1,186 @@
 # 🌸 Mia — Personal AI Assistant
 
-Multi-platform Mia-style assistant reachable via **Web (text + voice)**, **Telegram**, and **Discord** sharing one memory, one persona, and one tool set.
+> **One brain, many faces.** Web (text + voice) · Telegram · Discord — one memory, one persona, one toolset.
 
-## Quick Start
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
+[![Tools](https://img.shields.io/badge/tools-154-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
+
+---
+
+## ✨ What is Mia?
+
+Mia (*she/her* 🌸) is a **Mia-style** personal assistant — warm, proactive, and always there.  
+Voice-first foundation (Whisper + Orpheus) **plus** multi-platform chat, automation, and long-term memory.
+
+| Channel | Capabilities |
+|---------|--------------|
+| **Web** | Text + voice (VAD, barge-in), vision 📎, multi-session, auth PIN |
+| **Telegram** | Text, voice note, photo, inline `ya/tidak`, typing indicator |
+| **Discord** | Text, voice note, photo, slash commands, typing indicator |
+| **API** | `POST /api/llm` + webhook `POST /api/webhook` |
+
+---
+
+## 🚀 Quick Start
 
 ```bash
-# 1. Install (monorepo root)
+# 1. Install (monorepo)
 npm install
 
-# 2. Configure — server-side only (never prefix with NEXT_PUBLIC_)
+# 2. Configure — server-side only (never NEXT_PUBLIC_ for secrets)
 cp apps/web/.env.example apps/web/.env.local
 # Edit apps/web/.env.local — minimal:
-GROQ_API_KEY=...                          # https://console.groq.com/keys (free, no card)
-TELEGRAM_BOT_TOKEN=...                    # BotFather
-TELEGRAM_ALLOWED_USERNAME=...             # allow-listed username (without @)
-DISCORD_BOT_TOKEN=...                     # Discord Developer Portal
-DISCORD_ALLOWED_USER_ID=...               # owner user id (snowflake)
-# Optional
-OPENROUTER_API_KEY=...                    # https://openrouter.ai/keys
-ALLOWED_WORKSPACES=...                   # comma-separated absolute paths the agent may read/exec into (e.g. /Users/me/PROJECT/other-app)
-NEXT_PUBLIC_AI_PROVIDER=groq              # mock (default) | groq | openrouter | 9router | opencode
+GROQ_API_KEY=...                          # https://console.groq.com/keys (free)
+TELEGRAM_BOT_TOKEN=...                    # @BotFather
+TELEGRAM_ALLOWED_USERNAME=...             # without @
+DISCORD_BOT_TOKEN=...                    # Discord Developer Portal
+DISCORD_ALLOWED_USER_ID=...              # owner snowflake
+# Optional — free & weekly-unlimited
+OPENROUTER_API_KEY=...                   # https://openrouter.ai/keys
+LLM_API_KEY=... LLM_API_BASE=http://localhost:20128/v1  # 9router local proxy
+ALLOWED_WORKSPACES=/Users/me/PROJECT/other-app  # comma-separated
+NEXT_PUBLIC_AI_PROVIDER=9router           # mock | groq | openrouter | 9router | opencode | opencodego
 
 # 3. Run
 npm run dev -w @voice/web                 # http://localhost:3000
+npm run typecheck && npm test && npx tsx apps/web/verify.ts
 ```
 
-## How It Works
+> **Voice:** browser mic → VAD → Whisper ASR → LLM → Orpheus TTS per sentence — barge-in <200ms, first audio <1.5s.
 
-```
-Telegram ─┐
-Discord  ─┼─► Channel Adapter ─► runAssistantTurn (lib/agent.ts) ─► Provider ─► LLM
-Web      ─┘                  ◄─ reply (per-channel formatting) ◄─┘
-                             ▲ persona / tools / reminders / tasks / automations / RAG
-```
+---
 
-- **Core:** `apps/web/src/lib/agent.ts` — single turn implementation for every channel (`streaming → tools → follow-up → auto-memory → reminder intent → mood log`).
-- **Providers:** `apps/web/src/lib/providers.ts` — `groq` / `openrouter` / `9router` / `opencode (local)` / `mock`. Client sends only `{provider, model}`; server resolves keys/endpoints (Invariant 5).
-- **Channels:** `apps/web/src/channels/{telegram,discord}.ts` + `pushTarget.ts` sink for proactive pushes.
-- **Persistence:** per-user disk store under `apps/web/.data/users/<user>/` — notes, reminders, tasks, uploads, automations, mood log (`moods.json`), Spotify token (`spotify.json`), game state (`game.json`), persona, daily memory (`memory/YYYY-MM-DD.md`). Global: `.learnings/` (corrections/errors/features, gitignored, also in `~/.openclaw/workspace/.learnings/`), `~/.openclaw/safe-exec/` (pending + `safe-exec-audit.log`).
-- **Scheduling:** `lib/reminders.ts` + `lib/automations.ts` (daily / hourly) + `automationRunner.ts` + `heartbeat.ts` (periodic overdue/due-soon check, default 30m) + `POST /api/webhook` (external trigger with `WEBHOOK_SECRET`) — all started in `instrumentation-node.ts`.
-- **Channel adapter policy:** Discord DM requires `partials: [Channel, Message]` + `msg.fetch()` on `msg.partial` (first-ever DM would be dropped otherwise). While a turn is running, the Discord adapter keeps a live typing indicator on the channel (`withTyping`, re-pulses every 8s) so the owner sees the bot is working.
+## 🧠 Architecture
 
-## Commands
-
-| Command | Where | Purpose |
-|---------|-------|---------|
-| `/start` `/help` | Telegram, Discord | Intro / help |
-| `/reset` | Telegram, Discord | Clear this chat's history |
-| `/provider <id>` | Telegram, Discord | Switch provider: `groq` `opencode` `9router` `openrouter` `mock` |
-| `/model <id>` | Telegram, Discord | Set model (empty = Auto) |
-| `/status` | Telegram, Discord | Time, uptime, provider/model, per-user data counts |
-| `/backup` | Telegram, Discord | Create timestamped backup under `.data/backups/` (keeps 5) |
-
-## Tools (available to the assistant)
-
-| Tool | Risk | Purpose |
-|------|------|---------|
-| `web_search` | read | DuckDuckGo Instant + HTML scrape (titles/URLs/snippets) |
-| `fetch_url` | read | Fetch public page text (SSRF-guarded, article extraction; GitHub blob→raw) |
-| `calculate` | read | Safe arithmetic parser (no eval) |
-| `file_read` | read | Sandboxed file/dir read (repo root + any `ALLOWED_WORKSPACES`) |
-| `write_file` / `edit_file` | write | Create/overwrite or patch a file (sandboxed, parent dirs auto-created, confirmation) |
-| `exec` | read | Read-only shell allowlist (git status/log/diff, ls, pwd, cat, node --version, npm ls) with optional `cwd` into an allowed workspace; mutating cmd rejected |
-| `exec_write` | write | Write shell (git add/commit/push) with confirmation, same `cwd` support |
-| `list_uploads` / `read_upload` | read | Files uploaded via Telegram/Discord |
-| `search_memory` | read | Local BM25 over notes/tasks/reminders/automations/uploads/persona + daily memory |
-| `memory_get` | read | Retrieve daily memory log for a date (`YYYY-MM-DD`, `today`, `yesterday`) |
-| `browser_open` / `browser_snapshot` | read | Headless browser (Playwright) — open URL (JS-rendered) / snapshot ARIA tree |
-| `browser_click` / `browser_type` / `browser_navigate` | write | Click/type/navigate in browser (confirmation) |
-| `device_list` | read | List paired devices |
-| `device_exec` / `device_screenshot` / `device_location` / `device_camera` / `device_battery` | read/write | Device node ops (exec/screenshot/location/camera/battery, pairing via `device_pair`) |
-| `device_pair` | write | Pair new device (ios/android/macos) |
-| `calendar_list` / `calendar_check` | read | List events / check availability |
-| `calendar_add` | write | Add calendar event (confirmation) |
-| `spotify_link` | read | Return Spotify authorization link (one-time connect, opens in browser) |
-| `spotify_status` / `spotify_search` / `spotify_devices` | read | Now playing / search tracks / list playback devices |
-| `spotify_play` / `spotify_pause` / `spotify_next` / `spotify_previous` / `spotify_volume` | write | Control Spotify playback (runs immediately, no confirmation; requires Spotify Premium) |
-| `save_note` / `list_notes` / `delete_note` | write/delete | Quick persistent notes (50 / 80 KB cap, atomic disk write) |
-| `add_task` `list_tasks` `complete_task` `cancel_task` `reschedule_task` | write | Task list |
-| `remind_me` | write | Schedule a reminder (ISO-8601 with offset; stale clock rebased) |
-| `create_automation` | write | Recurring `prompt` on schedule (`setiap pagi jam 8` / `setiap 2 jam`) |
-| `mood_log` | read | Record current mood (great/good/okay/meh/stressed/anxious/sad/tired/angry, Indonesian accepted & normalized) |
-| `mood_recent` | read | Show mood history / trend ("gimana mood-ku belakangan ini?") |
-| `mala` | read | Daily fortune ("ramalan harian") — deterministic per date+user: mood, lucky color, lucky number, hint |
-| `game_start` / `game_guess` / `game_quit` | read | "Tebak Lagu" — guess a song from the user's recently played Spotify history (3 clues, per-user score) |
-| `hari_libur` | read | Indonesian public holidays ("tanggal merah") — fixed civil dates + note that moveable Islamic dates follow the official SKB |
-| `recap` | read | Evening recap of the day from today's memory + mood log (also auto-pushes nightly via `RECAP_HOUR`) |
-| `waze_route` | read | Live traffic Waze Direct (Nominatim geocode → Waze livemap-row XML + retry 3× → OSRM fallback, free) — `from`/`to` address or lat,lon |
-| `weather` | read | Live weather wttr.in + Open-Meteo fallback (free, no key) — `location` address or lat,lon |
-| `hotel_search` | read | Booking.com live via Playwright (no key) — `location` + `budget` (e.g. 600rb), 60–150% band, max 6 |
-| `cua_doctor` / `cua_list_apps` / `cua_window_state` | read | CUA native GUI health/list/snapshot (Wajib before click) |
-| `cua_launch` / `cua_click` / `cua_type` | write | Drive native GUI app (macOS) without foreground — confirm |
-| `cua_start_session` / `cua_browser_state` / `cua_browser_click` / `cua_browser_type` | read/write | Browser typed Chromium (typed ref, per BROWSER.md) |
-| `health` | read | Water/sleep tracker per-user JSON — `water`/`sleep`/`wake`/`stats`/`update`/`delete` (minum X gelas, tidur, bangun) |
-| `memory` | read | Clawic Memory durable kategoris di `.memory/` — `remember`/`recall`/`forget`/`stats` (write before reply, INDEX capped, one fact one home) |
-| `git_status` | read | `git status --short --branch` (read, auto) |
-| `git_commit` | write | `git add -A` + `commit` + `push` (write, needs `ya` confirm) |
-| `safe_exec_list` | read | List pending SafeExec CRITICAL/HIGH (approve via `safe-exec-approve`) |
-| `learnings_search` / `learnings_review` | read | Search `.learnings/` (correction/insight) / review counts + promote candidates |
-| `send_channel` | read* | Relay a message to another registered channel (Telegram ↔ Discord, sends immediately, no confirmation) |
-
-Read-only tools auto-execute. Write/delete/transaction/external tools pause for inline `ya`/`tidak` confirmation (FR-014) — **except Spotify playback controls**, which run immediately (user preference, 2026-09-06).
-
-## Voice (Web)
-
-Hands-free voice via the same core: browser mic → energy VAD → Whisper ASR → LLM → Orpheus TTS per sentence. Barge-in in `SPEAKING` (higher VAD threshold + hold) triggers `interrupt()` (generationId + AbortController). First AI audio target < 1.5s.
-
-## Project Layout
-
-```
-apps/web                  Next.js app (UI, hooks, audio, persona, /api/* proxies)
-  src/ai                  ConversationManager, GroqStreamingProvider, VAD helpers
-   src/lib                 tools, agent, providers, persona, autoMemory, sessions,
-                           reminders, tasks, uploads, automations, mood, rag,
-                           status, backup, waze, weather, hotel, cua, health,
-                           clawicMemory, safeExec, learnings, ...
-  src/channels            telegram.ts, discord.ts, pushTarget.ts
-  persona/                IDENTITY.md, SOUL.md, USER.md, DREAMS.md (template)
-packages/state-machine    Conversation state machine (invalid transitions impossible)
-packages/ai-provider      AIProvider abstraction + event types
-packages/mock-provider    Deterministic no-network provider for QA
+```mermaid
+flowchart LR
+  TG[Telegram] --> A[Channel Adapter]
+  DC[Discord] --> A
+  WEB[Web] --> A
+  A --> C[runAssistantTurn<br/>lib/agent.ts]
+  C --> P[Provider<br/>groq / 9router / openrouter / opencodego / mock]
+  P --> LLM
+  C <--> M[(Memory & Tools<br/>persona / .brv / .data / RAG)]
+  LLM --> C
+  C --> R[Reply<br/>per-channel formatting]
+  R --> TG & DC & WEB
 ```
 
-## Scripts
+- **Core:** `lib/agent.ts` — single turn (`stream → tools → follow-up → auto-memory → reminder → mood`) for **every** channel.
+- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `9router` local `localhost:20128/v1` = weekly-unlimited; `groq` = STT/TTS; `openrouter` = free fallback; `opencodego` = `glm-5.2`.
+- **Adapter:** `channels/{telegram,discord}.ts` + `pushTarget.ts` (proactive pushes). Discord DM needs `partials:[Channel,Message]` + `msg.fetch()`.
+- **State:** `packages/state-machine` — `IDLE → LISTENING → PROCESSING → SPEAKING → TURN_END/INTERRUPTED` (invalid transitions impossible).
+
+---
+
+## 🛠️ Tools — 154 total
+
+| Category | Tools | Notes |
+|----------|-------|-------|
+| **Web** | `web_search`, `research`, `google_news`, `fetch_url` | DuckDuckGo + Bing fallback, Google News RSS dedup, SSRF-guarded |
+| **Code** | `file_read`, `write_file`, `edit_file`, `codebase_search`, `codebase_refresh` | Sandboxed multi-root `resolveInSandbox`, `ALLOWED_WORKSPACES` |
+| **Shell** | `exec` (read), `exec_write` (write) | Allowlist `git/ls/pwd/cat/node/npm/df` + SafeExec `CRITICAL/HIGH` guard |
+| **Memory** | `save_note`, `list_notes`, `delete_note`, `search_memory`, `memory_get` | Per-user `notes.json`, BM25 + embedding, `dailyMemory` |
+| **Knowledge** | `brv_query`, `brv_search`, `brv_curate`, `brv_status`, `brv_vc_status/log`, `brv_swarm_query/status`, `brv_review*`, `brv_locations` | **ByteRover** `.brv` 19 commits, `2/2` swarm (`byterover`+`local_markdown`), `9router` |
+| **Summarize** | `summarize` (20 formats), `summarize_history/saved/stats/template/default` | **Summarize Pro** `quick/tldr/bullets/eli5/meeting/email/compare` + `.data/summarize-pro/` |
+| **Humanize** | `humanize`, `humanize_history/stats` | **Humanizer** 24 Wikipedia patterns + soul, `.data/humanizer/` |
+| **Browser** | `browser_open/snapshot/click/type/navigate` | Playwright headless `1280x800` |
+| **Browser-use** | `browser_use_doctor/open/state/click/input/type/keys/screenshot/get/eval/scroll/tab/wait/close` | **Browser-use** daemon `~50ms`, indices, persistent |
+| **CUA** | `cua_doctor/list_apps/window_state`, `cua_launch/click/type`, `cua_browser_*` | Native GUI `cua-driver serve`, typed Chromium |
+| **Device** | `device_list/pair/exec/screenshot/location/camera/battery` | Per-user `devices.json`, `blueutil -p` |
+| **Calendar** | `calendar_list/check/add` + `calendar_mac_*` | AppleScript sync |
+| **Mood/Health** | `mood_log/recent`, `health` (`water/sleep/wake/stats`), `habit_log/stats` | Per-user JSON, `moods.json` |
+| **Productivity** | `add_task/list/complete/cancel/reschedule`, `remind_me`, `reminders_list`, `create_automation` | Daily/heartbeat, `reminders_list` natural anti-kaku |
+| **Planning** | `plan_create/add_step/update_step/list/get` | Internal board vs user tasks |
+| **Travel** | `waze_route`, `weather`, `hotel_search` | Waze Direct + wttr.in + Booking.com (free, no key) |
+| **Media** | `spotify_*` (8), `mala`, `game_*`, `hari_libur`, `recap`, `weekly_insight` | Premium for playback, deterministic mala |
+| **Ops** | `git_status/commit`, `safe_exec_list`, `evolver_status/review`, `freeride_status/list/auto/switch/refresh/rotate/watcher`, `learnings_*`, `send_channel` | SafeExec, freeride fallback chain `429→next`, watcher `60s` |
+
+> **Risk:** `read` = auto-run, `write/delete` = inline `ya/tidak` (FR-014) — except `spotify_play` (immediate).
+
+---
+
+## 💾 Persistence
+
+```
+apps/web/.data/users/<user>/   # per-user: notes, reminders, tasks, moods, spotify, memory/YYYY-MM-DD.md
+.data/freeride/                # freeride cache + primary/fallbacks
+.data/summarize-pro/           # history/saved/templates + stats
+.data/humanizer/               # history/settings 24-pattern
+.brv/context-tree/              # ByteRover 19 commits (VC git, not main)
+.memory/                       # Clawic Memory durable (INDEX capped)
+.learnings/ + .self-improving/ # LRN/ERR/FEAT + watcher
+```
+
+Global `.data/` is gitignored + backed up (`POST /backup`, keeps 5).
+
+---
+
+## ⏰ Scheduling
+
+- `reminders.ts` — one-shot + `daily` (merge + `+24h` reschedule, variant rotation)
+- `automations.ts` — `create_automation` (`setiap pagi jam 8`)
+- `heartbeat.ts` `30m` — overdue/due-soon + monitor `battery ≤ / storage ≥`
+- `freerideWatcher.ts` `60s` — probe `openrouter` primary, auto `rotate` on `429`
+- `webhook` `POST /api/webhook` (`WEBHOOK_SECRET`)
+
+All started in `instrumentation-node.ts`.
+
+---
+
+## 📁 Project Layout
+
+```
+apps/web              Next.js 15 (UI, hooks, audio, persona, /api/*)
+  src/ai              ConversationManager, GroqStreamingProvider, VAD
+  src/lib             tools, agent, providers, persona, autoMemory, byterover, summarizePro, humanizer, freeride, ...
+  src/channels        telegram.ts, discord.ts, pushTarget.ts
+  persona/            IDENTITY.md, SOUL.md, USER.md, DREAMS.md
+packages/state-machine  Explicit state machine
+packages/ai-provider    AIProvider abstraction
+packages/mock-provider  Deterministic mock
+```
+
+---
+
+## 📜 Scripts
 
 ```bash
-npm install                              # install all workspaces
-npm run dev -w @voice/web                # dev server
-npm run typecheck                        # all workspaces
+npm install
+npm run dev -w @voice/web        # http://localhost:3000
+npm run typecheck
 npm run lint
 npm run build
-npm test                                 # vitest (state-machine tests)
-npx tsx apps/web/verify.ts               # offline core proofs (tsx, no framework)
+npm test                         # vitest 9 tests
+npx tsx apps/web/verify.ts       # 40+ offline proofs (tsx)
 npx tsx packages/state-machine/verify.ts
 ```
 
-## Operations
+---
 
-- **Deploy:** single process (`next start` + in-process bots + scheduler). Two config dirs: `.env.local` holds keys; `.data/` holds user state — back up both. Multi-instance needs an external queue for the scheduler.
-- **Diagnostics:** `/tmp/mia-dev.log` in dev; bot gateway warnings/errors surface via stdout. `/status` in any channel shows live state. `GET /api/llm` returns in-process turn/tool counters (Fase-5 observability: turns ok/fail, error %, avg/last latency).
-- **Automation delivery:** scheduled automations push to the owner's last-seen channel; stays unfired until a channel is seen after restart.
-- **Error surfaces:** `assistantError.ts` classifies `rate_limit`/`quota` (429/402) into clear user messages in web banner + Telegram/Discord.
-- **Guardrails (Fase 5):** per-user rate limiting on assistant turns (`RATE_LIMIT_TURNS_PER_MIN`, default 30, 0=off) returns HTTP 429; append-only audit trail of tool calls/turn errors at `.data/audit/AUDIT-*.log` (`AUDIT_ENABLED`, `AUDIT_KEEP_DAYS`); operational log at `.data/logs/APP-*.log`; both in-process for the single-personal-process deploy.
-- **Web auth + permissions:** set `AUTH_TOKEN` to gate the web app + `/api/*` behind a PIN (`/login` page, HttpOnly cookie, or `Authorization: Bearer`); `TOOLS_DENY` disables named tools across all channels. Knobs can also live in `.data/config.json` (same keys as env, env wins). Bots keep working regardless.
+## 🔧 Operations
 
-## Docs
+- **Deploy:** single process `next start` + in-process bots + scheduler. Back up `.env.local` + `.data/`.
+- **Health:** `GET /api/health` → `ok:true`, `/status` per channel, `freeride_status` / `browser_use_doctor`.
+- **Rate limit:** `RATE_LIMIT_TURNS_PER_MIN` (default 30) → `429`; `freeride` auto-retries next free model.
+- **Auth:** `AUTH_TOKEN` → web PIN `/login` + `Bearer`; `TOOLS_DENY` to disable tools.
+- **Logs:** `.data/logs/APP-*.log` + `.data/audit/AUDIT-*.log` + `/tmp/mia-dev.log` (dev).
 
-- `PRD_Real-Time_Voice_AI_Assistant.md` — requirements & architecture (v2.0).
-- `ROADMAP.md` — phase-by-phase guide and status.
-- `AGENTS.md` — conventions, invariants, gotchas.
+---
+
+## 📚 Docs
+
+- `PRD_Real-Time_Voice_AI_Assistant.md` — requirements & architecture v2.0
+- `ROADMAP.md` — phases & status
+- `AGENTS.md` — invariants, gotchas, conventions
+- `MIA_FEATURES.md` — full feature list
 
 ## License
 
-Private personal project. See repository license if added.
+Private personal project.
+
+---
+
+*Built with 🌸 — Mia is a woman, she/her, always.*
