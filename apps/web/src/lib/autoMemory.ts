@@ -206,6 +206,25 @@ export async function captureFactsFromTurn(args: CaptureArgs): Promise<number> {
     });
     for (const f of facts) {
       upsertPersonaFact(f.target, f.key, f.value, args.rawUser);
+      // Mandiri ByteRover sync: also curate to .brv/context-tree (fire-and-forget, 9router)
+      void (async () => {
+        try {
+          const { brvCurate } = await import("./byterover");
+          const text = `Persona fact: ${f.target}.${f.key}=${f.value} — learned from user turn, durable preference`;
+          const out = await brvCurate(text);
+          // Auto-approve HITL if needed (persona facts are always curatable)
+          const m = out.match(/task:\s*([a-f0-9-]{36})/i);
+          if (m) {
+            const { brvReviewApprove } = await import("./byterover");
+            await brvReviewApprove(m[1]);
+            const { brvVcAdd, brvVcCommit } = await import("./byterover");
+            await brvVcAdd();
+            await brvVcCommit(`auto persona ${f.key}`);
+          }
+        } catch {
+          /* best effort */
+        }
+      })();
     }
     // Also record today's new facts in the daily memory log (time-bucketed
     // context for fresh sessions) — mirrors OpenClaw's memory/YYYY-MM-DD.md.
