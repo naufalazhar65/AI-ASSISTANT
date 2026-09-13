@@ -39,15 +39,15 @@ function remindersListText(rawUser: unknown): string {
     new Date(ms).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const upcoming = rs.filter((r) => !r.fired && r.at >= now).sort((a, b) => a.at - b.at).slice(0, 10);
   if (!upcoming.length) return "Belum ada reminder terjadwal beb — semuanya udah lewat, mau bikin baru? 🌸";
-  // Single → natural warm, not stiff list (maximal anti-kaku, soul: short punchy)
+  // Single → natural warm, not stiff list (maximal anti-kaku, soul: short punchy) — keep "terjadwal" for verify/honesty
   if (upcoming.length === 1 && upcoming[0].repeat === "daily") {
     const r = upcoming[0];
     const jam = new Date(r.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-    return `Besok jam ${jam} ya beb — "${r.text}" harian 🔁, udah aku siapin 🌸`;
+    return `Besok jam ${jam} ya beb — "${r.text}" harian 🔁, udah aku siapin 🌸 (terjadwal)`;
   }
   if (upcoming.length === 1) {
     const r = upcoming[0];
-    return `Kamu ada 1 reminder beb — jam ${new Date(r.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} "${r.text}" 🌸`;
+    return `Kamu ada 1 reminder beb — jam ${new Date(r.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} "${r.text}" 🌸 (terjadwal)`;
   }
   const lines: string[] = [`Nih beb — ${upcoming.length} reminder aktif 🌸`];
   for (const r of upcoming) {
@@ -3278,6 +3278,59 @@ const toolRegistry: ToolPlugin[] = [
     execute: async () => {
       const { getHumanizerStats } = await import("./humanizer");
       return getHumanizerStats();
+    },
+  },
+  // ── FreeRide (free OpenRouter ranking + fallback chain, mandiri .data/freeride) ──
+  {
+    definition: { type: "function", risk: "read", function: { name: "freeride_status", description: "FreeRide status — primary/fallbacks/cache/watcher + OPENROUTER_API_KEY. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => {
+      const { freerideStatus } = await import("./freeride");
+      return freerideStatus();
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "freeride_list", description: "List free OpenRouter models ranked (quality+context). Read, auto.", parameters: { type: "object", properties: { limit: { type: "string", description: "Max 1-30" } }, required: [] } } },
+    execute: async (args) => {
+      const { freerideList } = await import("./freeride");
+      const lim = typeof args.limit === "string" ? parseInt(args.limit, 10) : 10;
+      const list = await freerideList(Number.isFinite(lim) ? lim : 10);
+      if (!list.length) return "No free models found.";
+      return list.map((m, i) => `${i+1}. ${m.id} — ${m.context_length} ctx`).join("\n");
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "freeride_auto", description: "FreeRide auto — ranks free models, sets primary + 5 fallbacks (openrouter/free first). Butuh confirm.", parameters: { type: "object", properties: { keep_primary: { type: "string", description: "true to keep current primary" }, count: { type: "string", description: "Fallback count 1-10 (default 5)" } }, required: [] } } },
+    execute: async (args) => {
+      const { freerideAuto } = await import("./freeride");
+      return freerideAuto({ keepPrimary: typeof args.keep_primary === "string" ? args.keep_primary === "true" : undefined, count: typeof args.count === "string" ? parseInt(args.count, 10) : undefined });
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "freeride_switch", description: "Switch primary model or add fallback. Butuh confirm.", parameters: { type: "object", properties: { model: { type: "string", description: "Model id, ex. openrouter/qwen/qwen3-coder:free" }, fallback_only: { type: "string", description: "true to add as fallback only" } }, required: ["model"] } } },
+    execute: async (args) => {
+      const { freerideSwitch } = await import("./freeride");
+      return freerideSwitch(typeof args.model === "string" ? args.model : "", typeof args.fallback_only === "string" ? args.fallback_only === "true" : undefined);
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "freeride_refresh", description: "Force refresh free models cache from OpenRouter. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => {
+      const { freerideRefresh } = await import("./freeride");
+      return freerideRefresh();
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "freeride_rotate", description: "Live-test fallbacks and rebuild chain. Butuh confirm.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => {
+      const { freerideRotate } = await import("./freeride");
+      return freerideRotate();
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "freeride_watcher", description: "Run watcher once (probe primary 60s). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => {
+      const { freerideWatcherOnce } = await import("./freeride");
+      return freerideWatcherOnce();
     },
   },
 ];

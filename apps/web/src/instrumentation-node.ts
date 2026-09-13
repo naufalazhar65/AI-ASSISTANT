@@ -49,6 +49,12 @@ export async function registerNode(): Promise<void> {
     logError("heartbeat", `failed to start: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
+    const { startFreerideWatcher } = await import("@/lib/freerideWatcher");
+    startFreerideWatcher();
+  } catch (err) {
+    logError("freeride", `failed to start watcher: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
     const { startRecapRunner } = await import("@/lib/recap");
     startRecapRunner();
   } catch (err) {
