@@ -28,9 +28,9 @@ import { buildWeeklyInsight } from "./weeklyInsight";
 import { habitStats, logHabit } from "./habits";
 import { gmailAuthUrl, gmailConfigured, gmailConnected, gmailList, gmailRead, gmailSearch } from "./email";
 
-/** Human-readable reminder state for the model: upcoming (unfired) only — a
- *  delivered one-shot is dropped from the store immediately, so there's never
- *  a "sudah terkirim" section to fetch (keeps the list honest and clean). */
+/** Human-readable reminder state — now with soul (less kaku, more Mia):
+ *  Single daily reminder → warm natural line, not stiff "Daftar ... total".
+ *  Multiple → keep list but with warm opener. Vary rhythm, use I when natural. */
 function remindersListText(rawUser: unknown): string {
   const now = Date.now();
   const rs = readReminders(rawUser);
@@ -38,11 +38,22 @@ function remindersListText(rawUser: unknown): string {
   const fmt = (ms: number): string =>
     new Date(ms).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const upcoming = rs.filter((r) => !r.fired && r.at >= now).sort((a, b) => a.at - b.at).slice(0, 10);
-  const lines: string[] = [`Daftar reminder kamu beb — ${rs.length} total 🌸`];
-  for (const r of upcoming) {
-    lines.push(`• ${fmt(r.at)} — "${r.text}"${r.repeat === "daily" ? " (harian 🔁)" : ""} — siap aku ingetin ⏰ (terjadwal)`);
+  if (!upcoming.length) return "Belum ada reminder terjadwal beb — semuanya udah lewat, mau bikin baru? 🌸";
+  // Single → natural warm, not stiff list (maximal anti-kaku, soul: short punchy)
+  if (upcoming.length === 1 && upcoming[0].repeat === "daily") {
+    const r = upcoming[0];
+    const jam = new Date(r.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    return `Besok jam ${jam} ya beb — "${r.text}" harian 🔁, udah aku siapin 🌸`;
   }
-  return lines.length > 1 ? lines.join("\n") : "Belum ada reminder terjadwal beb 🌸";
+  if (upcoming.length === 1) {
+    const r = upcoming[0];
+    return `Kamu ada 1 reminder beb — jam ${new Date(r.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} "${r.text}" 🌸`;
+  }
+  const lines: string[] = [`Nih beb — ${upcoming.length} reminder aktif 🌸`];
+  for (const r of upcoming) {
+    lines.push(`• ${fmt(r.at)} — "${r.text}"${r.repeat === "daily" ? " (harian 🔁)" : ""} — siap aku ingetin ⏰`);
+  }
+  return lines.join("\n");
 }
 import { auditLog } from "./auditLog";
 import { toolsDeny } from "./config";
