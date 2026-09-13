@@ -2523,8 +2523,8 @@ const toolRegistry: ToolPlugin[] = [
     execute: () => cuaListApps(),
   },
   {
-    definition: { type: "function", risk: "write", function: { name: "cua_launch", description: "Launch native app via cua (macOS bundle_id, e.g. com.apple.finder). Write, confirm.", parameters: { type: "object", properties: { bundle_id: { type: "string", description: "Bundle ID, mis. com.apple.TextEdit" } }, required: ["bundle_id"] } } },
-    execute: (args) => cuaLaunch(typeof args.bundle_id === "string" ? args.bundle_id : ""),
+    definition: { type: "function", risk: "write", function: { name: "cua_launch", description: "Launch native app via cua (macOS bundle_id, e.g. com.apple.finder). Write, confirm. For Finder Downloads use urls [\"~/Downloads\"].", parameters: { type: "object", properties: { bundle_id: { type: "string", description: "Bundle ID, mis. com.apple.TextEdit" }, urls: { type: "array", description: "Optional file/URL to open, mis. [\"~/Downloads\"]" } }, required: ["bundle_id"] } } },
+    execute: (args) => cuaLaunch(typeof args.bundle_id === "string" ? args.bundle_id : "", Array.isArray(args.urls) ? (args.urls as string[]) : undefined),
   },
   {
     definition: { type: "function", risk: "read", function: { name: "cua_window_state", description: "Snapshot window AX tree + screenshot (WAJIB sebelum click). Read, auto. Need pid+window_id from launch/list.", parameters: { type: "object", properties: { pid: { type: "number" }, window_id: { type: "number" }, no_screenshot: { type: "boolean" } }, required: ["pid", "window_id"] } } },

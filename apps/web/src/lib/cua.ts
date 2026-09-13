@@ -2,7 +2,7 @@
 // Requires: cua-driver 0.22+ (binary at ~/.local/bin/cua-driver), daemon `cua-driver serve` handles policy
 // Docs: https://cua.ai/docs/cua-driver — snapshot invariant (get_window_state before click) is mandatory
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 
 function run(tool: string, args: Record<string, unknown>): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -19,13 +19,24 @@ function run(tool: string, args: Record<string, unknown>): Promise<string> {
 }
 
 async function ensureServe(): Promise<void> {
-  // fire-and-forget serve, ignore if already running
-  try {
-    await new Promise<void>((res) => {
-      execFile("cua-driver", ["serve"], { timeout: 3000 }, () => res());
+  // Check if daemon already running
+  const running = await new Promise<boolean>((res) => {
+    execFile("cua-driver", ["status"], { timeout: 3000 }, (err, stdout) => {
+      if (!err && stdout && stdout.toLowerCase().includes("running")) res(true);
+      else res(false);
     });
+  });
+  if (running) return;
+  // Start daemon detached (no timeout kill)
+  try {
+    const child = spawn("cua-driver", ["serve"], { detached: true, stdio: "ignore" });
+    child.unref();
   } catch {}
-  await new Promise((r) => setTimeout(r, 500));
+  // macOS LaunchServices form (recommended for TCC)
+  try {
+    spawn("open", ["-n", "-g", "-a", "CuaDriver", "--args", "serve"], { detached: true, stdio: "ignore" }).unref();
+  } catch {}
+  await new Promise((r) => setTimeout(r, 1500));
 }
 
 export async function cuaListApps(): Promise<string> {
@@ -33,9 +44,11 @@ export async function cuaListApps(): Promise<string> {
   return run("list_apps", {});
 }
 
-export async function cuaLaunch(bundleId: string): Promise<string> {
+export async function cuaLaunch(bundleId: string, urls?: string[]): Promise<string> {
   await ensureServe();
-  return run("launch_app", { bundle_id: bundleId });
+  const args: Record<string, unknown> = { bundle_id: bundleId };
+  if (urls && urls.length) args.urls = urls;
+  return run("launch_app", args);
 }
 
 export async function cuaListWindows(pid: number): Promise<string> {
