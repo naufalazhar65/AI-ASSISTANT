@@ -2889,6 +2889,98 @@ const toolRegistry: ToolPlugin[] = [
       return brvLocations();
     },
   },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "brv_swarm_curate",
+        description: "Swarm curate — simpan ke provider swarm (GBrain/local-markdown). Butuh confirm.",
+        parameters: { type: "object", properties: { text: { type: "string", description: "Text to curate" }, provider: { type: "string", description: "Optional provider id, ex. 'local-markdown:notes' or 'gbrain'" } }, required: ["text"] },
+      },
+    },
+    execute: async (args) => {
+      const { brvSwarmCurate } = await import("./byterover");
+      return brvSwarmCurate(typeof args.text === "string" ? args.text : "", typeof args.provider === "string" ? args.provider : undefined);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "brv_review_approve",
+        description: "Approve pending HITL review (brv review approve). Butuh confirm. taskId = UUID dari brv_review.",
+        parameters: { type: "object", properties: { taskId: { type: "string", description: "UUID task id" }, files: { type: "string", description: "Optional comma-separated file paths" } }, required: ["taskId"] },
+      },
+    },
+    execute: async (args) => {
+      const { brvReviewApprove } = await import("./byterover");
+      const files = typeof args.files === "string" && args.files.trim() ? args.files.split(",").map((s) => s.trim()) : undefined;
+      return brvReviewApprove(typeof args.taskId === "string" ? args.taskId : "", files);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "brv_review_reject",
+        description: "Reject pending HITL review (brv review reject). Butuh confirm.",
+        parameters: { type: "object", properties: { taskId: { type: "string", description: "UUID task id" }, files: { type: "string", description: "Optional comma-separated file paths" } }, required: ["taskId"] },
+      },
+    },
+    execute: async (args) => {
+      const { brvReviewReject } = await import("./byterover");
+      const files = typeof args.files === "string" && args.files.trim() ? args.files.split(",").map((s) => s.trim()) : undefined;
+      return brvReviewReject(typeof args.taskId === "string" ? args.taskId : "", files);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_curate_view",
+        description: "Lihat history curate (brv curate view) — last 10 atau detail per logId. Read, auto.",
+        parameters: { type: "object", properties: { logId: { type: "string", description: "Optional logId cur-..." }, detail: { type: "string", description: "'true' for --detail" }, limit: { type: "string", description: "Max entries" } }, required: [] },
+      },
+    },
+    execute: async (args) => {
+      const { brvCurateView } = await import("./byterover");
+      return brvCurateView(typeof args.logId === "string" ? args.logId : undefined, typeof args.detail === "string" ? args.detail === "true" : undefined, typeof args.limit === "string" ? parseInt(args.limit, 10) : undefined);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_query_log_view",
+        description: "Lihat history query (brv query-log view). Read, auto.",
+        parameters: { type: "object", properties: { logId: { type: "string", description: "Optional qry-..." }, detail: { type: "string", description: "'true' for --detail" }, limit: { type: "string", description: "Max entries" } }, required: [] },
+      },
+    },
+    execute: async (args) => {
+      const { brvQueryLogView } = await import("./byterover");
+      return brvQueryLogView(typeof args.logId === "string" ? args.logId : undefined, typeof args.detail === "string" ? args.detail === "true" : undefined, typeof args.limit === "string" ? parseInt(args.limit, 10) : undefined);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_query_log_summary",
+        description: "Aggregated query recall metrics (brv query-log summary). Read, auto.",
+        parameters: { type: "object", properties: { last: { type: "string", description: "Window, ex. '7d' or '24h'" } }, required: [] },
+      },
+    },
+    execute: async (args) => {
+      const { brvQueryLogSummary } = await import("./byterover");
+      return brvQueryLogSummary(typeof args.last === "string" ? args.last : undefined);
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always

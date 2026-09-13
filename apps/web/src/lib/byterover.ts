@@ -55,6 +55,15 @@ function ensureQuery(q: string): string | null {
   const t = q.trim();
   if (!t) return "Error: query required";
   if (t.length > 800) return "Error: query too long (max 800)";
+  if (t.startsWith("-")) return "Error: query must not start with '-' (flag injection guard)";
+  return null;
+}
+
+function ensureText(t: string, max: number, label: string): string | null {
+  const trimmed = t.trim();
+  if (!trimmed) return `Error: ${label} required`;
+  if (trimmed.length > max) return `Error: ${label} too long (max ${max})`;
+  if (trimmed.startsWith("-")) return `Error: ${label} must not start with '-'`;
   return null;
 }
 
@@ -90,9 +99,9 @@ export async function brvSearch(query: string, limit?: number, scope?: string, f
 }
 
 export async function brvCurate(text: string, files?: string[]): Promise<string> {
+  const e = ensureText(text, 4000, "curate text");
+  if (e) return e;
   const t = text.trim();
-  if (!t) return "Error: curate text required";
-  if (t.length > 4000) return "Error: curate text too long (max 4000)";
   const args = ["curate", t];
   if (files && files.length) {
     if (files.length > 5) return "Error: max 5 files per curate";
@@ -142,17 +151,106 @@ export async function brvSwarmStatus(): Promise<string> {
   return execBrv(["swarm", "status"], STATUS_TIMEOUT);
 }
 
-export async function brvSwarmCurate(text: string): Promise<string> {
-  const t = text.trim();
-  if (!t) return "Error: text required";
-  if (t.length > 2000) return "Error: text too long (max 2000)";
-  return execBrv(["swarm", "curate", t], CURATE_TIMEOUT);
+export async function brvSwarmCurate(text: string, provider?: string): Promise<string> {
+  const e = ensureText(text, 2000, "text");
+  if (e) return e;
+  const args = ["swarm", "curate", text.trim()];
+  if (provider && provider.trim()) {
+    const p = provider.trim();
+    if (p.length > 80 || p.includes("..") || p.includes("/../")) return "Error: invalid provider";
+    args.push("--provider", p);
+  }
+  return execBrv(args, CURATE_TIMEOUT);
 }
 
 export async function brvReviewPending(): Promise<string> {
   return execBrv(["review", "pending"], STATUS_TIMEOUT);
 }
 
+export async function brvReviewApprove(taskId: string, files?: string[]): Promise<string> {
+  const t = taskId.trim();
+  if (!t) return "Error: taskId required";
+  if (!/^[a-f0-9-]{36}$/i.test(t)) return "Error: invalid taskId (expected UUID)";
+  const args = ["review", "approve", t];
+  if (files && files.length) {
+    for (const f of files) {
+      const p = f.trim();
+      if (!p || p.includes("..") || p.startsWith("/")) return `Error: invalid file "${p}"`;
+      args.push("--file", p);
+    }
+  }
+  return execBrv(args, STATUS_TIMEOUT);
+}
+
+export async function brvReviewReject(taskId: string, files?: string[]): Promise<string> {
+  const t = taskId.trim();
+  if (!t) return "Error: taskId required";
+  if (!/^[a-f0-9-]{36}$/i.test(t)) return "Error: invalid taskId (expected UUID)";
+  const args = ["review", "reject", t];
+  if (files && files.length) {
+    for (const f of files) {
+      const p = f.trim();
+      if (!p || p.includes("..") || p.startsWith("/")) return `Error: invalid file "${p}"`;
+      args.push("--file", p);
+    }
+  }
+  return execBrv(args, STATUS_TIMEOUT);
+}
+
+export async function brvCurateView(logId?: string, detail?: boolean, limit?: number): Promise<string> {
+  const args = ["curate", "view"];
+  if (logId && logId.trim()) {
+    const id = logId.trim();
+    if (!/^cur-/.test(id) && !/^[a-f0-9-]+$/.test(id)) return "Error: invalid logId";
+    args.push(id);
+  }
+  if (detail) args.push("--detail");
+  if (limit && Number.isFinite(limit)) args.push("--limit", String(Math.max(1, Math.min(100, Math.floor(limit)))));
+  return execBrv(args, STATUS_TIMEOUT);
+}
+
+export async function brvQueryLogView(logId?: string, detail?: boolean, limit?: number): Promise<string> {
+  const args = ["query-log", "view"];
+  if (logId && logId.trim()) {
+    const id = logId.trim();
+    if (!/^qry-/.test(id) && !/^[a-f0-9-]+$/.test(id)) return "Error: invalid logId";
+    args.push(id);
+  }
+  if (detail) args.push("--detail");
+  if (limit && Number.isFinite(limit)) args.push("--limit", String(Math.max(1, Math.min(100, Math.floor(limit)))));
+  return execBrv(args, STATUS_TIMEOUT);
+}
+
+export async function brvQueryLogSummary(last?: string): Promise<string> {
+  const args = ["query-log", "summary"];
+  if (last && last.trim()) {
+    const v = last.trim();
+    if (v.length > 20) return "Error: last too long";
+    args.push("--last", v);
+  }
+  return execBrv(args, STATUS_TIMEOUT);
+}
+
 export async function brvProvidersList(): Promise<string> {
   return execBrv(["providers", "list"], STATUS_TIMEOUT);
+}
+
+export async function brvVcAdd(files?: string[]): Promise<string> {
+  const args = ["vc", "add"];
+  if (files && files.length) {
+    for (const f of files) {
+      const p = f.trim();
+      if (!p || p.includes("..") || p.startsWith("/")) return `Error: invalid file "${p}"`;
+      args.push(p);
+    }
+  } else {
+    args.push(".");
+  }
+  return execBrv(args, STATUS_TIMEOUT);
+}
+
+export async function brvVcCommit(message: string): Promise<string> {
+  const e = ensureText(message, 200, "commit message");
+  if (e) return e;
+  return execBrv(["vc", "commit", "-m", message.trim()], STATUS_TIMEOUT);
 }
