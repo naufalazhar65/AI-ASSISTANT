@@ -2706,6 +2706,189 @@ const toolRegistry: ToolPlugin[] = [
       } catch (e) { return `Error: ${e instanceof Error ? e.message : String(e)}`; }
     },
   },
+  // ── ByteRover (mandiri, local .brv/context-tree, no .openclaw) ──
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_query",
+        description: "Query ByteRover knowledge base (.brv/context-tree) — LLM synthesis dari ingatan terstruktur. Pakai sebelum jawab kalau butuh pola/aturan tersimpan. Read, auto.",
+        parameters: { type: "object", properties: { query: { type: "string", description: "Pertanyaan, mis. 'How is authentication implemented?'" } }, required: ["query"] },
+      },
+    },
+    execute: async (args) => {
+      const { brvQuery } = await import("./byterover");
+      return brvQuery(typeof args.query === "string" ? args.query : "");
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_search",
+        description: "BM25 search di .brv/context-tree — balikan file paths + scores + excerpts, tanpa LLM. Murah & cepat. Read, auto.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Keywords, mis. 'authentication patterns'" },
+            limit: { type: "string", description: "Max results 1-50 (default 10)" },
+            scope: { type: "string", description: "Path prefix filter, mis. 'architecture/'" },
+            format: { type: "string", description: "Output format: 'text' atau 'json'", enum: ["text", "json"] },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const { brvSearch } = await import("./byterover");
+      return brvSearch(
+        typeof args.query === "string" ? args.query : "",
+        typeof args.limit === "string" ? parseInt(args.limit, 10) : typeof args.limit === "number" ? args.limit : undefined,
+        typeof args.scope === "string" ? args.scope : undefined,
+        typeof args.format === "string" ? args.format : undefined
+      );
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "brv_curate",
+        description: "Simpan pengetahuan baru ke .brv/context-tree via LLM kategorisasi. Butuh confirm. Maks 5 file project-scoped.",
+        parameters: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "Pengetahuan/pola/keputusan yang mau disimpan" },
+            files: { type: "string", description: "Optional comma-separated relative paths (max 5), mis. 'src/auth.ts,README.md'" },
+          },
+          required: ["text"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const { brvCurate } = await import("./byterover");
+      const files = typeof args.files === "string" && args.files.trim() ? args.files.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+      return brvCurate(typeof args.text === "string" ? args.text : "", files);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_status",
+        description: "Cek status ByteRover: CLI version, account, project, context-tree VC. Read, auto.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { brvStatus } = await import("./byterover");
+      return brvStatus();
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_vc_status",
+        description: "Git status untuk .brv/context-tree (brv vc status). Read, auto.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { brvVcStatus } = await import("./byterover");
+      return brvVcStatus();
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_vc_log",
+        description: "History commits .brv/context-tree (brv vc log). Read, auto.",
+        parameters: { type: "object", properties: { limit: { type: "string", description: "Max entries (default 10)" } }, required: [] },
+      },
+    },
+    execute: async (args) => {
+      const { brvVcLog } = await import("./byterover");
+      return brvVcLog(typeof args.limit === "string" ? parseInt(args.limit, 10) : typeof args.limit === "number" ? args.limit : undefined);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_swarm_query",
+        description: "Swarm query — cari di semua memory providers (byterover + obsidian + GBrain dll) via RRF. Tanpa LLM. Read, auto.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Query, mis. 'How does JWT refresh work?'" },
+            limit: { type: "string", description: "Max results (default 10)" },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const { brvSwarmQuery } = await import("./byterover");
+      return brvSwarmQuery(
+        typeof args.query === "string" ? args.query : "",
+        typeof args.limit === "string" ? parseInt(args.limit, 10) : typeof args.limit === "number" ? args.limit : undefined
+      );
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_swarm_status",
+        description: "Health check swarm providers (byterover/obsidian/GBrain). Read, auto.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { brvSwarmStatus } = await import("./byterover");
+      return brvSwarmStatus();
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_review",
+        description: "List pending HITL reviews dari brv curate (brv review pending). Read, auto.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { brvReviewPending } = await import("./byterover");
+      return brvReviewPending();
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "brv_locations",
+        description: "List registered ByteRover projects & paths (brv locations). Read, auto.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { brvLocations } = await import("./byterover");
+      return brvLocations();
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always
