@@ -2981,6 +2981,139 @@ const toolRegistry: ToolPlugin[] = [
       return brvQueryLogSummary(typeof args.last === "string" ? args.last : undefined);
     },
   },
+  // ── Summarize Pro (mandiri, lokal .data/summarize-pro, no .openclaw) ──
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "summarize",
+        description: "Summarize any text: quick/tldr/bullets/eli5/takeaways/action_items/executive/meeting/email/thread/chapter/progressive + smart auto-detect + language + custom length. 20 formats, local deterministic + 9router LLM fallback, word stats. Read, auto. Trigger: summarize/tldr/eli5/key takeaways/action items/bullet points/executive/compare/meeting/email/thread/chapter/progressive + language + length.",
+        parameters: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "Long text to summarize (max 30k chars)" },
+            format: { type: "string", description: "Format: quick/tldr/bullets/eli5/takeaways/action_items/executive/meeting/email/thread/chapter/progressive/auto (default auto)", enum: ["quick", "bullets", "tldr", "eli5", "takeaways", "action_items", "executive", "meeting", "email", "thread", "chapter", "progressive", "auto"] },
+            language: { type: "string", description: "Output language, ex. hindi/spanish/french (default english)" },
+            length_words: { type: "string", description: "Custom length in words, ex. '50' or '100'" },
+            compare_text: { type: "string", description: "Second text for compare format" },
+            template: { type: "string", description: "Custom template name (from templates.json)" },
+          },
+          required: ["text"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const { summarizePro, getTemplate } = await import("./summarizePro");
+      const text = typeof args.text === "string" ? args.text : "";
+      const template = typeof args.template === "string" ? args.template.trim() : "";
+      if (template) {
+        const tmpl = getTemplate(template);
+        if (tmpl) {
+          const sections = tmpl.sections.map((s) => `**${s}:** ${text.slice(0, 400)}`).join("\n");
+          return summarizePro({ text: sections, format: "bullets" });
+        }
+      }
+      return summarizePro({
+        text,
+        format: typeof args.format === "string" ? args.format : "auto",
+        language: typeof args.language === "string" ? args.language : undefined,
+        customLengthWords: typeof args.length_words === "string" ? parseInt(args.length_words, 10) : undefined,
+        compareText: typeof args.compare_text === "string" ? args.compare_text : undefined,
+      });
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "summarize_history",
+        description: "List recent summarize history (history.json, last 10, 100 max). Read, auto.",
+        parameters: { type: "object", properties: { limit: { type: "string", description: "Max entries (default 10)" } }, required: [] },
+      },
+    },
+    execute: async (args) => {
+      const { getSummarizeHistory } = await import("./summarizePro");
+      const lim = typeof args.limit === "string" ? parseInt(args.limit, 10) : 10;
+      const h = getSummarizeHistory(Number.isFinite(lim) ? lim : 10);
+      if (!h.length) return "No summary history yet.";
+      return h.map((e) => `${e.id} — ${e.topic.slice(0, 40)} — ${new Date(e.timestamp).toLocaleString("id-ID")} — ${e.format} — ${e.original_words}→${e.summary_words}w`).join("\n");
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "summarize_saved",
+        description: "List or save summaries (saved.json). Use 'save' to bookmark last summary. Read, auto.",
+        parameters: { type: "object", properties: { action: { type: "string", description: "list or save (default list)", enum: ["list", "save"] } }, required: [] },
+      },
+    },
+    execute: async (args) => {
+      const { listSaved, saveLastSummary } = await import("./summarizePro");
+      const a = typeof args.action === "string" ? args.action : "list";
+      return a === "save" ? saveLastSummary() : listSaved();
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "summarize_stats",
+        description: "Show summarize stats & achievements (summaries_count, words_processed, streak, favorite). Read, auto.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { getStats } = await import("./summarizePro");
+      return getStats();
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "summarize_template",
+        description: "Create or list custom summary templates. Butuh confirm untuk create. Action: create (name+sections) or list.",
+        parameters: {
+          type: "object",
+          properties: {
+            action: { type: "string", description: "create or list", enum: ["create", "list"] },
+            name: { type: "string", description: "Template name (for create)" },
+            sections: { type: "string", description: "Comma-separated sections, ex. 'Yesterday,Today,Blockers' (for create)" },
+          },
+          required: ["action"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const { createTemplate, listTemplates } = await import("./summarizePro");
+      const a = typeof args.action === "string" ? args.action : "list";
+      if (a === "list") return listTemplates();
+      const name = typeof args.name === "string" ? args.name : "";
+      const secs = typeof args.sections === "string" ? args.sections.split(",").map((s) => s.trim()).filter(Boolean) : [];
+      return createTemplate(name, secs);
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "summarize_default",
+        description: "Set default summarize format (bullets/tldr/eli5 etc). Read, auto.",
+        parameters: { type: "object", properties: { format: { type: "string", description: "Default format name" } }, required: ["format"] },
+      },
+    },
+    execute: async (args) => {
+      const { setDefaultFormat } = await import("./summarizePro");
+      return setDefaultFormat(typeof args.format === "string" ? args.format : "");
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always
