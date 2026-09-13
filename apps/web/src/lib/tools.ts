@@ -3114,6 +3114,105 @@ const toolRegistry: ToolPlugin[] = [
       return setDefaultFormat(typeof args.format === "string" ? args.format : "");
     },
   },
+  // ── Browser-Use (daemon 50ms, indices, persistent, cloud/tunnel) ──
+  {
+    definition: { type: "function", risk: "read", function: { name: "browser_use_doctor", description: "browser-use doctor — diagnostics (platform, daemon, chrome). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => {
+      const { buDoctor } = await import("./browserUse");
+      return buDoctor();
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "browser_use_open", description: "browser-use open — new_tab(url) daemon persistent (~50ms). Use for JS-heavy/interactive pages, not plain fetch. Read, auto. http(s) only.", parameters: { type: "object", properties: { url: { type: "string", description: "http(s) URL to open" } }, required: ["url"] } } },
+    execute: async (args) => {
+      const { buOpen } = await import("./browserUse");
+      return buOpen(typeof args.url === "string" ? args.url : "");
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "browser_use_state", description: "browser-use state — page_info + AX tree (indices) for click/input. Always call state before click. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => {
+      const { buState } = await import("./browserUse");
+      return buState();
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "browser_use_click", description: "browser-use click by index or x y (e.g. '5' or '120 340'). Requires confirm.", parameters: { type: "object", properties: { target: { type: "string", description: "Index from state or 'x y'" } }, required: ["target"] } } },
+    execute: async (args) => {
+      const { buClick } = await import("./browserUse");
+      return buClick(typeof args.target === "string" ? args.target : "");
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "browser_use_input", description: "browser-use input <index> text — click then type fast (selectAll+insertText). Requires confirm.", parameters: { type: "object", properties: { index: { type: "string", description: "AX index from state" }, text: { type: "string", description: "Text to input" } }, required: ["index", "text"] } } },
+    execute: async (args) => {
+      const { buInput } = await import("./browserUse");
+      return buInput(typeof args.index === "string" ? args.index : "", typeof args.text === "string" ? args.text : "");
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "browser_use_type", description: "browser-use type into focused element. Requires confirm.", parameters: { type: "object", properties: { text: { type: "string", description: "Text to type" } }, required: ["text"] } } },
+    execute: async (args) => {
+      const { buType } = await import("./browserUse");
+      return buType(typeof args.text === "string" ? args.text : "");
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "browser_use_keys", description: "browser-use keys — send keys e.g. 'Enter', 'Control+a'. Requires confirm.", parameters: { type: "object", properties: { keys: { type: "string", description: "Keys to send" } }, required: ["keys"] } } },
+    execute: async (args) => {
+      const { buKeys } = await import("./browserUse");
+      return buKeys(typeof args.keys === "string" ? args.keys : "");
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "browser_use_screenshot", description: "browser-use screenshot — Page.captureScreenshot base64. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => {
+      const { buScreenshot } = await import("./browserUse");
+      return buScreenshot();
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "browser_use_get", description: "browser-use get — title/html/text/value. Read, auto.", parameters: { type: "object", properties: { what: { type: "string", description: "title|html|text|value", enum: ["title", "html", "text", "value"] }, index: { type: "string", description: "AX index for text/value" }, selector: { type: "string", description: "CSS selector for html" } }, required: ["what"] } } },
+    execute: async (args) => {
+      const { buGet } = await import("./browserUse");
+      return buGet(typeof args.what === "string" ? args.what : "", typeof args.index === "string" ? args.index : undefined, typeof args.selector === "string" ? args.selector : undefined);
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "browser_use_eval", description: "browser-use eval — js('code') return result. Read, auto. For DOM extraction when AX lacking.", parameters: { type: "object", properties: { code: { type: "string", description: "JS code to eval" } }, required: ["code"] } } },
+    execute: async (args) => {
+      const { buEval } = await import("./browserUse");
+      return buEval(typeof args.code === "string" ? args.code : "");
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "browser_use_scroll", description: "browser-use scroll up/down. Read, auto. Amount px optional.", parameters: { type: "object", properties: { dir: { type: "string", description: "up or down", enum: ["up", "down"] }, amount: { type: "string", description: "Pixels (100-5000)" } }, required: ["dir"] } } },
+    execute: async (args) => {
+      const { buScroll } = await import("./browserUse");
+      return buScroll(typeof args.dir === "string" ? args.dir : "", typeof args.amount === "string" ? parseInt(args.amount, 10) : undefined);
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "browser_use_tab", description: "browser-use tab list/new/switch/close. Write for new/switch/close, read for list.", parameters: { type: "object", properties: { action: { type: "string", description: "list|new|switch|close", enum: ["list", "new", "switch", "close"] }, arg: { type: "string", description: "URL for new or index for switch/close" } }, required: ["action"] } } },
+    execute: async (args) => {
+      const { buTab } = await import("./browserUse");
+      return buTab(typeof args.action === "string" ? args.action : "", typeof args.arg === "string" ? args.arg : undefined);
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "browser_use_wait", description: "browser-use wait selector/text — poll 10s. Read, auto.", parameters: { type: "object", properties: { where: { type: "string", description: "selector or text", enum: ["selector", "text"] }, value: { type: "string", description: "CSS or text to wait for" } }, required: ["where", "value"] } } },
+    execute: async (args) => {
+      const { buWait } = await import("./browserUse");
+      return buWait(typeof args.where === "string" ? args.where : "", typeof args.value === "string" ? args.value : "");
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "browser_use_close", description: "browser-use close — stop daemon (browser-use --reload). Requires confirm.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => {
+      const { buClose } = await import("./browserUse");
+      return buClose();
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always
