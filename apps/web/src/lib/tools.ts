@@ -3213,6 +3213,62 @@ const toolRegistry: ToolPlugin[] = [
       return buClose();
     },
   },
+  // ── Humanizer (24-pattern Wikipedia + soul, lokal .data/humanizer) ──
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "humanize",
+        description: "Remove AI writing patterns (24 Wikipedia patterns + soul) — inflated symbolism, promotional, -ing fluff, vague attribution, em dash, rule of three, AI vocab, negative parallelism, bold, title-case, sycophantic etc. Deterministic + 9router LLM polish. Read, auto. Trigger: humanize this/edit this to sound human.",
+        parameters: { type: "object", properties: { text: { type: "string", description: "Text to humanize (max 30k chars)" } }, required: ["text"] },
+      },
+    },
+    execute: async (args) => {
+      const { humanize } = await import("./humanizer");
+      const t = typeof args.text === "string" ? args.text : "";
+      try {
+        const r = await humanize(t);
+        const pat = r.patterns.length ? `\n\n🔍 Patterns: ${r.patterns.slice(0, 8).join(", ")}` : "\n\n🔍 No AI patterns detected — already human-like";
+        return `${r.humanized}\n\n📊 ${r.original_words} → ${r.humanized_words} words${pat}`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "humanize failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "humanize_history",
+        description: "List humanizer history (last 10, 100 max). Read, auto.",
+        parameters: { type: "object", properties: { limit: { type: "string", description: "Max entries" } }, required: [] },
+      },
+    },
+    execute: async (args) => {
+      const { getHumanizerHistory } = await import("./humanizer");
+      const lim = typeof args.limit === "string" ? parseInt(args.limit, 10) : 10;
+      const h = getHumanizerHistory(Number.isFinite(lim) ? lim : 10);
+      if (!h.length) return "No humanizer history yet.";
+      return h.map((e) => `${e.id} — ${new Date(e.timestamp).toLocaleString("id-ID")} — ${e.original_words}→${e.humanized_words}w — ${e.patterns.slice(0, 3).join(",") || "clean"}`).join("\n");
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "humanize_stats",
+        description: "Show humanizer stats (count, words, history). Read, auto.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      const { getHumanizerStats } = await import("./humanizer");
+      return getHumanizerStats();
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always
