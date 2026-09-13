@@ -88,17 +88,21 @@ function parseWazeJson(data: unknown): WazeRoute[] {
 }
 
 function parseWazeXml(xml: string): WazeRoute[] {
-  // <Responses><response>...</response><response>...</response></Responses>
-  // Each <response> is one alternative with many <result> segments.
+  // <Responses><response>...</response>... Each <response> has many <result> segments.
+  // The last <length> in a response is a summary total — sum only per-<result> lengths.
   const routes: WazeRoute[] = [];
   const responseBlocks = [...xml.matchAll(/<response>([\s\S]*?)<\/response>/g)].map((m) => m[1]);
-  // Fallback: if no <response>, try top-level <result> as single route
   const blocks = responseBlocks.length ? responseBlocks : xml.includes("<result>") ? [xml] : [];
   for (const block of blocks) {
     let totalSec = 0;
     let totalMeters = 0;
-    for (const m of block.matchAll(/<cross_time>(\d+)<\/cross_time>/g)) totalSec += Number(m[1]);
-    for (const m of block.matchAll(/<length>(\d+)<\/length>/g)) totalMeters += Number(m[1]);
+    for (const m of block.matchAll(/<result>([\s\S]*?)<\/result>/g)) {
+      const seg = m[1];
+      const ct = seg.match(/<cross_time>(\d+)<\/cross_time>/);
+      const len = seg.match(/<length>(\d+)<\/length>/);
+      if (ct) totalSec += Number(ct[1]);
+      if (len) totalMeters += Number(len[1]);
+    }
     const dur = Math.round(totalSec / 60);
     const dist = Math.round(totalMeters / 100) / 10;
     if (dur > 0 || dist > 0) routes.push({ duration_min: dur, distance_km: dist, name: `Rute ${routes.length + 1}`, streets: [] });

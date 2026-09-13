@@ -231,16 +231,16 @@ async function tick(): Promise<void> {
   if (!briefingEnabled() || Number.isNaN(hour) || !target || hour !== target || lastBriefingDay === day) return;
   lastBriefingDay = day;
   saveBriefingDay(day);
-  for (const user of allUserKeys()) {
-    try {
-      const msg = buildMorningBriefing(user, now);
-      if (!msg) continue; // nothing worth reporting → stay silent
-      const delivered = await pushToOwner(msg);
-      if (delivered) logInfo("briefing", `pushed for ${user}`);
-      else logInfo("briefing", `no channel for ${user}, skipped`);
-    } catch (e) {
-      logError("briefing", `failed for ${user}: ${e instanceof Error ? e.message : String(e)}`);
-    }
+  // Opsi A: 1 briefing owner saja (anti-spam) — allUserKeys() × pushToOwner = 4 bubble ke 1 channel yang sama
+  const owner = canonicalUserKey("naufalazhar652952") || "naufalazhar652952";
+  try {
+    const msg = buildMorningBriefing(owner, now);
+    if (!msg) return;
+    const delivered = await pushToOwner(msg);
+    if (delivered) logInfo("briefing", `pushed for ${owner} (single)`);
+    else logInfo("briefing", `no channel for ${owner}, skipped`);
+  } catch (e) {
+    logError("briefing", `failed for ${owner}: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 

@@ -5,7 +5,9 @@
 // and nudges the owner if something needs attention. Silent when nothing is pending.
 
 import { readdirSync, existsSync } from "node:fs";
-import { userDataRoot, isTestUserKey, canonicalUserKey } from "./users";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { userDataRoot, isTestUserKey, canonicalUserKey, appRoot, repoRoot } from "./users";
 import { readTasks } from "./tasks";
 import { pushToOwner } from "../channels/pushTarget";
 import { heartbeatMinutes } from "./config";
@@ -110,6 +112,38 @@ async function tick(): Promise<void> {
     await runConsolidationForAllUsers();
   } catch (e) {
     logError("consolidate", `pass failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  // Never-Forget checkpoint (best-effort, safe) — only if HEARTBEAT.md exists (AI Persona OS opt-in)
+  // Mandiri: check local .self-improving first, fallback to global ~/self-improving
+  try {
+    const hbPath = join(appRoot(), "..", "..", ".openclaw", "workspace", "HEARTBEAT.md");
+    const localHb = join(repoRoot(), ".self-improving", "memory.md");
+    const globalHb = join(homedir(), "self-improving", "memory.md");
+    // also check repo-local HEARTBEAT.md as fallback
+    const hasHb = existsSync(hbPath) || existsSync(join(appRoot(), "HEARTBEAT.md")) || existsSync(localHb) || existsSync(globalHb);
+    if (!hasHb) throw new Error("no HEARTBEAT.md");
+    const now = new Date();
+    const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+    // debounce: only once per 30m per process (in-memory)
+    const lastKey = (globalThis as unknown as Record<string, number>).__hbCheckpointAt ?? 0;
+    if (Date.now() - lastKey < 30 * 60 * 1000) throw new Error("debounced");
+    // heuristic: if today's memory >80 lines or >4KB, write checkpoint
+    const { readDailyMemory } = await import("./dailyMemory");
+    for (const user of allUserKeys().slice(0, 3)) { // cap 3 users to avoid spam
+      const mem = readDailyMemory(user, todayStr);
+      if (!mem || mem.length < 3000) continue;
+      const lines = mem.split("\n").length;
+      if (lines < 80) continue;
+      const { appendDailyMemory } = await import("./dailyMemory");
+      const hhmm = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Jakarta" }).format(now);
+      const pct = Math.min(95, Math.round((lines / 200) * 70)); // approx 200 lines ~70%
+      appendDailyMemory(user, `## Checkpoint [${hhmm}] — Context: ~${pct}%\nActive: heartbeat Never-Forget\nResume: lanjut dari checkpoint ${hhmm}`);
+      (globalThis as unknown as Record<string, number>).__hbCheckpointAt = Date.now();
+      logInfo("heartbeat", `checkpoint for ${user} at ${hhmm} (~${pct}%)`);
+      break; // one per tick
+    }
+  } catch {
+    // silent — best-effort, never break tick
   }
 }
 
