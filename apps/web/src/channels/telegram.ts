@@ -459,9 +459,27 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
     await replyMia(ctx, classifyAssistantError(err).userMessage);
     return;
   }
+  if (result.needsConfirmation?.length) {
+    // The follow-up asked for another risky tool: keep the confirmation chain
+    // going (the agent's own context already has the first tool result) instead
+    // of silently dropping it and replying a bare "Selesai.".
+    const call = result.needsConfirmation[0];
+    state.pending = { messages: result.messages ?? pending.messages, call };
+    let args = "";
+    try {
+      args = JSON.stringify(JSON.parse(call.arguments || "{}"));
+    } catch {
+      /* ignore */
+    }
+    await replyMia(
+      ctx,
+      `Mia ingin melakukan aksi berikut: *${call.name}*${args ? ` — \`${args}\`` : ""}\nBalas \`ya\` untuk melanjutkan, atau \`tidak\` untuk membatalkan.`
+    );
+    return;
+  }
   state.history.push({ role: "assistant", content: result.text });
   if (!(await sendVoiceReply(ctx, result.text))) {
-    let fallback = "Selesai.";
+    let fallback = "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸";
     if (!result.text && pending.call.name.startsWith("plan_")) {
       fallback = pending.call.name === "plan_create"
         ? `Plan sudah kubuat beb — cek plan_list untuk lihat step-stepnya 🌸`
@@ -513,7 +531,7 @@ async function runTurn(
 
   // Risky tool requested → pause for inline yes/no confirmation (FR-014).
   if (result.needsConfirmation?.length) {
-    state.pending = { messages: turnMessages, call: result.needsConfirmation[0] };
+    state.pending = { messages: result.messages ?? turnMessages, call: result.needsConfirmation[0] };
     const call = result.needsConfirmation[0];
     let args = "";
     try {
@@ -562,7 +580,7 @@ async function runTurnWithVision(
     return;
   }
   if (result.needsConfirmation?.length) {
-    state.pending = { messages: turnMessages as never, call: result.needsConfirmation[0] };
+    state.pending = { messages: (result.messages ?? turnMessages) as never, call: result.needsConfirmation[0] };
     const call = result.needsConfirmation[0];
     let args = "";
     try { args = JSON.stringify(JSON.parse(call.arguments || "{}")); } catch {}

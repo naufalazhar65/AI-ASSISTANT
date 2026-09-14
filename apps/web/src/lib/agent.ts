@@ -840,6 +840,14 @@ async function runAgent(
 export type TurnResult = {
   text: string;
   needsConfirmation: ToolCall[] | null;
+  /**
+   * The conversation context the agent actually saw (system-summarized history
+   * + the assistant `tool_calls` message it emitted when it paused for
+   * confirmation). Channels persist THIS as the pending context so the confirm
+   * continuation stays a well-formed assistant-tool_calls → tool-result pair
+   * instead of an orphan `tool` message.
+   */
+  messages?: ChatMessage[];
 };
 
 /**
@@ -1871,7 +1879,7 @@ async function runAssistantTurnImpl(opts: {
       "This is a mock reply. No model call was made, so testing the chat UI " +
       "costs no tokens. Just type and watch the bubble, typing dots and smooth " +
       "scroll.";
-    return { text: canned, needsConfirmation: null };
+    return { text: canned, needsConfirmation: null, messages };
   }
 
   // Auto-recall: the last user ask is semantically matched against long-term
@@ -1934,7 +1942,7 @@ async function runAssistantTurnImpl(opts: {
         appendDailyMemory(opts.user, snippet);
       }
     } catch { /* best-effort */ }
-    return { text: schedulePlaceCheckFromIntent(messages, opencodeText || "", false), needsConfirmation: null };
+    return { text: schedulePlaceCheckFromIntent(messages, opencodeText || "", false), needsConfirmation: null, messages };
   }
 
   if (providerId === "opencodego") ensureOpenCodeGoKey();
@@ -2074,6 +2082,7 @@ async function runAssistantTurnImpl(opts: {
       return {
         text: `Aksimu sudah dijalankan.${detail}`,
         needsConfirmation: null,
+        messages,
       };
     }
     throw err;
@@ -2318,6 +2327,7 @@ async function runAssistantTurnImpl(opts: {
     return {
       text: "Aku tidak bisa menyelesaikan permintaan ini pada jadwal otomatis karena butuh persetujuanmu. Coba minta langsung ya. 🌸",
       needsConfirmation: null,
+      messages,
     };
   }
 
@@ -2330,7 +2340,7 @@ async function runAssistantTurnImpl(opts: {
     console.error("[agent] empty turn text (debug): user=", JSON.stringify((messages[messages.length - 1]?.content ?? "").slice(0, 80)));
   }
 
-  return { text: stripNonLatinChars(text), needsConfirmation };
+  return { text: stripNonLatinChars(text), needsConfirmation, messages };
 }
 
 /**

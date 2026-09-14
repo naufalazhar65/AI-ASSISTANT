@@ -840,7 +840,7 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
-      risk: "write",
+      risk: "read",
       function: {
         name: "fetch_url",
         description:

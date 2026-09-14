@@ -523,8 +523,26 @@ async function handleConfirmation(msg: Message, state: ChatState, user: string, 
     await replyMia(msg, classifyAssistantError(err).userMessage);
     return;
   }
+  if (result.needsConfirmation?.length) {
+    // The follow-up asked for another risky tool: keep the confirmation chain
+    // going (the agent's own context already has the first tool result) instead
+    // of silently dropping it and replying a bare "Selesai.".
+    const call = result.needsConfirmation[0];
+    state.pending = { messages: result.messages ?? pending.messages, call };
+    let args = "";
+    try {
+      args = JSON.stringify(JSON.parse(call.arguments || "{}"));
+    } catch {
+      /* ignore */
+    }
+    await replyMia(
+      msg,
+      `Mia ingin melakukan aksi berikut: **${call.name}**${args ? ` — \`${args}\`` : ""}\nBalas \`ya\` untuk melanjutkan, atau \`tidak\` untuk membatalkan.`
+    );
+    return;
+  }
   state.history.push({ role: "assistant", content: result.text });
-  let fallback = "Selesai.";
+  let fallback = "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸";
   if (!result.text && pending.call.name.startsWith("plan_")) {
     fallback = pending.call.name === "plan_create"
       ? `Plan sudah kubuat beb — cek plan_list untuk lihat step-stepnya 🌸`
@@ -573,7 +591,10 @@ async function runTurn(
   }
 
   if (result.needsConfirmation?.length) {
-    state.pending = { messages: turnMessages, call: result.needsConfirmation[0] };
+    // Persist the agent's own context (which already includes the assistant
+    // tool_calls message) so the "ya" continuation is a valid pair, not an
+    // orphan tool result.
+    state.pending = { messages: result.messages ?? turnMessages, call: result.needsConfirmation[0] };
     const call = result.needsConfirmation[0];
     let args = "";
     try {
@@ -620,7 +641,7 @@ async function runTurnWithVision(
     return;
   }
   if (result.needsConfirmation?.length) {
-    state.pending = { messages: turnMessages as never, call: result.needsConfirmation[0] };
+    state.pending = { messages: (result.messages ?? turnMessages) as never, call: result.needsConfirmation[0] };
     const call = result.needsConfirmation[0];
     let args = "";
     try { args = JSON.stringify(JSON.parse(call.arguments || "{}")); } catch {}
