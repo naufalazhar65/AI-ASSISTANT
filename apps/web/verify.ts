@@ -519,6 +519,22 @@ async function main() {
     if (!/Tidak ada temuan terbuka|sarif/.test(exp)) throw new Error(`exportFindings empty: ${exp}`);
     rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
     console.log("cvss_score + resolve + export: OK");
+  {
+    const { parseNpmLock, verifyPatch, addFinding, parseDepFinding } = await import("./src/lib/security");
+    const { repoRoot: rr } = await import("./src/lib/users");
+    const deps = parseNpmLock(readFileSync(join(rr(), "package-lock.json"), "utf8"));
+    const d = deps.find((x) => x.name === "undici") || deps[0];
+    if (!d) throw new Error("no deps in lock");
+    if (parseDepFinding({ target: `npm:${d.name}@1.2.3`, remediation: "Upgrade ke >= 2.0.0" } as never)?.fixed !== "2.0.0") throw new Error("parseDepFinding fixed");
+    const u = "verify_patch_user";
+    addFinding(u, { title: "Dep X", severity: "medium", owasp: "A06:2021 Vulnerable and Outdated Components", target: `npm:${d.name}@${d.version}`, evidence: "GHSA-x", remediation: "Upgrade ke >= 0.0.1" });
+    const out = verifyPatch(u, "", false);
+    if (!/Sudah >= fixed/.test(out)) throw new Error(`verifyPatch should mark patched: ${out.slice(0,140)}`);
+    const resolved = verifyPatch(u, "", true);
+    if (!/apply/.test(resolved)) throw new Error("verifyPatch apply mode missing");
+    rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
+    console.log("verify_patch (installed vs fixed): OK");
+  }
   }
   }
   }

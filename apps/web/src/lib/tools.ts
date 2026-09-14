@@ -3407,6 +3407,14 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { cvssScore } = await import("./security"); return cvssScore(String(args.vector || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cvss_score failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "verify_patch", description: "Cek temuan dependency (A06) vs versi terpasang di package-lock: mana yang sudah >= fixed. Opsi apply=true menandai yang patched sebagai resolved. Read, auto.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori repo (opsional)" }, apply: { type: "boolean", description: "Auto-resolve yang sudah patched" } }, required: [] } } },
+    execute: async (args, ctx) => { try { const { verifyPatch } = await import("./security"); return verifyPatch(ctx.rawUser, typeof args.dir === "string" ? args.dir : "", args.apply === true); } catch (e) { return `Error: ${e instanceof Error ? e.message : "verify_patch failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "hardening_pdf", description: "Buat PDF 'hardening plan' (rencana perbaikan prioritas CVSS) → .data/users/<user>/reports. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { hardeningPdf } = await import("./security"); return await hardeningPdf(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "hardening_pdf failed"}`; } },
+  },
+  {
     definition: {
       type: "function",
       risk: "read",

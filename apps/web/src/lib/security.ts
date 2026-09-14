@@ -609,10 +609,7 @@ export function sqlmapScan(url: string, opts?: { level?: number; risk?: number }
 }
 
 // ── PDF report (markdown -> HTML -> PDF via Playwright, no new deps) ─────────
-export async function reportPdf(rawUser: unknown): Promise<string> {
-  const userKey = sanitizeUser(rawUser);
-  if (!userKey) throw new Error("invalid user");
-  const md = generateReport(rawUser);
+async function renderMarkdownPdf(userKey: string, md: string, prefix: string): Promise<string> {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const body = esc(md)
     .replace(/^### (.*)$/gm, "<h3>$1</h3>")
@@ -623,7 +620,7 @@ export async function reportPdf(rawUser: unknown): Promise<string> {
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;max-width:820px;margin:32px auto;padding:0 20px;color:#111}h1{font-size:24px}h2{font-size:18px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:15px}strong{color:#000}</style></head><body>${body}</body></html>`;
   const dir = join(userDataRoot(), userKey, "reports");
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `report-${new Date().toISOString().replace(/[:.]/g, "-")}.pdf`);
+  const file = join(dir, `${prefix}-${new Date().toISOString().replace(/[:.]/g, "-")}.pdf`);
   const { chromium } = await import("playwright");
   const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
   try {
@@ -633,7 +630,19 @@ export async function reportPdf(rawUser: unknown): Promise<string> {
   } finally {
     await browser.close().catch(() => {});
   }
-  return `📄 PDF laporan disimpan: ${file}`;
+  return `📄 PDF disimpan: ${file}`;
+}
+
+export async function reportPdf(rawUser: unknown): Promise<string> {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  return renderMarkdownPdf(userKey, generateReport(rawUser), "report");
+}
+
+export async function hardeningPdf(rawUser: unknown): Promise<string> {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  return renderMarkdownPdf(userKey, hardeningPlan(rawUser), "hardening");
 }
 
 /** Days until a host's TLS cert expires (null on failure). For security watch. */
@@ -964,4 +973,53 @@ export function cvssScore(vector: string): string {
   const score = impact <= 0 ? 0 : roundup(Math.min((S === "U" ? 1 : 1.08) * (impact + expl), 10));
   const sev = score === 0 ? "none" : score < 4 ? "low" : score < 7 ? "medium" : score < 9 ? "high" : "critical";
   return `📊 CVSS v3.1 base score: ${score.toFixed(1)} (${sev})\nVector: ${v}`;
+}
+
+/** Parse a dependency finding's target/remediation (name, installed ver, fixed ver). */
+export function parseDepFinding(f: Finding): { name: string; fixed: string | null } | null {
+  const m = /^([a-z]+):(.+)@([^@]+)$/i.exec(f.target || "");
+  if (!m) return null;
+  const fixed = (/>=?\s*([0-9][\w.-]*)/.exec(f.remediation || "") || [])[1] ?? null;
+  return { name: m[2].toLowerCase(), fixed };
+}
+
+/** Check installed dependency versions vs each dep finding's fixed version. */
+export function verifyPatch(rawUser: unknown, dirRel = "", apply = false): string {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  const root = dirRel.trim() ? resolveInSandbox(dirRel.trim()) : repoRoot();
+  if (!root) throw new Error("path di luar sandbox");
+  const lock = join(root, "package-lock.json");
+  if (!existsSync(lock)) return `Tidak ada package-lock.json di ${dirRel || "repo root"}.`;
+  const installed = parseNpmLock(readFileSync(lock, "utf8"));
+  const rows = readFindings(rawUser).filter((r) => r.status !== "resolved" && (r.owasp || "").includes("A06"));
+  if (!rows.length) return "Tidak ada temuan dependency (A06) terbuka.";
+  const patched: string[] = [];
+  const still: string[] = [];
+  const unknown: string[] = [];
+  for (const f of rows) {
+    const d = parseDepFinding(f);
+    if (!d || !d.fixed) {
+      unknown.push(`${f.id} ${f.target}`);
+      continue;
+    }
+    const vers = installed.filter((x) => x.name.toLowerCase() === d.name).map((x) => x.version);
+    if (!vers.length) {
+      unknown.push(`${f.id} ${d.name} (tak ada di lock)`);
+      continue;
+    }
+    const ok = vers.every((v) => cmpVer(v, d.fixed!) >= 0);
+    if (ok) {
+      patched.push(`${f.id} ${d.name}@${vers.join(",")} >= ${d.fixed}`);
+      if (apply) resolveFinding(rawUser, f.id);
+    } else {
+      still.push(`${f.id} ${d.name}@${vers.join(",")} < ${d.fixed}`);
+    }
+  }
+  const head = `🧩 VERIFY PATCH${apply ? " (apply)" : ""}: ${patched.length} sudah patched, ${still.length} masih rentan, ${unknown.length} tak bisa diverifikasi.`;
+  const parts = [head];
+  if (patched.length) parts.push(`✅ Sudah >= fixed${apply ? " → resolved" : ""}:\n${patched.map((x) => "• " + x).join("\n")}`);
+  if (still.length) parts.push(`⚠️ Masih rentan (upgrade belum jalan):\n${still.map((x) => "• " + x).join("\n")}`);
+  if (unknown.length) parts.push(`❓ Tak terverifikasi:\n${unknown.map((x) => "• " + x).join("\n")}`);
+  return parts.join("\n\n");
 }
