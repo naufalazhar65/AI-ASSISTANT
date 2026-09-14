@@ -196,6 +196,35 @@ async function main() {
   }
   console.log("cinema showtimes parsers: OK");
 
+  // --- hotel helpers (offline; live Booking fetch is network/Playwright-gated) ---
+  const { parseBudget, resolveStay, parseScore } = await import("./src/lib/hotel");
+  if (parseBudget("400rb") !== 400000 || parseBudget("1.5jt") !== 1500000 || parseBudget("600000") !== 600000 || parseBudget("abc") !== null) {
+    throw new Error("hotel parseBudget wrong");
+  }
+  const stay = resolveStay("2026-09-20", "2026-09-22");
+  if (stay.nights !== 2 || stay.checkin !== "2026-09-20" || stay.checkout !== "2026-09-22") throw new Error(`hotel resolveStay wrong: ${JSON.stringify(stay)}`);
+  if (resolveStay("2026-09-20").nights !== 1) throw new Error("hotel resolveStay default checkout wrong");
+  let badDate = false;
+  try { resolveStay("besok"); } catch { badDate = true; }
+  if (!badDate) throw new Error("hotel resolveStay must reject non-ISO date");
+  if (parseScore("Skor 9,3 9,3Luar biasa 39 ulasan") !== "9,3" || parseScore("Skor 10 10Luar biasa") !== "10") {
+    throw new Error(`hotel parseScore wrong: ${parseScore("Skor 10 10Luar biasa")}`);
+  }
+  console.log("hotel helpers (budget/stay/score): OK");
+
+  // --- provider tool cap: Groq rejects >128 tools per request ---
+  const { toolsForUrl } = await import("./src/lib/agent");
+  const groqTools = toolsForUrl("https://api.groq.com/openai/v1/chat/completions");
+  if (groqTools.length > 128) throw new Error(`Groq tool cap not applied: ${groqTools.length}`);
+  if (!groqTools.some((t) => t.function.name === "cinema_showtimes") || !groqTools.some((t) => t.function.name === "hotel_search")) {
+    throw new Error("Groq tool cap dropped a core tool");
+  }
+  if (toolsForUrl("http://localhost:20128/v1/chat/completions").length > 64) throw new Error("9router tool cap not applied");
+  if (toolsForUrl("https://opencode.ai/zen/go/v1/chat/completions").length <= 128) {
+    throw new Error("tool cap wrongly applied to non-capped provider");
+  }
+  console.log("provider tool cap (groq<=128, 9router<=64): OK");
+
   // --- file access tool (read-only, sandboxed to project root) ---
   const fr = (p: string) => executeTool({ id: "t", name: "file_read", arguments: JSON.stringify({ path: p }) });
   const readTools = await fr("apps/web/src/lib/tools.ts");

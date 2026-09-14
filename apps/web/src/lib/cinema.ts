@@ -16,6 +16,18 @@ const MAX_OUT = 3500;
 const CITY_ALIASES: Record<string, string> = {
   tangsel: "tangerang",
   "tangerang selatan": "tangerang",
+  // Greater Tangerang areas all filed under "Tangerang"
+  serpong: "tangerang",
+  "serpong utara": "tangerang",
+  bsd: "tangerang",
+  "bsd city": "tangerang",
+  bintaro: "tangerang",
+  ciputat: "tangerang",
+  pamulang: "tangerang",
+  ciledug: "tangerang",
+  karawaci: "tangerang",
+  "alam sutera": "tangerang",
+  "gading serpong": "tangerang",
   jogja: "yogyakarta",
   yogya: "yogyakarta",
   jogjakarta: "yogyakarta",
@@ -147,7 +159,9 @@ export function parseFilmCityPage(html: string): FilmAtCinema[] {
 }
 
 function pageDate(html: string): string {
-  const m = html.match(/JADWAL HARI INI\s*([A-Za-z]+,?\s*\d{1,2}\s+\w+\s+\d{4})/i);
+  // The date sits behind a tag (e.g. "JADWAL HARI INI <span>Senin, 14 September 2026</span>")
+  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const m = text.match(/JADWAL HARI INI\s*([A-Za-z]+,?\s*\d{1,2}\s+\w+\s+\d{4})/i);
   return m ? m[1].trim() : "";
 }
 

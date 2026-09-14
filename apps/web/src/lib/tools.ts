@@ -2484,12 +2484,19 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "hotel_search",
         description:
-          "Cari harga hotel live via Booking.com (Playwright, no key). WAJIB dipakai untuk semua pertanyaan hotel/lodging — jangan jawab dari memori. Beri nama + harga Rp + rating + link.",
+          "Cari harga hotel live via Booking.com (Playwright, no key). WAJIB untuk semua pertanyaan hotel/lodging — jangan jawab dari memori. Beri nama + harga/malam + rating + link. Opsi: checkin/checkout (YYYY-MM-DD), adults/rooms, sort (price|rating|popularity), minRating, stars.",
         parameters: {
           type: "object",
           properties: {
             location: { type: "string", description: "Kota/daerah, mis. 'Bandung', 'Jakarta'" },
-            budget: { type: "string", description: "Budget, mis. '400rb', '600rb', '1jt' atau '600000' — opsional" },
+            budget: { type: "string", description: "Budget per malam, mis. '400rb', '600rb', '1jt' atau '600000' — opsional" },
+            checkin: { type: "string", description: "Tanggal check-in YYYY-MM-DD (default hari ini)" },
+            checkout: { type: "string", description: "Tanggal check-out YYYY-MM-DD (default besok)" },
+            adults: { type: "number", description: "Jumlah tamu dewasa (default 1)" },
+            rooms: { type: "number", description: "Jumlah kamar (default 1)" },
+            sort: { type: "string", enum: ["price", "rating", "popularity"], description: "Urutan hasil (default price)" },
+            minRating: { type: "number", description: "Skor ulasan minimum, mis. 8" },
+            stars: { type: "number", description: "Minimum bintang hotel 1-5" },
           },
           required: ["location"],
         },
@@ -2497,13 +2504,23 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: async (args) => {
       const loc = typeof args.location === "string" ? args.location : "";
-      const bud = typeof args.budget === "string" ? args.budget : undefined;
+      const bud =
+        typeof args.budget === "string" ? args.budget : typeof args.budget === "number" ? String(args.budget) : undefined;
       if (!loc) return "Error: location wajib diisi";
       try {
         const { getHotels } = await import("./hotel");
-        const r = await getHotels(loc, bud);
-        const json = JSON.stringify({ location: r.location, budget: r.budget, checkin: r.checkin, checkout: r.checkout, hotels: r.hotels }, null, 2);
-        return `${r.human}\n\nJSON:\n${json}`;
+        const r = await getHotels(loc, bud, {
+          checkin: typeof args.checkin === "string" ? args.checkin : undefined,
+          checkout: typeof args.checkout === "string" ? args.checkout : undefined,
+          adults: typeof args.adults === "number" ? args.adults : undefined,
+          rooms: typeof args.rooms === "number" ? args.rooms : undefined,
+          sort: args.sort === "price" || args.sort === "rating" || args.sort === "popularity" ? args.sort : undefined,
+          minRating: typeof args.minRating === "number" ? args.minRating : undefined,
+          stars: typeof args.stars === "number" ? args.stars : undefined,
+        });
+        // Return ONLY the formatted list — it is delivered verbatim (VERBATIM_LIST),
+        // so the model can't collapse it into a paragraph or leak the JSON.
+        return r.human;
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : String(e)}`;
       }

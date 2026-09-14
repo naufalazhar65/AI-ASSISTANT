@@ -246,7 +246,8 @@ const SYSTEM_PROMPT = [
   "Fun features, all immediate without confirmation: mala gives a daily fortune ('ramalan harian', stable all day) when the user asks to be told their luck/fortune; game_start starts a song-guess round (Mia secretly picks a song from the user's recently played Spotify history), game_guess checks the user's guess (correct → celebrate + score; wrong → next clue, max 3), game_quit reveals and stops; hari_libur answers Indonesian public holidays ('tanggal merah/libur nasional'), noting that moveable Islamic dates follow the official SKB — web_search them when the user needs exact current-year dates; recap wraps up the user's day from memory + moods when asked ('rekap hariku'); weekly_insight gives the 7-day digest (moods, tasks, recurring themes) when asked ('insight minggu ini', 'rekap mingguan').",
   "Use waze_route with from+to (address or lat,lon) for live traffic/duration/distance — e.g. 'ke BSD macet ga', 'berapa menit ke PIK' — it hits Waze (free) with OSRM fallback. It runs immediately without confirmation. "
   + "Use weather with location (address or lat,lon) for real-time weather — e.g. 'BSD hujan ga', 'cuaca Jakarta' — it hits wttr.in + Open-Meteo (free, no key). It runs immediately without confirmation. "
-  + "Use hotel_search with location + budget for live hotel prices via Booking.com (Playwright, no key) — WAJIB untuk semua pertanyaan hotel/lodging, jangan jawab dari memori. It runs immediately without confirmation. "
+  + "Use hotel_search with location (+ optional budget per-night, checkin/checkout YYYY-MM-DD, adults, rooms, sort, minRating, stars) for live hotel prices via Booking.com (Playwright, no key) — WAJIB untuk semua pertanyaan hotel/lodging, jangan jawab dari memori; convert 'minggu depan/tanggal 20' to a concrete YYYY-MM-DD. It runs immediately without confirmation. "
+  + "FORMAT: when a tool returns a list (hotels, showtimes, search results, tasks), present it AS A LIST — one item per line — never merge the items into one paragraph. "
   + "Use cinema_showtimes with city (+ optional cinema/film/genre) for live movie schedules & ticket prices (jadwalnonton.com) — WAJIB untuk 'film apa yang tayang', 'jam tayang', 'harga tiket', 'bioskop dekat X'; NEVER answer film/showtime questions from memory. Pass city first; add cinema for one theater, film to see every cinema showing it, or genre (e.g. 'horror') to list films. It runs immediately without confirmation. NEVER offer to book/buy/reserve tickets — Mia has no booking tool; just give the schedule and point the user to the cinema app (M-Tix/CGV/21Cineplex) to buy. "
   + "Use git_status (read, auto) for 'status git dong' and git_commit with message for 'Mia commit dong \"feat: X\"' (write, perlu konfirmasi) — git_commit does add -A + commit + push. "
   + "Use safe_exec_list (read, auto) to list pending SafeExec CRITICAL/HIGH requests needing approval (safe-exec-approve/reject). "
@@ -529,6 +530,54 @@ function extractRetryAfterMs(err: Error): number {
   return Math.min(30000, Math.round(secs * 1000));
 }
 
+/**
+ * Providers with a tool-count / payload limit get a core-first subset so the
+ * everyday tools survive:
+ *  - Groq: hard API limit of 128 tools (157 registered would 400).
+ *  - 9router (local proxy → Gemini free tier): a big payload burns the free
+ *    quota and 429s, so keep it small.
+ * All other providers get the full set.
+ */
+const TOOL_CAPS: { test: RegExp; max: number }[] = [
+  { test: /groq\.com/, max: 128 },
+  { test: /127\.0\.0\.1:20128|localhost:20128/, max: 64 },
+];
+const CORE_TOOL_NAMES = new Set<string>([
+  // daily essentials first
+  "web_search", "research", "google_news", "calculate",
+  "save_note", "list_notes", "delete_note",
+  "remind_me", "reminders_list", "cancel_reminder",
+  "add_task", "list_tasks", "complete_task", "cancel_task", "reschedule_task",
+  "hotel_search", "cinema_showtimes", "weather", "waze_route",
+  "fetch_url", "search_memory", "memory_get",
+  "file_read", "exec", "codebase_search", "codebase_refresh",
+  "calendar_list", "calendar_add", "mood_log", "mood_recent", "health",
+  "plan_create", "plan_add_step", "plan_update_step", "plan_list", "plan_get",
+  "browser_open", "browser_snapshot", "mac_open",
+  "list_uploads", "read_upload", "library_list", "library_remove", "briefing", "recap",
+  "git_status", "git_commit", "memory", "learnings_search", "learnings_review",
+  "weekly_insight", "send_channel", "skill_list", "skill_search", "habit_log", "habit_stats",
+  "spotify_status", "spotify_search", "spotify_play", "spotify_next", "spotify_volume",
+  "gmail_list", "gmail_read", "gmail_search",
+  "device_list", "device_battery", "device_location",
+  "write_file", "edit_file", "exec_write", "reminders_mac_add", "reminders_mac_list",
+  "calendar_check", "calendar_mac_add", "calendar_mac_list", "create_automation", "automation_list",
+  "browser_click", "browser_type", "browser_navigate", "device_exec", "device_camera",
+]);
+
+function toolsForUrl(url: string): ReturnType<typeof getTOOLS> {
+  const all = getTOOLS();
+  const cap = TOOL_CAPS.find((c) => c.test.test(url));
+  if (!cap || all.length <= cap.max) return all;
+  // Preserve the CORE priority order (Set insertion), not registry order.
+  const byName = new Map(all.map((t) => [t.function.name, t]));
+  const core = [...CORE_TOOL_NAMES].map((n) => byName.get(n)).filter((t): t is (typeof all)[number] => !!t);
+  const rest = all.filter((t) => !CORE_TOOL_NAMES.has(t.function.name)).slice(0, Math.max(0, cap.max - core.length));
+  return [...core, ...rest].slice(0, cap.max);
+}
+
+export { toolsForUrl };
+
 async function runOneCompletionOnce(
   messages: ChatMessage[],
   url: string,
@@ -553,7 +602,7 @@ async function runOneCompletionOnce(
       // fields — Mia's `risk` marker lives in the definition but must NOT be
       // sent to the model. Serialize standard tool fields only.
       tools: withTools
-        ? getTOOLS().map((t) => ({
+        ? toolsForUrl(url).map((t) => ({
             type: t.type,
             function: {
               name: t.function.name,
@@ -770,7 +819,7 @@ async function runAgent(
   // Note: NOT wrapped in `if (round < MAX_TOOL_ROUNDS)` — the accumulated tool
   // results must always land in `messages` so the forced final completion below
   // can answer from them (never throw a raw "too many tool rounds" 502).
-  const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news"]);
+  const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news","hotel_search","cinema_showtimes"]);
   const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
   // A confirmation continuation is answering an ACTION, not a list request —
   // never take the verbatim fast-path there, or a follow-up list_* would mask
@@ -2057,6 +2106,10 @@ async function runAssistantTurnImpl(opts: {
   try {
     const freerideChain: (string | undefined)[] = (() => {
       try {
+        // FreeRide's model IDs (e.g. nvidia/*:free, openrouter/free) only exist
+        // on OpenRouter / the local 9router proxy. Sending them to another
+        // endpoint (Groq, OpenCode Go) 404s — so the chain applies there only.
+        if (!/openrouter\.ai|127\.0\.0\.1:20128|localhost:20128/.test(resolved.url)) return [model];
         const cfg = freerideGetConfig();
         const chain: (string | undefined)[] = [model];
         if (cfg.primary && !chain.includes(cfg.primary)) chain.push(cfg.primary);
