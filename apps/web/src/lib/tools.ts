@@ -2255,7 +2255,7 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
-      risk: "write",
+      risk: "read",
       function: {
         name: "habit_log",
         description: "Log a habit for today (minum air, olahraga, tidur tepat waktu). Creates habit if new, deduped per day.",
