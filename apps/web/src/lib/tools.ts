@@ -502,7 +502,8 @@ const toolRegistry: ToolPlugin[] = [
       risk: "delete",
       function: {
         name: "delete_note",
-        description: "Delete a saved note by its index number from list_notes.",
+        description:
+          "Delete saved notes. Use `number` for a single note (1-based index from list_notes), `match` to delete every note whose text contains a substring, or `all:true` to clear all notes. You do NOT need to list first — pass `match` directly.",
         parameters: {
           type: "object",
           properties: {
@@ -510,13 +511,26 @@ const toolRegistry: ToolPlugin[] = [
               type: "string",
               description: "The note index to delete (1-based, as shown by list_notes)",
             },
+            match: {
+              type: "string",
+              description: "Delete every note whose content contains this text (case-insensitive)",
+            },
+            all: {
+              type: "boolean",
+              description: "Delete ALL saved notes",
+            },
           },
-          required: ["number"],
+          required: [],
         },
       },
     },
     execute: (args, ctx) => {
       try {
+        if (args.all === true) return deleteNotesBy(() => true, ctx.userKey, "all");
+        if (typeof args.match === "string" && args.match.trim()) {
+          const needle = args.match.toLowerCase();
+          return deleteNotesBy((n) => n.content.toLowerCase().includes(needle), ctx.userKey, `matching "${args.match.trim()}"`);
+        }
         return deleteNote(Number(args.number), ctx.userKey);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid note number"}`;
@@ -3499,6 +3513,20 @@ function deleteNote(index: number, userKey: string | null): string {
   const removed = notes.splice(index - 1, 1)[0];
   writeNotes(notes, userKey);
   return `Deleted note #${index} "${removed.content}".`;
+}
+
+/** Bulk delete: removes every note matching `pred` (used by delete_note match/all). */
+function deleteNotesBy(
+  pred: (n: { id: string; content: string }) => boolean,
+  userKey: string | null,
+  label: string
+): string {
+  const notes = readNotes(userKey);
+  const kept = notes.filter((n) => !pred(n));
+  const removed = notes.length - kept.length;
+  if (removed === 0) throw new Error(`no note ${label}`);
+  writeNotes(kept, userKey);
+  return `Deleted ${removed} note(s) ${label}.`;
 }
 
 function imaginativeNotes(title: string): string | undefined {

@@ -203,7 +203,7 @@ const SYSTEM_PROMPT = [
   "google_news for recent news headlines (berita terbaru) — always prefer google_news (with within:72 for the last 3 days) over web_search when the user asks for 'berita terbaru'/latest news, because web_search returns stale evergreen pages; ",
   "apply google_news first for all news requests, ",
   "save_note when the user asks you to remember or save a note, list_notes to ",
-  "show saved notes, delete_note to remove one, file_read to read a project ",
+  "show saved notes, delete_note to remove notes (pass number, or match to delete every note containing some text like '.txt', or all:true — do NOT list first just to delete), file_read to read a project ",
   "file or list a directory (path inside the repo root or any allowed workspace; ",
   "e.g. 'README.md' or an absolute path like the flowtest-studio workspace), ",
   "write_file to create or overwrite a file with given content and edit_file to patch a file by replacing old_string with new_string (both require confirmation), ",
