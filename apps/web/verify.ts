@@ -454,7 +454,8 @@ async function main() {
   {
     const { isLabTarget, addFinding, listFindingsText, generateReport } = await import("./src/lib/security");
     if (isLabTarget("8.8.8.8") || isLabTarget("google.com") || isLabTarget("http://203.0.113.5")) throw new Error("isLabTarget allowed a public target");
-    for (const okT of ["http://localhost:3001", "127.0.0.1", "192.168.1.10:8081", "10.0.0.5", "172.16.0.9", "scanme.nmap.org", "testphp.vulnweb.com"]) {
+    if (isLabTarget("169.254.169.254") || isLabTarget("http://169.254.169.254/latest/meta-data/")) throw new Error("isLabTarget allowed the cloud metadata endpoint");
+    for (const okT of ["http://localhost:3001", "127.0.0.1", "192.168.1.10:8081", "10.0.0.5", "172.16.0.9", "scanme.nmap.org", "testphp.vulnweb.com", "http://[::1]:4010", "::1"]) {
       if (!isLabTarget(okT)) throw new Error(`isLabTarget rejected lab target ${okT}`);
     }
     const u = "verify_pentest_user";
@@ -481,12 +482,35 @@ async function main() {
     if (!/SCOPE/.test(pub)) throw new Error("labFetch allowed a public target");
     console.log("lab_fetch scope guard: OK");
   {
+    const { webAudit } = await import("./src/lib/security");
+    for (const bad of ["http://169.254.169.254/", "http://127.0.0.1:4010", "http://10.0.0.5/"]) {
+      const r = await webAudit(bad);
+      if (!/^Error:/.test(r)) throw new Error(`web_audit allowed internal target ${bad}: ${r.slice(0, 80)}`);
+    }
+    console.log("web_audit SSRF guard: OK");
+  }
+  {
+    const { TOOLS } = await import("./src/lib/tools");
+    const ec = TOOLS.find((t) => t.function.name === "engagement_create");
+    if (ec?.risk !== "write") throw new Error("engagement_create must be write/confirm (grants scan permission)");
+    const { assertPublicUrl } = await import("./src/lib/netGuard");
+    const blockedUrls = ["http://[::1]/", "http://[::ffff:127.0.0.1]/", "http://[fc00::1]/", "http://[fe80::1]/", "http://169.254.169.254/", "http://127.0.0.1:4010/", "http://10.0.0.5/", "http://192.168.1.1/", "http://foo.local/", "http://svc.internal/", "ftp://example.com/", "http://example"];
+    for (const bad of blockedUrls) {
+      let blocked = false;
+      try { assertPublicUrl(bad); } catch { blocked = true; }
+      if (!blocked) throw new Error(`netGuard allowed ${bad}`);
+    }
+    if (!assertPublicUrl("https://example.com/x")) throw new Error("netGuard blocked a public URL");
+    console.log("netGuard SSRF guard + engagement_create risk: OK");
+  }
+  {
     const { createEngagement, engagementAllows, closeEngagement } = await import("./src/lib/engagement");
     const { isLabTarget, targetAllowed } = await import("./src/lib/security");
     if (isLabTarget("app.ptx.co.id")) throw new Error("public host should not be a lab target");
     const e = createEngagement({ name: "Verify Eng", client: "PT X", authorization: "PO-123", scope: ["app.ptx.co.id"] });
     if (!engagementAllows("app.ptx.co.id") || !targetAllowed("https://app.ptx.co.id/x")) throw new Error("engagement scope not honored");
     if (targetAllowed("evil.coid") || engagementAllows("sub.app.ptx.co.id") !== true) throw new Error("engagement scope match wrong");
+    if (engagementAllows("ptx.co.id") || engagementAllows("co.id")) throw new Error("parent domain authorized by a subdomain-only scope (scope escalation)");
     closeEngagement(e.id);
     if (engagementAllows("app.ptx.co.id")) throw new Error("closed engagement still allows");
     rmSync(appRoot() + "/.data/engagements.json", { force: true });
@@ -500,12 +524,15 @@ async function main() {
     if (req.length !== 2 || req[0].name !== "flask" || req[1].ecosystem !== "PyPI") throw new Error(`parseRequirements: ${JSON.stringify(req)}`);
     console.log("dep_audit parsers (npm/pypi): OK");
   {
-    const { addFinding, hardeningPlan } = await import("./src/lib/security");
+    const { addFinding, resolveFinding, hardeningPlan } = await import("./src/lib/security");
     const u = "verify_plan_user";
     addFinding(u, { title: "Test XSS", severity: "high", cvss: 8.7, remediation: "encode output" });
     addFinding(u, { title: "Test SQLi", severity: "critical", cvss: 9.8, remediation: "prepared statement" });
+    const done = addFinding(u, { title: "Fixed Already", severity: "low", cvss: 1.0, remediation: "n/a" });
+    resolveFinding(u, done.id);
     const plan = hardeningPlan(u);
     if (!/HARDENING PLAN/.test(plan) || plan.indexOf("SQLi") > plan.indexOf("XSS") || !/prepared statement/.test(plan)) throw new Error(`hardeningPlan: ${plan.slice(0,120)}`);
+    if (/Fixed Already/.test(plan)) throw new Error("hardeningPlan leaked a resolved finding");
     rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
     console.log("hardening_plan (priority order): OK");
   {

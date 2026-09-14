@@ -14,7 +14,8 @@ import { tmpdir } from "node:os";
 import { connect as tlsConnect } from "node:tls";
 import { dirname, extname, join, relative } from "node:path";
 import { appRoot, resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
-import { engagementAllows, listEngagements } from "./engagement";
+import { engagementAllows, listEngagements, normalizeHost } from "./engagement";
+import { assertPublicUrl } from "./netGuard";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
@@ -270,13 +271,17 @@ const SCAN_PERMITTED_HOSTS = new Set<string>([
  * Everything else public is refused.
  */
 export function isLabTarget(raw: string): boolean {
-  const t = (raw || "").trim().replace(/^[a-z]+:\/\//i, "");
+  const t = (raw || "").trim();
   if (!t) return false;
-  const hostport = t.split("/")[0].toLowerCase();
-  const host = hostport.replace(/^\[/, "").replace(/\].*$/, "").split(":")[0];
+  const host = normalizeHost(t);
+  if (!host) return false;
+  const hostport = t.replace(/^[a-z]+:\/\//i, "").split("/")[0].toLowerCase();
   const envTargets = (process.env.PENTEST_LAB_TARGETS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
   if (envTargets.includes(host) || envTargets.includes(hostport)) return true;
   if (SCAN_PERMITTED_HOSTS.has(host)) return true;
+  // Cloud instance-metadata endpoints are NEVER "lab" targets (SSRF → stolen
+  // credentials). Refuse before the generic link-local allowance below.
+  if (host === "169.254.169.254" || host === "100.100.100.200" || host === "fd00:ec2::254") return false;
   if (["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(host)) return true;
   if (/^10\./.test(host) || /^192\.168\./.test(host)) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
@@ -362,7 +367,7 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
   const sev = SEVERITIES.includes((f.severity || "").toLowerCase()) ? (f.severity as string).toLowerCase() : "medium";
   const cvss = typeof f.cvss === "number" && f.cvss >= 0 && f.cvss <= 10 ? Math.round(f.cvss * 10) / 10 : DEFAULT_CVSS[sev] ?? null;
   const row: Finding = {
-    id: `F-${Date.now().toString(36)}`,
+    id: `F-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     title,
     severity: sev,
     cvss,
@@ -445,7 +450,24 @@ export function zapScan(target: string, minutes = 5): Promise<string> {
 export async function webAudit(url: string): Promise<string> {
   const raw = (url || "").trim();
   if (!/^https?:\/\//i.test(raw)) return "Error: URL harus http(s), mis. https://example.com";
-  const res = await fetch(raw, { redirect: "follow", headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(12_000) });
+  // Follow redirects MANUALLY so every hop is scope-checked (a public URL must not
+  // be able to redirect the probe to localhost/private/metadata — SSRF).
+  let res: Response | null = null;
+  let finalUrl = raw;
+  for (let hop = 0; hop <= 5; hop++) {
+    // Passive audit is public-only (like fetch_url) — never probe internal/
+    // link-local/metadata hosts, even via a redirect. Use lab_fetch for a lab.
+    try {
+      assertPublicUrl(finalUrl);
+    } catch (e) {
+      return `Error: ${e instanceof Error ? e.message : "URL tidak diizinkan"}`;
+    }
+    res = await fetch(finalUrl, { redirect: "manual", headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(12_000) });
+    const loc = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (!loc) break;
+    finalUrl = new URL(loc, finalUrl).toString();
+  }
+  if (!res) return "Error: gagal mengambil URL";
   const SEC = ["strict-transport-security", "content-security-policy", "x-frame-options", "x-content-type-options", "referrer-policy", "permissions-policy", "cross-origin-opener-policy", "cross-origin-embedder-policy", "x-xss-protection"];
   const present = SEC.filter((h) => res.headers.get(h));
   const missing = SEC.filter((h) => !res.headers.has(h));
@@ -460,13 +482,13 @@ export async function webAudit(url: string): Promise<string> {
   }
   const score = Math.round((present.length / SEC.length) * 100);
   const lines = [
-    `🛡️ WEB AUDIT (pasif) ${raw}`,
+    `🛡️ WEB AUDIT (pasif) ${finalUrl}${finalUrl !== raw ? ` (redirect dari ${raw})` : ""}`,
     `• Status: ${res.status} ${res.statusText}`,
     `• Server: ${res.headers.get("server") || "-"}  |  X-Powered-By: ${res.headers.get("x-powered-by") || "-"}`,
     `• Header keamanan ada (${present.length}/${SEC.length}, skor ${score}%): ${present.join(", ") || "-"}`,
     `• Header HILANG: ${missing.join(", ") || "-"}`,
     cookieIssues.length ? `• Cookie: ${cookieIssues.join("; ")}` : `• Cookie: (tidak ada / aman)`,
-    /^https:/i.test(raw) ? "" : "⚠️ Bukan HTTPS — data bisa disadap.",
+    /^https:/i.test(finalUrl) ? "" : "⚠️ Bukan HTTPS — data bisa disadap.",
     "",
     "Catatan: audit pasif (1x GET). Jadikan temuan via finding_add bila perlu.",
   ].filter(Boolean);
@@ -885,8 +907,8 @@ export async function depAudit(dirRel = "", toFindingsUser?: unknown): Promise<s
 
 /** Prioritized remediation plan derived from the recorded findings (by CVSS). */
 export function hardeningPlan(rawUser: unknown): string {
-  const rows = readFindings(rawUser);
-  if (!rows.length) return "Belum ada temuan — tidak ada rencana perbaikan.";
+  const rows = readFindings(rawUser).filter((r) => r.status !== "resolved");
+  if (!rows.length) return "Belum ada temuan terbuka — tidak ada rencana perbaikan.";
   const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0));
   const summary = SEVERITIES.map((s) => `${s} ${rows.filter((r) => r.severity === s).length}`).join(" | ");
   const lines = sorted.slice(0, 30).map(

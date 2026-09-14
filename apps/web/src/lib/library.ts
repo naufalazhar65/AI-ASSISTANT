@@ -15,7 +15,8 @@ import { dirname, join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
 import { appendDailyMemory } from "./dailyMemory";
 import { summarizeText } from "./summarize";
-import { canonicalizeUrl, assertPublicUrl } from "./tools";
+import { canonicalizeUrl } from "./tools";
+import { assertPublicUrl } from "./netGuard";
 import { logInfo, logError } from "./appLogger";
 import { dayRotated } from "./dayRotated";
 

@@ -44,7 +44,7 @@ immediately; write tools (scans, edits) ask **`ya`** first (FR-014).
 | Tool | What |
 |---|---|
 | `exec dig / nslookup / host / whois` | DNS + registration lookups |
-| `web_audit` | one GET → security headers present/missing, cookie flags, server banner, score |
+| `web_audit` | one GET → security headers present/missing, cookie flags, server banner, score (**public http(s) only**; redirects followed manually with per-hop SSRF validation) |
 | `domain_audit` | SPF, DMARC(+policy), DKIM (common selectors), CAA, MX, NS |
 | `exec tcpdump -r / nc -z / searchsploit` | read a pcap (`-r`; capture needs sudo), port check (`nc -zv host port`), Exploit-DB lookup |
 
@@ -94,7 +94,7 @@ Targets outside scope are **rejected** (`isLabTarget` / engagement scope).
 ### 2.8 Engagement & Scope (client authorization)
 | Tool | What |
 |---|---|
-| `engagement_create` | record `name`, `client`, `authorization` (PO/contract/email), `scope[]`, `out_of_scope[]`, `window_start/end`, `contact`, `notes` |
+| `engagement_create` | record `name`, `client`, `authorization` (PO/contract/email), `scope[]`, `out_of_scope[]`, `window_start/end`, `contact`, `notes` (**write → asks `ya` first**: this record is what grants scan permission) |
 | `engagement_list` / `engagement_close` | manage engagements |
 | `pentest_resources` | practice platforms + local lab URLs + scope reminder |
 
@@ -171,8 +171,15 @@ engagement_close id=ENG-…
 ## 5. Safety model
 
 - **Scope guard** on every active tool (`isLabTarget` + active Engagement +
-  `PENTEST_LAB_TARGETS` + 2 permitted public hosts).
-- **FR-014 confirmation** for scans/edits; read-only tools auto-run.
+  `PENTEST_LAB_TARGETS` + 2 permitted public hosts). Scope matches the exact
+  host or a SUBDOMAIN only — a parent domain is never authorized. Cloud
+  metadata endpoints (`169.254.169.254`, `100.100.100.200`, `fd00:ec2::254`)
+  are always refused.
+- **SSRF guard** shared by every URL-fetching tool (`netGuard.assertPublicUrl`):
+  public http(s) only; loopback/private/link-local/ULA/`.local`/`.internal` are
+  blocked, redirects validated per hop.
+- **FR-014 confirmation** for scans/edits and for `engagement_create` (granting
+  scan permission); read-only tools auto-run.
 - **Audit log** records each tool call (`breach_check`/`password_strength` args
   redacted).
 - **Secrets never echoed**: `secret_scan` reports `file:line:type` only.

@@ -43,15 +43,26 @@ function writeAll(rows: Engagement[]): void {
   renameSync(tmp, f);
 }
 
+/** Extract the bare host from an authority token, handling IPv6 + port. */
+function hostOnly(authority: string): string {
+  if (authority.startsWith("[")) {
+    const end = authority.indexOf("]");
+    return end >= 0 ? authority.slice(1, end) : authority.slice(1);
+  }
+  const parts = authority.split(":");
+  // More than one colon means a bare (unbracketed) IPv6 literal, not host:port.
+  return parts.length > 2 ? authority : parts[0];
+}
+
 /** Normalize a URL/host/CIDR-ish token to a bare lowercase host. */
 export function normalizeHost(raw: unknown): string {
-  return String(raw ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/^[a-z]+:\/\//, "")
-    .split("/")[0]
-    .replace(/^\[/, "")
-    .split(":")[0];
+  return hostOnly(
+    String(raw ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/^[a-z]+:\/\//, "")
+      .split("/")[0]
+  );
 }
 
 export function createEngagement(f: { name?: string; client?: string; authorization?: string; scope?: string[]; outOfScope?: string[]; windowStart?: string; windowEnd?: string; contact?: string; notes?: string }): Engagement {
@@ -64,7 +75,7 @@ export function createEngagement(f: { name?: string; client?: string; authorizat
   }
   const rows = readAll();
   const eng: Engagement = {
-    id: `ENG-${Date.now().toString(36)}`,
+    id: `ENG-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     name,
     client,
     authorization,
@@ -116,7 +127,9 @@ export function activeEngagementFor(raw: unknown): Engagement | null {
     if (e.status !== "active" || !inWindow(e)) continue;
     const out = e.outOfScope.map(normalizeHost);
     if (out.some((o) => o && (h === o || h.endsWith("." + o)))) continue;
-    const hit = e.scope.map(normalizeHost).some((s) => s && (h === s || h.endsWith("." + s) || s.endsWith("." + h)));
+    // Only the scoped host or a SUBDOMAIN of it is authorized; a parent domain
+    // (e.g. `ptx.co.id` when only `app.ptx.co.id` is in scope) must NOT match.
+    const hit = e.scope.map(normalizeHost).some((s) => s && (h === s || h.endsWith("." + s)));
     if (hit) return e;
   }
   return null;

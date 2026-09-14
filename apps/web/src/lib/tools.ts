@@ -10,6 +10,7 @@ import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
 import { listLearnings, reviewLearnings, searchLearnings, logError } from "./learnings";
 import { guard as safeGuard } from "./safeExec";
+import { assertPublicUrl } from "./netGuard";
 import { cuaClick, cuaClickXY, cuaDoctor, cuaLaunch, cuaListApps, cuaListWindows, cuaType, cuaWindowState } from "./cua";
 import { addSleep, addWake, addWater, healthDeleteLast, healthStats, healthUpdateLast } from "./health";
 import { forget as clawicForget, memoryStats as clawicStats, recall as clawicRecall, remember as clawicRemember } from "./clawicMemory";
@@ -3326,11 +3327,11 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
-      risk: "read",
+      risk: "write",
       function: {
         name: "engagement_create",
         description:
-          "Catat engagement pentest klien (otorisasi). Setelah dibuat & AKTIF, host di `scope` boleh diuji (pentest_scan/zap_scan/sqlmap_scan/lab_fetch) — di luar scope tetap ditolak. Read, auto. WAJIB isi: name, client, authorization (no. PO/kontrak/email izin), scope[].",
+          "Catat engagement pentest klien (otorisasi). Setelah dibuat & AKTIF, host di `scope` boleh diuji (pentest_scan/zap_scan/sqlmap_scan/lab_fetch) — di luar scope tetap ditolak. Write, confirm (ini yang memberi izin scan). WAJIB isi: name, client, authorization (no. PO/kontrak/email izin), scope[].",
         parameters: {
           type: "object",
           properties: {
@@ -4245,7 +4246,7 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   // call counter. Best-effort, never disturbs the result.
   try {
     // Never persist sensitive tool args (e.g. a password handed to breach_check).
-    auditLog(rawUser, `tool:${call.name}`, ["breach_check", "password_strength"].includes(call.name) ? "[redacted]" : JSON.stringify(args).slice(0, 300));
+    auditLog(rawUser, `tool:${call.name}`, ["breach_check", "password_strength", "hash_identify", "jwt_inspect"].includes(call.name) ? "[redacted]" : JSON.stringify(args).slice(0, 300));
   } catch { /* no-op */ }
   recordToolCall(rawUser, call.name);
   const userKey = sanitizeUser(rawUser);
@@ -5153,34 +5154,6 @@ export function canonicalizeUrl(raw: string): string {
     throw new Error("GitHub tree links point to a directory; provide a blob (file) link or use file_read for local files");
   }
   return raw;
-}
-
-/** SSRF guard: refuse internal/loopback/private addresses and non-http schemes. */
-export function assertPublicUrl(raw: string): URL {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error("invalid URL");
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("only http/https URLs are allowed");
-  const host = url.hostname.toLowerCase();
-  // Block obvious internal targets (server environment, LAN, metadata).
-  if (host === "localhost" || host === "0.0.0.0" || host === "[::1]" || host.endsWith(".localhost")) {
-    throw new Error("internal addresses are not fetchable");
-  }
-  if (host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("0.")) {
-    throw new Error("private network addresses are not fetchable");
-  }
-  if (host.startsWith("172.")) {
-    const seg = Number(host.split(".")[1]);
-    if (seg >= 16 && seg <= 31) throw new Error("private network addresses are not fetchable");
-  }
-  if (host.startsWith("169.254.") || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80")) {
-    throw new Error("private network addresses are not fetchable");
-  }
-  if (!host.includes(".")) throw new Error("host does not look public"); // crude TLD sanity
-  return url;
 }
 
 /** Fetch a page and return its dominant article/summary text (bounded). */

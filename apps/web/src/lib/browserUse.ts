@@ -4,6 +4,7 @@
 // Guard: SSRF, dash-guard, output cap 12k, timeout 20-30s per call
 
 import { exec } from "node:child_process";
+import { assertPublicUrl } from "./netGuard";
 
 const MAX_OUT = 12000;
 const TIMEOUT = 25000;
@@ -31,18 +32,6 @@ function execPy(code: string, timeoutMs = TIMEOUT): Promise<string> {
       return resolve(truncate(out));
     });
   });
-}
-
-function assertPublicUrl(raw: string): void {
-  const u = new URL(raw);
-  if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("only http/https");
-  const h = u.hostname.toLowerCase();
-  if (h === "localhost" || h === "0.0.0.0" || h.endsWith(".localhost") || h.startsWith("127.") || h.startsWith("10.") || h.startsWith("192.168.") || h.startsWith("0.")) throw new Error("private network blocked");
-  if (h.startsWith("172.")) {
-    const seg = Number(h.split(".")[1]);
-    if (seg >= 16 && seg <= 31) throw new Error("private network blocked");
-  }
-  if (!h.includes(".")) throw new Error("host not public");
 }
 
 export async function buDoctor(): Promise<string> {

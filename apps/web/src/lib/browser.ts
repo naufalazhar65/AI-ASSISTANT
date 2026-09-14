@@ -4,6 +4,7 @@
 
 import { chromium, Browser, Page } from "playwright";
 import { checkRateLimit } from "./rateLimit";
+import { assertPublicUrl } from "./netGuard";
 
 let browser: Browser | null = null;
 let page: Page | null = null;
@@ -31,20 +32,10 @@ export async function browserOpen(url: string): Promise<string> {
   try { checkRateLimit("browser:global"); } catch (e) { throw e; }
   const u = url.trim();
   if (!u) throw new Error("empty url");
-  let parsed: URL;
-  try {
-    parsed = new URL(u);
-  } catch {
-    throw new Error("invalid url");
-  }
-  if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("only http(s) allowed");
-  // SSRF guard: block private/localhost
-  const host = parsed.hostname.toLowerCase();
-  if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local") || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) {
-    throw new Error("private/local urls blocked");
-  }
+  // SSRF guard: public http(s) only (shared with fetch_url / browser_use).
+  const parsed = assertPublicUrl(u);
   const p = await ensurePage();
-  await p.goto(u, { waitUntil: "domcontentloaded", timeout: 15000 });
+  await p.goto(parsed.toString(), { waitUntil: "domcontentloaded", timeout: 15000 });
   // Let SPA settle a bit
   await p.waitForTimeout(800);
   const title = await p.title().catch(() => "");
