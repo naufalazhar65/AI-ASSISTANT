@@ -426,6 +426,24 @@ async function main() {
     if (!r2.startsWith("Error:")) throw new Error(`exec not guarded (${why2}): ${bad2}`);
   }
   console.log("exec: OK");
+  // --- security: secret_scan detects + redacts ---
+  {
+    const secTmp = mkdtempSync(join(tmpdir(), "mia-sec-"));
+    const prevWs = process.env.ALLOWED_WORKSPACES;
+    process.env.ALLOWED_WORKSPACES = secTmp;
+    try {
+      writeFileSync(join(secTmp, "leak.ts"), 'const k = "AKIAIOSFODNN7EXAMPLE"; // sample');
+      const { scanForSecrets } = await import("./src/lib/security");
+      const r = scanForSecrets(secTmp);
+      if (!r.hits.some((h) => h.type === "AWS access key")) throw new Error("secret_scan missed AWS key");
+      if (JSON.stringify(r.hits).includes("AKIAIOSFODNN7EXAMPLE")) throw new Error("secret_scan leaked the secret value");
+    } finally {
+      if (prevWs === undefined) delete process.env.ALLOWED_WORKSPACES;
+      else process.env.ALLOWED_WORKSPACES = prevWs;
+      rmSync(secTmp, { recursive: true, force: true });
+    }
+    console.log("security secret_scan (detect + redact): OK");
+  }
 
   // --- write_file / edit_file (sandboxed, requires write, but executeTool bypasses confirmation) ---
   const tmpWriteWs = mkdtempSync(join(tmpdir(), "mia-write-"));

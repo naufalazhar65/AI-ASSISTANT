@@ -3039,6 +3039,91 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "security_scan",
+        description:
+          "Cek postur keamanan Mac sendiri (read-only, keyless): FileVault, Firewall, Gatekeeper, SIP, jumlah port TCP listening, sesi login + skor. Read, auto. Pakai untuk 'cek keamanan Mac-ku', 'amankah laptopku'.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      try {
+        const { securityPosture } = await import("./security");
+        return await securityPosture();
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "security_scan failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "secret_scan",
+        description:
+          "Pindai kode/direktori (di sandbox: repo atau ALLOWED_WORKSPACES) untuk rahasia yang bocor (AWS/GCP/Slack/OpenAI/GitHub token, private key, JWT, assignment secret). Hasil hanya file:line + jenis (nilai di-redact). Read, auto. Pakai untuk 'cek ada API key bocor ga'.",
+        parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori relatif repo (opsional; default repo root)" } }, required: [] },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { scanForSecrets } = await import("./security");
+        const { hits, scanned } = scanForSecrets(typeof args.dir === "string" ? args.dir : "");
+        if (!hits.length) return `✅ Tidak ada rahasia terdeteksi (${scanned} file dipindai).`;
+        const lines = hits.map((h) => `• ${h.file}:${h.line} — ${h.type}`);
+        return `⚠️ ${hits.length} potensi rahasia bocor (${scanned} file dipindai):\n${lines.join("\n")}\n\n(Nilai di-redact. Pindahkan ke .env yang di-gitignore / secret manager, lalu rotate.)`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "secret_scan failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "tls_check",
+        description: "Cek sertifikat TLS sebuah host milikmu/berizin (issuer, masa berlaku, verifikasi chain) via node:tls. Keyless, read, auto. Pakai untuk 'cek sertifikat domainku'.",
+        parameters: { type: "object", properties: { host: { type: "string", description: "Domain, mis. example.com" }, port: { type: "number", description: "Port (default 443)" } }, required: ["host"] },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { tlsCheck } = await import("./security");
+        return await tlsCheck(String(args.host || ""), typeof args.port === "number" ? args.port : 443);
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "tls_check failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "breach_check",
+        description:
+          "Cek apakah sebuah PASSWORD pernah bocor di kebocoran data (HaveIBeenPwned Pwned Passwords, k-anonymity — hanya 5 huruf pertama hash yang dikirim, password asli tidak keluar). Keyless, read, auto. PENTING: jangan kirim password penting; teks obrolan bisa tersimpan di log.",
+        parameters: { type: "object", properties: { password: { type: "string", description: "Password yang mau dicek (sebaiknya password uji, bukan password utama)" } }, required: ["password"] },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { breachCheck } = await import("./security");
+        const { count } = await breachCheck(typeof args.password === "string" ? args.password : "");
+        return count > 0
+          ? `⚠️ Password ini muncul di ${count.toLocaleString("id-ID")} kebocoran data — JANGAN dipakai. Ganti ke password unik + password manager.`
+          : `✅ Password ini tidak ditemukan di database kebocoran Pwned Passwords. (Tetap pakai yang unik & panjang.)`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "breach_check failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "health",
         description: "Track water/sleep (per-user JSON). water: minum X gelas, sleep: đi ngủ, wake: thức dậy/bangun, stats: thống kê. Auto, read (write water/sleep also auto, no confirm).",
         parameters: {
@@ -3846,7 +3931,8 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   // Fase-5 audit + observability: who/what/when for every tool call, plus a
   // call counter. Best-effort, never disturbs the result.
   try {
-    auditLog(rawUser, `tool:${call.name}`, JSON.stringify(args).slice(0, 300));
+    // Never persist sensitive tool args (e.g. a password handed to breach_check).
+    auditLog(rawUser, `tool:${call.name}`, call.name === "breach_check" ? "[redacted]" : JSON.stringify(args).slice(0, 300));
   } catch { /* no-op */ }
   recordToolCall(rawUser, call.name);
   const userKey = sanitizeUser(rawUser);
