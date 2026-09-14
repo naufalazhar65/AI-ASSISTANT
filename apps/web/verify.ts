@@ -499,6 +499,16 @@ async function main() {
     const req = parseRequirements("# c\nflask==3.0.1\nrequests>=2.0\npyyaml==6.0");
     if (req.length !== 2 || req[0].name !== "flask" || req[1].ecosystem !== "PyPI") throw new Error(`parseRequirements: ${JSON.stringify(req)}`);
     console.log("dep_audit parsers (npm/pypi): OK");
+  {
+    const { addFinding, hardeningPlan } = await import("./src/lib/security");
+    const u = "verify_plan_user";
+    addFinding(u, { title: "Test XSS", severity: "high", cvss: 8.7, remediation: "encode output" });
+    addFinding(u, { title: "Test SQLi", severity: "critical", cvss: 9.8, remediation: "prepared statement" });
+    const plan = hardeningPlan(u);
+    if (!/HARDENING PLAN/.test(plan) || plan.indexOf("SQLi") > plan.indexOf("XSS") || !/prepared statement/.test(plan)) throw new Error(`hardeningPlan: ${plan.slice(0,120)}`);
+    rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
+    console.log("hardening_plan (priority order): OK");
+  }
   }
   }
   }

@@ -3391,6 +3391,10 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "hardening_plan", description: "Rencana perbaikan berprioritas (dari temuan, urut CVSS) + rekomendasi tiap temuan. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { hardeningPlan } = await import("./security"); return hardeningPlan(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "hardening_plan failed"}`; } },
+  },
+  {
     definition: {
       type: "function",
       risk: "read",

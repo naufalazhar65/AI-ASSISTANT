@@ -764,6 +764,23 @@ export function parseRequirements(text: string): Dep[] {
     .filter((d): d is Dep => !!d);
 }
 
+function cmpVer(a: string, b: string): number {
+  const norm = (v: string) => v.split(/[.\-+]/).map((x) => (/^\d+$/.test(x) ? Number(x) : x));
+  const A = norm(a), B = norm(b);
+  for (let i = 0; i < Math.max(A.length, B.length); i++) {
+    const x = A[i] ?? 0, y = B[i] ?? 0;
+    if (x === y) continue;
+    if (typeof x === "number" && typeof y === "number") return x - y;
+    return String(x) > String(y) ? 1 : -1;
+  }
+  return 0;
+}
+function nearestFixed(fixed: string[] | undefined, current: string): string | null {
+  if (!fixed?.length) return null;
+  const above = fixed.filter((f) => cmpVer(f, current) > 0).sort(cmpVer);
+  return above[0] ?? null;
+}
+
 export async function depAudit(dirRel = "", toFindingsUser?: unknown): Promise<string> {
   const root = dirRel.trim() ? resolveInSandbox(dirRel.trim()) : repoRoot();
   if (!root) throw new Error("path di luar sandbox / tidak valid");
@@ -805,14 +822,16 @@ export async function depAudit(dirRel = "", toFindingsUser?: unknown): Promise<s
   if (!found.length) return `✅ Dependency audit (${sources.join(", ")}, ${uniq.length} paket): tidak ada CVE dikenal (OSV).`;
   // fetch details for up to 30 unique vuln ids
   const ids = [...new Set(found.flatMap((f) => f.ids))].slice(0, 30);
-  const detail = new Map<string, { summary: string; severity: string }>();
+  const detail = new Map<string, { summary: string; severity: string; fixed: string[] }>();
   await Promise.all(
     ids.map(async (vid) => {
       try {
         const r = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(vid)}`, { headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(12_000) });
         if (!r.ok) return;
-        const j = (await r.json()) as { summary?: string; database_specific?: { severity?: string } };
-        detail.set(vid, { summary: j.summary || "", severity: (j.database_specific?.severity || "").toLowerCase() });
+        const j = (await r.json()) as { summary?: string; database_specific?: { severity?: string }; affected?: { ranges?: { events?: { fixed?: string }[] }[] }[] };
+        const fixed: string[] = [];
+        for (const a of j.affected || []) for (const rg of a.ranges || []) for (const ev of rg.events || []) if (ev.fixed) fixed.push(ev.fixed);
+        detail.set(vid, { summary: j.summary || "", severity: (j.database_specific?.severity || "").toLowerCase(), fixed });
       } catch {
         /* best-effort */
       }
@@ -822,6 +841,7 @@ export async function depAudit(dirRel = "", toFindingsUser?: unknown): Promise<s
     for (const f of found) {
       for (const vid of f.ids.slice(0, 3)) {
         const d = detail.get(vid);
+        const fix = nearestFixed(d?.fixed, f.dep.version);
         addFinding(toFindingsUser, {
           title: `${f.dep.name}@${f.dep.version} — ${vid}`,
           severity: d?.severity && ["critical", "high", "medium", "low"].includes(d.severity) ? d.severity : "medium",
@@ -829,13 +849,27 @@ export async function depAudit(dirRel = "", toFindingsUser?: unknown): Promise<s
           target: `${f.dep.ecosystem}:${f.dep.name}@${f.dep.version}`,
           evidence: vid,
           impact: d?.summary || "komponen rentan",
-          remediation: `Upgrade ${f.dep.name} ke versi tanpa ${vid} (cek paket/OSV).`,
+          remediation: fix ? `Upgrade ${f.dep.name} ke >= ${fix} (versi aman terdekat).` : `Upgrade ${f.dep.name} ke versi tanpa ${vid} (cek OSV).`,
         });
       }
     }
   }
-  const lines = found
-    .slice(0, 40)
-    .map((f) => `• ${f.dep.name}@${f.dep.version} — ${f.ids.map((id) => `${id}${detail.get(id)?.severity ? ` (${detail.get(id)!.severity})` : ""}`).join(", ")}`);
+  const lines = found.slice(0, 40).map((f) => {
+    const fix = nearestFixed(f.ids.flatMap((id) => detail.get(id)?.fixed || []), f.dep.version);
+    return `• ${f.dep.name}@${f.dep.version}${fix ? ` → upgrade >= ${fix}` : ""} — ${f.ids.map((id) => `${id}${detail.get(id)?.severity ? ` (${detail.get(id)!.severity})` : ""}`).join(", ")}`;
+  });
   return `🔎 DEP AUDIT (${sources.join(", ")}, ${uniq.length} paket) — ${found.length} paket rentan:\n${lines.join("\n")}${toFindingsUser ? "\n\n(Temuan ditambahkan ke board.)" : ""}`;
+}
+
+/** Prioritized remediation plan derived from the recorded findings (by CVSS). */
+export function hardeningPlan(rawUser: unknown): string {
+  const rows = readFindings(rawUser);
+  if (!rows.length) return "Belum ada temuan — tidak ada rencana perbaikan.";
+  const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0));
+  const summary = SEVERITIES.map((s) => `${s} ${rows.filter((r) => r.severity === s).length}`).join(" | ");
+  const lines = sorted.slice(0, 30).map(
+    (f, i) => `${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}${f.target ? ` — ${f.target}` : ""}\n   → ${f.remediation || "perbaiki sesuai kategori " + (f.owasp || "-")}`
+  );
+  const rest = rows.length > 30 ? `\n… dan ${rows.length - 30} temuan lain.` : "";
+  return `🛠️ HARDENING PLAN (prioritas CVSS)\nRingkasan: ${summary} | total ${rows.length}\n\n${lines.join("\n")}${rest}`;
 }
