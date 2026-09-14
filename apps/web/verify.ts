@@ -171,6 +171,31 @@ async function main() {
   if (/^Error:/.test(pu) || !/completed/.test(pu)) throw new Error(`plan_update_step by match failed: ${pu}`);
   console.log("selector match (tasks/notes/library/plan): OK");
 
+  // --- cinema showtimes parsers (offline fixtures; live fetch is network-gated) ---
+  const { citySlug, parseNowPlaying, parseCinemaPage, parseFilmCityPage } = await import("./src/lib/cinema");
+  if (citySlug("Tangsel") !== "tangerang" || citySlug("Tangerang Selatan") !== "tangerang") {
+    throw new Error("cinema citySlug alias wrong");
+  }
+  const np = parseNowPlaying(
+    '<div class="item movie"><h2><a href="https://jadwalnonton.com/film/2026/hope/" title="Hope">Hope</a></h2><span class="moket">Horror, Mystery, Action </span><span class="moket">156 menit</span></div>'
+  );
+  if (np.length !== 1 || np[0].title !== "Hope" || !/Horror/.test(np[0].genre) || np[0].duration !== "156 menit") {
+    throw new Error(`parseNowPlaying: ${JSON.stringify(np)}`);
+  }
+  const cs = parseCinemaPage(
+    '<div class="item"><h2><a href="/x">Hope</a><span class="right rating blue">13+</span></h2><p>Horror, Mystery, Action  - 156 Menit</p><span class="showgroup">Regular 2D</span><span class="htm"><i class="icon-ticket"></i>Tiket Rp 45.000</span><ul data-id="1" class="usch"><li class="active">14:45</li><li class="active">17:40</li></ul></div>'
+  );
+  if (cs.length !== 1 || cs[0].title !== "Hope" || cs[0].rating !== "13+" || cs[0].shows[0]?.price !== "45.000" || cs[0].shows[0]?.times.join(",") !== "14:45,17:40") {
+    throw new Error(`parseCinemaPage: ${JSON.stringify(cs)}`);
+  }
+  const fc = parseFilmCityPage(
+    '<div class="item" data-key="X"><h2><a href="https://jadwalnonton.com/bioskop/di-tangerang/x-xxi.html">X XXI</a></h2><b class="htm">Regular 2D</b><span class="htm">Tiket Rp. 25.000</span><ul><li>12:15</li><li data-tm="15:10">15:10</li></ul></div>'
+  );
+  if (fc.length !== 1 || fc[0].cinema !== "X XXI" || fc[0].shows[0]?.price !== "25.000" || fc[0].shows[0]?.times.join(",") !== "12:15,15:10") {
+    throw new Error(`parseFilmCityPage: ${JSON.stringify(fc)}`);
+  }
+  console.log("cinema showtimes parsers: OK");
+
   // --- file access tool (read-only, sandboxed to project root) ---
   const fr = (p: string) => executeTool({ id: "t", name: "file_read", arguments: JSON.stringify({ path: p }) });
   const readTools = await fr("apps/web/src/lib/tools.ts");

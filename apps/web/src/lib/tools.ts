@@ -2514,6 +2514,40 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "cinema_showtimes",
+        description:
+          "Jadwal film + harga tiket bioskop live (Indonesia, sumber jadwalnonton.com). WAJIB dipakai untuk pertanyaan 'film apa yang tayang / jam berapa / harga tiket di bioskop X / kota Y' — JANGAN jawab dari memori. Isi `city` dulu; `cinema` (nama bioskop), `film` (judul), atau `genre` (mis. horror) opsional. Tanpa cinema/film → daftar film tayang di kota itu.",
+        parameters: {
+          type: "object",
+          properties: {
+            city: { type: "string", description: "Kota, mis. 'Tangerang', 'Tangsel', 'Jakarta', 'Bandung'" },
+            cinema: { type: "string", description: "Nama/kata kunci bioskop, mis. 'Bintaro Xchange', 'CGV Paradise Walk'" },
+            film: { type: "string", description: "Judul film (kata kunci), mis. 'Munafik'" },
+            genre: { type: "string", description: "Filter genre saat tak ada cinema/film, mis. 'horror'" },
+          },
+          required: ["city"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { cinemaShowtimes } = await import("./cinema");
+        return await cinemaShowtimes({
+          city: typeof args.city === "string" ? args.city : "",
+          cinema: typeof args.cinema === "string" ? args.cinema : undefined,
+          film: typeof args.film === "string" ? args.film : undefined,
+          genre: typeof args.genre === "string" ? args.genre : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "cannot fetch showtimes"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "git_status",
         description: "Cek git status --short --branch (read, no key). Pakai saat user tanya 'status git dong'.",
         parameters: { type: "object", properties: {}, required: [] },
