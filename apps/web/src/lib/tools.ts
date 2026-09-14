@@ -3264,6 +3264,34 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "web_audit", description: "Audit pasif web (1x GET): header keamanan (HSTS/CSP/XFO/dll), flag cookie (Secure/HttpOnly/SameSite), server banner + skor. Read, auto. Pakai untuk 'cek keamanan web X'.", parameters: { type: "object", properties: { url: { type: "string", description: "URL http(s)" } }, required: ["url"] } } },
+    execute: async (args) => { try { const { webAudit } = await import("./security"); return await webAudit(String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "web_audit failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "domain_audit", description: "Audit email/DNS domain (passive): SPF, DMARC, DKIM (selector umum), CAA, MX, NS. Read, auto. Untuk 'cek SPF/DMARC domainku'.", parameters: { type: "object", properties: { domain: { type: "string", description: "mis. example.com" } }, required: ["domain"] } } },
+    execute: async (args) => { try { const { domainAudit } = await import("./security"); return await domainAudit(String(args.domain || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "domain_audit failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "password_strength", description: "Analisis kekuatan password secara LOKAL (entropy, pola umum) — tanpa jaringan. Read, auto. Arg di-redact dari audit. Pakai password uji.", parameters: { type: "object", properties: { password: { type: "string" } }, required: ["password"] } } },
+    execute: async (args) => { try { const { passwordStrength } = await import("./security"); return passwordStrength(String(args.password || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "password_strength failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "hash_identify", description: "Identifikasi jenis hash + hitung SHA-256/SHA-1/MD5 (defensif, untuk verifikasi integritas/IOC). Read, auto.", parameters: { type: "object", properties: { input: { type: "string", description: "Hash atau teks" } }, required: ["input"] } } },
+    execute: async (args) => { try { const { hashIdentify } = await import("./security"); return hashIdentify(String(args.input || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "hash_identify failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "jwt_inspect", description: "Decode JWT (tanpa verifikasi): header/payload + flag alg=none/expired. Read, auto.", parameters: { type: "object", properties: { token: { type: "string" } }, required: ["token"] } } },
+    execute: async (args) => { try { const { jwtInspect } = await import("./security"); return jwtInspect(String(args.token || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "jwt_inspect failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "ioc_extract", description: "Ekstrak IOC (IP/domain/URL/email/hash) dari teks laporan/log — termasuk yang defanged (hxxp, [.]). Read, auto.", parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } } },
+    execute: async (args) => { try { const { iocExtract } = await import("./security"); return iocExtract(String(args.text || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "ioc_extract failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "report_save", description: "Simpan laporan pentest (dari temuan) ke file markdown di .data/users/<user>/reports/. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { reportSave } = await import("./security"); return reportSave(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_save failed"}`; } },
+  },
+  {
     definition: {
       type: "function",
       risk: "read",
@@ -4076,7 +4104,7 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   // call counter. Best-effort, never disturbs the result.
   try {
     // Never persist sensitive tool args (e.g. a password handed to breach_check).
-    auditLog(rawUser, `tool:${call.name}`, call.name === "breach_check" ? "[redacted]" : JSON.stringify(args).slice(0, 300));
+    auditLog(rawUser, `tool:${call.name}`, ["breach_check", "password_strength"].includes(call.name) ? "[redacted]" : JSON.stringify(args).slice(0, 300));
   } catch { /* no-op */ }
   recordToolCall(rawUser, call.name);
   const userKey = sanitizeUser(rawUser);

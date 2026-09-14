@@ -384,3 +384,149 @@ export function zapScan(target: string, minutes = 5): Promise<string> {
     );
   });
 }
+
+// ── Passive web audit (headers/cookies/TLS) ─────────────────────────────────
+export async function webAudit(url: string): Promise<string> {
+  const raw = (url || "").trim();
+  if (!/^https?:\/\//i.test(raw)) return "Error: URL harus http(s), mis. https://example.com";
+  const res = await fetch(raw, { redirect: "follow", headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(12_000) });
+  const SEC = ["strict-transport-security", "content-security-policy", "x-frame-options", "x-content-type-options", "referrer-policy", "permissions-policy", "cross-origin-opener-policy", "cross-origin-embedder-policy", "x-xss-protection"];
+  const present = SEC.filter((h) => res.headers.get(h));
+  const missing = SEC.filter((h) => !res.headers.has(h));
+  const cookies = (res.headers.get("set-cookie") || "").split(/, (?=[^;]+=)/);
+  const cookieIssues: string[] = [];
+  for (const c of cookies) {
+    if (!c || !c.includes("=")) continue;
+    const name = c.split("=")[0].trim();
+    if (!/;\s*secure/i.test(c)) cookieIssues.push(`${name}: tanpa Secure`);
+    if (!/httponly/i.test(c)) cookieIssues.push(`${name}: tanpa HttpOnly`);
+    if (!/samesite/i.test(c)) cookieIssues.push(`${name}: tanpa SameSite`);
+  }
+  const score = Math.round((present.length / SEC.length) * 100);
+  const lines = [
+    `🛡️ WEB AUDIT (pasif) ${raw}`,
+    `• Status: ${res.status} ${res.statusText}`,
+    `• Server: ${res.headers.get("server") || "-"}  |  X-Powered-By: ${res.headers.get("x-powered-by") || "-"}`,
+    `• Header keamanan ada (${present.length}/${SEC.length}, skor ${score}%): ${present.join(", ") || "-"}`,
+    `• Header HILANG: ${missing.join(", ") || "-"}`,
+    cookieIssues.length ? `• Cookie: ${cookieIssues.join("; ")}` : `• Cookie: (tidak ada / aman)`,
+    /^https:/i.test(raw) ? "" : "⚠️ Bukan HTTPS — data bisa disadap.",
+    "",
+    "Catatan: audit pasif (1x GET). Jadikan temuan via finding_add bila perlu.",
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+// ── Email/DNS domain audit (SPF/DMARC/DKIM/CAA/MX) ──────────────────────────
+export async function domainAudit(domain: string): Promise<string> {
+  const d = (domain || "").trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0];
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(d)) return "Error: domain tidak valid, mis. example.com";
+  const dns = await import("node:dns");
+  const q = (fn: () => Promise<unknown>) => fn().then((v) => v).catch(() => null);
+  const txt = (await q(() => dns.promises.resolveTxt(d))) as string[][] | null;
+  const flat = (txt || []).map((r) => r.join(""));
+  const spf = flat.find((t) => /^v=spf1/i.test(t)) || null;
+  const dmarcTxt = (await q(() => dns.promises.resolveTxt(`_dmarc.${d}`))) as string[][] | null;
+  const dmarc = (dmarcTxt || []).map((r) => r.join("")).find((t) => /^v=DMARC1/i.test(t)) || null;
+  const caa = (await q(() => dns.promises.resolveCaa(d))) as unknown[] | null;
+  const mx = (await q(() => dns.promises.resolveMx(d))) as unknown[] | null;
+  const ns = (await q(() => dns.promises.resolveNs(d))) as string[] | null;
+  const dkimSel = ["default", "google", "selector1", "selector2", "k1", "mail"];
+  const dkim: string[] = [];
+  for (const s of dkimSel) {
+    const t = (await q(() => dns.promises.resolveTxt(`${s}._domainkey.${d}`))) as string[][] | null;
+    if (t && t.map((r) => r.join("")).some((x) => /v=DKIM1/i.test(x))) dkim.push(s);
+  }
+  const dmarcPolicy = dmarc ? (dmarc.match(/p=(\w+)/i)?.[1] ?? "none").toLowerCase() : null;
+  const lines = [
+    `🌐 DOMAIN AUDIT ${d}`,
+    `• SPF: ${spf ? `✅ ${spf}` : "❌ tidak ada (email bisa dipalsukan)"}`,
+    `• DMARC: ${dmarc ? `✅ policy=${dmarcPolicy}${dmarcPolicy === "none" ? " (⚠️ monitoring saja)" : ""}` : "❌ tidak ada"}`,
+    `• DKIM: ${dkim.length ? `✅ selector: ${dkim.join(", ")}` : "❓ tidak terdeteksi pada selector umum (default/google/selector1/selector2/k1/mail)"}`,
+    `• CAA: ${caa && caa.length ? "✅ ada" : "⚠️ tidak ada (siapa pun bisa terbitkan sertifikat)"}`,
+    `• MX (${mx ? mx.length : 0}): ${mx ? mx.map((m) => (m as { exchange: string }).exchange).slice(0, 5).join(", ") : "-"}`,
+    `• NS: ${ns ? ns.slice(0, 4).join(", ") : "-"}`,
+    "",
+    "Saran: pasang SPF ketat (-all) + DMARC p=reject/quarantine + DKIM + CAA.",
+  ];
+  return lines.join("\n");
+}
+
+// ── Password strength (local, no network) ───────────────────────────────────
+export function passwordStrength(pw: string): string {
+  const s = pw || "";
+  if (!s) return "Error: password kosong";
+  let cs = 0;
+  if (/[a-z]/.test(s)) cs += 26;
+  if (/[A-Z]/.test(s)) cs += 26;
+  if (/[0-9]/.test(s)) cs += 10;
+  if (/[^A-Za-z0-9]/.test(s)) cs += 33;
+  const entropy = Math.round(s.length * Math.log2(cs || 1));
+  const common = /^(password|123456|qwerty|admin|iloveyou|welcome|letmein|monkey|dragon|abc123|password1)/i.test(s);
+  const seq = /(0123|1234|2345|3456|4567|5678|6789|abcd|qwer|asdf)/i.test(s);
+  const rep = /(.)\1{2,}/.test(s);
+  const verdict = common || seq || s.length < 8 ? "LEMAH" : entropy < 50 ? "SEDANG" : entropy < 70 ? "KUAT" : "SANGAT KUAT";
+  const notes = [common && "pola umum", seq && "urutan keyboard/angka", rep && "karakter berulang", s.length < 12 && "panjang <12"].filter(Boolean);
+  return `🔑 Password strength: ${verdict} (~${entropy} bit)\nPanjang: ${s.length}\n${notes.length ? `Catatan: ${notes.join(", ")}` : "Bagus."}\nSaran: ≥14 karakter, frasa unik, jangan pakai ulang; simpan di password manager.`;
+}
+
+// ── Hash identify + compute (defensive) ─────────────────────────────────────
+export function hashIdentify(input: string): string {
+  const s = (input || "").trim();
+  const h = createHash("sha256").update(s).digest("hex");
+  const sha1 = createHash("sha1").update(s).digest("hex");
+  const md5 = createHash("md5").update(s).digest("hex");
+  let type = "teks biasa";
+  if (/^[a-f0-9]{32}$/i.test(s)) type = "MD5";
+  else if (/^[a-f0-9]{40}$/i.test(s)) type = "SHA-1";
+  else if (/^[a-f0-9]{64}$/i.test(s)) type = "SHA-256";
+  else if (/^[a-f0-9]{128}$/i.test(s)) type = "SHA-512";
+  else if (/^\$2[aby]\$/.test(s)) type = "bcrypt";
+  else if (/^\$argon2/.test(s)) type = "argon2";
+  return `#️⃣ Hash\n• Terdeteksi: ${type}\n• SHA-256("${s.slice(0, 40)}"): ${h}\n• SHA-1: ${sha1}\n• MD5: ${md5}`;
+}
+
+// ── JWT inspect (no verify) ─────────────────────────────────────────────────
+export function jwtInspect(token: string): string {
+  const t = (token || "").trim();
+  const parts = t.split(".");
+  if (parts.length !== 3) return "Error: bukan JWT (butuh 3 bagian dipisah titik)";
+  const dec = (p: string) => {
+    try {
+      return JSON.parse(Buffer.from(p.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    } catch {
+      return null;
+    }
+  };
+  const header = dec(parts[0]);
+  const payload = dec(parts[1]);
+  if (!header || !payload) return "Error: JWT tidak bisa didecode";
+  const flags: string[] = [];
+  if (String(header.alg || "").toLowerCase() === "none") flags.push("⚠️ alg=none (JWT tanpa tanda tangan — berbahaya)");
+  if (payload.exp && Number(payload.exp) * 1000 < Date.now()) flags.push("⚠️ token sudah kedaluwarsa (exp)");
+  return `🎫 JWT\nHeader: ${JSON.stringify(header)}\nPayload: ${JSON.stringify(payload)}\n${flags.length ? flags.join("\n") : "Tidak ada flag mencurigakan dasar."}\n(Ikatan: token ini TIDAK diverifikasi — hanya decode.)`;
+}
+
+// ── IOC extraction (IR/forensics) ───────────────────────────────────────────
+export function iocExtract(text: string): string {
+  const s = (text || "").replace(/hxxp/gi, "http").replace(/\[\.\]/g, ".").replace(/\(\.\)/g, ".");
+  const uniq = (arr: RegExpMatchArray | null) => [...new Set(arr || [])].slice(0, 30);
+  const ips = uniq(s.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g)).filter((i) => !/^(?:0\.|127\.|255\.)/.test(i));
+  const urls = uniq(s.match(/https?:\/\/[^\s"'<>)]+/gi));
+  const emails = uniq(s.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g));
+  const domains = uniq(s.match(/\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|id|co|xyz|ru|cn|top|info|biz|dev|app)\b/gi)).filter((d) => !emails.some((e) => e.endsWith(d)));
+  const hashes = uniq(s.match(/\b[a-f0-9]{32,64}\b/gi));
+  return ["🧲 IOC", `IP (${ips.length}): ${ips.join(", ") || "-"}`, `Domain (${domains.length}): ${domains.join(", ") || "-"}`, `URL (${urls.length}): ${urls.slice(0, 10).join(", ") || "-"}`, `Email (${emails.length}): ${emails.join(", ") || "-"}`, `Hash (${hashes.length}): ${hashes.slice(0, 10).join(", ") || "-"}`].join("\n");
+}
+
+/** Save the current pentest report to .data/users/<user>/reports/<ts>.md. */
+export function reportSave(rawUser: unknown): string {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  const md = generateReport(rawUser);
+  const dir = join(userDataRoot(), userKey, "reports");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `report-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
+  writeFileSync(file, md);
+  return `📄 Laporan disimpan: ${file}\n\n${md.slice(0, 800)}`;
+}

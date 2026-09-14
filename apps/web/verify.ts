@@ -464,6 +464,18 @@ async function main() {
     if (!/Laporan Pentest/.test(rep) || !/HIGH/.test(rep)) throw new Error("report_generate malformed");
     rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
     console.log("pentest scope guard + findings/report: OK");
+  {
+    const { passwordStrength, hashIdentify, jwtInspect, iocExtract } = await import("./src/lib/security");
+    if (!/LEMAH/.test(passwordStrength("password"))) throw new Error("passwordStrength weak detection");
+    if (!/SHA-256/.test(hashIdentify("hello"))) throw new Error("hashIdentify compute");
+    if (!/MD5/.test(hashIdentify("d41d8cd98f00b204e9800998ecf8427e"))) throw new Error("hashIdentify type");
+    const jwt = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url") + "." + Buffer.from(JSON.stringify({ sub: "1", exp: 1 })).toString("base64url") + ".x";
+    const j = jwtInspect(jwt);
+    if (!/alg=none/.test(j) || !/kedaluwarsa/.test(j)) throw new Error(`jwtInspect flags: ${j}`);
+    const ioc = iocExtract("cek hxxp://evil[.]com dan 8.8.8.8 email a@b.com hash d41d8cd98f00b204e9800998ecf8427e");
+    if (!/8\.8\.8\.8/.test(ioc) || !/evil\.com/.test(ioc) || !/a@b\.com/.test(ioc)) throw new Error(`iocExtract: ${ioc}`);
+    console.log("security analysis (password/hash/JWT/IOC): OK");
+  }
     const { zapScan } = await import("./src/lib/security");
     let zapRejected = false;
     try { await zapScan("https://example.com"); } catch { zapRejected = true; }
