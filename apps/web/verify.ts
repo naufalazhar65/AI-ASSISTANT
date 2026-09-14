@@ -351,6 +351,10 @@ async function main() {
   if (monDetect("apa kabar") !== null) throw new Error("monitorIntent false-positive");
   const { detectSpotifyControl: spotControl } = await import("./src/lib/spotifyIntent");
   if (spotControl("pause lagunya dong")?.action !== "pause") throw new Error("spotifyControl missed pause");
+  const { detectSpotifyIntent: spInt } = await import("./src/lib/spotifyIntent");
+  if (spInt("sedang putar lagu apa aku di spotify?")) throw new Error("spotify: status question wrongly treated as play");
+  if (spInt("lagu apa yang lagi diputar")) throw new Error("spotify: 'lagu apa' wrongly play");
+  if (!spInt("putar lagu Kotak")) throw new Error("spotify: explicit play not detected");
   const { chunkText: chunkReply } = await import("./src/channels/replyChunk");
   const big = "baris ".repeat(1000);
   const chunks = chunkReply(big, 2000);

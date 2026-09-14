@@ -38,7 +38,17 @@ export function detectSpotifyResume(text: string): boolean {
   );
 }
 
+/**
+ * A question ABOUT the current track ("sedang putar lagu apa", "lagu apa yang
+ * lagi diputar", "what's playing") is a STATUS query — never a play command.
+ * Without this guard the phrase "putar lagu" matched and the question word
+ * ("apa") was used as the search query, so Mia played the top hit for "apa".
+ */
+const NOW_PLAYING_Q_RE =
+  /\b(?:lagu|musik|song|track)\s+apa\b|\bapa\s+(?:yang\s+)?(?:lagi\s+)?(?:diputar|diputarkan|diputer|dimainkan|main|dengerin|didengar)\b|\bwhat(?:'s| is)\s+(?:currently\s+)?playing\b|\bjudul\s+(?:lagu|musik)s?\b|\bsedang\s+(?:putar|dengar|main)\w*\s+apa\b|\blagu\s+(?:yang\s+)?(?:sekarang|lagi)\b/i;
+
 export function detectSpotifyIntent(text: string): SpotifyIntent | null {
+  if (text && NOW_PLAYING_Q_RE.test(text)) return null;
   const strong = STRONG_RE.test(text);
   if (!strong) return null;
 
@@ -53,14 +63,14 @@ export function detectSpotifyIntent(text: string): SpotifyIntent | null {
   const cleaned = afterVerb
     .replace(/\s+(?:di|on|ke|untuk|pake|pakai)\s+spotify\b.*$/i, "")
     .replace(
-      /\b(?:dong|ya|yuk|deh|donk|lah|beb|mas|bang|kak|plis|please|a|nya|sih|coba|tolong|bantu|aku|gue|saya|kan|itu|ini|kesana|kesini|distu|disini|begitu|begini|gitu|gini|lah)\b.*$/i,
+      /\b(?:dong|ya|yuk|deh|donk|lah|beb|mas|bang|kak|plis|please|a|nya|sih|coba|tolong|bantu|aku|gue|saya|kan|itu|ini|kesana|kesini|distu|disini|begitu|begini|gitu|gini|apa|yang|sekarang|sedang|diputar|diputarkan)\b.*$/i,
       ""
     )
     .trim()
     .replace(/^[\s\-:"]+|[\s\-:"]+$/g, "");
 
-  // A deictic remnant ("itu", "ini") has no searchable content — return null so
-  // the caller falls back to the model's own (context-aware) spotify_play query.
+  // A deictic/question remnant ("itu", "ini", "apa") has no searchable content —
+  // return null so the caller falls back to the model's own (context-aware) query.
   if (!cleaned) return null;
   return { query: cleaned, kind };
 }
