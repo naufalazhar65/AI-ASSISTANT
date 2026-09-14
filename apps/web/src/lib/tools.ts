@@ -3395,6 +3395,18 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (_args, ctx) => { try { const { hardeningPlan } = await import("./security"); return hardeningPlan(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "hardening_plan failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "finding_resolve", description: "Tandai temuan selesai/resolved (hilang dari daftar terbuka & laporan). Read, auto.", parameters: { type: "object", properties: { id: { type: "string", description: "ID temuan, mis. F-..." } }, required: ["id"] } } },
+    execute: async (args, ctx) => { try { const { resolveFinding } = await import("./security"); const id = String(args.id || ""); return resolveFinding(ctx.rawUser, id) ? `✅ Temuan ${id} ditandai resolved.` : `Error: temuan ${id} tidak ditemukan.`; } catch (e) { return `Error: ${e instanceof Error ? e.message : "finding_resolve failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "finding_export", description: "Export temuan terbuka ke file: format csv | json | sarif (untuk tiket tim / CI). Read, auto.", parameters: { type: "object", properties: { format: { type: "string", enum: ["csv", "json", "sarif"] } }, required: [] } } },
+    execute: async (args, ctx) => { try { const { exportFindings } = await import("./security"); return exportFindings(ctx.rawUser, typeof args.format === "string" ? args.format : "csv"); } catch (e) { return `Error: ${e instanceof Error ? e.message : "finding_export failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "cvss_score", description: "Hitung skor CVSS v3.1 dari vektor, mis. 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'. Read, auto.", parameters: { type: "object", properties: { vector: { type: "string" } }, required: ["vector"] } } },
+    execute: async (args) => { try { const { cvssScore } = await import("./security"); return cvssScore(String(args.vector || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cvss_score failed"}`; } },
+  },
+  {
     definition: {
       type: "function",
       risk: "read",

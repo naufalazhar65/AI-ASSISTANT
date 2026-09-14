@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { connect as tlsConnect } from "node:tls";
 import { dirname, extname, join, relative } from "node:path";
 import { appRoot, resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
-import { engagementAllows } from "./engagement";
+import { engagementAllows, listEngagements } from "./engagement";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
@@ -323,7 +323,7 @@ export async function pentestScan(opts: { tool: string; target: string; wordlist
 
 // ── Findings store + report (per-user) ───────────────────────────────────────
 
-export type Finding = { id: string; title: string; severity: string; cvss: number | null; owasp: string; cwe: string; target: string; evidence: string; impact: string; remediation: string; createdAt: string };
+export type Finding = { id: string; title: string; severity: string; cvss: number | null; owasp: string; cwe: string; target: string; evidence: string; impact: string; remediation: string; status: "open" | "resolved"; createdAt: string; resolvedAt?: string };
 
 const SEVERITIES = ["critical", "high", "medium", "low", "info"];
 
@@ -336,7 +336,7 @@ export function readFindings(rawUser: unknown): Finding[] {
   if (!userKey) return [];
   try {
     const parsed = JSON.parse(readFileSync(findingsPath(userKey), "utf8"));
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? (parsed as Finding[]).map((r) => ({ ...r, status: r.status === "resolved" ? "resolved" : "open" })) : [];
   } catch {
     return [];
   }
@@ -370,6 +370,7 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
     evidence: (f.evidence || "").slice(0, 2000),
     impact: (f.impact || "").slice(0, 1000),
     remediation: (f.remediation || "").slice(0, 1000),
+    status: "open",
     createdAt: new Date().toISOString(),
   };
   const rows = readFindings(rawUser);
@@ -380,16 +381,18 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
 }
 
 export function listFindingsText(rawUser: unknown): string {
-  const rows = readFindings(rawUser);
-  if (!rows.length) return "Belum ada temuan tercatat.";
+  const all = readFindings(rawUser);
+  const rows = all.filter((r) => r.status !== "resolved");
+  if (!all.length) return "Belum ada temuan tercatat.";
+  if (!rows.length) return `Semua ${all.length} temuan sudah resolved ✅`;
   const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
   const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0) || (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
   return `${rows.length} temuan:\n${sorted.map((f) => `• [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title}${f.owasp ? ` (${f.owasp})` : ""}${f.target ? ` — ${f.target}` : ""}${f.evidence ? `\n   Evidence: ${f.evidence.slice(0, 160)}` : ""}${f.remediation ? `\n   Fix: ${f.remediation.slice(0, 160)}` : ""}`).join("\n")}`;
 }
 
 export function generateReport(rawUser: unknown): string {
-  const rows = readFindings(rawUser);
-  if (!rows.length) return "Belum ada temuan — belum ada yang bisa dilaporkan.";
+  const rows = readFindings(rawUser).filter((r) => r.status !== "resolved");
+  if (!rows.length) return "Belum ada temuan terbuka — belum ada yang bisa dilaporkan.";
   const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
   const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0) || (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
   const counts = SEVERITIES.map((s) => `${s}:${rows.filter((r) => r.severity === s).length}`).join("  ");
@@ -400,7 +403,7 @@ export function generateReport(rawUser: unknown): string {
         `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[f.owasp, f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Target**: ${f.target || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **Found**: ${f.createdAt}`
     )
     .join("\n\n");
-  return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts}) — rata-rata CVSS ${avg}\n\n> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif.\n\n${body}`;
+  return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts}) — rata-rata CVSS ${avg}\n\n${(() => { const a = listEngagements().find((e) => e.status === "active"); return a ? `> Engagement: ${a.id} — ${a.name} (${a.client})\n> Izin: ${a.authorization}\n> Scope: ${a.scope.join(", ")}${a.windowEnd ? ` (s/d ${a.windowEnd})` : ""}` : "> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif."; })()}\n\n${body}`;
 }
 
 /** OWASP ZAP baseline scan via Docker (web app in the owner's own lab only). */
@@ -872,4 +875,93 @@ export function hardeningPlan(rawUser: unknown): string {
   );
   const rest = rows.length > 30 ? `\n… dan ${rows.length - 30} temuan lain.` : "";
   return `🛠️ HARDENING PLAN (prioritas CVSS)\nRingkasan: ${summary} | total ${rows.length}\n\n${lines.join("\n")}${rest}`;
+}
+
+/** Mark a finding resolved (drops from open lists + the report). */
+export function resolveFinding(rawUser: unknown, id: string): boolean {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  const rows = readFindings(rawUser);
+  const f = rows.find((r) => r.id === id);
+  if (!f) return false;
+  f.status = "resolved";
+  f.resolvedAt = new Date().toISOString();
+  writeFindings(userKey, rows);
+  return true;
+}
+
+/** Export open findings as CSV / JSON / SARIF to .data/users/<user>/reports/. */
+export function exportFindings(rawUser: unknown, format = "csv"): string {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  const rows = readFindings(rawUser).filter((r) => r.status !== "resolved");
+  if (!rows.length) return "Tidak ada temuan terbuka untuk diexport.";
+  const dir = join(userDataRoot(), userKey, "reports");
+  mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const fmt = format.toLowerCase();
+  let content: string;
+  let ext: string;
+  if (fmt === "json") {
+    content = JSON.stringify(rows, null, 2);
+    ext = "json";
+  } else if (fmt === "sarif") {
+    const rules = [...new Set(rows.map((r) => r.owasp || r.cwe || "generic"))].map((id) => ({ id, name: id }));
+    const level = (sv: string) => (sv === "critical" || sv === "high" ? "error" : sv === "medium" ? "warning" : "note");
+    content = JSON.stringify(
+      {
+        version: "2.1.0",
+        $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+        runs: [
+          {
+            tool: { driver: { name: "Mia Pentest", informationUri: "https://opencode.ai", rules } },
+            results: rows.map((r) => ({
+              ruleId: r.owasp || r.cwe || "generic",
+              level: level(r.severity),
+              message: { text: `[${r.severity.toUpperCase()}${r.cvss != null ? ` CVSS ${r.cvss}` : ""}] ${r.title}${r.evidence ? ` — ${r.evidence.slice(0, 200)}` : ""}` },
+              locations: [{ physicalLocation: { artifactLocation: { uri: r.target || "unknown" } } }],
+            })),
+          },
+        ],
+      },
+      null,
+      2
+    );
+    ext = "sarif";
+  } else {
+    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const cols = ["id", "severity", "cvss", "title", "owasp", "cwe", "target", "status", "evidence", "impact", "remediation"];
+    content = [cols.join(","), ...rows.map((r) => cols.map((c) => esc((r as unknown as Record<string, unknown>)[c])).join(","))].join("\n");
+    ext = "csv";
+  }
+  const file = join(dir, `findings-${stamp}.${ext}`);
+  writeFileSync(file, content);
+  return `📤 Export (${fmt}) ${rows.length} temuan → ${file}`;
+}
+
+/** CVSS v3.1 base score from a vector string. */
+export function cvssScore(vector: string): string {
+  const v = (vector || "").trim().toUpperCase();
+  const get = (m: string) => new RegExp(`(?:^|/)${m}:([A-Z])`).exec(v)?.[1];
+  const AV = { N: 0.85, A: 0.62, L: 0.55, P: 0.2 }[get("AV") ?? ""] ?? NaN;
+  const AC = { L: 0.77, H: 0.44 }[get("AC") ?? ""] ?? NaN;
+  const UI = { N: 0.85, R: 0.62 }[get("UI") ?? ""] ?? NaN;
+  const S = get("S");
+  const PRU = { N: 0.85, L: 0.62, H: 0.27 }[get("PR") ?? ""] ?? NaN;
+  const PRC = { N: 0.85, L: 0.68, H: 0.5 }[get("PR") ?? ""] ?? NaN;
+  const C = { N: 0, L: 0.22, H: 0.56 }[get("C") ?? ""] ?? NaN;
+  const I = { N: 0, L: 0.22, H: 0.56 }[get("I") ?? ""] ?? NaN;
+  const A = { N: 0, L: 0.22, H: 0.56 }[get("A") ?? ""] ?? NaN;
+  if ([AV, AC, UI, C, I, A].some((n) => Number.isNaN(n)) || (S !== "U" && S !== "C")) {
+    return "Error: vektor CVSS v3.1 tak valid. Contoh: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H";
+  }
+  const PR = S === "C" ? PRC : PRU;
+  if (Number.isNaN(PR)) return "Error: metric PR tak valid (N/L/H).";
+  const iss = 1 - (1 - C) * (1 - I) * (1 - A);
+  const impact = S === "U" ? 6.42 * iss : 7.52 * (iss - 0.029) - 3.25 * Math.pow(iss - 0.02, 15);
+  const expl = 8.22 * AV * AC * PR * UI;
+  const roundup = (x: number) => Math.ceil(x * 10) / 10;
+  const score = impact <= 0 ? 0 : roundup(Math.min((S === "U" ? 1 : 1.08) * (impact + expl), 10));
+  const sev = score === 0 ? "none" : score < 4 ? "low" : score < 7 ? "medium" : score < 9 ? "high" : "critical";
+  return `📊 CVSS v3.1 base score: ${score.toFixed(1)} (${sev})\nVector: ${v}`;
 }

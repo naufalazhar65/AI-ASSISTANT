@@ -508,6 +508,18 @@ async function main() {
     if (!/HARDENING PLAN/.test(plan) || plan.indexOf("SQLi") > plan.indexOf("XSS") || !/prepared statement/.test(plan)) throw new Error(`hardeningPlan: ${plan.slice(0,120)}`);
     rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
     console.log("hardening_plan (priority order): OK");
+  {
+    const { cvssScore, addFinding, resolveFinding, exportFindings, listFindingsText } = await import("./src/lib/security");
+    if (!/9\.8/.test(cvssScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"))) throw new Error("cvssScore AV:N should be 9.8");
+    if (!/5\.3/.test(cvssScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"))) throw new Error("cvssScore C:L should be 5.3");
+    const u = "verify_resolve_user";
+    const f = addFinding(u, { title: "Tutup aku", severity: "low", remediation: "x" });
+    if (!resolveFinding(u, f.id) || /Tutup aku/.test(listFindingsText(u))) throw new Error("resolveFinding failed");
+    const exp = exportFindings(u, "sarif");
+    if (!/Tidak ada temuan terbuka|sarif/.test(exp)) throw new Error(`exportFindings empty: ${exp}`);
+    rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
+    console.log("cvss_score + resolve + export: OK");
+  }
   }
   }
   }
