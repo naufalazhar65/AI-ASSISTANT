@@ -491,6 +491,15 @@ async function main() {
     if (engagementAllows("app.ptx.co.id")) throw new Error("closed engagement still allows");
     rmSync(appRoot() + "/.data/engagements.json", { force: true });
     console.log("engagement scope guard: OK");
+  {
+    const { parseNpmLock, parseRequirements } = await import("./src/lib/security");
+    const lock = JSON.stringify({ packages: { "": { name: "x", version: "1.0.0" }, "node_modules/lodash": { version: "4.17.20" } } });
+    const npm = parseNpmLock(lock);
+    if (npm.length !== 1 || npm[0].name !== "lodash" || npm[0].version !== "4.17.20") throw new Error(`parseNpmLock: ${JSON.stringify(npm)}`);
+    const req = parseRequirements("# c\nflask==3.0.1\nrequests>=2.0\npyyaml==6.0");
+    if (req.length !== 2 || req[0].name !== "flask" || req[1].ecosystem !== "PyPI") throw new Error(`parseRequirements: ${JSON.stringify(req)}`);
+    console.log("dep_audit parsers (npm/pypi): OK");
+  }
   }
   }
   {

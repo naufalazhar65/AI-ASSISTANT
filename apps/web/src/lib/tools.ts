@@ -3376,6 +3376,25 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "dep_audit",
+        description: "Audit kerentanan dependency (CVE) via OSV.dev (keyless): baca package-lock.json (npm) & requirements.txt (PyPI). Opsi `dir` (sandbox) & `to_findings` untuk menambah ke board temuan. Read, auto.",
+        parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori relatif repo (opsional; default repo root)" }, to_findings: { type: "boolean", description: "Tambahkan hasil ke findings" } }, required: [] },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { depAudit } = await import("./security");
+        return await depAudit(typeof args.dir === "string" ? args.dir : "", args.to_findings === true ? ctx.rawUser : undefined);
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "dep_audit failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "health",
         description: "Track water/sleep (per-user JSON). water: minum X gelas, sleep: đi ngủ, wake: thức dậy/bangun, stats: thống kê. Auto, read (write water/sleep also auto, no confirm).",
         parameters: {

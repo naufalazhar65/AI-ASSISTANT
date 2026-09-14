@@ -719,3 +719,123 @@ export async function labFetch(url: string): Promise<string> {
   const flag = /<script\b|onerror\s*=|onload\s*=|javascript:/i.test(body) ? "\n⚠️ Body mengandung markup/JS — indikasi XSS bila input user ter-reflect mentah." : "";
   return `🌐 LAB FETCH ${res.status} ${res.statusText} (${ct})\nLocation: ${res.headers.get("location") || "-"}${flag}\n\n${body}`;
 }
+
+// ── Dependency CVE audit (OSV, keyless) ─────────────────────────────────────
+export type Dep = { name: string; version: string; ecosystem: string };
+
+/** Parse an npm package-lock.json (v1 nested deps or v2/v3 packages map). */
+export function parseNpmLock(text: string): Dep[] {
+  const out: Dep[] = [];
+  try {
+    const j = JSON.parse(text) as { packages?: Record<string, { name?: string; version?: string }>; dependencies?: Record<string, { version?: string; dependencies?: unknown }> };
+    if (j.packages && typeof j.packages === "object") {
+      for (const [k, v] of Object.entries(j.packages)) {
+        if (!k) continue;
+        if (v && typeof v.version === "string") {
+          const name = v.name || k.replace(/^.*node_modules\//, "");
+          if (name) out.push({ name, version: v.version, ecosystem: "npm" });
+        }
+      }
+    } else if (j.dependencies) {
+      const walk = (deps: Record<string, { version?: string; dependencies?: unknown }>) => {
+        for (const [n, v] of Object.entries(deps)) {
+          if (v && v.version) out.push({ name: n, version: String(v.version), ecosystem: "npm" });
+          if (v && v.dependencies && typeof v.dependencies === "object") walk(v.dependencies as Record<string, { version?: string; dependencies?: unknown }>);
+        }
+      };
+      walk(j.dependencies);
+    }
+  } catch {
+    /* ignore */
+  }
+  return out;
+}
+
+/** Parse a Python requirements.txt (pkg==version lines). */
+export function parseRequirements(text: string): Dep[] {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"))
+    .map((l) => {
+      const m = l.match(/^([A-Za-z0-9_.-]+)\s*==\s*([0-9][\w.\-]*)/);
+      return m ? { name: m[1], version: m[2], ecosystem: "PyPI" } : null;
+    })
+    .filter((d): d is Dep => !!d);
+}
+
+export async function depAudit(dirRel = "", toFindingsUser?: unknown): Promise<string> {
+  const root = dirRel.trim() ? resolveInSandbox(dirRel.trim()) : repoRoot();
+  if (!root) throw new Error("path di luar sandbox / tidak valid");
+  const deps: Dep[] = [];
+  const sources: string[] = [];
+  const lock = join(root, "package-lock.json");
+  if (existsSync(lock)) {
+    deps.push(...parseNpmLock(readFileSync(lock, "utf8")));
+    sources.push("package-lock.json");
+  }
+  const req = join(root, "requirements.txt");
+  if (existsSync(req)) {
+    deps.push(...parseRequirements(readFileSync(req, "utf8")));
+    sources.push("requirements.txt");
+  }
+  if (!deps.length) return `Tidak menemukan package-lock.json / requirements.txt di ${dirRel || "repo root"} — tak ada yang bisa diaudit.`;
+  // dedup by ecosystem:name@version
+  const seen = new Set<string>();
+  const uniq = deps.filter((d) => {
+    const k = `${d.ecosystem}:${d.name}@${d.version}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const batch = uniq.slice(0, 500).map((d) => ({ version: d.version, package: { name: d.name, ecosystem: d.ecosystem } }));
+  const res = await fetch("https://api.osv.dev/v1/querybatch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "User-Agent": "mia-assistant/1.0" },
+    body: JSON.stringify({ queries: batch }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) return `Error: OSV tidak bisa diakses (HTTP ${res.status})`;
+  const data = (await res.json()) as { results?: { vulns?: { id: string }[] }[] };
+  const results = data.results ?? [];
+  const found: { dep: Dep; ids: string[] }[] = [];
+  results.forEach((r, i) => {
+    if (r.vulns?.length) found.push({ dep: uniq[i], ids: r.vulns.map((v) => v.id) });
+  });
+  if (!found.length) return `✅ Dependency audit (${sources.join(", ")}, ${uniq.length} paket): tidak ada CVE dikenal (OSV).`;
+  // fetch details for up to 30 unique vuln ids
+  const ids = [...new Set(found.flatMap((f) => f.ids))].slice(0, 30);
+  const detail = new Map<string, { summary: string; severity: string }>();
+  await Promise.all(
+    ids.map(async (vid) => {
+      try {
+        const r = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(vid)}`, { headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(12_000) });
+        if (!r.ok) return;
+        const j = (await r.json()) as { summary?: string; database_specific?: { severity?: string } };
+        detail.set(vid, { summary: j.summary || "", severity: (j.database_specific?.severity || "").toLowerCase() });
+      } catch {
+        /* best-effort */
+      }
+    })
+  );
+  if (toFindingsUser) {
+    for (const f of found) {
+      for (const vid of f.ids.slice(0, 3)) {
+        const d = detail.get(vid);
+        addFinding(toFindingsUser, {
+          title: `${f.dep.name}@${f.dep.version} — ${vid}`,
+          severity: d?.severity && ["critical", "high", "medium", "low"].includes(d.severity) ? d.severity : "medium",
+          owasp: "A06:2021 Vulnerable and Outdated Components",
+          target: `${f.dep.ecosystem}:${f.dep.name}@${f.dep.version}`,
+          evidence: vid,
+          impact: d?.summary || "komponen rentan",
+          remediation: `Upgrade ${f.dep.name} ke versi tanpa ${vid} (cek paket/OSV).`,
+        });
+      }
+    }
+  }
+  const lines = found
+    .slice(0, 40)
+    .map((f) => `• ${f.dep.name}@${f.dep.version} — ${f.ids.map((id) => `${id}${detail.get(id)?.severity ? ` (${detail.get(id)!.severity})` : ""}`).join(", ")}`);
+  return `🔎 DEP AUDIT (${sources.join(", ")}, ${uniq.length} paket) — ${found.length} paket rentan:\n${lines.join("\n")}${toFindingsUser ? "\n\n(Temuan ditambahkan ke board.)" : ""}`;
+}
