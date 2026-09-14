@@ -205,3 +205,25 @@ export async function clipboardWriteText(text: string): Promise<string> {
   await ensureServe();
   return run("clipboard_write", { text });
 }
+
+/** Lightweight desktop snapshot: running apps + on-screen windows (bounds, z-order, pid). No TCC needed. */
+export async function cuaAccessibilityTree(): Promise<string> {
+  await ensureServe();
+  return run("get_accessibility_tree", {});
+}
+
+/** Full-display capture in true screen pixels. Pass `outFile` to write a PNG instead of base64. */
+export async function cuaDesktopState(outFile?: string): Promise<string> {
+  await ensureServe();
+  const a: Record<string, unknown> = {};
+  if (outFile) a.screenshot_out_file = outFile;
+  return run("get_desktop_state", a);
+}
+
+/** Cropped JPEG of a window region (x1,y1)-(x2,y2) in screenshot pixels. */
+export async function cuaZoom(args: { windowId: number; x1: number; y1: number; x2: number; y2: number; pid?: number }): Promise<string> {
+  await ensureServe();
+  const a: Record<string, unknown> = { window_id: args.windowId, x1: args.x1, y1: args.y1, x2: args.x2, y2: args.y2 };
+  if (args.pid) a.pid = args.pid;
+  return run("zoom", a);
+}

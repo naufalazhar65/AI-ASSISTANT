@@ -2973,6 +2973,72 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "cua_desktop",
+        description: "Snapshot ringan desktop: daftar app berjalan + window di layar (bounds, z-order, pid). Cepat, tanpa grant. Read, auto. Pakai untuk tahu 'apa yang lagi kebuka'.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      try {
+        const { cuaAccessibilityTree } = await import("./cua");
+        return await cuaAccessibilityTree();
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "cua_desktop failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "cua_screen",
+        description: "Screenshot: action='desktop' (layar penuh → simpan PNG, balik path) atau action='zoom' (potong region window: window_id + x1,y1,x2,y2 dalam pixel screenshot, pid opsional; balik JPEG). Read, auto.",
+        parameters: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["desktop", "zoom"] },
+            window_id: { type: "number" },
+            x1: { type: "number" },
+            y1: { type: "number" },
+            x2: { type: "number" },
+            y2: { type: "number" },
+            pid: { type: "number" },
+          },
+          required: ["action"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { cuaDesktopState, cuaZoom } = await import("./cua");
+        if (String(args.action) === "desktop") {
+          const { appRoot } = await import("./users");
+          const { mkdirSync } = await import("node:fs");
+          const { join } = await import("node:path");
+          const dir = join(appRoot(), ".data", "cua");
+          mkdirSync(dir, { recursive: true });
+          const out = join(dir, `desktop-${Date.now()}.png`);
+          const r = await cuaDesktopState(out);
+          return `${r}\n(saved: ${out})`;
+        }
+        if (String(args.action) === "zoom") {
+          if (typeof args.window_id !== "number" || [args.x1, args.y1, args.x2, args.y2].some((v) => typeof v !== "number")) {
+            return "Error: zoom butuh window_id + x1,y1,x2,y2 (pixel dari cua_window_state).";
+          }
+          return cuaZoom({ windowId: args.window_id, x1: args.x1 as number, y1: args.y1 as number, x2: args.x2 as number, y2: args.y2 as number, pid: typeof args.pid === "number" ? args.pid : undefined });
+        }
+        return "Error: action harus 'desktop' | 'zoom'.";
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "cua_screen failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "health",
         description: "Track water/sleep (per-user JSON). water: minum X gelas, sleep: đi ngủ, wake: thức dậy/bangun, stats: thống kê. Auto, read (write water/sleep also auto, no confirm).",
         parameters: {
