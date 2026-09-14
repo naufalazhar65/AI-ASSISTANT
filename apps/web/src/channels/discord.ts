@@ -446,13 +446,31 @@ async function replyMia(msg: Message, text: string): Promise<Message> {
   // the automatic link-preview cards (e.g. Google News "Comprehensive up-to-date"
   // cards rendered from every news.google.com anchor URL) while anchors stay
   // tappable.
+  // A transient connection timeout to Discord (seen: ConnectTimeoutError, 10s)
+  // must not leave the user with NO reply — retry the send with backoff.
   let last!: Message;
   for (const chunk of chunkText(safe, DISCORD_MAX)) {
-    last = await msg.reply({ content: chunk, flags: [MessageFlags.SuppressEmbeds] }).catch(
-      () => (msg.channel as unknown as SendableChannel).send(`> ${chunk}`) as Promise<Message>
-    );
+    last = await sendWithRetry(msg, chunk);
   }
   return last;
+}
+
+async function sendWithRetry(msg: Message, chunk: string, attempts = 3): Promise<Message> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await msg.reply({ content: chunk, flags: [MessageFlags.SuppressEmbeds] });
+    } catch (replyErr) {
+      lastErr = replyErr;
+      try {
+        return (await (msg.channel as unknown as SendableChannel).send(`> ${chunk}`)) as Message;
+      } catch (chanErr) {
+        lastErr = chanErr;
+      }
+    }
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1200 * (i + 1)));
+  }
+  throw lastErr;
 }
 
 // Optionally reply with a spoken WAV (Groq Orpheus) — used ONLY for voice-note
