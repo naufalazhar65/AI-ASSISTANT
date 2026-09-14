@@ -3316,6 +3316,60 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "engagement_create",
+        description:
+          "Catat engagement pentest klien (otorisasi). Setelah dibuat & AKTIF, host di `scope` boleh diuji (pentest_scan/zap_scan/sqlmap_scan/lab_fetch) — di luar scope tetap ditolak. Read, auto. WAJIB isi: name, client, authorization (no. PO/kontrak/email izin), scope[].",
+        parameters: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Nama engagement, mis. 'QA Web App PT X'" },
+            client: { type: "string", description: "Klien/owner" },
+            authorization: { type: "string", description: "Referensi izin tertulis (no. PO/kontrak/email)" },
+            scope: { type: "array", description: "Host/domain in-scope, mis. ['app.ptx.co.id','api.ptx.co.id']" },
+            out_of_scope: { type: "array", description: "Host yang dikecualikan (opsional)" },
+            window_start: { type: "string", description: "Mulai window uji ISO-8601 (opsional)" },
+            window_end: { type: "string", description: "Akhir window uji ISO-8601 (opsional)" },
+            contact: { type: "string", description: "Kontak darurat klien (opsional)" },
+            notes: { type: "string", description: "Catatan RoE (opsional)" },
+          },
+          required: ["name", "client", "authorization", "scope"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { createEngagement } = await import("./engagement");
+        const arr = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
+        const e = createEngagement({
+          name: String(args.name || ""),
+          client: String(args.client || ""),
+          authorization: String(args.authorization || ""),
+          scope: arr(args.scope),
+          outOfScope: arr(args.out_of_scope),
+          windowStart: typeof args.window_start === "string" ? args.window_start : undefined,
+          windowEnd: typeof args.window_end === "string" ? args.window_end : undefined,
+          contact: typeof args.contact === "string" ? args.contact : undefined,
+          notes: typeof args.notes === "string" ? args.notes : undefined,
+        });
+        return `✅ Engagement dibuat: ${e.id} — ${e.name} (${e.client})\nScope: ${e.scope.join(", ")}\nIzin: ${e.authorization}\nStatus: ACTIVE — host di scope kini boleh diuji.`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "engagement_create failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "engagement_list", description: "Daftar engagement pentest + scope/izin/status. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => { try { const { engagementsText } = await import("./engagement"); return engagementsText(); } catch (e) { return `Error: ${e instanceof Error ? e.message : "engagement_list failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "engagement_close", description: "Tutup engagement (status closed → host tak lagi boleh diuji). Read, auto.", parameters: { type: "object", properties: { id: { type: "string", description: "ID engagement, mis. ENG-..." } }, required: ["id"] } } },
+    execute: async (args) => { try { const { closeEngagement } = await import("./engagement"); const id = String(args.id || ""); return closeEngagement(id) ? `🛑 Engagement ${id} ditutup.` : `Error: engagement ${id} tidak ditemukan.`; } catch (e) { return `Error: ${e instanceof Error ? e.message : "engagement_close failed"}`; } },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "health",
         description: "Track water/sleep (per-user JSON). water: minum X gelas, sleep: đi ngủ, wake: thức dậy/bangun, stats: thống kê. Auto, read (write water/sleep also auto, no confirm).",
         parameters: {

@@ -480,6 +480,18 @@ async function main() {
     const pub = await labFetch("https://example.com");
     if (!/SCOPE/.test(pub)) throw new Error("labFetch allowed a public target");
     console.log("lab_fetch scope guard: OK");
+  {
+    const { createEngagement, engagementAllows, closeEngagement } = await import("./src/lib/engagement");
+    const { isLabTarget, targetAllowed } = await import("./src/lib/security");
+    if (isLabTarget("app.ptx.co.id")) throw new Error("public host should not be a lab target");
+    const e = createEngagement({ name: "Verify Eng", client: "PT X", authorization: "PO-123", scope: ["app.ptx.co.id"] });
+    if (!engagementAllows("app.ptx.co.id") || !targetAllowed("https://app.ptx.co.id/x")) throw new Error("engagement scope not honored");
+    if (targetAllowed("evil.coid") || engagementAllows("sub.app.ptx.co.id") !== true) throw new Error("engagement scope match wrong");
+    closeEngagement(e.id);
+    if (engagementAllows("app.ptx.co.id")) throw new Error("closed engagement still allows");
+    rmSync(appRoot() + "/.data/engagements.json", { force: true });
+    console.log("engagement scope guard: OK");
+  }
   }
   {
     const { runSecurityWatchTick } = await import("./src/lib/securityWatch");

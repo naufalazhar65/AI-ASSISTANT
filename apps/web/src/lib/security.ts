@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { connect as tlsConnect } from "node:tls";
 import { dirname, extname, join, relative } from "node:path";
 import { appRoot, resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
+import { engagementAllows } from "./engagement";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
@@ -281,6 +282,11 @@ export function isLabTarget(raw: string): boolean {
   return false;
 }
 
+/** Lab/permitted host OR a host inside an ACTIVE engagement scope. */
+export function targetAllowed(raw: string): boolean {
+  return isLabTarget(raw) || engagementAllows(raw);
+}
+
 export function pentestToolsList(): string {
   return Object.keys(PENTEST_TOOLS).join(", ");
 }
@@ -291,8 +297,8 @@ export async function pentestScan(opts: { tool: string; target: string; wordlist
   if (!spec) return Promise.reject(new Error(`tool "${opts.tool}" tidak didukung (pilih: ${pentestToolsList()})`));
   const target = (opts.target || "").trim();
   if (!target) return Promise.reject(new Error("target wajib diisi"));
-  if (!isLabTarget(target)) {
-    return Promise.reject(new Error("SCOPE: hanya localhost/lab/aset berizin. Untuk host lain, set PENTEST_LAB_TARGETS setelah kamu punya izin tertulis."));
+  if (!targetAllowed(target)) {
+    return Promise.reject(new Error("SCOPE: hanya localhost/lab, host di engagement aktif, atau PENTEST_LAB_TARGETS. Untuk klien, buat engagement dulu."));
   }
   let wordlist = "";
   if (opts.tool === "ffuf") {
@@ -394,8 +400,8 @@ export function generateReport(rawUser: unknown): string {
 export function zapScan(target: string, minutes = 5): Promise<string> {
   const t = (target || "").trim();
   if (!t) return Promise.reject(new Error("target wajib"));
-  if (!isLabTarget(t)) {
-    return Promise.reject(new Error("SCOPE: ZAP baseline hanya untuk localhost/lab/aset berizin."));
+  if (!targetAllowed(t)) {
+    return Promise.reject(new Error("SCOPE: ZAP baseline hanya untuk localhost/lab atau host di engagement aktif."));
   }
   const m = Math.min(30, Math.max(1, Number(minutes) || 5));
   return new Promise((resolve) => {
@@ -570,7 +576,7 @@ export function reportSave(rawUser: unknown): string {
 export function sqlmapScan(url: string, opts?: { level?: number; risk?: number }): Promise<string> {
   const u = (url || "").trim();
   if (!/^https?:\/\//i.test(u)) return Promise.reject(new Error("url http(s) wajib, mis. http://localhost:8081/vulnerabilities/sqli/?id=1&Submit=Submit"));
-  if (!isLabTarget(u)) return Promise.reject(new Error("SCOPE: sqlmap hanya untuk localhost/lab/aset berizin."));
+  if (!targetAllowed(u)) return Promise.reject(new Error("SCOPE: sqlmap hanya untuk localhost/lab atau host di engagement aktif (authorization)."));
   const level = Math.min(5, Math.max(1, Number(opts?.level) || 1));
   const risk = Math.min(3, Math.max(1, Number(opts?.risk) || 1));
   const outDir = mkdtempSync(join(tmpdir(), "mia-sqlmap-"));
@@ -699,7 +705,7 @@ export async function labStop(name = "vuln-node"): Promise<string> {
 export async function labFetch(url: string): Promise<string> {
   const raw = (url || "").trim();
   if (!/^https?:\/\//i.test(raw)) return "Error: URL harus http(s).";
-  if (!isLabTarget(raw)) return "Error: SCOPE — lab_fetch hanya untuk localhost/lab/aset berizin (publik ditolak).";
+  if (!targetAllowed(raw)) return "Error: SCOPE — lab_fetch hanya untuk localhost/lab atau host di engagement aktif.";
   const res = await fetch(raw, { redirect: "manual", headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(10_000) });
   const ct = res.headers.get("content-type") || "";
   const body = (await res.text()).slice(0, 2000);
