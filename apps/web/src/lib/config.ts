@@ -153,6 +153,41 @@ export function appLogKeepDays(): number {
   return cfgInt("APP_LOG_KEEP_DAYS", 14);
 }
 
+// ——— Auto-updater (mandiri, no ~/.openclaw/Clawdbot) ———
+export function autoUpdateEnabled(): boolean {
+  return cfgBool("AUTO_UPDATE_ENABLED", true);
+}
+export function autoUpdateHour(): number {
+  return Math.max(0, Math.min(23, cfgInt("AUTO_UPDATE_HOUR", 4)));
+}
+export function autoUpdateGraceMin(): number {
+  return Math.max(0, cfgInt("AUTO_UPDATE_GRACE_MIN", 120));
+}
+export function autoUpdateTickMinutes(): number {
+  return Math.max(0, cfgInt("AUTO_UPDATE_TICK_MIN", 5));
+}
+export function autoUpdateRemote(): string {
+  return cfgStr("AUTO_UPDATE_REMOTE", "origin");
+}
+export function autoUpdateBranch(): string {
+  return cfgStr("AUTO_UPDATE_BRANCH", "main");
+}
+export function autoUpdateNpm(): boolean {
+  return cfgBool("AUTO_UPDATE_NPM", true);
+}
+export function autoUpdateVerify(): boolean {
+  return cfgBool("AUTO_UPDATE_VERIFY", true);
+}
+export function autoUpdateRestart(): boolean {
+  return cfgBool("AUTO_UPDATE_RESTART", true);
+}
+export function autoUpdateDeliver(): boolean {
+  return cfgBool("AUTO_UPDATE_DELIVER", true);
+}
+export function autoUpdateTimeoutMs(): number {
+  return Math.max(10000, cfgInt("AUTO_UPDATE_TIMEOUT_MS", 600000));
+}
+
 /** Tools disabled by policy (TOOLS_DENY). Blocked in executeTool. */
 export function toolsDeny(): string[] {
   return cfgList("TOOLS_DENY", "");

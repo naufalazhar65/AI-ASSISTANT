@@ -3333,6 +3333,21 @@ const toolRegistry: ToolPlugin[] = [
       return freerideWatcherOnce();
     },
   },
+  // ── Auto-Update (mandiri daily self-update: git pull → npm install → gates → push, no .openclaw/Clawdbot) ──
+  {
+    definition: { type: "function", risk: "read", function: { name: "auto_update_status", description: "Auto-Update status — jadwal harian, last run, hasil gates, riwayat. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => {
+      const { autoUpdateStatus } = await import("./autoUpdater");
+      return autoUpdateStatus();
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "auto_update", description: "Jalankan update Mia sekarang (git pull --ff-only + npm install + gates typecheck/test/verify + push ringkasan ke owner). Butuh confirm.", parameters: { type: "object", properties: { deliver: { type: "string", description: "true untuk push ringkasan ke channel (default true)" } }, required: [] } } },
+    execute: async (args) => {
+      const { runAutoUpdate } = await import("./autoUpdater");
+      return runAutoUpdate({ force: true, deliver: !(typeof args.deliver === "string" && args.deliver === "false") });
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always

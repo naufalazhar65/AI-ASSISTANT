@@ -37,6 +37,8 @@ Discord gotcha (2026-09-03): a first-ever **DM** arrives as a bare packet that d
   - `npx tsx packages/state-machine/verify.ts`
   - `npx tsx apps/web/verify.ts`
 
+**HABIT (wajib):** setelah selesai mengerjakan fitur/perubahan apa pun, ALWAYS restart server sebelum report: `pkill -f "next dev"; rm -rf apps/web/.next; nohup npm run dev -w @voice/web > /tmp/mia-dev.log 2>&1 &` lalu cek `curl -s -m 10 http://localhost:3000/api/health` (harus `{"ok":true}`) — kode baru baru aktif setelah restart (server-side module cache).
+
 ## Provider
 
 - Registered in `apps/web/src/lib/providers.ts` (`PROVIDER_SPECS` = public metadata; `resolveProvider` = server-only env mapping; **this module is client-imported for the Settings UI — never add node built-ins here**; server-only key sources live in `serverKeys.ts`).

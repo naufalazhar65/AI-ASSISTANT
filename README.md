@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-154-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-156-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 ---
@@ -75,7 +75,7 @@ flowchart LR
 
 ---
 
-## 🛠️ Tools — 154 total
+## 🛠️ Tools — 156 total
 
 | Category | Tools | Notes |
 |----------|-------|-------|
@@ -97,6 +97,7 @@ flowchart LR
 | **Travel** | `waze_route`, `weather`, `hotel_search` | Waze Direct + wttr.in + Booking.com (free, no key) |
 | **Media** | `spotify_*` (8), `mala`, `game_*`, `hari_libur`, `recap`, `weekly_insight` | Premium for playback, deterministic mala |
 | **Ops** | `git_status/commit`, `safe_exec_list`, `evolver_status/review`, `freeride_status/list/auto/switch/refresh/rotate/watcher`, `learnings_*`, `send_channel` | SafeExec, freeride fallback chain `429→next`, watcher `60s` |
+| **Self-Update** | `auto_update_status`, `auto_update` | **Auto-Update Mia** mandiri: daily 04:00 WIB `git pull --ff-only` + `npm install` + gates `typecheck/test/verify` + push ringkasan + restart; `auto_update` = konfirmasi |
 
 > **Risk:** `read` = auto-run, `write/delete` = inline `ya/tidak` (FR-014) — except `spotify_play` (immediate).
 
@@ -107,6 +108,7 @@ flowchart LR
 ```
 apps/web/.data/users/<user>/   # per-user: notes, reminders, tasks, moods, spotify, memory/YYYY-MM-DD.md
 .data/freeride/                # freeride cache + primary/fallbacks
+.data/auto-updater/            # daily self-update state (last run, history, lock)
 .data/summarize-pro/           # history/saved/templates + stats
 .data/humanizer/               # history/settings 24-pattern
 .brv/context-tree/              # ByteRover 19 commits (VC git, not main)
@@ -124,6 +126,7 @@ Global `.data/` is gitignored + backed up (`POST /backup`, keeps 5).
 - `automations.ts` — `create_automation` (`setiap pagi jam 8`)
 - `heartbeat.ts` `30m` — overdue/due-soon + monitor `battery ≤ / storage ≥`
 - `freerideWatcher.ts` `60s` — probe `openrouter` primary, auto `rotate` on `429`
+- `autoUpdater.ts` daily `04:00` WIB — self-update `git pull` + `npm install` + gates + push + restart
 - `webhook` `POST /api/webhook` (`WEBHOOK_SECRET`)
 
 All started in `instrumentation-node.ts`.
@@ -135,7 +138,7 @@ All started in `instrumentation-node.ts`.
 ```
 apps/web              Next.js 15 (UI, hooks, audio, persona, /api/*)
   src/ai              ConversationManager, GroqStreamingProvider, VAD
-  src/lib             tools, agent, providers, persona, autoMemory, byterover, summarizePro, humanizer, freeride, ...
+  src/lib             tools, agent, providers, persona, autoMemory, byterover, summarizePro, humanizer, freeride, autoUpdater, ...
   src/channels        telegram.ts, discord.ts, pushTarget.ts
   persona/            IDENTITY.md, SOUL.md, USER.md, DREAMS.md
 packages/state-machine  Explicit state machine

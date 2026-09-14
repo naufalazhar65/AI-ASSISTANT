@@ -127,4 +127,11 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Lib** `freeride.ts` — fetch `openrouter.ai/api/v1/models` free `pricing 0`, ranking `qwen/nemotron/deepseek/context_length`, cache 6h `.data/freeride/cache.json`, config `.data/freeride/config.json` `primary + 5 fallbacks` (`openrouter/free` first), atomic, `15s` timeout
 - **Agent** — `runAgent` loop `freerideChain` on `429/rate_limit/quota` (`300ms` backoff, warn), `freerideGetConfig` — `9router` tetap weekly-unlimited, OpenRouter key dari `.env.local` (`sk-or-v1-...`)
 - **Watcher** `freerideWatcher.ts` — `30s warmup + 60s` `freerideWatcherOnce` probe `openrouter` `8s`, auto `rotate` — wired `instrumentation-node.ts` bareng `heartbeat`
-- **Tools 7** — `freeride_status/list` (read), `freeride_auto/switch/refresh/rotate/watcher` (write/read) — total `154` tools, no collision
+- **Tools 7** — `freeride_status/list` (read), `freeride_auto/switch/refresh/rotate/watcher` (write/read) — total `156` tools, no collision
+
+## 18. Auto-Update Mia (2026-09-14, mandiri daily self-update)
+
+- **Lib** `autoUpdater.ts` — siklus penuh: cek worktree dirty → `git pull --ff-only` → `npm install` → gates `typecheck`+`test`(+`verify`) → push ringkasan `pushToOwner` (Telegram+Discord) → restart server otomatis. State atomic `.data/auto-updater/state.json` (riwayat cap 10, lock anti-double-run, dedup sekali/hari via `lastRunDate` Asia/Jakarta). Mandiri total, nol `.openclaw`/Clawdbot.
+- **Scheduler** `startAutoUpdater()` — wired `instrumentation-node.ts` bareng `heartbeat`/`freerideWatcher`; cek tiap `AUTO_UPDATE_TICK_MIN` (5m) + sekali 90s setelah boot (bisa remediate kalau server mulai lewat jam window). Restart tertunda 8s via detached `bash` (definisi path konstan, aman; skip di test/verify).
+- **Tools 2** — `auto_update_status` (read, auto — jadwal + last run + hasil gates + riwayat), `auto_update` (write, confirm — "update mia dong" → jalankan sekarang). Confirm-split & tool list prompt disinkron di `agent.ts` (semua channel lewat `buildSystemPrompt` tunggal).
+- **Knobs env** (`.env.example`) — `AUTO_UPDATE_ENABLED/HOUR(4)/GRACE_MIN(120)/TICK_MIN(5)/REMOTE(origin)/BRANCH(main)/NPM(1)/VERIFY(1)/RESTART(1)/DELIVER(1)/TIMEOUT_MS(600000)`. Gate merah → update ditolak + saran `git reset --hard <before>`; worktree kotor → di-skip aman.

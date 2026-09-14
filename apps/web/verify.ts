@@ -1,6 +1,7 @@
 import { ConversationManager } from "./src/ai/ConversationManager";
 import { MockProvider } from "@ai-provider/mock";
-import { executeTool } from "./src/lib/tools";
+import { executeTool, getTOOLS } from "./src/lib/tools";
+import { autoUpdateStatus, runAutoUpdate, runAutoUpdaterTick } from "./src/lib/autoUpdater";
 import { resolveInSandbox, appRoot, userDataRoot } from "./src/lib/users";
 import {
   addLibraryEntry,
@@ -1265,6 +1266,42 @@ async function main() {
   console.log(
     `anti-repetition variety: OK (${Object.keys(dedicatedPools).length - 1} pools renewed day-by-day, link-saved rotates + keeps "daftar bacaan")`
   );
+
+  // ── auto-updater (mandiri daily self-update, no .openclaw/Clawdbot) ──
+  {
+    const tools = getTOOLS().map((t) => t.function.name);
+    if (!tools.includes("auto_update_status") || !tools.includes("auto_update")) {
+      throw new Error("auto_updater tools not registered");
+    }
+    const st = autoUpdateStatus();
+    if (!st.includes("Auto-Update Mia") || !st.includes("Jadwal") || !st.includes("Last run")) {
+      throw new Error(`autoUpdateStatus missing fields: ${st.slice(0, 80)}`);
+    }
+    // Disabled path must short-circuit deterministically (no git/network side effects).
+    const realEnabled = process.env.AUTO_UPDATE_ENABLED;
+    process.env.AUTO_UPDATE_ENABLED = "0";
+    try {
+      const out = await runAutoUpdate({ deliver: false });
+      if (!out.includes("disabled")) throw new Error(`expected disabled, got: ${out.slice(0, 60)}`);
+    } finally {
+      if (realEnabled === undefined) delete process.env.AUTO_UPDATE_ENABLED;
+      else process.env.AUTO_UPDATE_ENABLED = realEnabled;
+    }
+    // Schedule window: tick when clearly OUTSIDE the daily window must be a no-op
+    // (never triggers an update). Pick hour = next hour (never the current minute).
+    const jkHour = Number(
+      new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", hour: "2-digit", hour12: false }).format(new Date())
+    );
+    process.env.AUTO_UPDATE_HOUR = String((jkHour + 1) % 24);
+    process.env.AUTO_UPDATE_GRACE_MIN = "0";
+    try {
+      await runAutoUpdaterTick();
+    } finally {
+      delete process.env.AUTO_UPDATE_HOUR;
+      delete process.env.AUTO_UPDATE_GRACE_MIN;
+    }
+    console.log("auto-updater: OK (tools registered, status fields, disabled short-circuit, tick no-op out-of-hours)");
+  }
 }
 
 main().catch((err) => {

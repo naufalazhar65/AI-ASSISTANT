@@ -57,6 +57,7 @@ export const PROVIDER_SPECS: ProviderSpec[] = [
       { id: "kimi-k3", label: "Kimi K3" },
       { id: "kimi-k2.7-code", label: "Kimi K2.7 Code" },
       { id: "kimi-k2.6", label: "Kimi K2.6" },
+      { id: "deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" },
       { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
       { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
       { id: "deepseek-v4-flash-vision-exp", label: "DeepSeek V4 Flash Vision" },
