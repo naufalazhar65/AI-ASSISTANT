@@ -830,7 +830,7 @@ async function runAgent(
   // Note: NOT wrapped in `if (round < MAX_TOOL_ROUNDS)` — the accumulated tool
   // results must always land in `messages` so the forced final completion below
   // can answer from them (never throw a raw "too many tool rounds" 502).
-  const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news","hotel_search","cinema_showtimes","train_search","bus_search"]);
+  const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news","hotel_search","cinema_showtimes","train_search","bus_search","hardening_plan","finding_list","dep_audit"]);
   const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
   // A confirmation continuation is answering an ACTION, not a list request —
   // never take the verbatim fast-path there, or a follow-up list_* would mask
