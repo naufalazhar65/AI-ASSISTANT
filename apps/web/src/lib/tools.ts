@@ -388,7 +388,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "exec",
         description:
-          "Run a read-only shell command in a project and return its output. Only safe inspection commands are allowed (git status/log/diff/branch, ls, pwd, cat, node --version, npm ls, df, ps, pgrep, netstat, and lsof restricted to network queries e.g. 'lsof -iTCP -sTCP:LISTEN -P -n'); anything else is rejected. Use cwd (a path relative to the repo root, e.g. '..' is not allowed; to inspect another allowed workspace pass its folder name) to choose the directory; default is the repo root.",
+          "Run a read-only shell command in a project and return its output. Only safe inspection commands are allowed: git status/log/diff/branch/remote/tag/blame/… ; ls, pwd, cat, head, tail, wc, du, stat, file, which, sort, uniq, cut, tr, jq; system info (whoami, id, hostname, uname, sw_vers, date, uptime, w, sysctl, vm_stat, mount); df, ps, pgrep, netstat, ifconfig, arp; docker ps|images|version|info; and lsof restricted to network queries (e.g. 'lsof -iTCP -sTCP:LISTEN -P -n'). Anything else (env, curl, sed -i, rm, git push, chained commands) is rejected — use exec_write for mutating commands (asks confirmation). Use cwd (a path relative to the repo root; to inspect another allowed workspace pass its folder name) to choose the directory; default is the repo root.",
         parameters: {
           type: "object",
           properties: {
@@ -4097,22 +4097,58 @@ const EXEC_WRITE_TIMEOUT_MS = 150000;
  *  read-only subcommands. Anything else is rejected. */
 const EXEC_ALLOWLIST: Record<
   string,
-  { subcommand?: string[]; maxArgs: number; requireArgPrefix?: string }
+  { subcommand?: string[]; maxArgs: number; requireArgPrefix?: string; forbidArg?: string[] }
 > = {
-  git: { subcommand: ["status", "log", "diff", "branch", "ls-files", "show", "rev-parse", "--version"], maxArgs: 4 },
+  // VCS / repo
+  git: {
+    subcommand: ["status", "log", "diff", "branch", "ls-files", "show", "rev-parse", "remote", "tag", "shortlog", "describe", "blame", "reflog", "worktree", "config", "--version"],
+    maxArgs: 4,
+  },
+  // filesystem read
   ls: { maxArgs: 4 },
   pwd: { maxArgs: 0 },
   cat: { maxArgs: 4 },
+  head: { maxArgs: 4 },
+  tail: { maxArgs: 4, forbidArg: ["-f", "-F"] },
+  wc: { maxArgs: 4 },
+  du: { maxArgs: 3 },
+  stat: { maxArgs: 3 },
+  file: { maxArgs: 3 },
+  which: { maxArgs: 3 },
+  realpath: { maxArgs: 2 },
+  basename: { maxArgs: 2 },
+  dirname: { maxArgs: 2 },
+  sort: { maxArgs: 3 },
+  uniq: { maxArgs: 3 },
+  cut: { maxArgs: 4 },
+  tr: { maxArgs: 3 },
+  jq: { maxArgs: 4 },
+  // system info
+  whoami: { maxArgs: 0 },
+  id: { maxArgs: 1 },
+  hostname: { maxArgs: 1 },
+  uname: { maxArgs: 2 },
+  sw_vers: { maxArgs: 1 },
+  arch: { maxArgs: 0 },
+  date: { maxArgs: 2 },
+  uptime: { maxArgs: 1 },
+  w: { maxArgs: 1 },
+  sysctl: { maxArgs: 3, forbidArg: ["-w"] },
+  vm_stat: { maxArgs: 1 },
+  mount: { maxArgs: 2 },
+  // runtimes
   node: { subcommand: ["--version", "-v"], maxArgs: 2 },
   npm: { subcommand: ["ls", "--version"], maxArgs: 3 },
+  // network / process inspection (read-only)
   df: { maxArgs: 2 },
-  // Read-only process/network inspection (e.g. "cek server apa yang jalan").
   ps: { maxArgs: 4 },
   pgrep: { maxArgs: 3 },
-  netstat: { maxArgs: 4 },
-  // lsof with no args dumps every open file (info leak) — restrict it to
-  // network queries ("lsof -iTCP -sTCP:LISTEN -P -n").
+  netstat: { maxArgs: 4, forbidArg: ["-w"] },
+  ifconfig: { maxArgs: 3 },
+  arp: { maxArgs: 3, forbidArg: ["-d", "-s"] },
   lsof: { maxArgs: 6, requireArgPrefix: "-i" },
+  // containers (read-only subcommands)
+  docker: { subcommand: ["ps", "images", "version", "info"], maxArgs: 4 },
 };
 /** Args that are never allowed, even for an allowlisted base command. */
 const EXEC_FORBIDDEN_ARG = ["--", "-a", "--all", "..", "~", ";", "&&", "|", ">", "<", "$(", "`"];
@@ -4171,6 +4207,10 @@ function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
     }
     if (spec.requireArgPrefix && !args.some((a) => a.startsWith(spec.requireArgPrefix!))) {
       rejectPromise(new Error(`"${cmd}" read-only only allows network queries, e.g. \`${cmd} ${spec.requireArgPrefix}TCP -sTCP:LISTEN -P -n\``));
+      return;
+    }
+    if (spec.forbidArg && args.some((a) => spec.forbidArg!.includes(a))) {
+      rejectPromise(new Error(`argument not allowed for "${cmd}" read-only (blocked: ${spec.forbidArg.join(", ")})`));
       return;
     }
     // Refuse reading sensitive/dir-heavy targets (mirrors file_read deny-list).

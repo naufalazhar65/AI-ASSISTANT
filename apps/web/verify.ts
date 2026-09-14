@@ -419,6 +419,12 @@ async function main() {
   if (!lsofBare.startsWith("Error:")) throw new Error("exec bare lsof must be blocked");
   const psOk = await ex("ps aux");
   if (psOk.startsWith("Error:")) throw new Error(`exec ps blocked: ${psOk}`);
+  const whoOk = await ex("whoami");
+  if (whoOk.startsWith("Error:")) throw new Error(`exec whoami blocked: ${whoOk}`);
+  for (const [bad2, why2] of [["env", "env leaks secrets"], ["tail -f package.json", "tail -f hangs"], ["sysctl -w x=1", "sysctl -w writes"], ["sed -i s/a/b/ package.json", "sed -i writes"] ] as const) {
+    const r2 = await ex(bad2);
+    if (!r2.startsWith("Error:")) throw new Error(`exec not guarded (${why2}): ${bad2}`);
+  }
   console.log("exec: OK");
 
   // --- write_file / edit_file (sandboxed, requires write, but executeTool bypasses confirmation) ---
