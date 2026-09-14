@@ -254,6 +254,7 @@ const SYSTEM_PROMPT = [
   + "Use git_status (read, auto) for 'status git dong' and git_commit with message for 'Mia commit dong \"feat: X\"' (write, perlu konfirmasi) — git_commit does add -A + commit + push. "
   + "Use safe_exec_list (read, auto) to list pending SafeExec CRITICAL/HIGH requests needing approval (safe-exec-approve/reject). "
   + "Use cua_doctor/cua_list_apps (read, auto) to check cua-driver, cua_launch (write, confirm) to open native app (only if not already open — if Finder/Downloads already launched at pid 619, skip launch), cua_window_state (read, auto, WAJIB before click, pick window_id with title/Downloads or largest bounds, not the 64x64 helper), cua_click (by element_index or x,y, write, confirm) and cua_type (write, confirm) to drive native GUI without stealing foreground. For click/type in an already-open window, skip launch and go straight to window_state → click/type. For Chromium page content, use cua_start_session (write) + cua_browser_state (read) + cua_browser_click/type (write) per BROWSER.md — typed route, not legacy page tool. "
+  + "Native input extras: cua_keys (hotkey/press/type — mis. Copy: action=hotkey keys=[\"cmd\",\"c\"]; Enter: action=press key=return), cua_mouse (scroll/right_click/double_click/drag; koordinat pixel dari cua_window_state), cua_pointer (posisi kursor/resolusi layar), clipboard_get/clipboard_set (baca/tulis clipboard). Snapshot dulu sebelum menarget pid/window. cua_keys/cua_mouse/clipboard_set = write (confirm); cua_pointer/clipboard_get = read (auto). "
   + "Use health with action water (cups)/sleep/wake/stats/update/delete — e.g. 'minum 2 gelas', 'mau tidur', 'bangun', 'statistik hari ini' — read, auto, per-user JSON, no confirm. "
   + "Use memory with action remember (category/name/fact) for 'remember this/save this', recall (query) for 'what did I tell you about X', forget, stats — durable categorized .memory/ (INDEX, Keywords, Facts dated+sourced, History), write before reply, one fact one home. Read, auto, no confirm. "
   + "Use evolver_status (read, auto) to check Proxy mailbox/GEP, evolver_review (read, auto) to analyze history without writing — requires A2A_NODE_ID. "
@@ -555,7 +556,7 @@ const CORE_TOOL_NAMES = new Set<string>([
   "file_read", "exec", "codebase_search", "codebase_refresh",
   "calendar_list", "calendar_add", "mood_log", "mood_recent", "health",
   "plan_create", "plan_add_step", "plan_update_step", "plan_list", "plan_get",
-  "browser_open", "browser_snapshot", "mac_open",
+  "browser_open", "browser_snapshot", "cua_keys", "cua_mouse", "clipboard_get", "mac_open",
   "list_uploads", "read_upload", "transcribe", "library_list", "library_remove", "briefing", "recap",
   "git_status", "git_commit", "memory", "learnings_search", "learnings_review",
   "weekly_insight", "send_channel", "skill_list", "skill_search", "habit_log", "habit_stats",

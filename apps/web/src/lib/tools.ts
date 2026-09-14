@@ -2806,6 +2806,171 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
+      risk: "write",
+      function: {
+        name: "cua_keys",
+        description:
+          "Keyboard native (whichever app is targeted): action='hotkey' (keys: array mis. ['cmd','c'] untuk copy, ['cmd','shift','4'] screenshot), action='press' (key tunggal: return/tab/escape/up/down/left/right/space/delete/home/end/pageup/pagedown/f1-f12/huruf/angka; opsional modifiers), atau action='type' (text). WAJIB snapshot (cua_window_state) dulu bila menargetkan pid/window_id. Write, confirm.",
+        parameters: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["hotkey", "press", "type"], description: "Aksi keyboard" },
+            keys: { type: "array", description: "Untuk hotkey, mis. ['cmd','c']" },
+            key: { type: "string", description: "Untuk press, mis. 'return'/'tab'/'up'" },
+            modifiers: { type: "array", description: "Modifier opsional untuk press, mis. ['cmd','shift']" },
+            text: { type: "string", description: "Untuk type" },
+            pid: { type: "number", description: "PID app target (opsional)" },
+            window_id: { type: "number", description: "Window id target (opsional)" },
+            delivery_mode: { type: "string", enum: ["background", "foreground"], description: "foreground untuk shortcut menu non-Chromium" },
+          },
+          required: ["action"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { cuaHotkey, cuaPressKey, cuaType } = await import("./cua");
+        const opts = { pid: typeof args.pid === "number" ? args.pid : undefined, windowId: typeof args.window_id === "number" ? args.window_id : undefined, deliveryMode: args.delivery_mode === "foreground" ? ("foreground" as const) : args.delivery_mode === "background" ? ("background" as const) : undefined };
+        const action = String(args.action || "");
+        if (action === "hotkey") {
+          const keys = Array.isArray(args.keys) ? args.keys.map(String) : [];
+          if (!keys.length) return "Error: `keys` wajib untuk hotkey (mis. ['cmd','c']).";
+          return cuaHotkey(keys, opts);
+        }
+        if (action === "press") {
+          const key = String(args.key || "");
+          if (!key) return "Error: `key` wajib untuk press.";
+          const modifiers = Array.isArray(args.modifiers) ? args.modifiers.map(String) : undefined;
+          return cuaPressKey(key, modifiers, opts);
+        }
+        if (action === "type") {
+          if (!opts.pid || !opts.windowId) return "Error: `type` butuh pid + window_id (snapshot cua_window_state dulu).";
+          return cuaType(opts.pid, opts.windowId, String(args.text || ""));
+        }
+        return "Error: action harus 'hotkey' | 'press' | 'type'.";
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "cua_keys failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "cua_mouse",
+        description:
+          "Mouse native: action='scroll' (direction up/down/left/right, amount 1-50, by line/page), 'right_click' (x,y atau element_index+window_id+pid), 'double_click' (x,y), 'drag' (from_x,from_y,to_x,to_y dalam pixel window; duration_ms opsional). Koordinat dari cua_window_state. Write, confirm.",
+        parameters: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["scroll", "right_click", "double_click", "drag"], description: "Aksi mouse" },
+            direction: { type: "string", enum: ["up", "down", "left", "right"], description: "Untuk scroll" },
+            amount: { type: "number", description: "Untuk scroll (1-50, default 3)" },
+            by: { type: "string", enum: ["line", "page"], description: "Granularitas scroll" },
+            pid: { type: "number" },
+            window_id: { type: "number" },
+            element_index: { type: "number", description: "Untuk right_click AX (butuh window_id+pid)" },
+            x: { type: "number" },
+            y: { type: "number" },
+            from_x: { type: "number" },
+            from_y: { type: "number" },
+            to_x: { type: "number" },
+            to_y: { type: "number" },
+            duration_ms: { type: "number", description: "Durasi drag (default 500)" },
+          },
+          required: ["action"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { cuaScroll, cuaRightClick, cuaDoubleClick, cuaDrag } = await import("./cua");
+        const action = String(args.action || "");
+        if (action === "scroll") {
+          const dir = args.direction;
+          if (dir !== "up" && dir !== "down" && dir !== "left" && dir !== "right") return "Error: `direction` wajib untuk scroll (up/down/left/right).";
+          return cuaScroll({ pid: typeof args.pid === "number" ? args.pid : undefined, windowId: typeof args.window_id === "number" ? args.window_id : undefined, direction: dir, amount: typeof args.amount === "number" ? args.amount : undefined, by: args.by === "page" ? "page" : args.by === "line" ? "line" : undefined });
+        }
+        if (action === "right_click") {
+          if (typeof args.pid !== "number") return "Error: right_click butuh pid (atau element_index).";
+          return cuaRightClick({ pid: args.pid, windowId: typeof args.window_id === "number" ? args.window_id : undefined, elementIndex: typeof args.element_index === "number" ? args.element_index : undefined, x: typeof args.x === "number" ? args.x : undefined, y: typeof args.y === "number" ? args.y : undefined });
+        }
+        if (action === "double_click") {
+          return cuaDoubleClick({ pid: typeof args.pid === "number" ? args.pid : undefined, windowId: typeof args.window_id === "number" ? args.window_id : undefined, elementIndex: typeof args.element_index === "number" ? args.element_index : undefined, x: typeof args.x === "number" ? args.x : undefined, y: typeof args.y === "number" ? args.y : undefined });
+        }
+        if (action === "drag") {
+          if ([args.from_x, args.from_y, args.to_x, args.to_y].some((v) => typeof v !== "number")) return "Error: drag butuh from_x,from_y,to_x,to_y.";
+          return cuaDrag({ fromX: args.from_x as number, fromY: args.from_y as number, toX: args.to_x as number, toY: args.to_y as number, pid: typeof args.pid === "number" ? args.pid : undefined, windowId: typeof args.window_id === "number" ? args.window_id : undefined, durationMs: typeof args.duration_ms === "number" ? args.duration_ms : undefined });
+        }
+        return "Error: action harus 'scroll' | 'right_click' | 'double_click' | 'drag'.";
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "cua_mouse failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "cua_pointer",
+        description: "Info pointer/layar: action='position' (posisi kursor) atau 'screen_size' (resolusi). Read, auto.",
+        parameters: { type: "object", properties: { action: { type: "string", enum: ["position", "screen_size"] } }, required: ["action"] },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { cuaCursorPosition, cuaScreenSize } = await import("./cua");
+        return String(args.action) === "screen_size" ? await cuaScreenSize() : await cuaCursorPosition();
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "cua_pointer failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "clipboard_get",
+        description: "Baca isi clipboard (teks). Read, auto. Pakai saat user minta 'paste'/'baca clipboard'.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      try {
+        const { clipboardReadText } = await import("./cua");
+        return await clipboardReadText();
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "clipboard_get failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "clipboard_set",
+        description: "Tulis teks ke clipboard. Write, confirm. Pakai sebelum paste (mis. isi form).",
+        parameters: { type: "object", properties: { text: { type: "string", description: "Teks untuk clipboard" } }, required: ["text"] },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { clipboardWriteText } = await import("./cua");
+        const text = typeof args.text === "string" ? args.text : "";
+        if (!text) return "Error: `text` wajib.";
+        return await clipboardWriteText(text);
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "clipboard_set failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
       risk: "read",
       function: {
         name: "health",

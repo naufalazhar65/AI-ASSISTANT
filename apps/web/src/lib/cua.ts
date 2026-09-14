@@ -115,3 +115,93 @@ export async function cuaBrowserNavigate(targetId: string, tabId: string, url: s
   await ensureServe();
   return run("browser_navigate", { target_id: targetId, tab_id: tabId, url, session });
 }
+
+// ── Keyboard / mouse / screen / clipboard extras (cua-driver native tools) ──
+export type CuaInputOpts = { pid?: number; windowId?: number; deliveryMode?: "background" | "foreground" };
+
+export async function cuaHotkey(keys: string[], opts: CuaInputOpts = {}): Promise<string> {
+  await ensureServe();
+  const args: Record<string, unknown> = { keys };
+  if (opts.pid) args.pid = opts.pid;
+  if (opts.windowId) args.window_id = opts.windowId;
+  if (opts.deliveryMode) args.delivery_mode = opts.deliveryMode;
+  return run("hotkey", args);
+}
+
+export async function cuaPressKey(key: string, modifiers: string[] | undefined, opts: CuaInputOpts = {}): Promise<string> {
+  await ensureServe();
+  const args: Record<string, unknown> = { key };
+  if (modifiers?.length) args.modifiers = modifiers;
+  if (opts.pid) args.pid = opts.pid;
+  if (opts.windowId) args.window_id = opts.windowId;
+  if (opts.deliveryMode) args.delivery_mode = opts.deliveryMode;
+  return run("press_key", args);
+}
+
+export async function cuaScroll(args: { pid?: number; windowId?: number; direction: "up" | "down" | "left" | "right"; amount?: number; by?: "line" | "page" }): Promise<string> {
+  await ensureServe();
+  const a: Record<string, unknown> = { direction: args.direction };
+  if (args.pid) a.pid = args.pid;
+  if (args.windowId) a.window_id = args.windowId;
+  if (args.amount) a.amount = args.amount;
+  if (args.by) a.by = args.by;
+  return run("scroll", a);
+}
+
+export async function cuaRightClick(args: { pid: number; windowId?: number; elementIndex?: number; x?: number; y?: number }): Promise<string> {
+  await ensureServe();
+  const a: Record<string, unknown> = { pid: args.pid };
+  if (args.elementIndex !== undefined) {
+    a.element_index = args.elementIndex;
+    if (args.windowId) a.window_id = args.windowId;
+  } else {
+    a.x = args.x;
+    a.y = args.y;
+  }
+  return run("right_click", a);
+}
+
+export async function cuaDoubleClick(args: { pid?: number; windowId?: number; elementIndex?: number; x?: number; y?: number }): Promise<string> {
+  await ensureServe();
+  const a: Record<string, unknown> = {};
+  if (args.pid) a.pid = args.pid;
+  if (args.elementIndex !== undefined) {
+    a.element_index = args.elementIndex;
+    if (args.windowId) a.window_id = args.windowId;
+  } else {
+    a.x = args.x;
+    a.y = args.y;
+  }
+  return run("double_click", a);
+}
+
+export async function cuaDrag(args: { fromX: number; fromY: number; toX: number; toY: number; pid?: number; windowId?: number; durationMs?: number; steps?: number; button?: "left" | "right" | "middle" }): Promise<string> {
+  await ensureServe();
+  const a: Record<string, unknown> = { from_x: args.fromX, from_y: args.fromY, to_x: args.toX, to_y: args.toY };
+  if (args.pid) a.pid = args.pid;
+  if (args.windowId) a.window_id = args.windowId;
+  if (args.durationMs) a.duration_ms = args.durationMs;
+  if (args.steps) a.steps = args.steps;
+  if (args.button) a.button = args.button;
+  return run("drag", a);
+}
+
+export async function cuaCursorPosition(): Promise<string> {
+  await ensureServe();
+  return run("get_cursor_position", {});
+}
+
+export async function cuaScreenSize(): Promise<string> {
+  await ensureServe();
+  return run("get_screen_size", {});
+}
+
+export async function clipboardReadText(): Promise<string> {
+  await ensureServe();
+  return run("clipboard_read", { include_text: true });
+}
+
+export async function clipboardWriteText(text: string): Promise<string> {
+  await ensureServe();
+  return run("clipboard_write", { text });
+}
