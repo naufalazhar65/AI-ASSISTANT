@@ -454,7 +454,7 @@ async function main() {
   {
     const { isLabTarget, addFinding, listFindingsText, generateReport } = await import("./src/lib/security");
     if (isLabTarget("8.8.8.8") || isLabTarget("google.com") || isLabTarget("http://203.0.113.5")) throw new Error("isLabTarget allowed a public target");
-    for (const okT of ["http://localhost:3001", "127.0.0.1", "192.168.1.10:8081", "10.0.0.5", "172.16.0.9"]) {
+    for (const okT of ["http://localhost:3001", "127.0.0.1", "192.168.1.10:8081", "10.0.0.5", "172.16.0.9", "scanme.nmap.org", "testphp.vulnweb.com"]) {
       if (!isLabTarget(okT)) throw new Error(`isLabTarget rejected lab target ${okT}`);
     }
     const u = "verify_pentest_user";

@@ -190,6 +190,11 @@ export function pentestResources(): string {
     "",
     "SCOPE: hanya target sendiri / berizin tertulis. Active scan hanya ke localhost/lab ini.",
     "⛔ Demo publik pihak ketiga (mis. itsecgames.com / bWAPP online) BUKAN target — jangan discan; jalankan bWAPP lokal sebagai gantinya.",
+    "",
+    "Target PUBLIK yang eksplisit MENGIZINKAN diuji (ikuti aturan + rate-limit):",
+    "• scanme.nmap.org — resmi boleh di-nmap (Nmap Project)",
+    "• testphp.vulnweb.com — demo Acunetix untuk uji scanner",
+    "Selain itu: hanya host milikmu (set PENTEST_LAB_TARGETS=host setelah kamu punya izin).",
   ].join("\n");
 }
 
@@ -204,9 +209,19 @@ const PENTEST_TOOLS: Record<string, { bin: string; formula: string; args: (t: st
 };
 
 /**
- * True only for localhost / RFC1918 private / link-local, or an exact host in
- * the PENTEST_LAB_TARGETS env (comma-separated). Everything public is refused —
- * active scans are for the owner's own lab/authorized assets only.
+ * Public hosts that EXPLICITLY permit security testing (follow their rules +
+ * rate-limit). Kept deliberately tiny & well-known; everything else public is
+ * refused.
+ */
+const SCAN_PERMITTED_HOSTS = new Set<string>([
+  "scanme.nmap.org", // Nmap Project — explicitly authorizes Nmap scans
+  "testphp.vulnweb.com", // Acunetix demo — intended for scanner testing
+]);
+
+/**
+ * True only for localhost / RFC1918 private / link-local, an explicitly
+ * scan-permitted public host, or an exact host in the PENTEST_LAB_TARGETS env.
+ * Everything else public is refused.
  */
 export function isLabTarget(raw: string): boolean {
   const t = (raw || "").trim().replace(/^[a-z]+:\/\//i, "");
@@ -215,6 +230,7 @@ export function isLabTarget(raw: string): boolean {
   const host = hostport.replace(/^\[/, "").replace(/\].*$/, "").split(":")[0];
   const envTargets = (process.env.PENTEST_LAB_TARGETS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
   if (envTargets.includes(host) || envTargets.includes(hostport)) return true;
+  if (SCAN_PERMITTED_HOSTS.has(host)) return true;
   if (["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(host)) return true;
   if (/^10\./.test(host) || /^192\.168\./.test(host)) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
