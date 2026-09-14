@@ -451,6 +451,20 @@ async function main() {
     }
     if (!/SCOPE:/.test(pr) || !/melarang otomasi|JANGAN diautomasi/.test(pr)) throw new Error("pentest_resources missing scope/ToS note");
     console.log("pentest_resources (platforms + local lab + scope): OK");
+  {
+    const { isLabTarget, addFinding, listFindingsText, generateReport } = await import("./src/lib/security");
+    if (isLabTarget("8.8.8.8") || isLabTarget("google.com") || isLabTarget("http://203.0.113.5")) throw new Error("isLabTarget allowed a public target");
+    for (const okT of ["http://localhost:3001", "127.0.0.1", "192.168.1.10:8081", "10.0.0.5", "172.16.0.9"]) {
+      if (!isLabTarget(okT)) throw new Error(`isLabTarget rejected lab target ${okT}`);
+    }
+    const u = "verify_pentest_user";
+    addFinding(u, { title: "Reflected XSS", severity: "high", target: "http://localhost:3001", evidence: "?q=<script>", impact: "session theft", remediation: "encode output" });
+    if (!/Reflected XSS/.test(listFindingsText(u))) throw new Error("finding_list missing entry");
+    const rep = generateReport(u);
+    if (!/Laporan Pentest/.test(rep) || !/HIGH/.test(rep)) throw new Error("report_generate malformed");
+    rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
+    console.log("pentest scope guard + findings/report: OK");
+  }
   }
   }
 

@@ -9,10 +9,10 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { connect as tlsConnect } from "node:tls";
-import { extname, join, relative } from "node:path";
-import { resolveInSandbox, repoRoot } from "./users";
+import { dirname, extname, join, relative } from "node:path";
+import { resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
@@ -189,4 +189,146 @@ export function pentestResources(): string {
     "",
     "SCOPE: hanya target sendiri / berizin tertulis. Active scan hanya ke localhost/lab ini.",
   ].join("\n");
+}
+
+// ── Guarded pentest scanning (OWN lab / authorized targets only) ─────────────
+
+const PENTEST_TOOLS: Record<string, { bin: string; formula: string; args: (t: string, wordlist: string) => string[] }> = {
+  nmap: { bin: "nmap", formula: "nmap", args: (t) => ["-sV", "-T4", "-Pn", t] },
+  nuclei: { bin: "nuclei", formula: "nuclei", args: (t) => ["-u", t, "-silent", "-no-color"] },
+  whatweb: { bin: "whatweb", formula: "whatweb", args: (t) => [t] },
+  nikto: { bin: "nikto", formula: "nikto", args: (t) => ["-h", t] },
+  ffuf: { bin: "ffuf", formula: "ffuf", args: (t, w) => ["-u", t.includes("FUZZ") ? t : `${t.replace(/\/$/, "")}/FUZZ`, "-w", w, "-s"] },
+};
+
+/**
+ * True only for localhost / RFC1918 private / link-local, or an exact host in
+ * the PENTEST_LAB_TARGETS env (comma-separated). Everything public is refused —
+ * active scans are for the owner's own lab/authorized assets only.
+ */
+export function isLabTarget(raw: string): boolean {
+  const t = (raw || "").trim().replace(/^[a-z]+:\/\//i, "");
+  if (!t) return false;
+  const hostport = t.split("/")[0].toLowerCase();
+  const host = hostport.replace(/^\[/, "").replace(/\].*$/, "").split(":")[0];
+  const envTargets = (process.env.PENTEST_LAB_TARGETS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  if (envTargets.includes(host) || envTargets.includes(hostport)) return true;
+  if (["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(host)) return true;
+  if (/^10\./.test(host) || /^192\.168\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  return false;
+}
+
+export function pentestToolsList(): string {
+  return Object.keys(PENTEST_TOOLS).join(", ");
+}
+
+/** Run one allowlisted pentest tool against a validated local/lab target. */
+export function pentestScan(opts: { tool: string; target: string; wordlist?: string }): Promise<string> {
+  const spec = PENTEST_TOOLS[opts.tool];
+  if (!spec) return Promise.reject(new Error(`tool "${opts.tool}" tidak didukung (pilih: ${pentestToolsList()})`));
+  const target = (opts.target || "").trim();
+  if (!target) return Promise.reject(new Error("target wajib diisi"));
+  if (!isLabTarget(target)) {
+    return Promise.reject(new Error("SCOPE: hanya localhost/lab/aset berizin. Untuk host lain, set PENTEST_LAB_TARGETS setelah kamu punya izin tertulis."));
+  }
+  let wordlist = "";
+  if (opts.tool === "ffuf") {
+    if (!opts.wordlist) return Promise.reject(new Error("ffuf butuh `wordlist` (path di sandbox)"));
+    const wl = resolveInSandbox(opts.wordlist);
+    if (!wl) return Promise.reject(new Error("wordlist di luar sandbox"));
+    wordlist = wl;
+  }
+  const args = spec.args(target, wordlist);
+  return new Promise((resolve) => {
+    execFile(spec.bin, args, { timeout: 120_000, maxBuffer: 2 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const e = err as NodeJS.ErrnoException | null;
+      if (e && e.code === "ENOENT") {
+        resolve(`Error: ${spec.bin} belum terpasang — \`brew install ${spec.formula}\``);
+        return;
+      }
+      const out = `${stdout || ""}${stderr || ""}`.trim();
+      if (!out) {
+        resolve(`(${spec.bin} selesai, tanpa output${e ? ` — ${e.message.split("\n")[0]}` : ""})`);
+        return;
+      }
+      resolve(`🎯 ${spec.bin} ${target}\n${out.slice(0, 6000)}`);
+    });
+  });
+}
+
+// ── Findings store + report (per-user) ───────────────────────────────────────
+
+export type Finding = { id: string; title: string; severity: string; target: string; evidence: string; impact: string; remediation: string; createdAt: string };
+
+const SEVERITIES = ["critical", "high", "medium", "low", "info"];
+
+function findingsPath(userKey: string): string {
+  return join(userDataRoot(), userKey, "findings.json");
+}
+
+export function readFindings(rawUser: unknown): Finding[] {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(findingsPath(userKey), "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeFindings(userKey: string, rows: Finding[]): void {
+  const file = findingsPath(userKey);
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, JSON.stringify(rows, null, 2));
+  renameSync(tmp, file);
+}
+
+export function addFinding(rawUser: unknown, f: { title: string; severity?: string; target?: string; evidence?: string; impact?: string; remediation?: string }): Finding {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  const title = (f.title || "").trim().slice(0, 200);
+  if (!title) throw new Error("judul temuan wajib");
+  const sev = SEVERITIES.includes((f.severity || "").toLowerCase()) ? (f.severity as string).toLowerCase() : "medium";
+  const row: Finding = {
+    id: `F-${Date.now().toString(36)}`,
+    title,
+    severity: sev,
+    target: (f.target || "").slice(0, 200),
+    evidence: (f.evidence || "").slice(0, 2000),
+    impact: (f.impact || "").slice(0, 1000),
+    remediation: (f.remediation || "").slice(0, 1000),
+    createdAt: new Date().toISOString(),
+  };
+  const rows = readFindings(rawUser);
+  rows.push(row);
+  while (rows.length > 500) rows.shift();
+  writeFindings(userKey, rows);
+  return row;
+}
+
+export function listFindingsText(rawUser: unknown): string {
+  const rows = readFindings(rawUser);
+  if (!rows.length) return "Belum ada temuan tercatat.";
+  const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  const sorted = [...rows].sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
+  return `${rows.length} temuan:\n${sorted.map((f) => `• [${f.severity.toUpperCase()}] ${f.title}${f.target ? ` — ${f.target}` : ""}${f.evidence ? `\n   Evidence: ${f.evidence.slice(0, 160)}` : ""}${f.remediation ? `\n   Fix: ${f.remediation.slice(0, 160)}` : ""}`).join("\n")}`;
+}
+
+export function generateReport(rawUser: unknown): string {
+  const rows = readFindings(rawUser);
+  if (!rows.length) return "Belum ada temuan — belum ada yang bisa dilaporkan.";
+  const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+  const sorted = [...rows].sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
+  const counts = SEVERITIES.map((s) => `${s}:${rows.filter((r) => r.severity === s).length}`).join("  ");
+  const body = sorted
+    .map(
+      (f, i) =>
+        `## ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}\n\n- **Target**: ${f.target || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **Found**: ${f.createdAt}`
+    )
+    .join("\n\n");
+  return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts})\n\n> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif.\n\n${body}`;
 }

@@ -3142,6 +3142,110 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
+      risk: "write",
+      function: {
+        name: "pentest_scan",
+        description:
+          "Jalankan tool pentest (nmap/nuclei/whatweb/nikto/ffuf) ke target. HANYA localhost/lab/RFC1918 atau host di PENTEST_LAB_TARGETS — target publik DITOLAK. Write, confirm. ffuf butuh `wordlist` (path sandbox).",
+        parameters: {
+          type: "object",
+          properties: {
+            tool: { type: "string", enum: ["nmap", "nuclei", "whatweb", "nikto", "ffuf"], description: "Tool yang dijalankan" },
+            target: { type: "string", description: "Target, mis. http://localhost:3001 atau 127.0.0.1" },
+            wordlist: { type: "string", description: "Untuk ffuf: path wordlist (di sandbox)" },
+          },
+          required: ["tool", "target"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { pentestScan } = await import("./security");
+        return await pentestScan({ tool: String(args.tool || ""), target: String(args.target || ""), wordlist: typeof args.wordlist === "string" ? args.wordlist : undefined });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "pentest_scan failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "finding_add",
+        description: "Catat satu temuan pentest (Title/Severity/Evidence/Impact/Remediation). Read, auto. Dipakai sambil mengerjakan lab/assessment.",
+        parameters: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            severity: { type: "string", enum: ["critical", "high", "medium", "low", "info"] },
+            target: { type: "string" },
+            evidence: { type: "string" },
+            impact: { type: "string" },
+            remediation: { type: "string" },
+          },
+          required: ["title"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { addFinding } = await import("./security");
+        const f = addFinding(ctx.rawUser, {
+          title: String(args.title || ""),
+          severity: typeof args.severity === "string" ? args.severity : undefined,
+          target: typeof args.target === "string" ? args.target : undefined,
+          evidence: typeof args.evidence === "string" ? args.evidence : undefined,
+          impact: typeof args.impact === "string" ? args.impact : undefined,
+          remediation: typeof args.remediation === "string" ? args.remediation : undefined,
+        });
+        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}] ${f.title} (${f.id})`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "finding_add failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "finding_list",
+        description: "Daftar temuan pentest yang tercatat (urut severity). Read, auto.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async (_args, ctx) => {
+      try {
+        const { listFindingsText } = await import("./security");
+        return listFindingsText(ctx.rawUser);
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "finding_list failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "report_generate",
+        description: "Susun laporan pentest markdown dari temuan yang tercatat (Title/Severity/Evidence/Impact/Remediation). Read, auto.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async (_args, ctx) => {
+      try {
+        const { generateReport } = await import("./security");
+        return generateReport(ctx.rawUser);
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "report_generate failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
       risk: "read",
       function: {
         name: "health",
