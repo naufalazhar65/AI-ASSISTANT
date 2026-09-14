@@ -850,8 +850,13 @@ export async function depAudit(dirRel = "", toFindingsUser?: unknown): Promise<s
     })
   );
   if (toFindingsUser) {
+    // Dedup: don't re-add a finding that already exists (same dep target + advisory).
+    const seenKeys = new Set(readFindings(toFindingsUser).map((e) => `${e.target}|${e.evidence}`));
     for (const f of found) {
       for (const vid of f.ids.slice(0, 3)) {
+        const key = `${f.dep.ecosystem}:${f.dep.name}@${f.dep.version}|${vid}`;
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
         const d = detail.get(vid);
         const fix = nearestFixed(d?.fixed, f.dep.version);
         addFinding(toFindingsUser, {
