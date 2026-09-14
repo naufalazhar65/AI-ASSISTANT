@@ -69,7 +69,7 @@ flowchart LR
 ```
 
 - **Core:** `lib/agent.ts` — single turn (`stream → tools → follow-up → auto-memory → reminder → mood`) for **every** channel.
-- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `9router` local `localhost:20128/v1` = weekly-unlimited; `groq` = STT/TTS; `openrouter` = free fallback; `opencodego` = `glm-5.2`.
+- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `9router` local `localhost:20128/v1` = weekly-unlimited; `groq` = STT/TTS; `openrouter` = free fallback; `opencodego` = default brain (OpenCode Go, model `deepseek-v4.1-flash` via `OPENCODEGO_MODEL`).
 - **Adapter:** `channels/{telegram,discord}.ts` + `pushTarget.ts` (proactive pushes). Discord DM needs `partials:[Channel,Message]` + `msg.fetch()`.
 - **State:** `packages/state-machine` — `IDLE → LISTENING → PROCESSING → SPEAKING → TURN_END/INTERRUPTED` (invalid transitions impossible).
 

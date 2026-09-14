@@ -99,7 +99,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **isTestUserKey** — user test (verify_/probe) tidak pernah push
 - **stripToolCallProse** — prose tool call di-strip SEBELUM post-processor
 - **ensureMoodReplyQuality** — telegraphic mood/greeting → empati hangat rotasi harian
-- **Reminder honesty** — `reminders_list` dulu, jangan karang status
+- **Reminder honesty** — `reminders_list` dulu, jangan karang status; listener radio-ACK: slot tanpa kanal yang menerima (laptop off) tercatat `missedAt`+`delivered:false` (tidak dibakar) → Mia akui "kelewat"; replay yang telat (`deliveredAt − lastFiredAt` >30m) → "kesampaian TELAT … pas device off" (2026-09-14)
 - **fixAddressComma + TIME REFERENCES prompt** — "udah lewat jam bangunmu", adverb sesuai jam
 - **Wake lock + dedup persist** — recap/weekly/wind-down tidak dobel setelah restart
 - **Heartbeat wiring** — `checkMonitorsAndAlert` sekarang benar-benar dipanggil (bug laten fixed)
