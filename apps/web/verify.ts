@@ -214,7 +214,7 @@ async function main() {
 
   // --- provider tool cap: Groq rejects >128 tools per request ---
   const { toolsForUrl } = await import("./src/lib/agent");
-  const liveTools = ["hotel_search", "cinema_showtimes", "train_search", "bus_search"];
+  const liveTools = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "transcribe"];
   const groqTools = toolsForUrl("https://api.groq.com/openai/v1/chat/completions");
   if (groqTools.length > 128) throw new Error(`Groq tool cap not applied: ${groqTools.length}`);
   for (const cap of [
@@ -258,6 +258,51 @@ async function main() {
     throw new Error(`parseBusTable wrong: ${JSON.stringify(buses)}`);
   }
   console.log("transport parsers (train/bus): OK");
+
+  // --- local Whisper STT (offline, keyless; the binary lives on the machine) ---
+  const { whisperInfo, transcribeAudio } = await import("./src/lib/localStt");
+  const wi = whisperInfo();
+  if (typeof wi.available !== "boolean" || typeof wi.bin !== "string" || !Array.isArray(wi.models)) {
+    throw new Error(`whisperInfo shape wrong: ${JSON.stringify(wi)}`);
+  }
+  let sttGuarded = 0;
+  for (const bad of ["/tmp/mia-verify-missing-xyz.wav", "/tmp/mia-verify.txt"]) {
+    try { await transcribeAudio(bad); } catch { sttGuarded++; }
+  }
+  if (sttGuarded !== 2) throw new Error("transcribeAudio did not guard missing file / bad extension");
+  console.log("local whisper stt (info + guards): OK");
+
+  // --- humanizer (deterministic; useLlm:false so no network) ---
+  const { humanize } = await import("./src/lib/humanizer");
+  const hz = await humanize(
+    "## The Rise Of AI\n\nIt stands as a testament — a crucial role. Di era digital yang serba cepat, ini penting. Penting untuk dicatat bahwa kita harus siap. Sebagai kesimpulan, masa depan terlihat cerah.",
+    { useLlm: false }
+  );
+  const hp = hz.humanized;
+  if (/\ba (important|example)\b/i.test(hp)) throw new Error(`humanizer article agreement: ${hp}`);
+  if (/ ,/.test(hp)) throw new Error(`humanizer em-dash spacing: ${hp}`);
+  if (hp.includes("—")) throw new Error("humanizer left an em dash");
+  if (/Penting untuk dicatat|Di era digital yang serba cepat|Sebagai kesimpulan/i.test(hp)) throw new Error(`humanizer ID fillers not removed: ${hp}`);
+  if (!hz.patterns.some((p) => p.startsWith("p25")) || !hz.patterns.some((p) => p.startsWith("p26"))) {
+    throw new Error(`humanizer ID patterns not detected: ${hz.patterns.join(",")}`);
+  }
+  console.log("humanizer (grammar + ID patterns): OK");
+
+  // --- providerHeaders: OpenCode Go needs the session header on EVERY call ---
+  const { providerHeaders } = await import("./src/lib/providers");
+  const gh = providerHeaders({ url: "https://opencode.ai/zen/go/v1/chat/completions", apiKey: "k" }, "s1");
+  if (gh["x-opencode-session"] !== "s1" || gh["User-Agent"] !== "mia-assistant/1.0" || gh.Authorization !== "Bearer k") {
+    throw new Error(`providerHeaders go wrong: ${JSON.stringify(gh)}`);
+  }
+  if (providerHeaders({ url: "https://api.groq.com/openai/v1/chat/completions", apiKey: "g" })["x-opencode-session"]) {
+    throw new Error("providerHeaders leaked the go session header to groq");
+  }
+  // article agreement must not over-correct ("a unique" stays; a important -> an)
+  const hz2 = await humanize("a unique case and a important role", { useLlm: false });
+  if (!/\ba unique\b/.test(hz2.humanized) || !/\ban important\b/.test(hz2.humanized)) {
+    throw new Error(`humanizer article over-corrected: ${hz2.humanized}`);
+  }
+  console.log("provider headers + article agreement: OK");
 
   // --- file access tool (read-only, sandboxed to project root) ---
   const fr = (p: string) => executeTool({ id: "t", name: "file_read", arguments: JSON.stringify({ path: p }) });

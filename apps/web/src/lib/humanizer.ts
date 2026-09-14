@@ -64,6 +64,12 @@ const PATTERNS: { id: string; name: string; re: RegExp; fix: string }[] = [
   { id: "p22", name: "Filler phrases", re: /\b(In order to|Due to the fact that|At this point in time|In the event that|It is important to note that)\b/gi, fix: "To/Because/Now/If" },
   { id: "p23", name: "Excessive hedging", re: /\b(could potentially possibly|might have some effect)\b/gi, fix: "may affect" },
   { id: "p24", name: "Generic positive conclusion", re: /\b(The future looks bright|Exciting times lie ahead|major step in the right direction)\b/gi, fix: "give concrete next step" },
+  // Indonesian AI-writing clichés (the Wikipedia set is English-only)
+  { id: "p25", name: "Klise pembuka ID", re: /\b(Di era (digital )?yang serba cepat|Dalam dunia yang [a-z]+|Seiring (dengan )?perkembangan (zaman|teknologi|era))\b/gi, fix: "hapus klise pembuka" },
+  { id: "p26", name: "Filler ID", re: /\b(Penting untuk dicatat bahwa|Perlu diketahui bahwa|Sebagai kesimpulan|Pada akhirnya|Dengan demikian)\b/gi, fix: "hapus/cut" },
+  { id: "p27", name: "Negative parallelism ID", re: /\btidak hanya\b[^.;]{0,60}\b(tetapi|tapi) juga\b/gi, fix: "satu kalimat lugas" },
+  { id: "p28", name: "Peran penting ID", re: /\bmemainkan peran (yang )?(sangat )?penting\b/gi, fix: "penting saja" },
+  { id: "p29", name: "Kesimpulan generik ID", re: /\b(masa depan (terlihat|tampak) cerah|langkah besar ke arah yang benar)\b/gi, fix: "beri langkah konkret" },
 ];
 
 function detectPatterns(text: string): string[] {
@@ -83,8 +89,8 @@ function detectPatterns(text: string): string[] {
 
 function deterministicHumanize(text: string): string {
   let out = text;
-  // 1) em dash → comma
-  out = out.replace(/—/g, ",");
+  // 1) em dash → comma (with spacing; avoid "word , word")
+  out = out.replace(/\s*—\s*/g, ", ");
   // 2) curly quotes → straight
   out = out.replace(/[“”]/g, '"');
   // 3) bold → plain
@@ -102,32 +108,44 @@ function deterministicHumanize(text: string): string {
   out = out.replace(/\btestament\b/gi, "example");
   // 7) copula
   out = out.replace(/\bserves as\b/gi, "is");
+  out = out.replace(/\bstands as\b/gi, "is");
   out = out.replace(/\bboasts a\b/gi, "has a");
   // 8) negative parallelism
   out = out.replace(/It's not just about[^;]+; it's /gi, "");
-  // 9) filler
+  // 9) filler (EN + ID)
   out = out.replace(/\bIn order to\b/gi, "To");
   out = out.replace(/\bDue to the fact that\b/gi, "Because");
   out = out.replace(/\bAt this point in time\b/gi, "Now");
   out = out.replace(/\bIt is important to note that\b/gi, "");
+  out = out.replace(/\bPenting untuk dicatat bahwa\s*/gi, "");
+  out = out.replace(/\bPerlu diketahui bahwa\s*/gi, "");
+  out = out.replace(/\bSebagai kesimpulan,?\s*/gi, "Jadi, ");
+  out = out.replace(/\bDi era digital yang serba cepat,?\s*/gi, "");
+  out = out.replace(/\bmemainkan peran (yang )?(sangat )?penting\b/gi, "penting");
   // 10) promotional
   out = out.replace(/\bnestled within the breathtaking region of\b/gi, "in");
   out = out.replace(/\bvibrant\b/gi, "");
   out = out.replace(/\bstunning\b/gi, "");
-  // 11) title case → sentence case (simple: lower second words)
-  out = out.replace(/^##\s(.+)/gm, (_, t: string) => `## ${t.charAt(0).toUpperCase() + t.slice(1).toLowerCase()}`);
+  // 11) title case → sentence case (preserve ALL-CAPS acronyms & digits)
+  out = out.replace(/^##\s(.+)/gm, (_, t: string) => {
+    const words = t.split(/\s+/);
+    const caps = words.filter((w) => /^[A-Z]/.test(w)).length;
+    if (words.length < 2 || caps / words.length < 0.5) return `## ${t}`;
+    return `## ${words.map((w, i) => (i === 0 || /^[A-Z]{2,}$/.test(w) || /\d/.test(w) ? w : w.toLowerCase())).join(" ")}`;
+  });
   // 12) sycophantic
   out = out.replace(/\bGreat question!?\s*/gi, "");
   out = out.replace(/\bYou're absolutely right that\s*/gi, "");
   // 13) generic conclusion
   out = out.replace(/\bThe future looks bright for[^.]+\.\s*/gi, "");
-  // 14) trim doubles
-  out = out.replace(/\s{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
-  // 15) add soul if too sterile: inject first-person once if missing and not too short
-  if (!/\b(I|aku|saya)\b/i.test(out) && out.length > 120) {
-    const firstDot = out.indexOf(". ");
-    if (firstDot > 30) out = out.slice(0, firstDot + 1) + " I keep thinking about this — " + out.slice(firstDot + 2).charAt(0).toLowerCase() + out.slice(firstDot + 3);
-  }
+  // 14) article agreement broke by word swaps ("a important" → "an important").
+  // Conservative: only a/e/i (skip u/o which are often "you"/"one" sounds, e.g.
+  // "a unique", "a one") and never rewrite "an <consonant>" (an hour/honest).
+  out = out.replace(/\ba ([aei])/g, "an $1");
+  // 15) trim doubles
+  out = out.replace(/[ \t]{2,}/g, " ").replace(/ ,/g, ",").replace(/\n{3,}/g, "\n\n").trim();
+  // NOTE: no deterministic "soul injection" — it produced awkward, broken
+  // sentences (and re-introduced an em dash). Voice comes from the LLM polish.
   return out;
 }
 
@@ -153,12 +171,19 @@ export async function humanize(text: string, opts?: { useLlm?: boolean }): Promi
   const patterns = detectPatterns(raw);
   // deterministic base
   let out = deterministicHumanize(raw);
-  // optional LLM polish (9router, fallback to deterministic if fails)
+  // Optional LLM polish (default provider; falls back to the deterministic
+  // result if it returns nothing/too long). This is the main quality lever —
+  // the deterministic pass only cleans surface patterns.
   if (opts?.useLlm !== false) {
+    const isId = /\b(yang|dan|dengan|untuk|adalah|tidak|dari|ini|itu|kita|saya)\b/i.test(raw);
+    const langNote = isId
+      ? "Balas dalam Bahasa Indonesia yang natural (bahasa yang sama dengan input)."
+      : "Reply in English (same language as the input).";
     try {
       const llm = await summarizeText({
-        text: `Humanize this text to remove AI patterns and add soul (Wikipeda 24 patterns). Keep meaning, vary rhythm, use I when natural, be specific, no AI vocab, no em dash, no bold, no sycophantic:\n\n${raw.slice(0, 12000)}`,
-        instruction: "You are a humanizer per Wikipedia Signs of AI writing (24 patterns) + soul injection. Rewrite to sound human: remove inflated symbolism, promotional, -ing fluff, vague attribution, em dash, rule of three, AI vocab, negative parallelism, bold, emoji, curly quotes, chatbot artifacts, hedging, generic conclusions. Inject voice: opinions, varied rhythm, I when fitting, mixed feelings. Keep facts, be concise.",
+        text: `Humanize this text (remove AI patterns, add voice). Keep meaning, vary rhythm, be specific, no AI vocab, no em dash, no bold, no sycophantic:\n\n${raw.slice(0, 12000)}`,
+        instruction:
+          `You are a humanizer per Wikipedia Signs of AI writing (24 patterns) + Indonesian clichés. Rewrite to sound human: remove inflated symbolism, promotional wording, -ing fluff, vague attribution, em dash, rule of three, AI vocab, negative parallelism, bold, emoji, chatbot artifacts, hedging, generic conclusions, and Indonesian fillers ("Sebagai kesimpulan", "Penting untuk dicatat", "Di era digital yang serba cepat", "memainkan peran penting"). Inject voice: varied rhythm, opinions, mixed feelings, first person when natural. Keep every fact. ${langNote}`,
       });
       if (llm && llm.trim().length > 20 && countWords(llm) < ow * 1.5) out = llm.trim();
     } catch {}

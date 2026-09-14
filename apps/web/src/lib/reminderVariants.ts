@@ -10,6 +10,7 @@
 // leaves the reminder untouched and the template fallback keeps working.
 
 import { attachVariants } from "./reminders";
+import { providerHeaders } from "./providers";
 
 const VARIANT_PROMPT = [
   "Kamu Mia, asisten pribadi perempuan yang hangat dan playful. Tulis 5 variasi pesan ",
@@ -55,10 +56,7 @@ export async function enrichReminderVariants(
     if (!reminderText.trim() || !provider.url || !provider.apiKey || !provider.defaultModel) return 0;
     const res = await fetch(provider.url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${provider.apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: providerHeaders(provider, "mia-reminder-variants"),
       body: JSON.stringify({
         model: provider.defaultModel,
         messages: [

@@ -11,7 +11,7 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
-import { resolveProvider, defaultProviderId } from "./providers";
+import { resolveProvider, defaultProviderId, providerHeaders } from "./providers";
 import { ensureOpenCodeGoKey } from "./serverKeys";
 import { logInfo } from "./appLogger";
 
@@ -117,7 +117,7 @@ async function summarizeWithLlm(month: string, days: DayEntry[]): Promise<string
   if (!joined.trim()) return "";
   const res = await fetch(provider.url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
+    headers: providerHeaders(provider, "mia-consolidate"),
     body: JSON.stringify({
       model: provider.defaultModel,
       messages: [

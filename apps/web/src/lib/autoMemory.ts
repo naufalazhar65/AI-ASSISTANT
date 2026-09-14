@@ -18,6 +18,7 @@
 
 import { upsertPersonaFact } from "./persona";
 import { appendDailyMemory } from "./dailyMemory";
+import { providerHeaders } from "./providers";
 import { runOpenCodeTurn, OpenCodeChatMessage } from "./opencode";
 
 export type FactEntry = { target: "USER" | "SOUL"; key: string; value: string };
@@ -113,10 +114,7 @@ async function extractFactsOpenAi(opts: ExtractionOpts): Promise<FactEntry[]> {
   });
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: providerHeaders({ url, apiKey }, "mia-memory"),
     body,
   });
   if (!res.ok) return [];

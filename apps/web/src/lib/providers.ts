@@ -134,6 +134,22 @@ export function findPublicProvider(id: string): { id: ProviderId; label: string;
 }
 
 /**
+ * Standard headers for a provider chat-completions request. OpenCode Go requires
+ * a stable `x-opencode-session` + a client User-Agent, or it 400s
+ * (MissingSessionID) — any caller that skips these fails silently (empty result).
+ * Centralized so no module re-implements it wrong.
+ */
+export function providerHeaders(conf: { url: string; apiKey?: string }, session = "mia-assistant"): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (conf.apiKey && conf.apiKey !== "EMPTY") headers.Authorization = `Bearer ${conf.apiKey}`;
+  if (/opencode\.ai\/zen\/go/.test(conf.url)) {
+    headers["x-opencode-session"] = session;
+    headers["User-Agent"] = "mia-assistant/1.0";
+  }
+  return headers;
+}
+
+/**
  * Resolve endpoint + key + default model for a provider from server env.
  * Returns null when the provider is not configured.
  */

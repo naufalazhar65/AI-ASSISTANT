@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
-import { resolveProvider, defaultProviderId, isProviderId } from "./providers";
+import { resolveProvider, defaultProviderId, isProviderId, providerHeaders } from "./providers";
 import { ensureOpenCodeGoKey } from "./serverKeys";
 import { rollingSummaryEnabled, rollingSummaryTriggerChars, rollingSummaryKeepRecent } from "./config";
 
@@ -120,8 +120,7 @@ export async function summarizeText(opts: SummarizeTextOptions): Promise<string>
   if (providerId === "opencodego") ensureOpenCodeGoKey();
   const conf = resolveProvider(providerId);
   if (!conf || !conf.url) return "";
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (conf.apiKey && conf.apiKey !== "EMPTY") headers.Authorization = `Bearer ${conf.apiKey}`;
+  const headers = providerHeaders(conf, "mia-summarize");
   const body = JSON.stringify({
     model: model || conf.defaultModel,
     messages: [

@@ -8,7 +8,7 @@ import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
-import { listLearnings, reviewLearnings, searchLearnings } from "./learnings";
+import { listLearnings, reviewLearnings, searchLearnings, logError } from "./learnings";
 import { guard as safeGuard } from "./safeExec";
 import { cuaClick, cuaClickXY, cuaDoctor, cuaLaunch, cuaListApps, cuaListWindows, cuaType, cuaWindowState } from "./cua";
 import { addSleep, addWake, addWater, healthDeleteLast, healthStats, healthUpdateLast } from "./health";
@@ -2619,6 +2619,54 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "transcribe",
+        description:
+          "Transkripsi audio → teks pakai Whisper LOKAL (offline, tanpa API key). Pakai untuk voice note / file audio: `upload` (nama atau nomor dari list_uploads) atau `path` (file audio di workspace). Opsional: model (tiny/base/small/medium/turbo; default small), language (mis. 'id'), task ('translate' = terjemah ke Inggris).",
+        parameters: {
+          type: "object",
+          properties: {
+            upload: { type: "string", description: "Nama/nomor file audio hasil upload (lihat list_uploads)" },
+            path: { type: "string", description: "Path file audio di workspace (alternatif upload)" },
+            model: { type: "string", description: "tiny|base|small|medium|turbo (default small)" },
+            language: { type: "string", description: "Kode bahasa, mis. 'id' / 'en' (opsional)" },
+            task: { type: "string", enum: ["transcribe", "translate"], description: "translate = terjemahkan ke Inggris" },
+          },
+          required: [],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { transcribeAudio } = await import("./localStt");
+        let abs: string;
+        if (typeof args.upload === "string" && args.upload.trim()) {
+          const { uploadPath } = await import("./uploads");
+          abs = uploadPath(ctx.rawUser, args.upload);
+        } else if (typeof args.path === "string" && args.path.trim()) {
+          const resolved = resolveInSandbox(args.path);
+          if (!resolved) return "Error: path audio di luar sandbox / tidak valid.";
+          abs = resolved;
+        } else {
+          return "Error: beri `upload` (mis. '1' atau 'voice.m4a') atau `path` file audio.";
+        }
+        const r = await transcribeAudio(abs, {
+          model: typeof args.model === "string" ? args.model : undefined,
+          language: typeof args.language === "string" ? args.language : undefined,
+          task: args.task === "translate" ? "translate" : args.task === "transcribe" ? "transcribe" : undefined,
+        });
+        return r.text
+          ? `📝 Transkrip (${r.model}${r.language ? `, ${r.language}` : ""}):\n${r.text}`
+          : "Audio-nya kosong / tak ada suara yang bisa ditranskrip.";
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "transcribe gagal"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "git_status",
         description: "Cek git status --short --branch (read, no key). Pakai saat user tanya 'status git dong'.",
         parameters: { type: "object", properties: {}, required: [] },
@@ -3170,7 +3218,7 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "summarize",
-        description: "Summarize any text: quick/tldr/bullets/eli5/takeaways/action_items/executive/meeting/email/thread/chapter/progressive + smart auto-detect + language + custom length. 20 formats, local deterministic + 9router LLM fallback, word stats. Read, auto. Trigger: summarize/tldr/eli5/key takeaways/action items/bullet points/executive/compare/meeting/email/thread/chapter/progressive + language + length.",
+        description: "Summarize any text: quick/tldr/bullets/eli5/takeaways/action_items/executive/meeting/email/thread/chapter/progressive + smart auto-detect + language + custom length. 20 formats, local deterministic + LLM fallback (provider bawaan), word stats. Read, auto. Trigger: summarize/tldr/eli5/key takeaways/action items/bullet points/executive/compare/meeting/email/thread/chapter/progressive + language + length.",
         parameters: {
           type: "object",
           properties: {
@@ -3402,7 +3450,7 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "humanize",
-        description: "Remove AI writing patterns (24 Wikipedia patterns + soul) — inflated symbolism, promotional, -ing fluff, vague attribution, em dash, rule of three, AI vocab, negative parallelism, bold, title-case, sycophantic etc. Deterministic + 9router LLM polish. Read, auto. Trigger: humanize this/edit this to sound human.",
+        description: "Remove AI writing patterns (24 Wikipedia patterns + clichés ID + soul) — inflated symbolism, promotional, -ing fluff, vague attribution, em dash, rule of three, AI vocab, negative parallelism, bold, title-case, sycophantic, plus Indonesian fillers. Deterministic + LLM polish (provider bawaan). Read, auto. Trigger: humanize this/edit this to sound human.",
         parameters: { type: "object", properties: { text: { type: "string", description: "Text to humanize (max 30k chars)" } }, required: ["text"] },
       },
     },
@@ -3571,8 +3619,15 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   } catch { /* no-op */ }
   recordToolCall(rawUser, call.name);
   const userKey = sanitizeUser(rawUser);
-  const out = await plugin.execute(args, { userKey, rawUser });
-  return out ?? "";
+  // Defensive: a plugin that throws must surface as an Error string, never
+  // bubble up and 500 the whole turn.
+  try {
+    const out = await plugin.execute(args, { userKey, rawUser });
+    return out ?? "";
+  } catch (err) {
+    try { logError({ skill: call.name, summary: `${call.name} threw`, error: err instanceof Error ? err.message.slice(0, 400) : String(err), context: JSON.stringify(args).slice(0, 200), relatedFiles: ["apps/web/src/lib/tools.ts"] }); } catch { /* best-effort */ }
+    return `Error: ${err instanceof Error ? err.message : "tool execution failed"}`;
+  }
 }
 
 /** Map a Spotify API error to a user-facing message; append the auth link when

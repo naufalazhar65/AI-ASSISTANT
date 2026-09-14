@@ -154,6 +154,23 @@ export function listUploads(rawUser?: unknown): string {
 }
 
 /**
+ * Absolute path of an uploaded file (by name or 1-based list number). Used by
+ * the local `transcribe` tool to feed an audio upload to Whisper.
+ */
+export function uploadPath(rawUser: unknown, nameOrNumber?: string): string {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  const metas = readIndex(userKey);
+  if (!metas.length) throw new Error("no files uploaded yet");
+  const q = (nameOrNumber || "").trim();
+  const meta = /^\d+$/.test(q) ? metas[Number(q) - 1] : metas.find((m) => m.name === q);
+  if (!meta) throw new Error(`no uploaded file "${q}"`);
+  const abs = join(uploadsDir(userKey), meta.name);
+  if (!existsSync(abs)) throw new Error(`file "${meta.name}" is missing from disk`);
+  return abs;
+}
+
+/**
  * Read the text content of a previously-uploaded file (matched by name or
  * 1-based list number). Only text-like files under MAX_TEXT_BYTES return
  * content; images/binaries return a short note instead.
