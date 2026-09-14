@@ -464,6 +464,10 @@ async function main() {
     if (!/Laporan Pentest/.test(rep) || !/HIGH/.test(rep)) throw new Error("report_generate malformed");
     rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
     console.log("pentest scope guard + findings/report: OK");
+    const { zapScan } = await import("./src/lib/security");
+    let zapRejected = false;
+    try { await zapScan("https://example.com"); } catch { zapRejected = true; }
+    if (!zapRejected) throw new Error("zapScan allowed a public target");
   }
   }
   }

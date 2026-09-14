@@ -332,3 +332,33 @@ export function generateReport(rawUser: unknown): string {
     .join("\n\n");
   return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts})\n\n> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif.\n\n${body}`;
 }
+
+/** OWASP ZAP baseline scan via Docker (web app in the owner's own lab only). */
+export function zapScan(target: string, minutes = 5): Promise<string> {
+  const t = (target || "").trim();
+  if (!t) return Promise.reject(new Error("target wajib"));
+  if (!isLabTarget(t)) {
+    return Promise.reject(new Error("SCOPE: ZAP baseline hanya untuk localhost/lab/aset berizin."));
+  }
+  const m = Math.min(30, Math.max(1, Number(minutes) || 5));
+  return new Promise((resolve) => {
+    execFile(
+      "docker",
+      ["run", "--rm", "-t", "ghcr.io/zaproxy/zaproxy:stable", "zap-baseline.py", "-t", t, "-m", String(m)],
+      { timeout: (m + 3) * 60_000, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        const e = err as NodeJS.ErrnoException | null;
+        if (e && e.code === "ENOENT") {
+          resolve("Error: Docker belum terpasang — `brew install --cask docker` (atau colima) lalu start.");
+          return;
+        }
+        const out = `${stdout || ""}${stderr || ""}`.trim();
+        if (!out) {
+          resolve(`(ZAP selesai, tanpa output${e ? ` — ${e.message.split("\n")[0]}` : ""})`);
+          return;
+        }
+        resolve(`🛡️ ZAP baseline ${t}\n${out.slice(0, 7000)}`);
+      }
+    );
+  });
+}

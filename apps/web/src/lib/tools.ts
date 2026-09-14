@@ -3246,6 +3246,26 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
+      risk: "write",
+      function: {
+        name: "zap_scan",
+        description:
+          "OWASP ZAP baseline scan (web) via Docker ke target. HANYA localhost/lab/RFC1918/host berizin (publik DITOLAK). Butuh Docker. Write, confirm.",
+        parameters: { type: "object", properties: { target: { type: "string", description: "URL target, mis. http://localhost:3001" }, minutes: { type: "number", description: "Batas menit (1-30, default 5)" } }, required: ["target"] },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { zapScan } = await import("./security");
+        return await zapScan(String(args.target || ""), typeof args.minutes === "number" ? args.minutes : 5);
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "zap_scan failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
       risk: "read",
       function: {
         name: "health",
@@ -4356,6 +4376,10 @@ const EXEC_ALLOWLIST: Record<
   netstat: { maxArgs: 4, forbidArg: ["-w"] },
   ifconfig: { maxArgs: 3 },
   arp: { maxArgs: 3, forbidArg: ["-d", "-s"] },
+  dig: { maxArgs: 4 },
+  nslookup: { maxArgs: 4 },
+  host: { maxArgs: 3 },
+  whois: { maxArgs: 2 },
   lsof: { maxArgs: 6, requireArgPrefix: "-i" },
   // containers (read-only subcommands)
   docker: { subcommand: ["ps", "images", "version", "info"], maxArgs: 4 },
