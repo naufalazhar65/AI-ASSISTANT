@@ -413,6 +413,12 @@ async function main() {
     if (!r.startsWith("Error:")) throw new Error(`exec not guarded: ${badCmd} -> ${r}`);
   }
   console.log("tools (notes + file access): OK");
+  const lsofOk = await ex("lsof -iTCP -sTCP:LISTEN -P -n");
+  if (lsofOk.startsWith("Error:")) throw new Error(`exec lsof -i blocked: ${lsofOk}`);
+  const lsofBare = await ex("lsof");
+  if (!lsofBare.startsWith("Error:")) throw new Error("exec bare lsof must be blocked");
+  const psOk = await ex("ps aux");
+  if (psOk.startsWith("Error:")) throw new Error(`exec ps blocked: ${psOk}`);
   console.log("exec: OK");
 
   // --- write_file / edit_file (sandboxed, requires write, but executeTool bypasses confirmation) ---

@@ -388,7 +388,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "exec",
         description:
-          "Run a read-only shell command in a project and return its output. Only safe inspection commands are allowed (git status/log/diff/branch, ls, pwd, cat, node --version, npm ls); anything else is rejected. Use cwd (a path relative to the repo root, e.g. '..' is not allowed; to inspect another allowed workspace pass its folder name) to choose the directory; default is the repo root.",
+          "Run a read-only shell command in a project and return its output. Only safe inspection commands are allowed (git status/log/diff/branch, ls, pwd, cat, node --version, npm ls, df, ps, pgrep, netstat, and lsof restricted to network queries e.g. 'lsof -iTCP -sTCP:LISTEN -P -n'); anything else is rejected. Use cwd (a path relative to the repo root, e.g. '..' is not allowed; to inspect another allowed workspace pass its folder name) to choose the directory; default is the repo root.",
         parameters: {
           type: "object",
           properties: {
@@ -4097,7 +4097,7 @@ const EXEC_WRITE_TIMEOUT_MS = 150000;
  *  read-only subcommands. Anything else is rejected. */
 const EXEC_ALLOWLIST: Record<
   string,
-  { subcommand?: string[]; maxArgs: number } | { maxArgs: number }
+  { subcommand?: string[]; maxArgs: number; requireArgPrefix?: string }
 > = {
   git: { subcommand: ["status", "log", "diff", "branch", "ls-files", "show", "rev-parse", "--version"], maxArgs: 4 },
   ls: { maxArgs: 4 },
@@ -4106,6 +4106,13 @@ const EXEC_ALLOWLIST: Record<
   node: { subcommand: ["--version", "-v"], maxArgs: 2 },
   npm: { subcommand: ["ls", "--version"], maxArgs: 3 },
   df: { maxArgs: 2 },
+  // Read-only process/network inspection (e.g. "cek server apa yang jalan").
+  ps: { maxArgs: 4 },
+  pgrep: { maxArgs: 3 },
+  netstat: { maxArgs: 4 },
+  // lsof with no args dumps every open file (info leak) — restrict it to
+  // network queries ("lsof -iTCP -sTCP:LISTEN -P -n").
+  lsof: { maxArgs: 6, requireArgPrefix: "-i" },
 };
 /** Args that are never allowed, even for an allowlisted base command. */
 const EXEC_FORBIDDEN_ARG = ["--", "-a", "--all", "..", "~", ";", "&&", "|", ">", "<", "$(", "`"];
@@ -4161,6 +4168,10 @@ function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
         rejectPromise(new Error(`argument "${a}" is not allowed${hint}`));
         return;
       }
+    }
+    if (spec.requireArgPrefix && !args.some((a) => a.startsWith(spec.requireArgPrefix!))) {
+      rejectPromise(new Error(`"${cmd}" read-only only allows network queries, e.g. \`${cmd} ${spec.requireArgPrefix}TCP -sTCP:LISTEN -P -n\``));
+      return;
     }
     // Refuse reading sensitive/dir-heavy targets (mirrors file_read deny-list).
     if (EXEC_FORBIDDEN_SRC.test(trimmed)) {

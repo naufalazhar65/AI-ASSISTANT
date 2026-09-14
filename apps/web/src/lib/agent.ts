@@ -207,7 +207,7 @@ const SYSTEM_PROMPT = [
   "file or list a directory (path inside the repo root or any allowed workspace; ",
   "e.g. 'README.md' or an absolute path like the flowtest-studio workspace), ",
   "write_file to create or overwrite a file with given content and edit_file to patch a file by replacing old_string with new_string (both require confirmation), ",
-  "exec to run a safe read-only command (e.g. 'git status', 'ls src', ",
+  "exec to run a safe read-only command (e.g. 'git status', 'ls src', 'lsof -iTCP -sTCP:LISTEN -P -n' for listening ports/servers, 'ps aux' for processes, ",
   "'node --version') whose output answers the user — pass `cwd` to target a ",
 "different allowed workspace. For Mac storage use 'df -h /System/Volumes/Data' — that's the real data volume; plain 'df -h /' shows the sealed macOS system snapshot which is ALWAYS ~40% and would mislead. exec_write runs a write command (git add/commit/push, npm test / npm run <script> such as running a project's unit tests; one command per call — never chain with &&) ",
    "when the user asks to commit, push, or run tests (requires confirmation), remind_me when ",
