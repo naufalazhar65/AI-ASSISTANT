@@ -14,7 +14,7 @@ import { detectPlaceIntent, placeNudge } from "./src/lib/placeIntent";
 import { appendDailyMemory } from "./src/lib/dailyMemory";
 import { buildEveningRecap, readLastRecapDay, saveLastRecapDay } from "./src/lib/recap";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 
 function delay(ms: number): Promise<void> {
@@ -303,6 +303,28 @@ async function main() {
     throw new Error(`humanizer article over-corrected: ${hz2.humanized}`);
   }
   console.log("provider headers + article agreement: OK");
+
+  // --- learnings: dedup by Pattern-Key + recurrence + promotion (self-cleaning) ---
+  const { logError: logLrn } = await import("./src/lib/learnings");
+  const { repoRoot: repoRootFn } = await import("./src/lib/users");
+  const lk = `verify.learnings.${Date.now()}`;
+  const efile = join(repoRootFn(), ".learnings", "ERRORS.md");
+  const n0 = existsSync(efile) ? (readFileSync(efile, "utf8").match(/## \[ERR-/g) || []).length : 0;
+  for (let i = 0; i < 3; i++) logLrn({ skill: "verify_tool", summary: "verify dedup entry", error: "x", patternKey: lk });
+  const etxt = readFileSync(efile, "utf8");
+  const n1 = (etxt.match(/## \[ERR-/g) || []).length;
+  if (n1 - n0 !== 1) throw new Error(`learnings dedup failed: +${n1 - n0} entries`);
+  const eblk = etxt.split(/(?=^## \[)/m).find((p) => p.includes(`- Pattern-Key: ${lk}\n`));
+  if (!eblk || Number(eblk.match(/Recurrence-Count:\s*(\d+)/)?.[1]) < 3) throw new Error("learnings recurrence not incremented");
+  writeFileSync(efile, etxt.replace(eblk, "").replace(/\n{3,}/g, "\n\n"));
+  for (const mp of [join(repoRootFn(), ".self-improving", "memory.md"), join(homedir(), "self-improving", "memory.md")]) {
+    try {
+      const m = readFileSync(mp, "utf8");
+      writeFileSync(mp, m.split("\n").filter((l) => !l.includes(`[${lk}]`)).join("\n"));
+    } catch { /* mirror may not exist */ }
+  }
+  console.log("learnings dedup+recurrence+promotion: OK");
+
 
   // --- file access tool (read-only, sandboxed to project root) ---
   const fr = (p: string) => executeTool({ id: "t", name: "file_read", arguments: JSON.stringify({ path: p }) });
