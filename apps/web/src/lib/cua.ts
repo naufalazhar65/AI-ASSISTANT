@@ -73,12 +73,13 @@ export async function cuaClickXY(pid: number, x: number, y: number, windowId?: n
   return run("click", args);
 }
 
-export async function cuaType(pid: number, windowId: number, text: string, elementIndex?: number, x?: number, y?: number): Promise<string> {
+export async function cuaType(pid: number, windowId: number, text: string, elementIndex?: number, x?: number, y?: number, deliveryMode?: "background" | "foreground"): Promise<string> {
   await ensureServe();
   const args: Record<string, unknown> = { pid, window_id: windowId, text };
   if (elementIndex !== undefined) args.element_index = elementIndex;
   if (x !== undefined) args.x = x;
   if (y !== undefined) args.y = y;
+  if (deliveryMode) args.delivery_mode = deliveryMode;
   return run("type_text", args);
 }
 

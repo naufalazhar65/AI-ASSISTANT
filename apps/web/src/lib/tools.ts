@@ -2810,7 +2810,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "cua_keys",
         description:
-          "Keyboard native (whichever app is targeted): action='hotkey' (keys: array mis. ['cmd','c'] untuk copy, ['cmd','shift','4'] screenshot), action='press' (key tunggal: return/tab/escape/up/down/left/right/space/delete/home/end/pageup/pagedown/f1-f12/huruf/angka; opsional modifiers), atau action='type' (text). WAJIB snapshot (cua_window_state) dulu bila menargetkan pid/window_id. Write, confirm.",
+          "Keyboard native (whichever app is targeted): action='hotkey' (keys: array mis. ['cmd','c'] untuk copy, ['cmd','shift','4'] screenshot), action='press' (key tunggal: return/tab/escape/up/down/left/right/space/delete/home/end/pageup/pagedown/f1-f12/huruf/angka; opsional modifiers), atau action='type' (text; WAJIB snapshot cua_window_state dulu; untuk mengetik ke field pakai delivery_mode='foreground' — background sering gagal bila field belum fokus). Write, confirm.",
         parameters: {
           type: "object",
           properties: {
@@ -2845,7 +2845,7 @@ const toolRegistry: ToolPlugin[] = [
         }
         if (action === "type") {
           if (!opts.pid || !opts.windowId) return "Error: `type` butuh pid + window_id (snapshot cua_window_state dulu).";
-          return cuaType(opts.pid, opts.windowId, String(args.text || ""));
+          return cuaType(opts.pid, opts.windowId, String(args.text || ""), undefined, undefined, undefined, opts.deliveryMode);
         }
         return "Error: action harus 'hotkey' | 'press' | 'type'.";
       } catch (e) {
