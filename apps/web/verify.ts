@@ -214,16 +214,50 @@ async function main() {
 
   // --- provider tool cap: Groq rejects >128 tools per request ---
   const { toolsForUrl } = await import("./src/lib/agent");
+  const liveTools = ["hotel_search", "cinema_showtimes", "train_search", "bus_search"];
   const groqTools = toolsForUrl("https://api.groq.com/openai/v1/chat/completions");
   if (groqTools.length > 128) throw new Error(`Groq tool cap not applied: ${groqTools.length}`);
-  if (!groqTools.some((t) => t.function.name === "cinema_showtimes") || !groqTools.some((t) => t.function.name === "hotel_search")) {
-    throw new Error("Groq tool cap dropped a core tool");
+  for (const cap of [
+    { name: "groq", names: groqTools.map((t) => t.function.name), max: 128 },
+    { name: "9router", names: toolsForUrl("http://localhost:20128/v1/chat/completions").map((t) => t.function.name), max: 64 },
+  ]) {
+    if (cap.names.length > cap.max) throw new Error(`${cap.name} tool cap not applied: ${cap.names.length}`);
+    const missing = liveTools.filter((n) => !cap.names.includes(n));
+    if (missing.length) throw new Error(`${cap.name} cap dropped live tools: ${missing.join(", ")}`);
   }
-  if (toolsForUrl("http://localhost:20128/v1/chat/completions").length > 64) throw new Error("9router tool cap not applied");
   if (toolsForUrl("https://opencode.ai/zen/go/v1/chat/completions").length <= 128) {
     throw new Error("tool cap wrongly applied to non-capped provider");
   }
-  console.log("provider tool cap (groq<=128, 9router<=64): OK");
+  console.log("provider tool cap (groq<=128, 9router<=64, live tools kept): OK");
+
+  // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
+  const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
+  const xmlLeaked = 'Aku cek ya <td>, sementara itu <invoke name="browser_open"><parameter name="url">https://x/y</parameter></invoke> ya beb 🌸';
+  const xmlCleaned = stripXmlProse(xmlLeaked);
+  if (/<invoke|<\/?parameter|antml:|<tool_call/i.test(xmlCleaned) || !/ya beb/.test(xmlCleaned)) {
+    throw new Error(`XML tool markup not stripped: ${JSON.stringify(xmlCleaned)}`);
+  }
+  console.log("tool-call XML markup strip: OK");
+
+  // --- transport parsers (offline fixtures; live fetch is network-gated) ---
+  const { parseTravelokaSchedules, parseBusTable, slugify } = await import("./src/lib/transport");
+  if (slugify("Jogja") !== "yogyakarta" || slugify("Jakarta Selatan") !== "jakarta" || slugify("Bandung") !== "bandung") {
+    throw new Error(`transport slugify wrong: ${slugify("Jogja")}/${slugify("Jakarta Selatan")}`);
+  }
+  const nextData = JSON.stringify({
+    props: { pageProps: { automationProps: { schedules: [
+      { trainNumber: "130B", trainName: "Papandayan", seatClass: "Economy", fareFmt: { amount: 125000 }, departureTime: { hour: 6, minute: 35 }, arrivalTime: { hour: 9, minute: 20 }, durationFmt: { hour: 2, minute: 45 }, originStationLabel: "Gambir", destinationStationLabel: "Padalarang" },
+    ] } } },
+  });
+  const trains = parseTravelokaSchedules(`<script id="__NEXT_DATA__" type="application/json">${nextData}</script>`);
+  if (trains.length !== 1 || trains[0].name !== "Papandayan" || trains[0].depart !== "06:35" || trains[0].arrive !== "09:20" || trains[0].fare !== 125000) {
+    throw new Error(`parseTravelokaSchedules wrong: ${JSON.stringify(trains)}`);
+  }
+  const buses = parseBusTable('<table><tr><th>Operator</th><th>Pertama</th><th>Terakhir</th><th>Perjalanan</th><th>Hari</th><th>Harga</th></tr><tr><td>Pasteur Trans<script>{"x":1}</script></td><td>04:30</td><td>21:20</td><td>1029</td><td>M T W</td><td><span>Rp </span>159,600</td></tr></table>');
+  if (buses.length !== 1 || buses[0].operator !== "Pasteur Trans" || buses[0].first !== "04:30" || buses[0].price !== 159600) {
+    throw new Error(`parseBusTable wrong: ${JSON.stringify(buses)}`);
+  }
+  console.log("transport parsers (train/bus): OK");
 
   // --- file access tool (read-only, sandboxed to project root) ---
   const fr = (p: string) => executeTool({ id: "t", name: "file_read", arguments: JSON.stringify({ path: p }) });

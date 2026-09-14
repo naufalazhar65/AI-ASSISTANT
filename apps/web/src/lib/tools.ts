@@ -2565,6 +2565,60 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "train_search",
+        description:
+          "Jadwal + tarif kereta api antarkota (keyless, sumber Traveloka). WAJIB untuk 'jadwal kereta X ke Y', 'kereta ke Bandung jam berapa / berapa harganya'. JANGAN jawab dari memori. Isi from + to (nama kota).",
+        parameters: {
+          type: "object",
+          properties: {
+            from: { type: "string", description: "Kota asal, mis. 'Jakarta'" },
+            to: { type: "string", description: "Kota tujuan, mis. 'Bandung'" },
+          },
+          required: ["from", "to"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { trainSearch } = await import("./transport");
+        return (await trainSearch(String(args.from || ""), String(args.to || ""))).human;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "cannot fetch trains"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "bus_search",
+        description:
+          "Daftar operator bus/travel antarkota + kisaran harga & jam (keyless, sumber busonlineticket). WAJIB untuk 'bus ke Bandung', 'travel Jakarta-Bandung'. JANGAN jawab dari memori. Isi from + to.",
+        parameters: {
+          type: "object",
+          properties: {
+            from: { type: "string", description: "Kota asal, mis. 'Jakarta'" },
+            to: { type: "string", description: "Kota tujuan, mis. 'Bandung'" },
+          },
+          required: ["from", "to"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { busSearch } = await import("./transport");
+        return (await busSearch(String(args.from || ""), String(args.to || ""))).human;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "cannot fetch buses"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "git_status",
         description: "Cek git status --short --branch (read, no key). Pakai saat user tanya 'status git dong'.",
         parameters: { type: "object", properties: {}, required: [] },
