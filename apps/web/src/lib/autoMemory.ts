@@ -61,6 +61,9 @@ const EXTRACT_PROMPT = [
   "STRICT: ignore greetings, small talk, transient status ('lagi kerja', 'capek'), ",
   "one-off mentions, and anything already shown in persona below. Only stable ",
   "long-term facts (name, city, language, cat/pet, durable favorites). ",
+  "If the user states where they LIVE (rumah/alamat/home/cluster/kost), capture it: ",
+  "user.home (text, e.g. 'Lake Home, Serpong, Tangerang Selatan') and, when given, ",
+  "user.home_coords (exact 'lat,lon', e.g. '-6.378806,106.712563'). ",
   "If the transcript is just 'hai', 'makasih', or chitchat with no durable fact, reply NONE. ",
   'Reply with a single line in exactly this format: ',
   '<persona>user.name=Naufal;soul.tone=formal</persona>. ',
@@ -70,7 +73,7 @@ const EXTRACT_PROMPT = [
 
 // Heuristic gate: skip LLM extraction when user text has no durable-fact signal
 const FACT_SIGNAL_RE =
-  /(nama|panggil|usia|umur|tinggal|kota|bahasa|language|suka|favorit|favorite|hobi|hobby|kucing|cat|anjing|dog|makanan|food|minuman|drink|kopi|lokasi|kerja|kuliah|sekolah|pacar|keluarga|istri|suami|anak|tone|gaya bicara|formal|kasual|santai)/i;
+  /(nama|panggil|usia|umur|tinggal|kota|bahasa|language|suka|favorit|favorite|hobi|hobby|kucing|cat|anjing|dog|makanan|food|minuman|drink|kopi|lokasi|kerja|kuliah|sekolah|pacar|keluarga|istri|suami|anak|tone|gaya bicara|formal|kasual|santai|rumah|alamat|home|kost|kos|kontrakan|apartemen|apartment|cluster|patokan|koordinat|share ?loc)/i;
 
 function shouldAttemptCapture(messages: CaptureArgs["messages"]): boolean {
   const probe = messages
