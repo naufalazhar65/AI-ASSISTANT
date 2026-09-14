@@ -458,10 +458,10 @@ async function main() {
       if (!isLabTarget(okT)) throw new Error(`isLabTarget rejected lab target ${okT}`);
     }
     const u = "verify_pentest_user";
-    addFinding(u, { title: "Reflected XSS", severity: "high", target: "http://localhost:3001", evidence: "?q=<script>", impact: "session theft", remediation: "encode output" });
+    addFinding(u, { title: "Reflected XSS", severity: "high", cvss: 8.7, owasp: "A03:2021 Injection", cwe: "CWE-79", target: "http://localhost:3001", evidence: "?q=<script>", impact: "session theft", remediation: "encode output" });
     if (!/Reflected XSS/.test(listFindingsText(u))) throw new Error("finding_list missing entry");
     const rep = generateReport(u);
-    if (!/Laporan Pentest/.test(rep) || !/HIGH/.test(rep)) throw new Error("report_generate malformed");
+    if (!/Laporan Pentest/.test(rep) || !/HIGH/.test(rep) || !/CVSS 8\.7/.test(rep) || !/A03:2021/.test(rep)) throw new Error("report_generate malformed");
     rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
     console.log("pentest scope guard + findings/report: OK");
   {

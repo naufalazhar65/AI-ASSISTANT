@@ -3173,12 +3173,15 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "finding_add",
-        description: "Catat satu temuan pentest (Title/Severity/Evidence/Impact/Remediation). Read, auto. Dipakai sambil mengerjakan lab/assessment.",
+        description: "Catat satu temuan pentest (Title/Severity/CVSS/OWASP/CWE/Evidence/Impact/Remediation). Read, auto.",
         parameters: {
           type: "object",
           properties: {
             title: { type: "string" },
             severity: { type: "string", enum: ["critical", "high", "medium", "low", "info"] },
+            cvss: { type: "number", description: "Skor CVSS 0.0-10.0 (opsional; default per severity)" },
+            owasp: { type: "string", description: "Kategori OWASP, mis. 'A03:2021 Injection'" },
+            cwe: { type: "string", description: "CWE, mis. 'CWE-89'" },
             target: { type: "string" },
             evidence: { type: "string" },
             impact: { type: "string" },
@@ -3194,12 +3197,15 @@ const toolRegistry: ToolPlugin[] = [
         const f = addFinding(ctx.rawUser, {
           title: String(args.title || ""),
           severity: typeof args.severity === "string" ? args.severity : undefined,
+          cvss: typeof args.cvss === "number" ? args.cvss : undefined,
+          owasp: typeof args.owasp === "string" ? args.owasp : undefined,
+          cwe: typeof args.cwe === "string" ? args.cwe : undefined,
           target: typeof args.target === "string" ? args.target : undefined,
           evidence: typeof args.evidence === "string" ? args.evidence : undefined,
           impact: typeof args.impact === "string" ? args.impact : undefined,
           remediation: typeof args.remediation === "string" ? args.remediation : undefined,
         });
-        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}] ${f.title} (${f.id})`;
+        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title} (${f.id})`;
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : "finding_add failed"}`;
       }

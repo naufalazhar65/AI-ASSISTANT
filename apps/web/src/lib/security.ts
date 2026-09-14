@@ -323,7 +323,7 @@ export async function pentestScan(opts: { tool: string; target: string; wordlist
 
 // ── Findings store + report (per-user) ───────────────────────────────────────
 
-export type Finding = { id: string; title: string; severity: string; target: string; evidence: string; impact: string; remediation: string; createdAt: string };
+export type Finding = { id: string; title: string; severity: string; cvss: number | null; owasp: string; cwe: string; target: string; evidence: string; impact: string; remediation: string; createdAt: string };
 
 const SEVERITIES = ["critical", "high", "medium", "low", "info"];
 
@@ -350,16 +350,22 @@ function writeFindings(userKey: string, rows: Finding[]): void {
   renameSync(tmp, file);
 }
 
-export function addFinding(rawUser: unknown, f: { title: string; severity?: string; target?: string; evidence?: string; impact?: string; remediation?: string }): Finding {
+const DEFAULT_CVSS: Record<string, number> = { critical: 9.8, high: 8.1, medium: 5.5, low: 3.1, info: 0 };
+
+export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; impact?: string; remediation?: string }): Finding {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const title = (f.title || "").trim().slice(0, 200);
   if (!title) throw new Error("judul temuan wajib");
   const sev = SEVERITIES.includes((f.severity || "").toLowerCase()) ? (f.severity as string).toLowerCase() : "medium";
+  const cvss = typeof f.cvss === "number" && f.cvss >= 0 && f.cvss <= 10 ? Math.round(f.cvss * 10) / 10 : DEFAULT_CVSS[sev] ?? null;
   const row: Finding = {
     id: `F-${Date.now().toString(36)}`,
     title,
     severity: sev,
+    cvss,
+    owasp: (f.owasp || "").slice(0, 120),
+    cwe: (f.cwe || "").slice(0, 60),
     target: (f.target || "").slice(0, 200),
     evidence: (f.evidence || "").slice(0, 2000),
     impact: (f.impact || "").slice(0, 1000),
@@ -377,23 +383,24 @@ export function listFindingsText(rawUser: unknown): string {
   const rows = readFindings(rawUser);
   if (!rows.length) return "Belum ada temuan tercatat.";
   const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
-  const sorted = [...rows].sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
-  return `${rows.length} temuan:\n${sorted.map((f) => `• [${f.severity.toUpperCase()}] ${f.title}${f.target ? ` — ${f.target}` : ""}${f.evidence ? `\n   Evidence: ${f.evidence.slice(0, 160)}` : ""}${f.remediation ? `\n   Fix: ${f.remediation.slice(0, 160)}` : ""}`).join("\n")}`;
+  const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0) || (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
+  return `${rows.length} temuan:\n${sorted.map((f) => `• [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title}${f.owasp ? ` (${f.owasp})` : ""}${f.target ? ` — ${f.target}` : ""}${f.evidence ? `\n   Evidence: ${f.evidence.slice(0, 160)}` : ""}${f.remediation ? `\n   Fix: ${f.remediation.slice(0, 160)}` : ""}`).join("\n")}`;
 }
 
 export function generateReport(rawUser: unknown): string {
   const rows = readFindings(rawUser);
   if (!rows.length) return "Belum ada temuan — belum ada yang bisa dilaporkan.";
   const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
-  const sorted = [...rows].sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
+  const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0) || (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
   const counts = SEVERITIES.map((s) => `${s}:${rows.filter((r) => r.severity === s).length}`).join("  ");
+  const avg = rows.length ? Math.round((rows.reduce((a, r) => a + (r.cvss ?? 0), 0) / rows.length) * 10) / 10 : 0;
   const body = sorted
     .map(
       (f, i) =>
-        `## ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}\n\n- **Target**: ${f.target || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **Found**: ${f.createdAt}`
+        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[f.owasp, f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Target**: ${f.target || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **Found**: ${f.createdAt}`
     )
     .join("\n\n");
-  return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts})\n\n> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif.\n\n${body}`;
+  return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts}) — rata-rata CVSS ${avg}\n\n> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif.\n\n${body}`;
 }
 
 /** OWASP ZAP baseline scan via Docker (web app in the owner's own lab only). */

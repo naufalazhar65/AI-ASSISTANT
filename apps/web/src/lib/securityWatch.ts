@@ -10,7 +10,7 @@ import { pushToOwner } from "../channels/pushTarget";
 import { logInfo, logError } from "./appLogger";
 import { tlsExpiryDays } from "./security";
 
-type State = { ports: string[]; certAlerted: Record<string, boolean>; updatedAt: string };
+type State = { ports: string[]; certAlerted: Record<string, boolean>; engAlerted: Record<string, boolean>; updatedAt: string };
 
 function stateFile(): string {
   return join(appRoot(), ".data", "security-watch", "state.json");
@@ -18,9 +18,9 @@ function stateFile(): string {
 function readState(): State {
   try {
     const s = JSON.parse(readFileSync(stateFile(), "utf8")) as State;
-    return { ports: Array.isArray(s.ports) ? s.ports : [], certAlerted: s.certAlerted || {}, updatedAt: s.updatedAt || "" };
+    return { ports: Array.isArray(s.ports) ? s.ports : [], certAlerted: s.certAlerted || {}, engAlerted: s.engAlerted || {}, updatedAt: s.updatedAt || "" };
   } catch {
-    return { ports: [], certAlerted: {}, updatedAt: "" };
+    return { ports: [], certAlerted: {}, engAlerted: {}, updatedAt: "" };
   }
 }
 function writeState(s: State): void {
@@ -72,7 +72,18 @@ export async function runSecurityWatchTick(): Promise<void> {
       }
     }
 
-    writeState({ ports, certAlerted, updatedAt: new Date().toISOString() });
+    const { listEngagements } = await import("./engagement");
+    const engAlerted = { ...(st.engAlerted || {}) };
+    for (const en of listEngagements()) {
+      if (en.status !== "active" || !en.windowEnd) continue;
+      const ms = Date.parse(en.windowEnd) - Date.now();
+      if (ms > 0 && ms < 24 * 3600 * 1000 && !engAlerted[en.id]) {
+        alerts.push(`Engagement ${en.id} (${en.client}) berakhir <24 jam — tutup bila selesai`);
+        engAlerted[en.id] = true;
+      }
+    }
+
+    writeState({ ports, certAlerted, engAlerted, updatedAt: new Date().toISOString() });
     if (alerts.length) {
       logInfo("security-watch", alerts.join("; "));
       await pushToOwner(`🔐 Security watch:\n- ${alerts.join("\n- ")}`).catch(() => {});
