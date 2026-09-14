@@ -188,7 +188,7 @@ export function pentestResources(): string {
     "• WebGoat           http://localhost:8082/WebGoat",
     "• bWAPP (lokal)     http://localhost:8083  — jalankan image Docker bWAPP sendiri (sama dgn demo publik, tapi MILIKMU)",
     "(Butuh Docker; belum terpasang — lihat labs/pentest/README.md)",
-    "• [TANPA Docker] vuln-node  http://127.0.0.1:4010  — `node labs/pentest/vuln-node/server.js` (SQLi SQLite, buat praktik sqlmap)",
+    "• [TANPA Docker] vuln-node  http://127.0.0.1:4010  — `node labs/pentest/vuln-node/server.js` (SQLi/Reflected+Stored XSS/IDOR/Open-redirect/Path-traversal; cmd-injection opsional VULN_ALLOW_CMDI=1)",
     "",
     "SCOPE: hanya target sendiri / berizin tertulis. Active scan hanya ke localhost/lab ini.",
     "⛔ Demo publik pihak ketiga (mis. itsecgames.com / bWAPP online) BUKAN target — jangan discan; jalankan bWAPP lokal sebagai gantinya.",
