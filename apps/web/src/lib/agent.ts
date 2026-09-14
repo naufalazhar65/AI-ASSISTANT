@@ -598,13 +598,16 @@ async function runOneCompletionOnce(
   withTools: boolean,
   extraHeaders?: Record<string, string>
 ): Promise<{ text: string; toolCalls: ToolCall[] }> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      ...extraHeaders,
-    },
+  // Retry the initial connection once on a transient network failure
+  // ("fetch failed" to the LLM provider) — a retry usually succeeds.
+  const doFetch = () =>
+    fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
     body: JSON.stringify({
       model,
       messages: [{ role: "system", content: systemPrompt }, ...messages],
@@ -625,6 +628,14 @@ async function runOneCompletionOnce(
       tool_choice: withTools ? "auto" : undefined,
     }),
   });
+  let res: Response;
+  try {
+    res = await doFetch();
+  } catch (e) {
+    if (!/fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|socket hang up|network/i.test(e instanceof Error ? e.message : String(e))) throw e;
+    await new Promise((r) => setTimeout(r, 700));
+    res = await doFetch();
+  }
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => "");
     throw new Error(`LLM failed (${res.status}): ${detail}`);
@@ -830,7 +841,7 @@ async function runAgent(
   // Note: NOT wrapped in `if (round < MAX_TOOL_ROUNDS)` — the accumulated tool
   // results must always land in `messages` so the forced final completion below
   // can answer from them (never throw a raw "too many tool rounds" 502).
-  const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news","hotel_search","cinema_showtimes","train_search","bus_search","hardening_plan","finding_list","dep_audit"]);
+  const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news","hotel_search","cinema_showtimes","train_search","bus_search","hardening_plan","finding_list","dep_audit","report_generate","report_save"]);
   const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
   // A confirmation continuation is answering an ACTION, not a list request —
   // never take the verbatim fast-path there, or a follow-up list_* would mask
