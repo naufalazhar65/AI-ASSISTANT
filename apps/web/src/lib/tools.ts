@@ -2777,29 +2777,29 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "write", function: { name: "cua_start_session", description: "Start cua session (auto/window/desktop) — WAJIB sebelum browser typed. Write, confirm.", parameters: { type: "object", properties: { session: { type: "string" }, capture_scope: { type: "string", description: "auto|window|desktop" } }, required: ["session"] } } },
-    execute: (args) => {
-      const { cuaStartSession } = require("./cua") as typeof import("./cua");
+    execute: async (args) => {
+      const { cuaStartSession } = await import("./cua");
       return cuaStartSession(String(args.session || "default"), (args.capture_scope as "auto" | "window" | "desktop") || "auto");
     },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "cua_browser_state", description: "Browser typed: get_browser_state (bind pid/window_id+session atau target/tab+session). Read, auto.", parameters: { type: "object", properties: { pid: { type: "number" }, window_id: { type: "number" }, session: { type: "string" }, target_id: { type: "string" }, tab_id: { type: "string" } }, required: [] } } },
-    execute: (args) => {
-      const { cuaGetBrowserState } = require("./cua") as typeof import("./cua");
+    execute: async (args) => {
+      const { cuaGetBrowserState } = await import("./cua");
       return cuaGetBrowserState(args as Record<string, unknown>);
     },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "cua_browser_click", description: "Browser typed click by ref (trusted/dom_event). Write, confirm. Need target_id/tab_id/ref+session.", parameters: { type: "object", properties: { target_id: { type: "string" }, tab_id: { type: "string" }, ref: { type: "string" }, session: { type: "string" } }, required: ["target_id", "tab_id", "ref", "session"] } } },
-    execute: (args) => {
-      const { cuaBrowserClick } = require("./cua") as typeof import("./cua");
+    execute: async (args) => {
+      const { cuaBrowserClick } = await import("./cua");
       return cuaBrowserClick(args as Record<string, unknown>);
     },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "cua_browser_type", description: "Browser typed type by ref. Write, confirm.", parameters: { type: "object", properties: { target_id: { type: "string" }, tab_id: { type: "string" }, ref: { type: "string" }, text: { type: "string" }, session: { type: "string" } }, required: ["target_id", "tab_id", "ref", "text", "session"] } } },
-    execute: (args) => {
-      const { cuaBrowserType } = require("./cua") as typeof import("./cua");
+    execute: async (args) => {
+      const { cuaBrowserType } = await import("./cua");
       return cuaBrowserType(args as Record<string, unknown>);
     },
   },

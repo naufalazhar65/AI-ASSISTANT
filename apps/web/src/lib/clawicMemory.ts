@@ -1,7 +1,7 @@
 // Clawic Memory — mandiri durable store di .memory/ (plain markdown, no network)
 // Rules: write before reply, dated+sourced, one fact one home, INDEX capped, never store secrets
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { repoRoot } from "./users";
 
@@ -138,7 +138,7 @@ export function forget(target: string): string {
       for (const f of files) {
         if (f.includes(q) || readFileSync(join(dir, f), "utf8").toLowerCase().includes(target.toLowerCase())) {
           // delete_policy confirm — for Mia auto, direct
-          try { const { unlinkSync } = require("node:fs"); unlinkSync(join(dir, f)); removed++; } catch {}
+          try { unlinkSync(join(dir, f)); removed++; } catch {}
         }
       }
     }

@@ -325,6 +325,43 @@ async function main() {
   }
   console.log("learnings dedup+recurrence+promotion: OK");
 
+  // --- tool registry integrity (structural; catches drift) ---
+  const { getTOOLS: toolsFn } = await import("./src/lib/tools");
+  const toolNames = toolsFn().map((t) => t.function.name);
+  if (new Set(toolNames).size !== toolNames.length) throw new Error("duplicate tool names in registry");
+  const RISKS = new Set(["read", "write", "delete", "transaction", "external"]);
+  for (const t of toolsFn()) {
+    if (t.type !== "function" || !/^[a-z0-9_]+$/.test(t.function.name)) throw new Error(`bad tool def: ${t.function.name}`);
+    if (!t.function.description || !t.function.description.trim()) throw new Error(`tool ${t.function.name} has no description`);
+    const params = t.function.parameters as { type?: string } | undefined;
+    if (!params || params.type !== "object") throw new Error(`tool ${t.function.name} parameters not an object`);
+    if (!RISKS.has(t.risk)) throw new Error(`tool ${t.function.name} bad risk: ${t.risk}`);
+  }
+  console.log(`tool registry integrity (${toolNames.length} tools): OK`);
+
+  // --- pure intent detectors + text helpers (offline) ---
+  const { detectMoodIntent: moodDetect } = await import("./src/lib/moodIntent");
+  if (!moodDetect("aku lagi stres banget kerjaan numpuk")) throw new Error("moodIntent missed stressed");
+  if (moodDetect("apa kabar?") !== null) throw new Error("moodIntent false-positive");
+  const { detectCorrection: correctDetect } = await import("./src/lib/correctionIntent");
+  if (!correctDetect("salah, seharusnya jam 9 bukan jam 8")) throw new Error("correctionIntent missed");
+  if (correctDetect("halo apa kabar") !== null) throw new Error("correctionIntent false-positive");
+  const { detectMonitorIntent: monDetect } = await import("./src/lib/monitorIntent");
+  if (!monDetect("pantau harga bitcoin")) throw new Error("monitorIntent missed bitcoin");
+  if (monDetect("apa kabar") !== null) throw new Error("monitorIntent false-positive");
+  const { detectSpotifyControl: spotControl } = await import("./src/lib/spotifyIntent");
+  if (spotControl("pause lagunya dong")?.action !== "pause") throw new Error("spotifyControl missed pause");
+  const { chunkText: chunkReply } = await import("./src/channels/replyChunk");
+  const big = "baris ".repeat(1000);
+  const chunks = chunkReply(big, 2000);
+  if (chunks.length < 2 || chunks.some((c) => c.length > 2000)) throw new Error("chunkText exceeded max");
+  if (chunks.join("").replace(/\s/g, "") !== big.replace(/\s/g, "")) throw new Error("chunkText lost content");
+  const { reminderMessage: remMsg } = await import("./src/lib/reminderMessage");
+  const rmsg = remMsg("minum air", "07:00");
+  if (!rmsg.includes("minum air") || (rmsg.match(/minum air/g) || []).length > 1) throw new Error(`reminderMessage bad: ${rmsg}`);
+  console.log("pure detectors (mood/correction/monitor/spotify) + chunk/reminder: OK");
+
+
 
   // --- file access tool (read-only, sandboxed to project root) ---
   const fr = (p: string) => executeTool({ id: "t", name: "file_read", arguments: JSON.stringify({ path: p }) });
