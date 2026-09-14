@@ -237,4 +237,8 @@ _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
 - [x] Findings + CVSS/OWASP/CWE, `hardening_plan`, export CSV/JSON/SARIF, laporan MD/**PDF**
 - [x] Lab lokal no-Docker `labs/pentest/vuln-node` (13+ kelas) + Docker compose opsional
 - [x] **Engagement & Scope** (otorisasi klien + guard scope-aware) + monitoring heartbeat (port/cert/engagement)
-- Pedoman & scope: `SECURITY.md`. **Total tools 199.**
+- [x] **Recon suite** (`recon.ts`, keyless): `recon_subdomains` (CT/pasif), `recon_params` (OTX/urlscan/Wayback), `recon_takeover` (CNAME fingerprint), `recon_httpx` (probe aktif, scope-gated), `recon_list`
+- [x] **White-box & playbooks** (adaptasi Strix, Apache-2.0): `sast_scan` (semgrep) + `security_playbook` (13 pack) + `apps/web/security-playbooks/`
+- [x] **Disiplin analisis** wajib (counterevidence → severity-calibration → fix-verification) sebelum finding/report
+- [x] **Audit hardening**: `netGuard.assertPublicUrl` bersama, scope subdomain env, metadata diblok, ID anti-tabrakan, `engagement_create` confirm, `web_audit` anti-SSRF, suite pentest masuk `CORE_TOOL_NAMES`
+- Pedoman & scope: `SECURITY.md`. **Total tools 209.**

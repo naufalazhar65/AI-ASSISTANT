@@ -3325,6 +3325,34 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { labFetch } = await import("./security"); return await labFetch(String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "lab_fetch failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "recon_subdomains", description: "Recon PASIF subdomain via Certificate Transparency (crt.sh, fallback hackertarget) — keyless, tanpa menyentuh target. Read, auto. Domain milik sendiri/klien. Pakai untuk 'cari subdomain domainku'.", parameters: { type: "object", properties: { domain: { type: "string", description: "mis. example.com" } }, required: ["domain"] } } },
+    execute: async (args, ctx) => { try { const { reconSubdomains } = await import("./recon"); return await reconSubdomains(ctx.rawUser, String(args.domain || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_subdomains failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "recon_httpx", description: "Probe AKTIF host hidup (HTTP/HTTPS) untuk subdomain hasil recon_subdomains (atau `hosts`). HANYA lab/engagement/PENTEST_LAB_TARGETS (publik DITOLAK). Write, confirm.", parameters: { type: "object", properties: { domain: { type: "string" }, hosts: { type: "array", description: "Host spesifik (opsional; default subdomain tercache)" } }, required: ["domain"] } } },
+    execute: async (args, ctx) => { try { const { reconHttpx } = await import("./recon"); const hosts = Array.isArray(args.hosts) ? args.hosts.map(String) : undefined; return await reconHttpx(ctx.rawUser, String(args.domain || ""), hosts); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_httpx failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "recon_params", description: "Recon PASIF URL + query-parameter dari arsip publik (OTX + urlscan + Wayback) — keyless. Menandai param menarik (id/redirect/url/file/dst) untuk uji manual IDOR/SSRF/LFI. Read, auto.", parameters: { type: "object", properties: { domain: { type: "string" } }, required: ["domain"] } } },
+    execute: async (args, ctx) => { try { const { reconParams } = await import("./recon"); return await reconParams(ctx.rawUser, String(args.domain || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_params failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "recon_list", description: "Ringkasan cache recon per-user (subdomain/host hidup/param per domain). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { reconList } = await import("./recon"); return reconList(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_list failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "recon_takeover", description: "Cek PASIF kandidat subdomain takeover: resolve CNAME subdomain (dari cache recon) lalu cocokkan ke layanan rentan (GitHub Pages/Heroku/S3/Azure/Netlify/Vercel/...). DNS-only, read, auto. Domain sendiri/klien.", parameters: { type: "object", properties: { domain: { type: "string" } }, required: ["domain"] } } },
+    execute: async (args, ctx) => { try { const { reconTakeover } = await import("./recon"); return await reconTakeover(ctx.rawUser, String(args.domain || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_takeover failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "security_playbook", description: "Muat playbook keamanan (metodologi/kelas-vuln/teknologi) sesuai kebutuhan — counterevidence, severity-calibration, fix-verification, source-aware-sast, subdomain-takeover, oauth, graphql, llm-applications, dll. Tanpa argumen = katalog. Read, auto.", parameters: { type: "object", properties: { name: { type: "string", description: "nama playbook, mis. 'counterevidence'" }, query: { type: "string", description: "kata kunci bila nama tak diketahui" } }, required: [] } } },
+    execute: async (args) => { try { const { securityPlaybook } = await import("./securityPlaybook"); return securityPlaybook(typeof args.name === "string" ? args.name : undefined, typeof args.query === "string" ? args.query : undefined); } catch (e) { return `Error: ${e instanceof Error ? e.message : "security_playbook failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "sast_scan", description: "SAST (semgrep: p/default + p/secrets) pada source di sandbox (repo/ALLOWED_WORKSPACES) — pola kerentanan + secret di kode. Read, auto. Install: brew install semgrep (butuh internet saat pertama untuk unduh rules).", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori relatif (opsional; default repo root)" } }, required: [] } } },
+    execute: async (args) => { try { const { sastScan } = await import("./security"); return await sastScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "sast_scan failed"}`; } },
+  },
+  {
     definition: {
       type: "function",
       risk: "write",

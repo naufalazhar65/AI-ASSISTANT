@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-199-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-209-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 ---
@@ -75,7 +75,7 @@ flowchart LR
 
 ---
 
-## 🛠️ Tools — 199 total
+## 🛠️ Tools — 209 total
 
 | Category | Tools | Notes |
 |----------|-------|-------|
@@ -99,12 +99,16 @@ flowchart LR
 | **Ops** | `git_status/commit`, `safe_exec_list`, `evolver_status/review`, `freeride_status/list/auto/switch/refresh/rotate/watcher`, `learnings_*`, `send_channel` | SafeExec, freeride fallback chain `429→next`, watcher `60s` |
 
 | **Security — posture** | `security_scan`, `secret_scan`, `breach_check`, `tls_check` | macOS posture, leaked-secret scan (redacted), HIBP k-anonymity, TLS |
-| **Security — recon/audit** | `web_audit`, `domain_audit`, `exec dig/whois` | headers/cookies, SPF/DMARC/DKIM/CAA |
-| **Security — scan (authorized)** | `pentest_scan`, `sqlmap_scan`, `zap_scan` | nmap/nuclei/nikto/ffuf/sqlmap/ZAP — lab/engagement/permitted only |
+| **Security — recon (attack surface)** | `recon_subdomains`, `recon_httpx`, `recon_params`, `recon_takeover`, `recon_list` | passive CT/archive OSINT + scoped active live-host probe; per-user cache |
+| **Security — audit** | `web_audit`, `domain_audit`, `exec dig/whois` | headers/cookies, SPF/DMARC/DKIM/CAA |
+| **Security — scan (authorized)** | `pentest_scan`, `sqlmap_scan`, `zap_scan`, `http_request` | nmap/nuclei/nikto/ffuf/sqlmap/ZAP + raw HTTP — lab/engagement/permitted only |
+| **Security — SAST** | `sast_scan` | semgrep `p/default`+`p/secrets` on a sandbox dir (white-box) |
 | **Security — analysis** | `password_strength`, `hash_identify`, `jwt_inspect`, `ioc_extract`, `cvss_score` | CVSS v3.1 base score |
-| **Security — deps** | `dep_audit`, `verify_patch` | CVE via OSV (npm/pypi) + fixed-version/patch check |
+| **Security — deps** | `dep_audit`, `verify_patch`, `trivy_scan` | CVE via OSV/trivy + fixed-version/patch check |
 | **Security — findings** | `finding_add/list/resolve/export`, `hardening_plan`, `report_generate/save/pdf`, `hardening_pdf` | CVSS/OWASP/CWE, CSV/JSON/**SARIF**, MD/PDF |
-| **Security — lab & engagement** | `lab_status/start/fetch`, `engagement_create/list/close`, `pentest_resources` | `labs/pentest` (no-Docker vuln-node), client authorization + scope guard || **Self-Update** | `auto_update_status`, `auto_update` | **Auto-Update Mia** mandiri: daily 04:00 WIB `git pull --ff-only` + `npm install` + gates `typecheck/test/verify` + push ringkasan + restart; `auto_update` = konfirmasi |
+| **Security — lab & engagement** | `lab_status/start/fetch`, `engagement_create/list/close`, `pentest_resources` | `labs/pentest` (no-Docker vuln-node), client authorization + scope guard |
+| **Security — playbooks** | `security_playbook` | 13 knowledge packs (adapted from Strix, Apache-2.0): counterevidence/severity/fix-verification/… |
+| **Self-Update** | `auto_update_status`, `auto_update` | **Auto-Update Mia** mandiri: daily 04:00 WIB `git pull --ff-only` + `npm install` + gates `typecheck/test/verify` + push ringkasan + restart; `auto_update` = konfirmasi |
 
 > **Risk:** `read` = auto-run, `write/delete` = inline `ya/tidak` (FR-014) — except `spotify_play` (immediate).
 
@@ -117,9 +121,11 @@ flowchart LR
 Mia can act as a **defensive / authorized** security assistant. Full guide +
 scope rules + examples: **[SECURITY.md](./SECURITY.md)**.
 
-- **Own system:** `security_scan` · `secret_scan` · `tls_check` · `domain_audit` · `web_audit` · `dep_audit` · `verify_patch`
-- **Authorized scans:** `pentest_scan` (nmap/nuclei/nikto/ffuf) · `sqlmap_scan` · `zap_scan`
+- **Own system:** `security_scan` · `secret_scan` · `tls_check` · `domain_audit` · `web_audit` · `dep_audit` · `verify_patch` · `sast_scan`
+- **Recon / attack surface:** `recon_subdomains` (CT crt.sh) · `recon_params` (OTX/urlscan/Wayback) · `recon_takeover` (CNAME fingerprints) · `recon_httpx` (active, scoped)
+- **Authorized scans:** `pentest_scan` (nmap/nuclei/nikto/ffuf) · `sqlmap_scan` · `zap_scan` · `http_request`
 - **Findings → report:** `finding_add` (CVSS/OWASP/CWE) → `hardening_plan` → `report_pdf` / `finding_export` (CSV/JSON/SARIF)
+- **Methodology:** `security_playbook` (counterevidence / severity-calibration / fix-verification / per-class packs, adapted from Strix)
 - **Practice lab (no Docker):** `lab_start` → `http://127.0.0.1:4010` (SQLi/XSS/IDOR/SSRF/JWT/CSRF/…)
 - **Client pentest:** `engagement_create` (authorization + scope) → only in-scope hosts are scannable
 

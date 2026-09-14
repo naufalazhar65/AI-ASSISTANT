@@ -48,7 +48,20 @@ immediately; write tools (scans, edits) ask **`ya`** first (FR-014).
 | `domain_audit` | SPF, DMARC(+policy), DKIM (common selectors), CAA, MX, NS |
 | `exec tcpdump -r / nc -z / searchsploit` | read a pcap (`-r`; capture needs sudo), port check (`nc -zv host port`), Exploit-DB lookup |
 
-### 2.3 Active scanning (write → confirm; scope-enforced)
+### 2.3 Recon / attack surface (keyless)
+| Tool | What | Scope |
+|---|---|---|
+| `recon_subdomains` | passive subdomain enum via Certificate Transparency (crt.sh, hackertarget fallback) | any domain (public OSINT) |
+| `recon_params` | passive URL + query-param mining from public archives (OTX + urlscan + Wayback); flags interesting params (`id`/`redirect`/`url`/`file`/…) | any domain (public OSINT) |
+| `recon_httpx` | **active** live-host probe (status/server/title) over cached subdomains or a given host list | lab / engagement / `PENTEST_LAB_TARGETS` only (write → confirm) |
+| `recon_takeover` | passive subdomain-takeover candidates — resolves CNAMEs and matches known claimable services (GitHub Pages/Heroku/S3/Azure/Netlify/Vercel/…) | any domain (DNS-only OSINT) |
+| `recon_list` | per-user recon cache summary (subdomains / live / params / takeover) | read, auto |
+
+Results are cached per user at `.data/users/<user>/recon.json` so
+`recon_subdomains → recon_httpx` can run in sequence. Flow: `recon_subdomains`
+→ `recon_httpx` → `recon_params` → manual test (authorized URLs) → `finding_add`.
+
+### 2.4 Active scanning (write → confirm; scope-enforced)
 | Tool | Tools used | Scope |
 |---|---|---|
 | `pentest_scan` | `nmap`, `nuclei` (`-as`), `nikto`, `ffuf`/`gobuster` (built-in wordlist), `whatweb` | lab/engagement/permitted only |
@@ -58,7 +71,7 @@ immediately; write tools (scans, edits) ask **`ya`** first (FR-014).
 
 Targets outside scope are **rejected** (`isLabTarget` / engagement scope).
 
-### 2.4 Analysis (read, auto)
+### 2.5 Analysis (read, auto)
 | Tool | What |
 |---|---|
 | `password_strength` | local entropy + common-pattern check (args redacted) |
@@ -68,14 +81,15 @@ Targets outside scope are **rejected** (`isLabTarget` / engagement scope).
 | `cvss_score` | CVSS v3.1 base score from a vector (e.g. `…/C:H/I:H/A:H` → 9.8) |
 | `encoding` | base64 / url / hex / html / rot13 encode–decode |
 
-### 2.5 Dependencies (read, auto)
+### 2.6 Dependencies (read, auto)
 | Tool | What |
 |---|---|
 | `dep_audit` | CVE audit via **OSV** (npm `package-lock.json` + PyPI `requirements.txt`); shows **nearest fixed version**; `to_findings=true` adds to board |
 | `verify_patch` | compare installed versions vs each dep finding's fixed version → patched / still / unverified; `apply=true` auto-resolves patched |
 | `trivy_scan` | filesystem/image CVE scan (keyless; `brew install trivy`) |
+| `sast_scan` | static analysis of a sandbox source dir via **semgrep** (`p/default` + `p/secrets`) — vulnerability patterns + hardcoded secrets; `brew install semgrep` (rules download needs net on first run) |
 
-### 2.6 Findings & reporting (read, auto)
+### 2.7 Findings & reporting (read, auto)
 | Tool | What |
 |---|---|
 | `finding_add` | record a finding (Title/Severity/**CVSS**/OWASP/CWE/Target/Steps-to-Reproduce/Evidence/Impact/Root-Cause/Remediation/References) |
@@ -86,12 +100,12 @@ Targets outside scope are **rejected** (`isLabTarget` / engagement scope).
 | `report_generate` | markdown pentest report (incl. active Engagement header) |
 | `report_save` / `report_pdf` / `hardening_pdf` | write MD / render PDF (via Playwright) |
 
-### 2.7 Lab lifecycle
+### 2.8 Lab lifecycle
 | Tool | What |
 |---|---|
 | `lab_status` / `lab_start` / `lab_fetch` | start/stop/status the local lab; `lab_fetch` GETs a **lab/authorized** URL (bypasses the public SSRF guard for your own lab) |
 
-### 2.8 Engagement & Scope (client authorization)
+### 2.9 Engagement & Scope (client authorization)
 | Tool | What |
 |---|---|
 | `engagement_create` | record `name`, `client`, `authorization` (PO/contract/email), `scope[]`, `out_of_scope[]`, `window_start/end`, `contact`, `notes` (**write → asks `ya` first**: this record is what grants scan permission) |
@@ -101,6 +115,26 @@ Targets outside scope are **rejected** (`isLabTarget` / engagement scope).
 Once an engagement is **ACTIVE**, hosts in its `scope` become scannable by
 `pentest_scan` / `sqlmap_scan` / `zap_scan` / `lab_fetch`; out-of-scope is
 refused.
+
+---
+
+### 2.10 Playbooks & methodology (read, auto)
+| Tool | What |
+|---|---|
+| `security_playbook` | loads a pentest knowledge pack on demand (`name=` or `query=`, no args = catalog) |
+
+Packs live in `apps/web/security-playbooks/<category>/<name>.md` and are
+**adapted from [Strix](https://github.com/usestrix/strix) (Apache-2.0)**:
+`counterevidence` / `severity-calibration` / `fix-verification` /
+`source-aware-discovery` (analysis), `hypothesis` (tooling), `source-aware-sast`
+(custom), `infrastructure-lifecycle` (recon), `subdomain-takeover` +
+`llm-prompt-injection` (vulnerabilities), `oauth` + `graphql` (protocols),
+`llm-applications` (technologies), `nextjs` (frameworks).
+
+The agent is instructed to **load the relevant pack before testing**, and to run
+the counterevidence → severity-calibration → fix-verification passes before
+recording a finding. Add a pack by dropping a `.md` with `name:`/`description:`
+frontmatter into the matching category folder.
 
 ---
 
@@ -215,4 +249,6 @@ engagement_close id=ENG-…
 ---
 
 *Files:* `apps/web/src/lib/security.ts` · `securityWatch.ts` · `engagement.ts` ·
-`apps/web/src/lib/tools.ts` (registry) · `labs/pentest/`.
+`recon.ts` · `securityPlaybook.ts` · `netGuard.ts` · `apps/web/src/lib/tools.ts`
+(registry) · `apps/web/security-playbooks/` (adapted from Strix, Apache-2.0) ·
+`labs/pentest/`.

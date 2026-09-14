@@ -504,6 +504,61 @@ async function main() {
     console.log("netGuard SSRF guard + engagement_create risk: OK");
   }
   {
+    const { cleanDomain, parseCertNames, extractParams, reconHttpx } = await import("./src/lib/recon");
+    if (cleanDomain("https://Sub.Example.com:443/x") !== "sub.example.com") throw new Error("cleanDomain url/port");
+    if (cleanDomain("*.example.com") !== "example.com") throw new Error("cleanDomain wildcard");
+    if (cleanDomain("example.com.") !== "example.com") throw new Error("cleanDomain trailing dot");
+    if (cleanDomain("not a domain") !== "") throw new Error("cleanDomain should reject");
+    const certs = parseCertNames(JSON.stringify([{ name_value: "a.example.com\nb.example.com\n*.example.com" }, { common_name: "evil.com" }]), "example.com");
+    if (!certs.includes("a.example.com") || !certs.includes("b.example.com") || certs.includes("evil.com") || certs.includes("example.com")) throw new Error(`parseCertNames: ${certs}`);
+    const params = extractParams(["https://x.example.com/a?id=1&q=z", "https://x.example.com/b?id=2", "https://notexample.com/?evil=1"], "example.com");
+    if (!params.length || params[0].name !== "id" || !params[0].interesting) throw new Error(`extractParams: ${JSON.stringify(params)}`);
+    if (params.some((p) => p.name === "evil")) throw new Error("extractParams leaked a non-subdomain host (notexample.com)");
+    const blocked = await reconHttpx("verify_recon_user", "google.com");
+    if (!/SCOPE/.test(blocked)) throw new Error("recon_httpx allowed a public non-scoped domain");
+    const { isLabTarget } = await import("./src/lib/security");
+    const prevEnv = process.env.PENTEST_LAB_TARGETS;
+    process.env.PENTEST_LAB_TARGETS = "mycorp.example";
+    try {
+      if (!isLabTarget("app.mycorp.example")) throw new Error("PENTEST_LAB_TARGETS domain must cover its subdomains");
+      if (isLabTarget("notmycorp.example") || isLabTarget("mycorp.example.evil.com")) throw new Error("PENTEST_LAB_TARGETS must not match unrelated/suffix-spoof hosts");
+    } finally {
+      if (prevEnv === undefined) delete process.env.PENTEST_LAB_TARGETS;
+      else process.env.PENTEST_LAB_TARGETS = prevEnv;
+    }
+    console.log("recon (subdomains/params/scope): OK");
+  }
+  {
+    const { securityPlaybook } = await import("./src/lib/securityPlaybook");
+    const list = securityPlaybook();
+    if (!/Security playbooks/.test(list) || !/counterevidence/.test(list)) throw new Error("security_playbook list");
+    const pack = securityPlaybook("counterevidence");
+    if (!/Closure/i.test(pack)) throw new Error("security_playbook load counterevidence");
+    const missing = securityPlaybook("no-such-pack");
+    if (!/tidak ditemukan/i.test(missing)) throw new Error("security_playbook missing-name should list catalog");
+    if (/tidak ditemukan/.test(securityPlaybook("fix-verification"))) throw new Error("playbook name normalization (hyphen vs underscore)");
+    if (/tidak ditemukan/.test(securityPlaybook("source_aware_discovery"))) throw new Error("playbook name normalization (underscore)");
+    const { matchTakeover } = await import("./src/lib/recon");
+    if (matchTakeover("foo.github.io") !== "GitHub Pages") throw new Error("matchTakeover github");
+    if (matchTakeover("d123.cloudfront.net") !== "AWS CloudFront") throw new Error("matchTakeover cloudfront");
+    if (matchTakeover("example.com") !== null) throw new Error("matchTakeover should be null");
+    const { sastScan } = await import("./src/lib/security");
+    const sast = await sastScan("");
+    if (typeof sast !== "string" || !/semgrep|SAST/i.test(sast)) throw new Error(`sastScan: ${sast.slice(0, 80)}`);
+    console.log("security_playbook + takeover + sast: OK");
+  }
+  {
+    const { toolsForUrl } = await import("./src/lib/agent");
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook"]) {
+      if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
+    }
+    const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
+    if (r9.length > 64) throw new Error(`9router tool cap exceeded (${r9.length})`);
+    console.log("provider tool caps (groq keeps pentest suite): OK");
+  }
+  {
     const { createEngagement, engagementAllows, closeEngagement } = await import("./src/lib/engagement");
     const { isLabTarget, targetAllowed } = await import("./src/lib/security");
     if (isLabTarget("app.ptx.co.id")) throw new Error("public host should not be a lab target");

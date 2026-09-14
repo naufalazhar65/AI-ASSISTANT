@@ -9,7 +9,7 @@
  */
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { connect as tlsConnect } from "node:tls";
 import { dirname, extname, join, relative } from "node:path";
@@ -278,6 +278,9 @@ export function isLabTarget(raw: string): boolean {
   const hostport = t.replace(/^[a-z]+:\/\//i, "").split("/")[0].toLowerCase();
   const envTargets = (process.env.PENTEST_LAB_TARGETS || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
   if (envTargets.includes(host) || envTargets.includes(hostport)) return true;
+  // A listed own domain also authorizes its subdomains (`example.com` covers
+  // `app.example.com`) — e.g. so recon can probe the subdomains it found.
+  if (envTargets.some((e) => !e.includes(":") && (host === e || host.endsWith("." + e)))) return true;
   if (SCAN_PERMITTED_HOSTS.has(host)) return true;
   // Cloud instance-metadata endpoints are NEVER "lab" targets (SSRF → stolen
   // credentials). Refuse before the generic link-local allowance below.
@@ -1120,5 +1123,50 @@ export function trivyScan(dirRel = ""): Promise<string> {
     const o = out.trim();
     if (timedOut && !o) return "⏱️ trivy timeout tanpa output.";
     return `🧪 TRIVY ${dirRel || "repo"}\n${(o || "(tanpa temuan CVE)").slice(0, 5000)}`;
+  });
+}
+
+// ── SAST (semgrep static analysis on own/authorized code) ───────────────────
+type SemgrepResult = { check_id?: string; path?: string; start?: { line?: number }; extra?: { severity?: string; message?: string } };
+
+/** Static analysis of a sandbox source dir via semgrep (p/default + p/secrets). */
+export function sastScan(dirRel = ""): Promise<string> {
+  const root = dirRel.trim() ? resolveInSandbox(dirRel.trim()) : repoRoot();
+  if (!root) return Promise.reject(new Error("path di luar sandbox"));
+  // Use an OS temp dir (removed after parsing) so scans don't accumulate
+  // multi-MB JSON files under .data/.
+  const outDir = mkdtempSync(join(tmpdir(), "mia-sast-"));
+  const outFile = join(outDir, "semgrep.json");
+  return runCapture(
+    "semgrep",
+    ["scan", "--config", "p/default", "--config", "p/secrets", "--metrics=off", "--quiet", "--json", "--output", outFile, root],
+    300_000,
+    4 * 1024 * 1024
+  ).then(({ enoent, timedOut }) => {
+    try {
+      if (enoent) return "Error: semgrep belum terpasang — `brew install semgrep` (atau `pipx install semgrep`).";
+      let data: { results?: SemgrepResult[] };
+      try {
+        data = JSON.parse(readFileSync(outFile, "utf8")) as { results?: SemgrepResult[] };
+      } catch {
+        return timedOut
+          ? "⏱️ semgrep timeout tanpa hasil."
+          : "Error: output semgrep tidak terbaca — sering karena rules `p/*` gagal diunduh (butuh internet saat pertama kali). Jalankan ulang setelah online.";
+      }
+      const rows = data.results || [];
+      if (!rows.length) return `🔬 SAST (semgrep) ${dirRel || "repo"}: tidak ada temuan.`;
+      const rank: Record<string, number> = { ERROR: 0, WARNING: 1, INFO: 2 };
+      const sorted = [...rows].sort((a, b) => (rank[(a.extra?.severity || "").toUpperCase()] ?? 3) - (rank[(b.extra?.severity || "").toUpperCase()] ?? 3));
+      const lines = sorted.slice(0, 40).map((r) => {
+        const sev = (r.extra?.severity || "?").toUpperCase();
+        const loc = `${r.path || "?"}${r.start?.line ? `:${r.start.line}` : ""}`;
+        const msg = (r.extra?.message || "").replace(/\s+/g, " ").slice(0, 140);
+        return `• [${sev}] ${r.check_id || "?"} — ${loc}${msg ? `\n   ${msg}` : ""}`;
+      });
+      const extra = rows.length > 40 ? `\n… dan ${rows.length - 40} temuan lain.` : "";
+      return `🔬 SAST (semgrep) ${dirRel || "repo"} — ${rows.length} temuan:\n${lines.join("\n")}${extra}\n\n(Semua temuan statis: WAJIB trace source→sink & verifikasi sebelum finding_add. Lihat security_playbook name=source-aware-sast.)`;
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
   });
 }

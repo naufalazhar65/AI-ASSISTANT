@@ -646,6 +646,8 @@ Capability yang perlu diamankan antara lain:
 
 Mia menyediakan mekanisme allow / deny tool dan sandboxing sesuai deployment dan konfigurasi.
 
+Selain hardening runtime, Mia punya **toolkit pentest defensif/berizin** (panduan lengkap: `SECURITY.md`): postur macOS (`security_scan`), secret scan (`secret_scan`), TLS/HIBP (`tls_check`/`breach_check`), recon attack-surface (`recon_subdomains`/`recon_params`/`recon_takeover`/`recon_httpx`/`recon_list`), scan berizin (`pentest_scan`/`sqlmap_scan`/`zap_scan`/`http_request`), SAST (`sast_scan`), dependency CVE (`dep_audit`/`verify_patch`/`trivy_scan`), findings + laporan (`finding_*`/`hardening_*`/`report_*`, CVSS/OWASP/CWE, CSV/JSON/SARIF, MD/PDF), engagement & scope (`engagement_*`), dan playbook metodologi (`security_playbook`). Semua aksi aktif dibatasi ke aset sendiri/berizin (lab/RFC1918/engagement aktif/`PENTEST_LAB_TARGETS`).
+
 ---
 
 # 21. Sandboxing
