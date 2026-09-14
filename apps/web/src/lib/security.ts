@@ -7,7 +7,7 @@
  * no interpolation of user input). secret_scan walks a sandbox root only and
  * redacts any secret value it finds.
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,6 +19,46 @@ function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
     execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
       resolve((stdout || stderr || (err ? String((err as NodeJS.ErrnoException).code ?? err.message) : "")).trim());
+    });
+  });
+}
+
+/**
+ * Capture a CLI's output with stdin IGNORED (/dev/null). Some scanners (nuclei)
+ * block forever waiting for stdin when it is an open pipe (execFile's default) —
+ * giving /dev/null makes them exit normally.
+ */
+function runCapture(bin: string, args: string[], timeoutMs: number, maxBytes = 2 * 1024 * 1024): Promise<{ out: string; enoent: boolean; timedOut: boolean }> {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    } catch (e) {
+      resolve({ out: "", enoent: (e as NodeJS.ErrnoException).code === "ENOENT", timedOut: false });
+      return;
+    }
+    let out = "";
+    let bytes = 0;
+    let timedOut = false;
+    const onData = (d: Buffer) => {
+      if (bytes < maxBytes) {
+        out += d.toString();
+        bytes += d.length;
+      }
+    };
+    child.stdout?.on("data", onData);
+    child.stderr?.on("data", onData);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ out, enoent: (e as NodeJS.ErrnoException).code === "ENOENT", timedOut });
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      resolve({ out, enoent: false, timedOut });
     });
   });
 }
@@ -202,11 +242,13 @@ export function pentestResources(): string {
 
 // ── Guarded pentest scanning (OWN lab / authorized targets only) ─────────────
 
-const PENTEST_TOOLS: Record<string, { bin: string; formula: string; args: (t: string, wordlist: string) => string[] }> = {
-  nmap: { bin: "nmap", formula: "nmap", args: (t) => ["-sV", "-T4", "-Pn", t] },
-  nuclei: { bin: "nuclei", formula: "nuclei", args: (t) => ["-u", t, "-silent", "-no-color"] },
-  nikto: { bin: "nikto", formula: "nikto", args: (t) => ["-h", t] },
-  ffuf: { bin: "ffuf", formula: "ffuf", args: (t, w) => ["-u", t.includes("FUZZ") ? t : `${t.replace(/\/$/, "")}/FUZZ`, "-w", w, "-s", "-mc", "all"] },
+const PENTEST_TOOLS: Record<string, { bin: string; formula: string; timeoutMs?: number; args: (t: string, wordlist: string) => string[] }> = {
+  nmap: { bin: "nmap", formula: "nmap", timeoutMs: 120_000, args: (t) => ["-sV", "-T4", "-Pn", t] },
+  // nuclei default scans EVERY template (very slow, hangs 100s+). `-as`
+  // (automatic/tech-aware scan) is bounded (~10s here) and still useful.
+  nuclei: { bin: "nuclei", formula: "nuclei", timeoutMs: 180_000, args: (t) => ["-u", t, "-as", "-silent", "-no-color", "-no-interactsh", "-duc", "-severity", "critical,high,medium", "-timeout", "5", "-rl", "150"] },
+  nikto: { bin: "nikto", formula: "nikto", timeoutMs: 180_000, args: (t) => ["-h", t] },
+  ffuf: { bin: "ffuf", formula: "ffuf", timeoutMs: 120_000, args: (t, w) => ["-u", t.includes("FUZZ") ? t : `${t.replace(/\/$/, "")}/FUZZ`, "-w", w, "-s", "-mc", "all"] },
 };
 
 /**
@@ -244,7 +286,7 @@ export function pentestToolsList(): string {
 }
 
 /** Run one allowlisted pentest tool against a validated local/lab target. */
-export function pentestScan(opts: { tool: string; target: string; wordlist?: string }): Promise<string> {
+export async function pentestScan(opts: { tool: string; target: string; wordlist?: string }): Promise<string> {
   const spec = PENTEST_TOOLS[opts.tool];
   if (!spec) return Promise.reject(new Error(`tool "${opts.tool}" tidak didukung (pilih: ${pentestToolsList()})`));
   const target = (opts.target || "").trim();
@@ -265,21 +307,12 @@ export function pentestScan(opts: { tool: string; target: string; wordlist?: str
     }
   }
   const args = spec.args(target, wordlist);
-  return new Promise((resolve) => {
-    execFile(spec.bin, args, { timeout: 120_000, maxBuffer: 2 * 1024 * 1024 }, (err, stdout, stderr) => {
-      const e = err as NodeJS.ErrnoException | null;
-      if (e && e.code === "ENOENT") {
-        resolve(`Error: ${spec.bin} belum terpasang — \`brew install ${spec.formula}\``);
-        return;
-      }
-      const out = `${stdout || ""}${stderr || ""}`.trim();
-      if (!out) {
-        resolve(`(${spec.bin} selesai, tanpa output${e ? ` — ${e.message.split("\n")[0]}` : ""})`);
-        return;
-      }
-      resolve(`🎯 ${spec.bin} ${target}\n${out.slice(0, 6000)}`);
-    });
-  });
+  const { out, enoent, timedOut } = await runCapture(spec.bin, args, spec.timeoutMs ?? 120_000);
+  if (enoent) return `Error: ${spec.bin} belum terpasang — \`brew install ${spec.formula}\``;
+  const o = out.trim();
+  if (timedOut && !o) return `⏱️ ${spec.bin} timeout (${Math.round((spec.timeoutMs ?? 120_000) / 1000)}s) tanpa temuan — coba target lebih spesifik.`;
+  if (!o) return `(${spec.bin} selesai, tanpa output)`;
+  return `🎯 ${spec.bin} ${target}\n${o.slice(0, 6000)}`;
 }
 
 // ── Findings store + report (per-user) ───────────────────────────────────────
