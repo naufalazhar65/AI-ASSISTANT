@@ -406,14 +406,22 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   // Proactive reminder push: deliver due reminders to the owner's channel/dm.
-  subscribeReminders(async (reminder: Reminder) => {
-    const target = await resolvePushTarget();
-    if (target == null) return;
-    const at = new Date(reminder.at);
-    const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    target.send(`🌸 **Mia** — ${reminderMessage(reminder.text, timeLabel)}`).catch((e: unknown) => {
-      console.warn("[discord] reminder push failed:", e instanceof Error ? e.message : String(e));
-    });
+  // Ack: true only when a channel is known (last-seen or owner DM resolvable
+  // from the bot's owner id) AND a send is initiated — a slot is never marked
+  // delivered when nothing could receive it.
+  subscribeReminders((reminder: Reminder): boolean => {
+    const ready = !!lastSeenOwnerChannel || (!!activeClient && !!ALLOWED_USER_IDS[0]);
+    if (!ready) return false;
+    void (async () => {
+      const target = await resolvePushTarget();
+      if (target == null) return;
+      const at = new Date(reminder.at);
+      const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      target.send(`🌸 **Mia** — ${reminderMessage(reminder.text, timeLabel)}`).catch((e: unknown) => {
+        console.warn("[discord] reminder push failed:", e instanceof Error ? e.message : String(e));
+      });
+    })();
+    return true;
   });
 
   // Register this bot as the proactive-output sink (scheduled automation results).

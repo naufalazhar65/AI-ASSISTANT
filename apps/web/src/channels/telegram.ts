@@ -333,9 +333,11 @@ export async function startTelegramBot(): Promise<void> {
   });
 
   // Proactive reminder push: deliver due reminders to the owner's chat.
-  subscribeReminders((reminder: Reminder) => {
+  // Ack: true only when a real target exists AND a send was initiated, so a
+  // slot is never marked delivered when nobody could receive it.
+  subscribeReminders((reminder: Reminder): boolean => {
     const target = pushTarget();
-    if (target == null) return;
+    if (target == null) return false;
     const at = new Date(reminder.at);
     const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     bot.api
@@ -343,6 +345,7 @@ export async function startTelegramBot(): Promise<void> {
       .catch((e) => {
         console.warn("[telegram] reminder push failed:", e instanceof Error ? e.message : String(e));
       });
+    return true;
   });
 
   // Register this bot as the proactive-output sink (scheduled automation results).

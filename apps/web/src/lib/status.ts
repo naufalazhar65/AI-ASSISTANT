@@ -16,6 +16,7 @@ import { readAutomations } from "./automations";
 import { listUploads } from "./uploads";
 import { readMoods } from "./mood";
 import { getTurnStats } from "./turnStats";
+import { resolveProvider, isProviderId } from "./providers";
 
 const bootTime = Date.now();
 const TIMEZONE = process.env.MIA_USER_TIMEZONE || "Asia/Jakarta";
@@ -77,7 +78,8 @@ export function buildStatusReport(input: StatusInput, version = "Mia"): string {
   lines.push(`Reference UTC: ${new Date(now).toISOString().slice(0, 16).replace("T", " ")} UTC`);
   lines.push(`Uptime: server ${fmtUptime(now - bootTime)}`);
   lines.push("");
-  lines.push(`Model: ${input.provider}${input.model ? `/${input.model}` : " (Auto)"}`);
+  const effectiveModel = input.model || (isProviderId(input.provider) ? resolveProvider(input.provider)?.defaultModel || undefined : undefined);
+  lines.push(`Model: ${input.provider}${effectiveModel ? `/${effectiveModel}` : " (Auto)"}`);
   lines.push(`Channel history: ${input.historyLen ?? 0} messages`);
   lines.push("");
   lines.push("Data (per-user):");

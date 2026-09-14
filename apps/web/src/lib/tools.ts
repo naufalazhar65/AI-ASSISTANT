@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSy
 import { execFile } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
-import { addReminder, readReminders } from "./reminders";
+import { addReminder, readReminders, type Reminder } from "./reminders";
 import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
@@ -31,6 +31,14 @@ import { gmailAuthUrl, gmailConfigured, gmailConnected, gmailList, gmailRead, gm
 /** Human-readable reminder state — now with soul (less kaku, more Mia):
  *  Single daily reminder → warm natural line, not stiff "Daftar ... total".
  *  Multiple → keep list but with warm opener. Vary rhythm, use I when natural. */
+function reminderDeliveryStamp(r: Reminder): string {
+  const stamp = (ms: number) =>
+    new Date(ms).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  if (r.deliveredAt && r.lastFiredAt && r.deliveredAt - r.lastFiredAt > 30 * 60_000) {
+    return ` · kesampaian TELAT ${stamp(r.deliveredAt)} (slot ${stamp(r.lastFiredAt)} pas device off)`;
+  }
+  return ` · terkirim ${stamp(r.lastFiredAt ?? r.at)}`;
+}
 function remindersListText(rawUser: unknown): string {
   const now = Date.now();
   const rs = readReminders(rawUser);
@@ -43,15 +51,34 @@ function remindersListText(rawUser: unknown): string {
   if (upcoming.length === 1 && upcoming[0].repeat === "daily") {
     const r = upcoming[0];
     const jam = new Date(r.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    if (r.delivered && reminderDeliveryStamp(r).includes("TELAT")) {
+      return `Maaf beb, ini jujur ya — ${reminderDeliveryStamp(r).replace(" · ", "")}. Slot berikut besok jam ${jam}, mau kubangunin nanti malam aja sekalian? 🌸 (late)`;
+    }
+    if (r.missedAt && r.delivered === false) {
+      const miss = new Date(r.missedAt).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      return `Maaf beb, slot ${miss} WIB kelewat — device mati / nggak ada kanal yang nyampe 🙏 ${r.repeat === "daily" ? `slot berikut besok jam ${jam}, udah kusiapin ulang 🌸 (missed)` : `mau aku ingetin sekarang aja? 🌸 (missed)`}`;
+    }
     return `Besok jam ${jam} ya beb — "${r.text}" harian 🔁, udah aku siapin 🌸 (terjadwal)`;
   }
   if (upcoming.length === 1) {
     const r = upcoming[0];
-    return `Kamu ada 1 reminder beb — jam ${new Date(r.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} "${r.text}" 🌸 (terjadwal)`;
+    const jam = new Date(r.at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    if (r.missedAt && r.delivered === false) {
+      const miss = new Date(r.missedAt).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      return `Maaf beb, "${r.text}" tadi ${miss} kelewat — device mati, nggak kesampaian 🙏 Mau kuingetin sekarang? 🌸 (missed)`;
+    }
+    return `Kamu ada 1 reminder beb — jam ${jam} "${r.text}" 🌸 (terjadwal)`;
   }
   const lines: string[] = [`Nih beb — ${upcoming.length} reminder aktif 🌸`];
   for (const r of upcoming) {
-    lines.push(`• ${fmt(r.at)} — "${r.text}"${r.repeat === "daily" ? " (harian 🔁)" : ""} — siap aku ingetin ⏰`);
+    const stamp = (ms: number) =>
+      new Date(ms).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const status = r.delivered
+      ? reminderDeliveryStamp(r)
+      : r.missedAt
+        ? ` · KELEWAT ${stamp(r.missedAt)}`
+        : "";
+    lines.push(`• ${fmt(r.at)} — "${r.text}"${r.repeat === "daily" ? " (harian 🔁)" : ""}${status} — siap aku ingetin ⏰`);
   }
   return lines.join("\n");
 }

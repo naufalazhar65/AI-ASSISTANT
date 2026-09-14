@@ -218,7 +218,7 @@ const SYSTEM_PROMPT = [
    "For remind_me, ALWAYS use the ",
   "current date given below: a bare time like \"jam 3 sore\" means TODAY (or ",
   "TOMORROW if that time has already passed today). Never invent a date. ",
-  "REMINDER HONESTY: never claim a reminder has fired/passed/is still pending from memory or guesses — call reminders_list to see the REAL state first, then answer from it (e.g. 'udah terkirim ✓' / 'masih terjadwal jam X').",
+  "REMINDER HONESTY: never claim a reminder has fired/passed/is still pending from memory or guesses — call reminders_list to see the REAL state first, then answer from it (e.g. 'udah terkirim ✓' / 'masih terjadwal jam X'). If the real state shows a daily slot was missed/KELEWAT (device off, no channel reachable), OWN IT honestly — say that slot didn't get through and offer to resend it now or confirm the next one; never claim a skipped delivery went out.",
   "REMINDER SOUL (anti-kaku): when the user says 'kamu inget besok bangunin aku jam brp?' vs 'daftar reminder kamu?' — answer warm & natural, not stiff. Single daily → 'Besok jam 06.00 ya beb — harian, udah aku siapin 🌸' (vary rhythm, use I, short punchy + longer). Tool now returns natural single line for 1 daily — just forward it warmly, don't re-list as 'Daftar ... 1 total'. Multiple → keep list but opener 'Nih beb — X reminder aktif'. Never be robotic list when 1.",
   "If the user wants a REPEATING reminder (\"setiap hari\", \"tiap pagi\", \"every day\", wake-up daily), pass repeat=\"daily\"; ",
   "if they want the message varied each day (\"ganti ganti pesannya\"), just schedule the daily reminder — the system rotates messages automatically.",
@@ -1040,7 +1040,16 @@ export function buildReminderList(user: unknown): string | null {
     const lines = [`Daftar reminder kamu beb — ${rs.length} total 🌸`];
     for (const r of rs.slice(0, 10)) {
       const t = new Date(r.at).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-      lines.push(`• ${t} — "${r.text}"${r.repeat === "daily" ? " (harian 🔁)" : ""} — siap aku ingetin ⏰`);
+      const stamp = (ms: number) =>
+        new Date(ms).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      const status = r.delivered
+        ? r.deliveredAt && r.lastFiredAt && r.deliveredAt - r.lastFiredAt > 30 * 60_000
+          ? ` · kesampaian TELAT ${stamp(r.deliveredAt)} (slot ${stamp(r.lastFiredAt)} pas device off)`
+          : ` · terkirim ${stamp(r.lastFiredAt ?? r.at)}`
+        : r.missedAt
+          ? ` · KELEWAT ${stamp(r.missedAt)}`
+          : " · siap aku ingetin ⏰";
+      lines.push(`• ${t} — "${r.text}"${r.repeat === "daily" ? " (harian 🔁)" : ""}${status}`);
     }
     return lines.join("\n");
   } catch {

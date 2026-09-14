@@ -36,20 +36,27 @@ export async function GET(request: NextRequest) {
     throw e;
   }
 
-  // Replay reminders that came due while the client was closed. takeDueReminders
-  // atomically marks them fired so a later reconnect (or the live timer) never
-  // delivers the same reminder twice; whichever path wins the race delivers it.
-  const overdue: Reminder[] = userKey ? takeDueReminders(userKey) : [];
-
+  // Replay reminders that came due while the client was closed. We subscribe
+  // FIRST so the just-registered listener acks each replay push (the stream is a
+  // real delivery target → daily reschedules, one-shot drops); takeDueReminders
+  // fans the slots out to this listener, so nothing else is needed. Slots that
+  // arrive with no ack stay due marked `missedAt` and replay on a later connect.
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | null = null;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const push: (r: Reminder) => void = (r) => controller.enqueue(encoder.encode(frame(r)));
-      for (const r of overdue) push(r);
+      const push: (r: Reminder) => boolean = (r) => {
+        try {
+          controller.enqueue(encoder.encode(frame(r)));
+          return true;
+        } catch {
+          return false; // stream gone → slot not delivered → stays due for retry
+        }
+      };
       unsubscribe = subscribeReminders(push);
+      if (userKey) takeDueReminders(userKey);
       heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(": keepalive\n\n"));

@@ -1004,20 +1004,75 @@ async function main() {
   // delivered one-shots drop out of the store immediately, so the list never
   // accumulates "sudah terkirim" clutter). ---
   const rUser = `verify_remlist_${Date.now()}`;
-  const { addReminder: addRem, readReminders } = await import("./src/lib/reminders");
-  addRem("minum", Date.now() + 3600_000, rUser);
-  addRem("bangun", Date.now() - 1000, rUser);
-  takeDueV(rUser); // fire the past one → dropped from store
-  const remaining = readReminders(rUser);
-  if (remaining.some((r) => r.text.includes("bangun") || r.fired)) {
-    throw new Error(`fired one-shot should be dropped from store: ${JSON.stringify(remaining)}`);
+  const { addReminder: addRem, readReminders, subscribeReminders: subRem } = await import("./src/lib/reminders");
+  const unsubRem = subRem(() => true); // ack: a real target received the push
+  try {
+    addRem("minum", Date.now() + 3600_000, rUser);
+    addRem("bangun", Date.now() - 1000, rUser);
+    takeDueV(rUser); // fire the past one → acked → dropped from store
+    const remaining = readReminders(rUser);
+    if (remaining.some((r) => r.text.includes("bangun") || r.fired)) {
+      throw new Error(`fired one-shot should be dropped from store: ${JSON.stringify(remaining)}`);
+    }
+    const { executeTool: execToolR } = await import("./src/lib/tools");
+    const rl = await execToolR({ id: "r1", name: "reminders_list", arguments: "{}" }, rUser);
+    if (!rl.includes("terjadwal") || !rl.includes("minum")) throw new Error(`reminders_list scheduled: ${rl}`);
+    if (rl.includes("sudah terkirim") || rl.includes("bangun")) throw new Error(`reminders_list should not show delivered: ${rl}`);
+  } finally {
+    unsubRem();
   }
-  const { executeTool: execToolR } = await import("./src/lib/tools");
-  const rl = await execToolR({ id: "r1", name: "reminders_list", arguments: "{}" }, rUser);
-  if (!rl.includes("terjadwal") || !rl.includes("minum")) throw new Error(`reminders_list scheduled: ${rl}`);
-  if (rl.includes("sudah terkirim") || rl.includes("bangun")) throw new Error(`reminders_list should not show delivered: ${rl}`);
   rmSync(join(userDataRoot(), rUser), { recursive: true, force: true });
   console.log("reminders_list: OK (scheduled listed, delivered dropped from store)");
+
+  // --- Reminder HONEST delivery (2026-09-14): a slot with NO listener ack must
+  // never be marked delivered / burned — it stays due with missedAt recorded so
+  // Mia can own up ("tadi kelewat") instead of pretending the slot fired. An
+  // acked slot advances normally. ---
+  {
+    const mmUser = `verify_remmiss_${Date.now()}`;
+    const addMM = (await import("./src/lib/reminders")).addReminder;
+    addMM("bangun", Date.now() - 1000, mmUser); // due with zero subscribers
+    const dueM = takeDueV(mmUser); // no ack available
+    if (!dueM[0] || dueM[0].text !== "bangun") throw new Error(`missed delivery should still surface: ${JSON.stringify(dueM)}`);
+    const kept = readReminders(mmUser);
+    const m = kept.find((r) => r.text === "bangun");
+    if (!m) throw new Error("un-acked one-shot must never be silently dropped");
+    if (!m.missedAt || m.delivered !== false) throw new Error(`missed slot must be recorded: ${JSON.stringify(m)}`);
+    const unsubMM = subRem(() => true);
+    try {
+      takeDueV(mmUser); // now acked → dropped
+      if (readReminders(mmUser).some((r) => r.text === "bangun")) throw new Error("acked one-shot should drop");
+    } finally {
+      unsubMM();
+    }
+    rmSync(join(userDataRoot(), mmUser), { recursive: true, force: true });
+    console.log("reminder missed delivery: OK (no-ack → kept + missedAt recorded; ack → advanced)");
+  }
+
+  // --- Reminder late-delivery honesty: an acked slot replayed well after its
+  // scheduled time (device off) is recorded with a gap → "TELAT", so Mia never
+  // claims a late replay fired on time. ---
+  {
+    const lateUser = `verify_remlate_${Date.now()}`;
+    const addLate = (await import("./src/lib/reminders")).addReminder;
+    addLate("bangun", Date.now() - 5 * 60 * 60 * 1000, lateUser, { repeat: "daily" }); // slot 5h ago
+    const unsubLate = subRem(() => true);
+    try {
+      takeDueV(lateUser, Date.now()); // acked at `now` ≈ slot+5h
+      const after = readReminders(lateUser);
+      const d = after.find((r) => r.text === "bangun");
+      if (!d || !d.delivered || !d.deliveredAt || !d.lastFiredAt) {
+        throw new Error(`late delivery fields missing: ${JSON.stringify(d)}`);
+      }
+      if (d.deliveredAt - d.lastFiredAt < 30 * 60_000) throw new Error("delivery gap should exceed 30min");
+      const rlLate = await (await import("./src/lib/tools")).executeTool({ id: "r1", name: "reminders_list", arguments: "{}" }, lateUser);
+      if (!rlLate.includes("TELAT") || !rlLate.includes("device off")) throw new Error(`late honesty: ${rlLate}`);
+    } finally {
+      unsubLate();
+    }
+    rmSync(join(userDataRoot(), lateUser), { recursive: true, force: true });
+    console.log("reminder late delivery: OK (gap >30min → TELAT, never claims on-time)");
+  }
 
   // --- buildReminderList (agent.ts): the verbatim "Daftar reminder … • …"
   // reader used to REBUILD the reply list from the POST-move/POST-add store so

@@ -3,10 +3,16 @@
 // A reminder is a per-user {id, text, at, fired} record persisted under
 // apps/web/.data/users/<user>/reminders.json. A lightweight module-scoped
 // scheduler scans every user's store for due-but-unfired reminders and hands
-// them to whatever SSE connections are open (subscribe/listeners). Each
-// reminder is delivered exactly once (takeDueReminders marks it fired before
-// broadcasting). Because the browser may be closed at due time, the stream
-// endpoint replays any due-but-unfired reminder on connect so nothing is lost.
+// them to whatever SSE connections are open (subscribe/listeners).
+//
+// HONEST DELIVERY (2026-09-14): a slot is only considered delivered when at
+// least one listener actually pushed it to a real target (radio-style ack —
+// each listener returns whether it started a send). If nobody could receive it
+// (device off, no channel recorded yet), the reminder is NOT burned: it stays
+// due with `missedAt` + `delivered:false` recorded, so a later connect replays
+// it and Mia can truthfully say "tadi kelewat" instead of pretending the slot
+// fired. Exactly-once holds per delivered slot (daily reschedules 24h, one-shot
+// drops) — but a silently-skipped slot is never claimed as delivered.
 //
 // Single-instance local dev note: the interval lives in the route module that
 // runs inside the one Next server process, so all open streams share it. In a
@@ -32,12 +38,28 @@ export interface Reminder {
   variants?: string[];
   /** Index of the variant to deliver next (rotates through `variants`). */
   variantIdx?: number;
+  /** Set to the delivered slot's `at` when a delivery was confirmed by a
+   *  listener (any real push started). Enables honest "terakhir terkirim …". */
+  lastFiredAt?: number;
+  /** Wall-clock moment the delivery actually went out (may be later than the
+   *  slot when it was replayed after the device was off — enables honest
+   *  "kesampaian telat jam …" instead of claiming it fired on time). */
+  deliveredAt?: number;
+  /** Set to the slot's `at` when due fired but NO listener could push it
+   *  (device off / channel not yet recorded). The slot is kept — never burned
+   *  silently — so it retries and Mia can own up to the miss. */
+  missedAt?: number;
+  /** Delivery outcome of the most recent due slot: true = pushed to a real
+   *  target, false = skipped (see `missedAt`). */
+  delivered?: boolean;
 }
 
 const MAX_REMINDERS = 40;
 const SCAN_MS = 4000;
 
-export type ReminderListener = (reminder: Reminder) => void;
+/** Listener ack: return `true` when the reminder was pushed to a real target
+ *  (not merely received), anything else/null = not deliverable right now. */
+export type ReminderListener = (reminder: Reminder) => boolean | void;
 
 const listeners = new Set<ReminderListener>();
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -61,16 +83,7 @@ function broadcastDue(): void {
   broadcasting = true;
   try {
     for (const user of listUsersWithReminders()) {
-      const due = takeDueReminders(user);
-      for (const r of due) {
-        for (const fn of [...listeners]) {
-          try {
-            fn(r);
-          } catch {
-            /* a dead listener must not stop the broadcast */
-          }
-        }
-      }
+      takeDueReminders(user); // fans out to listeners + transitions store itself
     }
   } finally {
     broadcasting = false;
@@ -241,11 +254,19 @@ export function attachVariants(rawUser: unknown, text: string, variants: string[
 }
 
 /**
- * Due-and-unfired reminders for one user. Every returned reminder is marked
- * handled before returning so it's broadcast only once: daily reminders are
- * rescheduled 24h ahead (still unfired) with their variant index advanced;
- * one-shot reminders are dropped from the store right after delivery (no
- * lingering "sudah terkirim" clutter). Invalid users yield none.
+ * Due-and-unfired reminders for one user. Fans them out to every subscribed
+ * listener and, from their ACKs, marks each slot's REAL outcome:
+ *  - acked (a listener started a push to a real target):
+ *      daily → rescheduled 24h ahead (still unfired) with its variant index
+ *              advanced + `lastFiredAt`/`delivered:true` recorded;
+ *      one-shot → dropped from the store right after delivery (no lingering
+ *              "sudah terkirim" clutter).
+ *  - NOT acked (device off / no channel recorded yet): the slot is KEPT — never
+ *      burned silently — and marked `missedAt` + `delivered:false`, so the next
+ *      connect retries it and Mia can honestly report "tadi kelewat".
+ *
+ * Returns the processed due records (with the variant text substituted) for
+ * callers that need to render/log them. Invalid users yield none.
  */
 export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[] {
   const userKey = sanitizeUser(rawUser);
@@ -254,25 +275,48 @@ export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[
   if (!reminders.length) return [];
   const due = reminders.filter((r) => !r.fired && r.at <= now);
   if (!due.length) return [];
-  const dueIds = new Set(due.map((r) => r.id));
-  writeReminders(
-    reminders
-      .filter((r) => !dueIds.has(r.id) || r.repeat === "daily")
-      .map((r) => {
-        if (!dueIds.has(r.id)) return r;
-        // Daily: reschedule to the next 24h slot, rotating the variant pool so
-        // each delivery gets a different message when the user asked for variety.
-        const variantIdx = r.variants?.length ? (r.variantIdx ?? 0) + 1 : undefined;
-        return { ...r, at: r.at + 24 * 60 * 60 * 1000, fired: false, variantIdx };
-      }),
-    userKey
-  );
   // Deliver the current text (or the next variant) so listeners see one variation.
-  return due.map((r) => {
+  const deliverable = due.map((r) => {
     const variantIdx = r.variantIdx ?? 0;
     const text = r.variants?.length ? r.variants[variantIdx % r.variants.length] : r.text;
     return { ...r, text };
   });
+  // Ack per slot: any listener that actually started a push counts as delivered.
+  const acked = new Map<string, boolean>();
+  for (const r of deliverable) {
+    let ok = false;
+    for (const fn of [...listeners]) {
+      try {
+        if (fn(r) === true) ok = true;
+      } catch {
+        /* a dead listener must not stop the broadcast */
+      }
+    }
+    acked.set(r.id, ok);
+  }
+  const dueIds = new Set(due.map((r) => r.id));
+  const next: Reminder[] = [];
+  for (const r of reminders) {
+    if (!dueIds.has(r.id)) {
+      next.push(r);
+      continue;
+    }
+    const wasAcked = acked.get(r.id) ?? false;
+    if (r.repeat === "daily") {
+      const variantIdx = r.variants?.length ? (r.variantIdx ?? 0) + 1 : undefined;
+      next.push(
+        wasAcked
+          ? { ...r, at: r.at + 24 * 60 * 60 * 1000, fired: false, variantIdx, lastFiredAt: r.at, deliveredAt: now, delivered: true }
+          : { ...r, missedAt: r.at, delivered: false }
+      );
+    } else if (wasAcked) {
+      continue; // delivered one-shot → dropped, never accumulates
+    } else {
+      next.push({ ...r, missedAt: r.at, delivered: false });
+    }
+  }
+  writeReminders(next, userKey);
+  return deliverable;
 }
 
 export function deleteReminders(rawUser: unknown, query: string): number {
