@@ -3146,11 +3146,11 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "pentest_scan",
         description:
-          "Jalankan tool pentest (nmap/nuclei/nikto/ffuf) ke target. HANYA localhost/lab/RFC1918 atau host di PENTEST_LAB_TARGETS — target publik DITOLAK. Write, confirm. ffuf otomatis pakai wordlist bawaan (labs/pentest/wordlists/common.txt) bila `wordlist` tak diisi.",
+          "Jalankan tool pentest (nmap/nuclei/nikto/ffuf/whatweb/gobuster) ke target. HANYA localhost/lab/RFC1918 atau host di PENTEST_LAB_TARGETS — target publik DITOLAK. Write, confirm. ffuf otomatis pakai wordlist bawaan (labs/pentest/wordlists/common.txt) bila `wordlist` tak diisi.",
         parameters: {
           type: "object",
           properties: {
-            tool: { type: "string", enum: ["nmap", "nuclei", "nikto", "ffuf"], description: "Tool yang dijalankan" },
+            tool: { type: "string", enum: ["nmap", "nuclei", "nikto", "ffuf", "whatweb", "gobuster"], description: "Tool yang dijalankan" },
             target: { type: "string", description: "Target, mis. http://localhost:3001 atau 127.0.0.1" },
             wordlist: { type: "string", description: "Untuk ffuf: path wordlist (di sandbox)" },
           },
@@ -3184,8 +3184,11 @@ const toolRegistry: ToolPlugin[] = [
             cwe: { type: "string", description: "CWE, mis. 'CWE-89'" },
             target: { type: "string" },
             evidence: { type: "string" },
+            steps: { type: "string", description: "Langkah reproduksi (Steps to Reproduce)" },
             impact: { type: "string" },
+            root_cause: { type: "string", description: "Akar masalah (Root Cause)" },
             remediation: { type: "string" },
+            references: { type: "string", description: "Referensi (OWASP/CVE/URL)" },
           },
           required: ["title"],
         },
@@ -3202,8 +3205,11 @@ const toolRegistry: ToolPlugin[] = [
           cwe: typeof args.cwe === "string" ? args.cwe : undefined,
           target: typeof args.target === "string" ? args.target : undefined,
           evidence: typeof args.evidence === "string" ? args.evidence : undefined,
+          steps: typeof args.steps === "string" ? args.steps : undefined,
           impact: typeof args.impact === "string" ? args.impact : undefined,
+          rootCause: typeof args.root_cause === "string" ? args.root_cause : undefined,
           remediation: typeof args.remediation === "string" ? args.remediation : undefined,
+          references: typeof args.references === "string" ? args.references : undefined,
         });
         return `✅ Temuan dicatat: [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title} (${f.id})`;
       } catch (e) {
@@ -3413,6 +3419,18 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: { type: "function", risk: "read", function: { name: "hardening_pdf", description: "Buat PDF 'hardening plan' (rencana perbaikan prioritas CVSS) → .data/users/<user>/reports. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
     execute: async (_args, ctx) => { try { const { hardeningPdf } = await import("./security"); return await hardeningPdf(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "hardening_pdf failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "encoding", description: "Encode/decode teks: format base64|url|hex|html|rot13, action encode|decode. Read, auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["encode", "decode"] }, format: { type: "string", enum: ["base64", "url", "hex", "html", "rot13"] }, text: { type: "string" } }, required: ["action", "format", "text"] } } },
+    execute: async (args) => { try { const { encoding } = await import("./security"); return encoding(String(args.action || ""), String(args.format || ""), String(args.text || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "encoding failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "http_request", description: "Kirim HTTP request (method/headers/body) ke target LAB/berizin saja (untuk uji API: REST/GraphQL/mass-assignment). Publik ditolak. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string", description: "GET/POST/PUT/PATCH/DELETE" }, headers: { type: "object", description: "Header tambahan" }, body: { type: "string" } }, required: ["url"] } } },
+    execute: async (args) => { try { const { httpRequest } = await import("./security"); return await httpRequest({ url: String(args.url || ""), method: typeof args.method === "string" ? args.method : undefined, headers: (args.headers && typeof args.headers === "object") ? (args.headers as Record<string, string>) : undefined, body: typeof args.body === "string" ? args.body : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "http_request failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },
+    execute: async (args) => { try { const { trivyScan } = await import("./security"); return await trivyScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "trivy_scan failed"}`; } },
   },
   {
     definition: {
@@ -4532,6 +4550,10 @@ const EXEC_ALLOWLIST: Record<
   host: { maxArgs: 3 },
   whois: { maxArgs: 2 },
   lsof: { maxArgs: 6, requireArgPrefix: "-i" },
+  tcpdump: { maxArgs: 5, forbidArg: ["-w", "-z", "-G", "-C"] },
+  nc: { maxArgs: 4, forbidArg: ["-e", "-c", "-l"] },
+  netcat: { maxArgs: 4, forbidArg: ["-e", "-c", "-l"] },
+  searchsploit: { maxArgs: 4 },
   // containers (read-only subcommands)
   docker: { subcommand: ["ps", "images", "version", "info"], maxArgs: 4 },
 };

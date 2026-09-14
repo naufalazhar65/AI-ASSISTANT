@@ -250,6 +250,8 @@ const PENTEST_TOOLS: Record<string, { bin: string; formula: string; timeoutMs?: 
   nuclei: { bin: "nuclei", formula: "nuclei", timeoutMs: 180_000, args: (t) => ["-u", t, "-as", "-silent", "-no-color", "-no-interactsh", "-duc", "-severity", "critical,high,medium", "-timeout", "5", "-rl", "150"] },
   nikto: { bin: "nikto", formula: "nikto", timeoutMs: 180_000, args: (t) => ["-h", t] },
   ffuf: { bin: "ffuf", formula: "ffuf", timeoutMs: 120_000, args: (t, w) => ["-u", t.includes("FUZZ") ? t : `${t.replace(/\/$/, "")}/FUZZ`, "-w", w, "-s", "-mc", "all"] },
+  whatweb: { bin: "whatweb", formula: "whatweb (gem install whatweb)", timeoutMs: 60_000, args: (t) => [t] },
+  gobuster: { bin: "gobuster", formula: "gobuster", timeoutMs: 120_000, args: (t, w) => ["dir", "-u", t, "-w", w, "-q"] },
 };
 
 /**
@@ -301,7 +303,7 @@ export async function pentestScan(opts: { tool: string; target: string; wordlist
     return Promise.reject(new Error("SCOPE: hanya localhost/lab, host di engagement aktif, atau PENTEST_LAB_TARGETS. Untuk klien, buat engagement dulu."));
   }
   let wordlist = "";
-  if (opts.tool === "ffuf") {
+  if (opts.tool === "ffuf" || opts.tool === "gobuster") {
     if (opts.wordlist) {
       const wl = resolveInSandbox(opts.wordlist);
       if (!wl) return Promise.reject(new Error("wordlist di luar sandbox"));
@@ -323,7 +325,7 @@ export async function pentestScan(opts: { tool: string; target: string; wordlist
 
 // ── Findings store + report (per-user) ───────────────────────────────────────
 
-export type Finding = { id: string; title: string; severity: string; cvss: number | null; owasp: string; cwe: string; target: string; evidence: string; impact: string; remediation: string; status: "open" | "resolved"; createdAt: string; resolvedAt?: string };
+export type Finding = { id: string; title: string; severity: string; cvss: number | null; owasp: string; cwe: string; target: string; evidence: string; steps: string; impact: string; rootCause: string; remediation: string; references: string; status: "open" | "resolved"; createdAt: string; resolvedAt?: string };
 
 const SEVERITIES = ["critical", "high", "medium", "low", "info"];
 
@@ -352,7 +354,7 @@ function writeFindings(userKey: string, rows: Finding[]): void {
 
 const DEFAULT_CVSS: Record<string, number> = { critical: 9.8, high: 8.1, medium: 5.5, low: 3.1, info: 0 };
 
-export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; impact?: string; remediation?: string }): Finding {
+export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; steps?: string; impact?: string; rootCause?: string; remediation?: string; references?: string }): Finding {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const title = (f.title || "").trim().slice(0, 200);
@@ -368,8 +370,11 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
     cwe: (f.cwe || "").slice(0, 60),
     target: (f.target || "").slice(0, 200),
     evidence: (f.evidence || "").slice(0, 2000),
+    steps: (f.steps || "").slice(0, 1500),
     impact: (f.impact || "").slice(0, 1000),
+    rootCause: (f.rootCause || "").slice(0, 1000),
     remediation: (f.remediation || "").slice(0, 1000),
+    references: (f.references || "").slice(0, 600),
     status: "open",
     createdAt: new Date().toISOString(),
   };
@@ -400,7 +405,7 @@ export function generateReport(rawUser: unknown): string {
   const body = sorted
     .map(
       (f, i) =>
-        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[f.owasp, f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Target**: ${f.target || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **Found**: ${f.createdAt}`
+        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[f.owasp, f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Target**: ${f.target || "-"}\n- **Steps to Reproduce**: ${f.steps || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
     )
     .join("\n\n");
   return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts}) — rata-rata CVSS ${avg}\n\n${(() => { const a = listEngagements().find((e) => e.status === "active"); return a ? `> Engagement: ${a.id} — ${a.name} (${a.client})\n> Izin: ${a.authorization}\n> Scope: ${a.scope.join(", ")}${a.windowEnd ? ` (s/d ${a.windowEnd})` : ""}` : "> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif."; })()}\n\n${body}`;
@@ -1027,4 +1032,71 @@ export function verifyPatch(rawUser: unknown, dirRel = "", apply = false): strin
   if (still.length) parts.push(`⚠️ Masih rentan (upgrade belum jalan):\n${still.map((x) => "• " + x).join("\n")}`);
   if (unknown.length) parts.push(`❓ Tak terverifikasi:\n${unknown.map((x) => "• " + x).join("\n")}`);
   return parts.join("\n\n");
+}
+
+// ── Encoding / decoding ─────────────────────────────────────────────────────
+export function encoding(action: string, format: string, text: string): string {
+  const a = (action || "").toLowerCase();
+  const f = (format || "").toLowerCase();
+  const s = text ?? "";
+  const need = (cond: boolean, msg: string) => {
+    if (!cond) throw new Error(msg);
+  };
+  try {
+    if (f === "base64") {
+      return a === "decode" ? Buffer.from(s, "base64").toString("utf8") : Buffer.from(s, "utf8").toString("base64");
+    }
+    if (f === "url" || f === "percent") {
+      return a === "decode" ? decodeURIComponent(s) : encodeURIComponent(s);
+    }
+    if (f === "hex") {
+      return a === "decode" ? Buffer.from(s.replace(/[^0-9a-f]/gi, ""), "hex").toString("utf8") : Buffer.from(s, "utf8").toString("hex");
+    }
+    if (f === "html") {
+      return a === "decode"
+        ? s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&")
+        : s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+    if (f === "rot13" || f === "caesar") {
+      return s.replace(/[a-z]/gi, (c) => String.fromCharCode(((c <= "Z" ? 90 : 122) >= c.charCodeAt(0) + 13 ? c.charCodeAt(0) + 13 : c.charCodeAt(0) - 13)));
+    }
+    need(false, `format "${format}" tidak didukung (base64|url|hex|html|rot13)`);
+    return "";
+  } catch (e) {
+    throw new Error(`gagal ${a} ${f}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+// ── HTTP request (API testing on lab/authorized targets) ────────────────────
+export async function httpRequest(opts: { url: string; method?: string; headers?: Record<string, string>; body?: string }): Promise<string> {
+  const u = (opts.url || "").trim();
+  if (!/^https?:\/\//i.test(u)) return "Error: URL harus http(s).";
+  if (!targetAllowed(u)) return "Error: SCOPE — http_request hanya untuk localhost/lab atau host di engagement aktif.";
+  const method = (opts.method || "GET").toUpperCase();
+  const res = await fetch(u, {
+    method,
+    headers: { "User-Agent": "mia-assistant/1.0", ...(opts.headers || {}) },
+    body: method === "GET" || method === "HEAD" ? undefined : opts.body,
+    redirect: "manual",
+    signal: AbortSignal.timeout(15_000),
+  });
+  const ct = res.headers.get("content-type") || "";
+  const body = (await res.text()).slice(0, 3000);
+  const hdrs = ["content-type", "location", "access-control-allow-origin", "set-cookie", "www-authenticate"]
+    .map((h) => (res.headers.get(h) ? `${h}: ${res.headers.get(h)}` : ""))
+    .filter(Boolean)
+    .join("\n");
+  return `🌐 HTTP ${method} ${u} -> ${res.status} ${res.statusText} (${ct})\n${hdrs}\n\n${body}`;
+}
+
+// ── Trivy (filesystem/image CVE scan, keyless, sandbox path) ────────────────
+export function trivyScan(dirRel = ""): Promise<string> {
+  const root = dirRel.trim() ? resolveInSandbox(dirRel.trim()) : repoRoot();
+  if (!root) return Promise.reject(new Error("path di luar sandbox"));
+  return runCapture("trivy", ["fs", "--quiet", "--scanners", "vuln", root], 180_000).then(({ out, enoent, timedOut }) => {
+    if (enoent) return "Error: trivy belum terpasang — `brew install trivy`";
+    const o = out.trim();
+    if (timedOut && !o) return "⏱️ trivy timeout tanpa output.";
+    return `🧪 TRIVY ${dirRel || "repo"}\n${(o || "(tanpa temuan CVE)").slice(0, 5000)}`;
+  });
 }

@@ -509,6 +509,19 @@ async function main() {
     rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
     console.log("hardening_plan (priority order): OK");
   {
+    const { encoding, addFinding, generateReport } = await import("./src/lib/security");
+    if (encoding("encode", "base64", "hi") !== "aGk=") throw new Error("encoding base64 encode");
+    if (encoding("decode", "base64", "aGk=") !== "hi") throw new Error("encoding base64 decode");
+    if (encoding("decode", "url", "a%20b") !== "a b") throw new Error("encoding url decode");
+    if (encoding("encode", "hex", "A") !== "41") throw new Error("encoding hex encode");
+    const u = "verify_pro_fields";
+    addFinding(u, { title: "Pro finding", severity: "high", cvss: 8.1, steps: "1. buka /x 2. kirim payload", rootCause: "output tak di-escape", references: "OWASP A03", remediation: "escape" });
+    const rep = generateReport(u);
+    if (!/Steps to Reproduce/.test(rep) || !/Root Cause/.test(rep) || !/References/.test(rep)) throw new Error("report missing pro fields");
+    rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
+    console.log("encoding + pro report fields: OK");
+  }
+  {
     const { cvssScore, addFinding, resolveFinding, exportFindings, listFindingsText } = await import("./src/lib/security");
     if (!/9\.8/.test(cvssScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"))) throw new Error("cvssScore AV:N should be 9.8");
     if (!/5\.3/.test(cvssScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"))) throw new Error("cvssScore C:L should be 5.3");

@@ -46,11 +46,13 @@ immediately; write tools (scans, edits) ask **`ya`** first (FR-014).
 | `exec dig / nslookup / host / whois` | DNS + registration lookups |
 | `web_audit` | one GET → security headers present/missing, cookie flags, server banner, score |
 | `domain_audit` | SPF, DMARC(+policy), DKIM (common selectors), CAA, MX, NS |
+| `exec tcpdump -r / nc -z / searchsploit` | read a pcap (`-r`; capture needs sudo), port check (`nc -zv host port`), Exploit-DB lookup |
 
 ### 2.3 Active scanning (write → confirm; scope-enforced)
 | Tool | Tools used | Scope |
 |---|---|---|
-| `pentest_scan` | `nmap`, `nuclei` (`-as`), `nikto`, `ffuf` (built-in wordlist) | lab/engagement/permitted only |
+| `pentest_scan` | `nmap`, `nuclei` (`-as`), `nikto`, `ffuf`/`gobuster` (built-in wordlist), `whatweb` | lab/engagement/permitted only |
+| `http_request` | raw HTTP (method/headers/body) for API testing (REST/GraphQL/mass-assignment) | lab/engagement only |
 | `sqlmap_scan` | `sqlmap` (SQLi) | lab/engagement only |
 | `zap_scan` | OWASP ZAP baseline (Docker) | lab/engagement only |
 
@@ -64,17 +66,19 @@ Targets outside scope are **rejected** (`isLabTarget` / engagement scope).
 | `jwt_inspect` | decode JWT + flag `alg=none` / expired |
 | `ioc_extract` | IP/domain/URL/email/hash from text (handles `hxxp`/`[.]` defang) |
 | `cvss_score` | CVSS v3.1 base score from a vector (e.g. `…/C:H/I:H/A:H` → 9.8) |
+| `encoding` | base64 / url / hex / html / rot13 encode–decode |
 
 ### 2.5 Dependencies (read, auto)
 | Tool | What |
 |---|---|
 | `dep_audit` | CVE audit via **OSV** (npm `package-lock.json` + PyPI `requirements.txt`); shows **nearest fixed version**; `to_findings=true` adds to board |
 | `verify_patch` | compare installed versions vs each dep finding's fixed version → patched / still / unverified; `apply=true` auto-resolves patched |
+| `trivy_scan` | filesystem/image CVE scan (keyless; `brew install trivy`) |
 
 ### 2.6 Findings & reporting (read, auto)
 | Tool | What |
 |---|---|
-| `finding_add` | record a finding (Title/Severity/**CVSS**/OWASP/CWE/Evidence/Impact/Remediation) |
+| `finding_add` | record a finding (Title/Severity/**CVSS**/OWASP/CWE/Target/Steps-to-Reproduce/Evidence/Impact/Root-Cause/Remediation/References) |
 | `finding_list` | open findings sorted by CVSS |
 | `finding_resolve` | mark a finding resolved (drops from lists/plan/report) |
 | `finding_export` | open findings → **CSV / JSON / SARIF 2.1.0** under `.data/users/<user>/reports/` |
@@ -182,6 +186,7 @@ engagement_close id=ENG-…
 |---|---|
 | nmap/nikto/ffuf/sqlmap | `brew install nmap nikto ffuf sqlmap` |
 | nuclei | installed (`nuclei -as` mode used) |
+| trivy / whatweb / gobuster | `brew install trivy gobuster` · `gem install whatweb` |
 | Docker lab / ZAP | `brew install --cask docker` (heavy) — optional |
 | Scan extra own hosts | `PENTEST_LAB_TARGETS=host1,host2` (own/authorized) |
 | Watch certs (heartbeat) | `SECURITY_CERT_DOMAINS=example.com` · `SECURITY_CERT_DAYS=14` |
