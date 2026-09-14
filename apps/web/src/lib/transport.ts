@@ -150,5 +150,5 @@ export async function busSearch(from: string, to: string): Promise<BusResult> {
   const lines = operators.map(
     (b) => `• ${b.operator} — ${b.first}–${b.last}${b.trips ? ` (${b.trips} keberangkatan)` : ""}${b.price ? ` · dari ${rp(b.price)}` : ""}`
   );
-  return { from: o, to: d, operators, human: `🚌 Bus/travel ${o} → ${d} (${operators.length} operator):\n${lines.join("\n")}`.slice(0, MAX_OUT) };
+  return { from: o, to: d, operators, human: `🚌 Bus/travel ${o} → ${d} (${operators.length} operator):\n${lines.join("\n")}\n\n(Sumber: busonlineticket — operator yang bisa dipesan online; bisa belum lengkap, operator seperti Primajasa/Sinar Jaya mungkin tak tercantum.)`.slice(0, MAX_OUT) };
 }
