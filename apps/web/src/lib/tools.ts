@@ -3124,6 +3124,26 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "pentest_resources",
+        description:
+          "Daftar platform latihan ethical hacking + URL lab lokal (Juice Shop/DVWA/WebGoat via labs/pentest/docker-compose.yml). Read, auto. Pakai saat user tanya 'di mana bisa latihan pentest', 'platform CTF', 'lab buat latihan'.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async () => {
+      try {
+        const { pentestResources } = await import("./security");
+        return pentestResources();
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "pentest_resources failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "health",
         description: "Track water/sleep (per-user JSON). water: minum X gelas, sleep: đi ngủ, wake: thức dậy/bangun, stats: thống kê. Auto, read (write water/sleep also auto, no confirm).",
         parameters: {

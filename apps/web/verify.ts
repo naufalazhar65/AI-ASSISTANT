@@ -443,6 +443,15 @@ async function main() {
       rmSync(secTmp, { recursive: true, force: true });
     }
     console.log("security secret_scan (detect + redact): OK");
+  {
+    const { pentestResources } = await import("./src/lib/security");
+    const pr = pentestResources();
+    if (!/PortSwigger/.test(pr) || !/Hack The Box/.test(pr) || !/localhost:3001/.test(pr) || !/localhost:8081/.test(pr)) {
+      throw new Error("pentest_resources missing platforms/local lab URLs");
+    }
+    if (!/SCOPE:/.test(pr) || !/melarang otomasi|JANGAN diautomasi/.test(pr)) throw new Error("pentest_resources missing scope/ToS note");
+    console.log("pentest_resources (platforms + local lab + scope): OK");
+  }
   }
 
   // --- write_file / edit_file (sandboxed, requires write, but executeTool bypasses confirmation) ---

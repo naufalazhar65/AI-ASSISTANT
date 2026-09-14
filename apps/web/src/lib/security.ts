@@ -168,3 +168,25 @@ export async function breachCheck(password: string): Promise<{ count: number }> 
   }
   return { count: 0 };
 }
+
+/** Practice platforms + the local lab, for when the owner asks where to train. */
+export function pentestResources(): string {
+  return [
+    "🎯 LATIHAN ETHICAL HACKING (legal)",
+    "",
+    "Platform (belajar/CTF — JANGAN diautomasi, ToS melarang bot):",
+    "• PortSwigger Web Security Academy — gratis, lab web terbaik",
+    "• TryHackMe — pemula→menengah, guided",
+    "• Hack The Box (+ Academy) — mesin nyata",
+    "• PentesterLab, OverTheWire, Root-Me, picoCTF",
+    "• CyberDefenders / LetsDefend / Blue Team Labs — blue team & DFIR",
+    "",
+    "Lab LOKAL (aman untuk Mia praktik langsung) — `docker compose -f labs/pentest/docker-compose.yml up -d`:",
+    "• OWASP Juice Shop  http://localhost:3001",
+    "• DVWA              http://localhost:8081  (admin / password)",
+    "• WebGoat           http://localhost:8082/WebGoat",
+    "(Butuh Docker; belum terpasang — lihat labs/pentest/README.md)",
+    "",
+    "SCOPE: hanya target sendiri / berizin tertulis. Active scan hanya ke localhost/lab ini.",
+  ].join("\n");
+}
