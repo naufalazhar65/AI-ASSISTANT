@@ -167,6 +167,11 @@ export function startHeartbeat(): void {
 /** For tests: run one tick immediately and return. */
 export async function runHeartbeatTick(): Promise<void> {
   await tick();
+  // Security watch (defensive): new listening ports + certs nearing expiry.
+  try {
+    const { runSecurityWatchTick } = await import("./securityWatch");
+    await runSecurityWatchTick();
+  } catch { /* best-effort */ }
 }
 
 export function stopHeartbeat(): void {

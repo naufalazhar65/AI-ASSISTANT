@@ -3292,6 +3292,14 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (_args, ctx) => { try { const { reportSave } = await import("./security"); return reportSave(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_save failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "sqlmap_scan", description: "Uji SQL injection dengan sqlmap ke URL (butuh parameter, mis. ?id=1). HANYA localhost/lab/aset berizin (publik DITOLAK). Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dengan parameter, mis. http://localhost:8081/vulnerabilities/sqli/?id=1&Submit=Submit" }, level: { type: "number", description: "1-5 (default 1)" }, risk: { type: "number", description: "1-3 (default 1)" } }, required: ["url"] } } },
+    execute: async (args) => { try { const { sqlmapScan } = await import("./security"); return await sqlmapScan(String(args.url || ""), { level: typeof args.level === "number" ? args.level : undefined, risk: typeof args.risk === "number" ? args.risk : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "sqlmap_scan failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "report_pdf", description: "Buat PDF laporan pentest (dari temuan) via Playwright → .data/users/<user>/reports/*.pdf. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { reportPdf } = await import("./security"); return await reportPdf(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_pdf failed"}`; } },
+  },
+  {
     definition: {
       type: "function",
       risk: "read",

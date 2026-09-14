@@ -9,7 +9,8 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { connect as tlsConnect } from "node:tls";
 import { dirname, extname, join, relative } from "node:path";
 import { resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
@@ -529,4 +530,74 @@ export function reportSave(rawUser: unknown): string {
   const file = join(dir, `report-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
   writeFileSync(file, md);
   return `📄 Laporan disimpan: ${file}\n\n${md.slice(0, 800)}`;
+}
+
+// ── SQLi testing with sqlmap (authorized lab only) ──────────────────────────
+export function sqlmapScan(url: string, opts?: { level?: number; risk?: number }): Promise<string> {
+  const u = (url || "").trim();
+  if (!/^https?:\/\//i.test(u)) return Promise.reject(new Error("url http(s) wajib, mis. http://localhost:8081/vulnerabilities/sqli/?id=1&Submit=Submit"));
+  if (!isLabTarget(u)) return Promise.reject(new Error("SCOPE: sqlmap hanya untuk localhost/lab/aset berizin."));
+  const level = Math.min(5, Math.max(1, Number(opts?.level) || 1));
+  const risk = Math.min(3, Math.max(1, Number(opts?.risk) || 1));
+  const outDir = mkdtempSync(join(tmpdir(), "mia-sqlmap-"));
+  return new Promise((resolve) => {
+    execFile(
+      "sqlmap",
+      ["-u", u, "--batch", "--smart", "--level", String(level), "--risk", String(risk), "--output-dir", outDir, "--disable-coloring"],
+      { timeout: 600_000, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        const e = err as NodeJS.ErrnoException | null;
+        if (e && e.code === "ENOENT") {
+          resolve("Error: sqlmap belum terpasang — `brew install sqlmap`");
+          return;
+        }
+        const out = `${stdout || ""}${stderr || ""}`.trim();
+        resolve(`💉 sqlmap ${u}\n${out.slice(0, 6000) || "(tanpa output)"}`);
+      }
+    );
+  });
+}
+
+// ── PDF report (markdown -> HTML -> PDF via Playwright, no new deps) ─────────
+export async function reportPdf(rawUser: unknown): Promise<string> {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  const md = generateReport(rawUser);
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const body = esc(md)
+    .replace(/^### (.*)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.*)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.*)$/gm, "<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\n/g, "<br/>");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;max-width:820px;margin:32px auto;padding:0 20px;color:#111}h1{font-size:24px}h2{font-size:18px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:15px}strong{color:#000}</style></head><body>${body}</body></html>`;
+  const dir = join(userDataRoot(), userKey, "reports");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `report-${new Date().toISOString().replace(/[:.]/g, "-")}.pdf`);
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "load" });
+    await page.pdf({ path: file, format: "A4", margin: { top: "18mm", bottom: "18mm", left: "16mm", right: "16mm" } });
+  } finally {
+    await browser.close().catch(() => {});
+  }
+  return `📄 PDF laporan disimpan: ${file}`;
+}
+
+/** Days until a host's TLS cert expires (null on failure). For security watch. */
+export function tlsExpiryDays(host: string, port = 443): Promise<number | null> {
+  const h = (host || "").trim();
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(h)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const socket = tlsConnect({ host: h, port, servername: h, rejectUnauthorized: false, timeout: 8000 }, () => {
+      const c = socket.getPeerCertificate();
+      const to = c.valid_to ? new Date(c.valid_to).getTime() : NaN;
+      resolve(Number.isNaN(to) ? null : Math.round((to - Date.now()) / 86_400_000));
+      socket.end();
+    });
+    socket.on("timeout", () => { socket.destroy(); resolve(null); });
+    socket.on("error", () => resolve(null));
+  });
 }

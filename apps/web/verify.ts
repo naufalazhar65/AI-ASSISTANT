@@ -475,11 +475,21 @@ async function main() {
     const ioc = iocExtract("cek hxxp://evil[.]com dan 8.8.8.8 email a@b.com hash d41d8cd98f00b204e9800998ecf8427e");
     if (!/8\.8\.8\.8/.test(ioc) || !/evil\.com/.test(ioc) || !/a@b\.com/.test(ioc)) throw new Error(`iocExtract: ${ioc}`);
     console.log("security analysis (password/hash/JWT/IOC): OK");
+  {
+    const { runSecurityWatchTick } = await import("./src/lib/securityWatch");
+    await runSecurityWatchTick();
+    if (!existsSync(join(appRoot(), ".data", "security-watch", "state.json"))) throw new Error("security watch state not written");
+    console.log("security watch (ports/certs tick): OK");
+  }
   }
     const { zapScan } = await import("./src/lib/security");
     let zapRejected = false;
     try { await zapScan("https://example.com"); } catch { zapRejected = true; }
     if (!zapRejected) throw new Error("zapScan allowed a public target");
+    const { sqlmapScan } = await import("./src/lib/security");
+    let sqlmapRejected = false;
+    try { await sqlmapScan("https://example.com/?id=1"); } catch { sqlmapRejected = true; }
+    if (!sqlmapRejected) throw new Error("sqlmapScan allowed a public target");
   }
   }
   }
