@@ -185,9 +185,11 @@ export function pentestResources(): string {
     "• OWASP Juice Shop  http://localhost:3001",
     "• DVWA              http://localhost:8081  (admin / password)",
     "• WebGoat           http://localhost:8082/WebGoat",
+    "• bWAPP (lokal)     http://localhost:8083  — jalankan image Docker bWAPP sendiri (sama dgn demo publik, tapi MILIKMU)",
     "(Butuh Docker; belum terpasang — lihat labs/pentest/README.md)",
     "",
     "SCOPE: hanya target sendiri / berizin tertulis. Active scan hanya ke localhost/lab ini.",
+    "⛔ Demo publik pihak ketiga (mis. itsecgames.com / bWAPP online) BUKAN target — jangan discan; jalankan bWAPP lokal sebagai gantinya.",
   ].join("\n");
 }
 
