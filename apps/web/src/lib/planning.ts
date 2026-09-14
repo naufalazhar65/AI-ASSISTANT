@@ -142,19 +142,52 @@ export function addPlanStep(planId: string, stepTitle: string, rawUser?: unknown
   return step;
 }
 
-export function updatePlanStep(planId: string, stepId: string, status: PlanStepStatus, rawUser?: unknown, notes?: string): PlanStep {
-  const userKey = sanitizeUser(rawUser);
+/**
+ * Update a plan step. The plan/step may be targeted by id OR by a text match
+ * (title substring) so the model can act without a list-first round; an
+ * ambiguous match refuses instead of guessing.
+ */
+export function updatePlanStep(opts: {
+  planId?: string;
+  planMatch?: string;
+  stepId?: string;
+  stepMatch?: string;
+  status: PlanStepStatus;
+  notes?: string;
+  rawUser?: unknown;
+}): { step: PlanStep; plan: Plan } {
+  const userKey = sanitizeUser(opts.rawUser);
   if (!userKey) throw new Error("invalid user");
-  const plan = readPlan(rawUser, planId);
-  if (!plan) throw new Error(`plan ${planId} not found`);
-  const idx = plan.steps.findIndex((s) => s.id === stepId);
-  if (idx < 0) throw new Error(`step ${stepId} not found`);
-  plan.steps[idx] = { ...plan.steps[idx], status, ...(notes ? { notes: notes.slice(0, 500) } : {}) };
+  let plan = opts.planId ? readPlan(opts.rawUser, opts.planId) : null;
+  if (!plan && opts.planMatch) {
+    const needle = opts.planMatch.trim().toLowerCase();
+    const hits = readPlans(opts.rawUser).filter(
+      (p) => p.title.toLowerCase().includes(needle) || p.goal.toLowerCase().includes(needle)
+    );
+    if (hits.length > 1) {
+      throw new Error(`"${opts.planMatch}" matches ${hits.length} plans (${hits.map((p) => p.title).slice(0, 5).join("; ")}) — be more specific`);
+    }
+    if (hits.length === 1) plan = hits[0];
+  }
+  if (!plan) throw new Error(`plan ${opts.planId ?? opts.planMatch ?? "?"} not found`);
+  let idx = opts.stepId ? plan.steps.findIndex((s) => s.id === opts.stepId) : -1;
+  if (idx < 0 && opts.stepId && /^\d+$/.test(opts.stepId.trim())) {
+    const n = Number.parseInt(opts.stepId, 10);
+    idx = n >= 1 && n <= plan.steps.length ? n - 1 : -1;
+  }
+  if (idx < 0 && opts.stepMatch) {
+    const needle = opts.stepMatch.trim().toLowerCase();
+    const hits = plan.steps.map((s, i) => ({ s, i })).filter(({ s }) => s.title.toLowerCase().includes(needle));
+    if (hits.length > 1) throw new Error(`"${opts.stepMatch}" matches ${hits.length} steps — be more specific`);
+    if (hits.length === 1) idx = hits[0].i;
+  }
+  if (idx < 0) throw new Error(`step ${opts.stepId ?? opts.stepMatch ?? "?"} not found in plan "${plan.title}"`);
+  plan.steps[idx] = { ...plan.steps[idx], status: opts.status, ...(opts.notes ? { notes: opts.notes.slice(0, 500) } : {}) };
   // auto-complete plan when all steps done
   if (plan.steps.every((s) => s.status === "completed" || s.status === "cancelled")) plan.status = "done";
   else plan.status = "active";
   writePlan(plan, userKey);
-  return plan.steps[idx];
+  return { step: plan.steps[idx], plan };
 }
 
 export function listPlansText(rawUser?: unknown): string {

@@ -225,9 +225,9 @@ const SYSTEM_PROMPT = [
   "Mac health monitoring: when the user asks to be NOTIFIED about Mac battery or storage at a percent ('kasih tau kalau batre 20%', 'storage 90% tolong kabarin'), say you'll watch it warmly — the system schedules the monitor automatically and alerts via heartbeat when it crosses. You can check the CURRENT value right away with device_battery (battery) or exec 'df -h /' (storage).",
   "For task management use add_task to create a task (optional dueAt deadline) — be imaginative: title should be engaging with emoji/vibe (e.g. 'Nonton Cars' → 'Nonton Cars 🚗 — Pixar night!'), not raw. ",
   "list_tasks to show the task list, complete_task / cancel_task to change a ",
-  "task's status by its list number, and reschedule_task to change its dueAt. ",
+  "task's status (pass number OR match text — never list first just to change one), and reschedule_task to change its dueAt. ",
   "Prefer add_task over remind_me when the user wants an ongoing task to track, ",
-  "not just a one-time nudge. For complex multi-step work, use Planning: plan_create (title+goal) → plan_add_step → plan_update_step (track pending/in_progress/completed), plan_list/plan_get to inspect — this is Mia's internal planning board, different from user tasks. For marketplace, use skill_list/skill_search to browse SKILL.md skills (then hello_world demo). For calendar, be imaginative too: calendar_add/calendar_mac_add titles should be warm and vivid, not raw. Use list_uploads to show files the user uploaded via Telegram or Discord, and read_upload to read a saved upload's text content when asked about its contents. ",
+  "not just a one-time nudge. For complex multi-step work, use Planning: plan_create (title+goal) → plan_add_step → plan_update_step (track pending/in_progress/completed; target by plan_match/step_match, no need to list first), plan_list/plan_get to inspect — this is Mia's internal planning board, different from user tasks. For marketplace, use skill_list/skill_search to browse SKILL.md skills (then hello_world demo). For calendar, be imaginative too: calendar_add/calendar_mac_add titles should be warm and vivid, not raw. Use list_uploads to show files the user uploaded via Telegram or Discord, and read_upload to read a saved upload's text content when asked about its contents. ",
   "When the user uploads a file (Telegram/Discord), it is ALREADY saved by the system and its text is available to you in context or via read_upload — do NOT call save_note, add_task, or any other tool just to record the file itself; reply to its contents instead. ",
   "When the user wants a recurring action on a schedule ('setiap pagi jam 8', 'setiap 2 jam', 'lapor cuaca tiap pagi'), call create_automation with the action as `prompt` and a human `schedule` string. Cronjob = automations (create_automation), NOT reminders (remind_me) — when user asks 'cronjob kamu apa aja?' list automations, not reminders. Reminders are one-shot/daily pushes, automations are scheduled prompts.",
   "Use fetch_url to read the text of a specific public web page the user links to (it scrapes article text), and web_search to find pages — combine both to answer with current web content. IMPORTANT: when the user themselves SHARES a link in the chat, the system automatically saves and summarizes it to their reading list in the background — do NOT call fetch_url on a link the user just posted; acknowledge that it's been saved and answer from context, or use library_list later when they ask for their saved links.",
@@ -666,7 +666,7 @@ async function runAgent(
   apiKey: string,
   defaultModel: string,
   systemPrompt: string,
-  collector: { collect: (text: string) => void; webSearchSuccess?: boolean; verbatimHit?: boolean },
+  collector: { collect: (text: string) => void; webSearchSuccess?: boolean; verbatimHit?: boolean; suppressVerbatim?: boolean },
   round: number,
   model?: string,
   user?: unknown,
@@ -771,7 +771,11 @@ async function runAgent(
   // can answer from them (never throw a raw "too many tool rounds" 502).
   const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news"]);
   const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
-  if (verbatimCalls.length >= 1) {
+  // A confirmation continuation is answering an ACTION, not a list request —
+  // never take the verbatim fast-path there, or a follow-up list_* would mask
+  // the real outcome (e.g. complete_task failed → "Belum ada tugas" instead of
+  // the failure).
+  if (!collector.suppressVerbatim && verbatimCalls.length >= 1) {
     // The model sometimes requests the same tool twice in one turn (e.g. two
     // google_news calls) — execute+collect each tool name only once, otherwise
     // the verbatim output would double.
@@ -790,6 +794,12 @@ async function runAgent(
         for (const other of toolCalls2.filter((c) => !VERBATIM_LIST.has(c.name))) {
           const oc = await executeTool(other, user);
           messages.push({ role: "tool", tool_call_id: other.id, content: oc });
+          // Surface sibling output too — a list + another read tool (e.g.
+          // list_uploads + read_upload) must not silently drop the read result.
+          if (!/^error:/i.test(oc.trim())) {
+            collector.collect(`\n${oc}`);
+            if (other.name === "web_search") collector.webSearchSuccess = true;
+          }
         }
         return { needsConfirmation: null };
       }
@@ -1999,6 +2009,24 @@ async function runAssistantTurnImpl(opts: {
       tool_call_id: call.id,
       content: toolResult,
     });
+    // A single turn may propose several risky tools, but only one is confirmed
+    // at a time. Resolve every other pending tool_call id with an explicit
+    // "deferred" result so the follow-up completion never sends an assistant
+    // message whose tool_calls have missing tool results (strict gateways 400,
+    // and the model otherwise re-tries the same lost call).
+    const lastCallMsg = [...messages].reverse().find((m) => m.role === "assistant" && m.tool_calls?.length);
+    if (lastCallMsg?.tool_calls) {
+      const answered = new Set(messages.filter((m) => m.role === "tool" && m.tool_call_id).map((m) => m.tool_call_id));
+      for (const tc of lastCallMsg.tool_calls) {
+        if (tc.id === call.id || answered.has(tc.id)) continue;
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content:
+            "Deferred: only one action is confirmed at a time; this was NOT executed. If you still need it, propose it again.",
+        });
+      }
+    }
     // Model-authored reminder variety: when a remind_me was just CONFIRMED, ask
     // the model (fire-and-forget) for a small variants pool so push time
     // rotates Mia-style wordings instead of the static template. Skipped for a
@@ -2019,8 +2047,10 @@ async function runAssistantTurnImpl(opts: {
 
   let text = "";
   let needsConfirmation: ToolCall[] | null = null;
-  const collector: { collect: (t: string) => void; webSearchSuccess?: boolean; verbatimHit?: boolean } = {
+  const collector: { collect: (t: string) => void; webSearchSuccess?: boolean; verbatimHit?: boolean; suppressVerbatim?: boolean } = {
     collect: (t: string) => (text += t),
+    // A confirmation continuation answers an action, not a list request.
+    suppressVerbatim: Boolean(opts.confirm_call),
   };
   let result!: { needsConfirmation: ToolCall[] | null };
   try {

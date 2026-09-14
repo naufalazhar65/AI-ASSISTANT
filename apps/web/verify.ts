@@ -137,6 +137,40 @@ async function main() {
   const after = await executeTool({ id: "t", name: "list_notes", arguments: "{}" });
   if (after.includes(tag)) throw new Error(`note not removed; list=${after}`);
 
+  // --- match-based selectors: act on an item WITHOUT listing first ---
+  // (list_* lives in VERBATIM_LIST and ends the turn, so an index-only action
+  //  tool could never get its identifier — tasks/notes/library/plan now take
+  //  a text `match`; an ambiguous match must refuse, never guess.)
+  const stamp = Date.now();
+  const vu = "verify_selector_user";
+  const et = (name: string, args: unknown) =>
+    executeTool({ id: "t", name, arguments: JSON.stringify(args) }, vu);
+  await et("add_task", { text: `Verify Nonton Cars ${stamp}` });
+  await et("add_task", { text: `Verify Belajar TS ${stamp}` });
+  const tDone = await et("complete_task", { match: `nonton cars ${stamp}` });
+  if (!/marked done/.test(tDone)) throw new Error(`complete_task by match failed: ${tDone}`);
+  const tAmb = await et("complete_task", { match: `${stamp}` });
+  if (!/^Error:/.test(tAmb) || !/matches 2/.test(tAmb)) throw new Error(`ambiguous task match not guarded: ${tAmb}`);
+  const tRes = await et("reschedule_task", { match: `belajar ts ${stamp}`, dueAt: new Date(Date.now() + 86_400_000).toISOString() });
+  if (!/rescheduled/.test(tRes)) throw new Error(`reschedule_task by match failed: ${tRes}`);
+  await et("save_note", { content: `verify-${stamp}.txt` });
+  const nMatch = await et("delete_note", { match: `verify-${stamp}.txt` });
+  if (!/^Deleted 1 note/.test(nMatch)) throw new Error(`delete_note by match failed: ${nMatch}`);
+  await et("save_note", { content: `verify-${stamp}-all` });
+  const nAll = await et("delete_note", { all: true });
+  if (!/^Deleted \d+ note/.test(nAll)) throw new Error(`delete_note all failed: ${nAll}`);
+  const libTag = `VerifyLib ${stamp}`;
+  addLibraryEntry(vu, { url: `https://example.org/${stamp}`, title: libTag, summary: "s" });
+  const libRem = await et("library_remove", { ref: libTag });
+  if (!/Dihapus/.test(libRem)) throw new Error(`library_remove by title failed: ${libRem}`);
+  const pc = await et("plan_create", { title: `Verify Plan ${stamp}`, goal: "tujuan verify" });
+  const pid = (pc.match(/Plan created (\S+):/) || [])[1];
+  if (!pid) throw new Error(`plan_create failed: ${pc}`);
+  await et("plan_add_step", { plan_id: pid, title: `Riset verify ${stamp}` });
+  const pu = await et("plan_update_step", { plan_match: `verify plan ${stamp}`, step_match: `riset verify ${stamp}`, status: "completed" });
+  if (/^Error:/.test(pu) || !/completed/.test(pu)) throw new Error(`plan_update_step by match failed: ${pu}`);
+  console.log("selector match (tasks/notes/library/plan): OK");
+
   // --- file access tool (read-only, sandboxed to project root) ---
   const fr = (p: string) => executeTool({ id: "t", name: "file_read", arguments: JSON.stringify({ path: p }) });
   const readTools = await fr("apps/web/src/lib/tools.ts");

@@ -91,17 +91,28 @@ export function listReads(rawUser: unknown): LibraryEntry[] {
   return readReads(rawUser);
 }
 
-/** Remove an entry by id or 1-based index (like notes). Returns a human summary. */
+/** Remove an entry by id, 1-based index (like notes), or title/url substring.
+ *  A substring that matches several entries refuses instead of guessing. */
 export function removeLibraryEntry(rawUser: unknown, ref: string): string {
   const userKey = sanitizeUser(rawUser) || "shared";
   const entries = readReads(userKey);
-  const idx = entries.findIndex((e) => e.id === ref) ?? -1;
-  let removeAt = idx;
-  if (removeAt < 0 && /^\d+$/.test(ref.trim())) {
-    const n = Number.parseInt(ref, 10);
+  const needle = ref.trim();
+  let removeAt = entries.findIndex((e) => e.id === ref);
+  if (removeAt < 0 && /^\d+$/.test(needle)) {
+    const n = Number.parseInt(needle, 10);
     removeAt = n >= 1 && n <= entries.length ? n - 1 : -1;
   }
-  if (removeAt < 0) return `Tidak ada entri "${ref.trim()}" di daftar bacaan.`;
+  if (removeAt < 0 && needle) {
+    const low = needle.toLowerCase();
+    const hits = entries
+      .map((e, i) => ({ e, i }))
+      .filter(({ e }) => (e.title || "").toLowerCase().includes(low) || e.url.toLowerCase().includes(low));
+    if (hits.length > 1) {
+      return `Ada ${hits.length} entri cocok "${needle}" — sebutkan lebih spesifik: ${hits.map(({ e }) => e.title || e.url).slice(0, 5).join("; ")}`;
+    }
+    if (hits.length === 1) removeAt = hits[0].i;
+  }
+  if (removeAt < 0) return `Tidak ada entri "${needle}" di daftar bacaan.`;
   const removed = entries[removeAt];
   writeReads(userKey, entries.filter((_, i) => i !== removeAt));
   return `Dihapus dari daftar bacaan: ${removed.title || removed.url}`;

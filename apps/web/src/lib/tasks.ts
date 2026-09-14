@@ -96,26 +96,53 @@ function indexOfNumber(tasks: Task[], number: number): number {
   return number >= 1 && number <= tasks.length ? number - 1 : -1;
 }
 
-export function setTaskStatus(number: number, status: TaskStatus, rawUser?: unknown): string {
+/**
+ * Resolve a task's index from an explicit `number` or a text `match`
+ * (case-insensitive substring of the task text). `match` lets the model act
+ * without listing first; an ambiguous match refuses instead of guessing.
+ */
+function resolveTaskIndex(tasks: Task[], sel: { number?: unknown; match?: unknown }): number {
+  const n = Number(sel.number);
+  if (sel.number !== undefined && sel.number !== null && `${sel.number}`.trim() !== "" && Number.isFinite(n)) {
+    const idx = indexOfNumber(tasks, n);
+    if (idx < 0) throw new Error(`no task #${n}`);
+    return idx;
+  }
+  const needle = typeof sel.match === "string" ? sel.match.trim().toLowerCase() : "";
+  if (!needle) throw new Error("provide a task `number` or `match` text");
+  const hits = tasks.map((t, i) => ({ t, i })).filter(({ t }) => t.text.toLowerCase().includes(needle));
+  if (hits.length === 0) {
+    // Report what DOES exist so the model can answer honestly without listing.
+    const avail = tasks.filter((t) => t.status === "active").map((t) => t.text).slice(0, 8);
+    throw new Error(
+      `no task matching "${sel.match}"` + (avail.length ? ` (active tasks: ${avail.join("; ")})` : " (there are no tasks)")
+    );
+  }
+  if (hits.length > 1) {
+    const list = hits.map(({ t, i }) => `#${i + 1} ${t.text}`).join("; ");
+    throw new Error(`"${sel.match}" matches ${hits.length} tasks (${list}) — be more specific`);
+  }
+  return hits[0].i;
+}
+
+export function setTaskStatus(sel: { number?: unknown; match?: unknown }, status: TaskStatus, rawUser?: unknown): string {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const tasks = readTasks(rawUser);
-  const idx = indexOfNumber(tasks, number);
-  if (idx < 0) throw new Error(`no task #${number}`);
+  const idx = resolveTaskIndex(tasks, sel);
   tasks[idx] = { ...tasks[idx], status };
   writeTasks(tasks, userKey);
-  return `Task #${number} "${tasks[idx].text}" marked ${status}.`;
+  return `Task #${idx + 1} "${tasks[idx].text}" marked ${status}.`;
 }
 
 /** Change a task's due deadline (also re-schedules its reminder). */
-export function rescheduleTask(number: number, dueAt: number, rawUser?: unknown): string {
+export function rescheduleTask(sel: { number?: unknown; match?: unknown }, dueAt: number, rawUser?: unknown): string {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const tasks = readTasks(rawUser);
-  const idx = indexOfNumber(tasks, number);
-  if (idx < 0) throw new Error(`no task #${number}`);
+  const idx = resolveTaskIndex(tasks, sel);
   tasks[idx] = { ...tasks[idx], dueAt };
   writeTasks(tasks, userKey);
   addReminder(`[task] ${tasks[idx].text}`, dueAt, rawUser);
-  return `Task #${number} rescheduled to ${new Date(dueAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}.`;
+  return `Task #${idx + 1} rescheduled to ${new Date(dueAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}.`;
 }

@@ -705,7 +705,8 @@ const toolRegistry: ToolPlugin[] = [
       risk: "write",
       function: {
         name: "complete_task",
-        description: "Mark a task as done by its index number from list_tasks.",
+        description:
+          "Mark a task as done. Pass `number` (1-based from list_tasks) OR `match` (text substring of the task) — don't list first just to complete.",
         parameters: {
           type: "object",
           properties: {
@@ -713,14 +714,18 @@ const toolRegistry: ToolPlugin[] = [
               type: "string",
               description: "The task index to complete (1-based)",
             },
+            match: {
+              type: "string",
+              description: "Complete the single task whose text contains this (case-insensitive)",
+            },
           },
-          required: ["number"],
+          required: [],
         },
       },
     },
     execute: (args, ctx) => {
       try {
-        return setTaskStatus(Number(args.number), "done", ctx.rawUser);
+        return setTaskStatus({ number: args.number, match: args.match }, "done", ctx.rawUser);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid task number"}`;
       }
@@ -732,7 +737,8 @@ const toolRegistry: ToolPlugin[] = [
       risk: "write",
       function: {
         name: "cancel_task",
-        description: "Cancel a task by its index number from list_tasks.",
+        description:
+          "Cancel a task. Pass `number` (1-based from list_tasks) OR `match` (text substring of the task) — don't list first just to cancel.",
         parameters: {
           type: "object",
           properties: {
@@ -740,14 +746,18 @@ const toolRegistry: ToolPlugin[] = [
               type: "string",
               description: "The task index to cancel (1-based)",
             },
+            match: {
+              type: "string",
+              description: "Cancel the single task whose text contains this (case-insensitive)",
+            },
           },
-          required: ["number"],
+          required: [],
         },
       },
     },
     execute: (args, ctx) => {
       try {
-        return setTaskStatus(Number(args.number), "cancelled", ctx.rawUser);
+        return setTaskStatus({ number: args.number, match: args.match }, "cancelled", ctx.rawUser);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid task number"}`;
       }
@@ -759,7 +769,8 @@ const toolRegistry: ToolPlugin[] = [
       risk: "write",
       function: {
         name: "reschedule_task",
-        description: "Change the due date of a task by its index number.",
+        description:
+          "Change a task's due date. Pass `number` (1-based from list_tasks) OR `match` (text substring of the task), plus `dueAt`.",
         parameters: {
           type: "object",
           properties: {
@@ -767,18 +778,22 @@ const toolRegistry: ToolPlugin[] = [
               type: "string",
               description: "The task index to reschedule (1-based)",
             },
+            match: {
+              type: "string",
+              description: "Reschedule the single task whose text contains this (case-insensitive)",
+            },
             dueAt: {
               type: "string",
               description: "New ISO-8601 due date",
             },
           },
-          required: ["number", "dueAt"],
+          required: ["dueAt"],
         },
       },
     },
     execute: (args, ctx) => {
       try {
-        return rescheduleTask(Number(args.number), new Date(String(args.dueAt)).getTime(), ctx.rawUser);
+        return rescheduleTask({ number: args.number, match: args.match }, new Date(String(args.dueAt)).getTime(), ctx.rawUser);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid reschedule"}`;
       }
@@ -1697,27 +1712,37 @@ const toolRegistry: ToolPlugin[] = [
       risk: "write",
       function: {
         name: "plan_update_step",
-        description: "Update a plan step status (pending/in_progress/completed/cancelled). Use to track progress.",
+        description:
+          "Update a plan step status (pending/in_progress/completed/cancelled). Pass plan_id+step_id, OR plan_match (plan title/goal text) + step_match (step title text) or step_id as a 1-based number — no need to list first.",
         parameters: {
           type: "object",
           properties: {
             plan_id: { type: "string", description: "Plan id" },
-            step_id: { type: "string", description: "Step id" },
+            plan_match: { type: "string", description: "Plan title/goal substring (alternative to plan_id)" },
+            step_id: { type: "string", description: "Step id, or a 1-based step number" },
+            step_match: { type: "string", description: "Step title substring (alternative to step_id)" },
             status: { type: "string", enum: ["pending", "in_progress", "completed", "cancelled"], description: "New status" },
             notes: { type: "string", description: "Optional notes" },
           },
-          required: ["plan_id", "step_id", "status"],
+          required: ["status"],
         },
       },
     },
     execute: (args, ctx) => {
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { updatePlanStep, readPlan, planToText } = require("./planning") as typeof import("./planning");
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const s = updatePlanStep(typeof args.plan_id === "string" ? args.plan_id : "", typeof args.step_id === "string" ? args.step_id : "", typeof args.status === "string" ? (args.status as any) : "pending", ctx.rawUser, typeof args.notes === "string" ? args.notes : undefined);
-        const p = readPlan(ctx.rawUser, typeof args.plan_id === "string" ? args.plan_id : "");
-        return `Step ${s.id} → ${s.status}\n${p ? planToText(p) : ""}`;
+        const { updatePlanStep, planToText } = require("./planning") as typeof import("./planning");
+        const s = updatePlanStep({
+          planId: typeof args.plan_id === "string" ? args.plan_id : undefined,
+          planMatch: typeof args.plan_match === "string" ? args.plan_match : undefined,
+          stepId: typeof args.step_id === "string" ? args.step_id : undefined,
+          stepMatch: typeof args.step_match === "string" ? args.step_match : undefined,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          status: typeof args.status === "string" ? (args.status as any) : "pending",
+          notes: typeof args.notes === "string" ? args.notes : undefined,
+          rawUser: ctx.rawUser,
+        });
+        return `Step ${s.step.id} → ${s.step.status}\n${planToText(s.plan)}`;
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "cannot update step"}`;
       }
