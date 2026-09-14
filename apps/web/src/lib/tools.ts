@@ -3308,6 +3308,10 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { labStart, labStop } = await import("./security"); const name = typeof args.name === "string" && args.name ? args.name : "vuln-node"; return String(args.action) === "stop" ? await labStop(name) : await labStart(name); } catch (e) { return `Error: ${e instanceof Error ? e.message : "lab_start failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "lab_fetch", description: "GET URL LAB/berizin (localhost/private/permitted) — menembus guard SSRF publik agar Mia bisa lihat respons target lokal (mis. verifikasi XSS ter-reflect). Publik ditolak. Read, auto.", parameters: { type: "object", properties: { url: { type: "string", description: "URL lab, mis. http://127.0.0.1:4010/greet?name=<script>alert(1)</script>" } }, required: ["url"] } } },
+    execute: async (args) => { try { const { labFetch } = await import("./security"); return await labFetch(String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "lab_fetch failed"}`; } },
+  },
+  {
     definition: {
       type: "function",
       risk: "read",

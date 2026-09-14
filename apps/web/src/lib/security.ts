@@ -690,3 +690,19 @@ export async function labStop(name = "vuln-node"): Promise<string> {
     return `ℹ️ Tak ada pid tercatat untuk ${name} (mungkin sudah mati).`;
   }
 }
+
+/**
+ * Fetch a LAB/authorized URL (localhost/private/permitted) — bypasses the
+ * public-only SSRF guard of `fetch_url`/`browser_*` so Mia can see a local
+ * target's response (e.g. verify a reflected payload). Refuses public hosts.
+ */
+export async function labFetch(url: string): Promise<string> {
+  const raw = (url || "").trim();
+  if (!/^https?:\/\//i.test(raw)) return "Error: URL harus http(s).";
+  if (!isLabTarget(raw)) return "Error: SCOPE — lab_fetch hanya untuk localhost/lab/aset berizin (publik ditolak).";
+  const res = await fetch(raw, { redirect: "manual", headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(10_000) });
+  const ct = res.headers.get("content-type") || "";
+  const body = (await res.text()).slice(0, 2000);
+  const flag = /<script\b|onerror\s*=|onload\s*=|javascript:/i.test(body) ? "\n⚠️ Body mengandung markup/JS — indikasi XSS bila input user ter-reflect mentah." : "";
+  return `🌐 LAB FETCH ${res.status} ${res.statusText} (${ct})\nLocation: ${res.headers.get("location") || "-"}${flag}\n\n${body}`;
+}

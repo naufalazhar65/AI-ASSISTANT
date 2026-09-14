@@ -476,6 +476,12 @@ async function main() {
     if (!/8\.8\.8\.8/.test(ioc) || !/evil\.com/.test(ioc) || !/a@b\.com/.test(ioc)) throw new Error(`iocExtract: ${ioc}`);
     console.log("security analysis (password/hash/JWT/IOC): OK");
   {
+    const { labFetch } = await import("./src/lib/security");
+    const pub = await labFetch("https://example.com");
+    if (!/SCOPE/.test(pub)) throw new Error("labFetch allowed a public target");
+    console.log("lab_fetch scope guard: OK");
+  }
+  {
     const { runSecurityWatchTick } = await import("./src/lib/securityWatch");
     await runSecurityWatchTick();
     if (!existsSync(join(appRoot(), ".data", "security-watch", "state.json"))) throw new Error("security watch state not written");
