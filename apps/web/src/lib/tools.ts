@@ -4516,7 +4516,7 @@ function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
     execFile(
       cmd,
       parts2,
-      { cwd, timeout: EXEC_TIMEOUT_MS, maxBuffer: EXEC_MAX_OUTPUT * 2 },
+      { cwd, timeout: EXEC_TIMEOUT_MS, maxBuffer: Math.max(EXEC_MAX_OUTPUT * 2, 2 * 1024 * 1024) },
       (err, stdout, stderr) => {
         if (err) {
           const code = (err as NodeJS.ErrnoException & { code?: number }).code;
