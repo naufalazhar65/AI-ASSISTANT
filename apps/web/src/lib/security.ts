@@ -203,9 +203,8 @@ export function pentestResources(): string {
 const PENTEST_TOOLS: Record<string, { bin: string; formula: string; args: (t: string, wordlist: string) => string[] }> = {
   nmap: { bin: "nmap", formula: "nmap", args: (t) => ["-sV", "-T4", "-Pn", t] },
   nuclei: { bin: "nuclei", formula: "nuclei", args: (t) => ["-u", t, "-silent", "-no-color"] },
-  whatweb: { bin: "whatweb", formula: "whatweb", args: (t) => [t] },
   nikto: { bin: "nikto", formula: "nikto", args: (t) => ["-h", t] },
-  ffuf: { bin: "ffuf", formula: "ffuf", args: (t, w) => ["-u", t.includes("FUZZ") ? t : `${t.replace(/\/$/, "")}/FUZZ`, "-w", w, "-s"] },
+  ffuf: { bin: "ffuf", formula: "ffuf", args: (t, w) => ["-u", t.includes("FUZZ") ? t : `${t.replace(/\/$/, "")}/FUZZ`, "-w", w, "-s", "-mc", "all"] },
 };
 
 /**
@@ -253,10 +252,15 @@ export function pentestScan(opts: { tool: string; target: string; wordlist?: str
   }
   let wordlist = "";
   if (opts.tool === "ffuf") {
-    if (!opts.wordlist) return Promise.reject(new Error("ffuf butuh `wordlist` (path di sandbox)"));
-    const wl = resolveInSandbox(opts.wordlist);
-    if (!wl) return Promise.reject(new Error("wordlist di luar sandbox"));
-    wordlist = wl;
+    if (opts.wordlist) {
+      const wl = resolveInSandbox(opts.wordlist);
+      if (!wl) return Promise.reject(new Error("wordlist di luar sandbox"));
+      wordlist = wl;
+    } else {
+      const def = join(repoRoot(), "labs", "pentest", "wordlists", "common.txt");
+      if (!existsSync(def)) return Promise.reject(new Error("wordlist default tidak ada — beri arg `wordlist`"));
+      wordlist = def;
+    }
   }
   const args = spec.args(target, wordlist);
   return new Promise((resolve) => {

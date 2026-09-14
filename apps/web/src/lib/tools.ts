@@ -3146,11 +3146,11 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "pentest_scan",
         description:
-          "Jalankan tool pentest (nmap/nuclei/whatweb/nikto/ffuf) ke target. HANYA localhost/lab/RFC1918 atau host di PENTEST_LAB_TARGETS — target publik DITOLAK. Write, confirm. ffuf butuh `wordlist` (path sandbox).",
+          "Jalankan tool pentest (nmap/nuclei/nikto/ffuf) ke target. HANYA localhost/lab/RFC1918 atau host di PENTEST_LAB_TARGETS — target publik DITOLAK. Write, confirm. ffuf otomatis pakai wordlist bawaan (labs/pentest/wordlists/common.txt) bila `wordlist` tak diisi.",
         parameters: {
           type: "object",
           properties: {
-            tool: { type: "string", enum: ["nmap", "nuclei", "whatweb", "nikto", "ffuf"], description: "Tool yang dijalankan" },
+            tool: { type: "string", enum: ["nmap", "nuclei", "nikto", "ffuf"], description: "Tool yang dijalankan" },
             target: { type: "string", description: "Target, mis. http://localhost:3001 atau 127.0.0.1" },
             wordlist: { type: "string", description: "Untuk ffuf: path wordlist (di sandbox)" },
           },
