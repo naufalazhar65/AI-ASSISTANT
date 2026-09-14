@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-156-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-199-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 ---
@@ -75,13 +75,13 @@ flowchart LR
 
 ---
 
-## 🛠️ Tools — 156 total
+## 🛠️ Tools — 199 total
 
 | Category | Tools | Notes |
 |----------|-------|-------|
 | **Web** | `web_search`, `research`, `google_news`, `fetch_url` | DuckDuckGo + Bing fallback, Google News RSS dedup, SSRF-guarded |
 | **Code** | `file_read`, `write_file`, `edit_file`, `codebase_search`, `codebase_refresh` | Sandboxed multi-root `resolveInSandbox`, `ALLOWED_WORKSPACES` |
-| **Shell** | `exec` (read), `exec_write` (write) | Allowlist `git/ls/pwd/cat/node/npm/df` + SafeExec `CRITICAL/HIGH` guard |
+| **Shell** | `exec` (read), `exec_write` (write) | Allowlist `git/ls/pwd/cat/node/npm/df/ps/pgrep/netstat/ifconfig/arp/dig/whois/lsof(-i)…` + SafeExec guard |
 | **Memory** | `save_note`, `list_notes`, `delete_note`, `search_memory`, `memory_get` | Per-user `notes.json`, BM25 + embedding, `dailyMemory` |
 | **Knowledge** | `brv_query`, `brv_search`, `brv_curate`, `brv_status`, `brv_vc_status/log`, `brv_swarm_query/status`, `brv_review*`, `brv_locations` | **ByteRover** `.brv` 19 commits, `2/2` swarm (`byterover`+`local_markdown`), `9router` |
 | **Summarize** | `summarize` (20 formats), `summarize_history/saved/stats/template/default` | **Summarize Pro** `quick/tldr/bullets/eli5/meeting/email/compare` + `.data/summarize-pro/` |
@@ -97,11 +97,33 @@ flowchart LR
 | **Travel** | `waze_route`, `weather`, `hotel_search` | Waze Direct + wttr.in + Booking.com (free, no key) |
 | **Media** | `spotify_*` (8), `mala`, `game_*`, `hari_libur`, `recap`, `weekly_insight` | Premium for playback, deterministic mala |
 | **Ops** | `git_status/commit`, `safe_exec_list`, `evolver_status/review`, `freeride_status/list/auto/switch/refresh/rotate/watcher`, `learnings_*`, `send_channel` | SafeExec, freeride fallback chain `429→next`, watcher `60s` |
-| **Self-Update** | `auto_update_status`, `auto_update` | **Auto-Update Mia** mandiri: daily 04:00 WIB `git pull --ff-only` + `npm install` + gates `typecheck/test/verify` + push ringkasan + restart; `auto_update` = konfirmasi |
+
+| **Security — posture** | `security_scan`, `secret_scan`, `breach_check`, `tls_check` | macOS posture, leaked-secret scan (redacted), HIBP k-anonymity, TLS |
+| **Security — recon/audit** | `web_audit`, `domain_audit`, `exec dig/whois` | headers/cookies, SPF/DMARC/DKIM/CAA |
+| **Security — scan (authorized)** | `pentest_scan`, `sqlmap_scan`, `zap_scan` | nmap/nuclei/nikto/ffuf/sqlmap/ZAP — lab/engagement/permitted only |
+| **Security — analysis** | `password_strength`, `hash_identify`, `jwt_inspect`, `ioc_extract`, `cvss_score` | CVSS v3.1 base score |
+| **Security — deps** | `dep_audit`, `verify_patch` | CVE via OSV (npm/pypi) + fixed-version/patch check |
+| **Security — findings** | `finding_add/list/resolve/export`, `hardening_plan`, `report_generate/save/pdf`, `hardening_pdf` | CVSS/OWASP/CWE, CSV/JSON/**SARIF**, MD/PDF |
+| **Security — lab & engagement** | `lab_status/start/fetch`, `engagement_create/list/close`, `pentest_resources` | `labs/pentest` (no-Docker vuln-node), client authorization + scope guard || **Self-Update** | `auto_update_status`, `auto_update` | **Auto-Update Mia** mandiri: daily 04:00 WIB `git pull --ff-only` + `npm install` + gates `typecheck/test/verify` + push ringkasan + restart; `auto_update` = konfirmasi |
 
 > **Risk:** `read` = auto-run, `write/delete` = inline `ya/tidak` (FR-014) — except `spotify_play` (immediate).
 
 ---
+
+---
+
+## 🔐 Cybersecurity (Ethical-Hacker)
+
+Mia can act as a **defensive / authorized** security assistant. Full guide +
+scope rules + examples: **[SECURITY.md](./SECURITY.md)**.
+
+- **Own system:** `security_scan` · `secret_scan` · `tls_check` · `domain_audit` · `web_audit` · `dep_audit` · `verify_patch`
+- **Authorized scans:** `pentest_scan` (nmap/nuclei/nikto/ffuf) · `sqlmap_scan` · `zap_scan`
+- **Findings → report:** `finding_add` (CVSS/OWASP/CWE) → `hardening_plan` → `report_pdf` / `finding_export` (CSV/JSON/SARIF)
+- **Practice lab (no Docker):** `lab_start` → `http://127.0.0.1:4010` (SQLi/XSS/IDOR/SSRF/JWT/CSRF/…)
+- **Client pentest:** `engagement_create` (authorization + scope) → only in-scope hosts are scannable
+
+> Only test what you own or are **authorized** for; public third-party sites are out of scope.
 
 ## 💾 Persistence
 

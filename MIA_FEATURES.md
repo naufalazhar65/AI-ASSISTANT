@@ -127,7 +127,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Lib** `freeride.ts` — fetch `openrouter.ai/api/v1/models` free `pricing 0`, ranking `qwen/nemotron/deepseek/context_length`, cache 6h `.data/freeride/cache.json`, config `.data/freeride/config.json` `primary + 5 fallbacks` (`openrouter/free` first), atomic, `15s` timeout
 - **Agent** — `runAgent` loop `freerideChain` on `429/rate_limit/quota` (`300ms` backoff, warn), `freerideGetConfig` — `9router` tetap weekly-unlimited, OpenRouter key dari `.env.local` (`sk-or-v1-...`)
 - **Watcher** `freerideWatcher.ts` — `30s warmup + 60s` `freerideWatcherOnce` probe `openrouter` `8s`, auto `rotate` — wired `instrumentation-node.ts` bareng `heartbeat`
-- **Tools 7** — `freeride_status/list` (read), `freeride_auto/switch/refresh/rotate/watcher` (write/read) — total `156` tools, no collision
+- **Tools 7** — `freeride_status/list` (read), `freeride_auto/switch/refresh/rotate/watcher` (write/read) — total `199` tools, no collision
 
 ## 18. Auto-Update Mia (2026-09-14, mandiri daily self-update)
 
@@ -135,3 +135,12 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Scheduler** `startAutoUpdater()` — wired `instrumentation-node.ts` bareng `heartbeat`/`freerideWatcher`; cek tiap `AUTO_UPDATE_TICK_MIN` (5m) + sekali 90s setelah boot (bisa remediate kalau server mulai lewat jam window). Restart tertunda 8s via detached `bash` (definisi path konstan, aman; skip di test/verify).
 - **Tools 2** — `auto_update_status` (read, auto — jadwal + last run + hasil gates + riwayat), `auto_update` (write, confirm — "update mia dong" → jalankan sekarang). Confirm-split & tool list prompt disinkron di `agent.ts` (semua channel lewat `buildSystemPrompt` tunggal).
 - **Knobs env** (`.env.example`) — `AUTO_UPDATE_ENABLED/HOUR(4)/GRACE_MIN(120)/TICK_MIN(5)/REMOTE(origin)/BRANCH(main)/NPM(1)/VERIFY(1)/RESTART(1)/DELIVER(1)/TIMEOUT_MS(600000)`. Gate merah → update ditolak + saran `git reset --hard <before>`; worktree kotor → di-skip aman.
+
+## 19. Cybersecurity / Ethical-Hacker (2026-09-14, mandiri, LEGAL/authorized)
+
+- **Lib** `security.ts` — postur macOS (`security_scan`), secret scan redacted (`secret_scan`), HIBP k-anonymity (`breach_check`), TLS (`tls_check`/`tlsExpiryDays`), web/domain audit (`web_audit`/`domain_audit`), dependency CVE via **OSV** (`dep_audit` + fixed-version, `verify_patch`), findings store (`finding_*`), **CVSS v3.1** (`cvss_score`), hardening plan, PDF render (Playwright), `sqlmap_scan`/`zap_scan`, lab lifecycle (`lab_status/start/fetch`), `pentest_resources`.
+- **Scope/guard** — `targetAllowed()` = lab/RFC1918/`PENTEST_LAB_TARGETS`/**Engagement aktif**/2 host publik yang mengizinkan; publik lain **DITOLAK**. `engagement.ts` = otorisasi klien (client/authorization/scope/window/out-of-scope) + tools `engagement_create/list/close`.
+- **Monitoring** `securityWatch.ts` (heartbeat) — alert **port listening baru**, **sertifikat hampir kedaluwarsa** (`SECURITY_CERT_DOMAINS/_DAYS`), **engagement berakhir <24 jam**.
+- **Lab latihan no-Docker** `labs/pentest/vuln-node/server.js` — SQLi, Reflected/Stored XSS, IDOR, Open redirect, Path traversal, SSRF, JWT alg=none, CSRF, Broken access control, Default creds, Exposed backup (cmd-injection opt-in `VULN_ALLOW_CMDI=1`). Docker lab opsional (`docker-compose.yml`: Juice Shop/DVWA/WebGoat/bWAPP).
+- **Findings & report** — `finding_add/list/resolve/export` (CSV/JSON/**SARIF**), `hardening_plan`/`hardening_pdf`, `report_generate/save/pdf` (header engagement + klien + izin + scope), urut **CVSS** + rata-rata.
+- **Cheat-sheet** — `SECURITY.md`. **Total tools 199.**

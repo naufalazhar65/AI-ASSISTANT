@@ -226,3 +226,15 @@ BELUM (gap):      media generation, channel lain (WhatsApp/Slack)
 ```
 
 _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
+
+## Fase 6.1 — Cybersecurity / Ethical-Hacker (2026-09-14) — DONE
+
+- [x] Toolkit defensif/keyless: postur macOS, secret scan (redacted), HIBP, TLS, web/domain audit
+- [x] Recon pasif `dig/whois/nslookup/host` (exec allowlist)
+- [x] Scan berizin `pentest_scan` (nmap/nuclei/nikto/ffuf — stdin-safe `-as`), `sqlmap_scan`, `zap_scan`
+- [x] Analisis `password_strength`, `hash_identify`, `jwt_inspect`, `ioc_extract`, `cvss_score`
+- [x] Dependency CVE (OSV) `dep_audit` (+ fixed versi) & `verify_patch` (auto-resolve)
+- [x] Findings + CVSS/OWASP/CWE, `hardening_plan`, export CSV/JSON/SARIF, laporan MD/**PDF**
+- [x] Lab lokal no-Docker `labs/pentest/vuln-node` (13+ kelas) + Docker compose opsional
+- [x] **Engagement & Scope** (otorisasi klien + guard scope-aware) + monitoring heartbeat (port/cert/engagement)
+- Pedoman & scope: `SECURITY.md`. **Total tools 199.**
