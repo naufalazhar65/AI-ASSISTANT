@@ -58,7 +58,7 @@ function remindersListText(rawUser: unknown): string {
       const miss = new Date(r.missedAt).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
       return `Maaf beb, slot ${miss} WIB kelewat — device mati / nggak ada kanal yang nyampe 🙏 ${r.repeat === "daily" ? `slot berikut besok jam ${jam}, udah kusiapin ulang 🌸 (missed)` : `mau aku ingetin sekarang aja? 🌸 (missed)`}`;
     }
-    return `Besok jam ${jam} ya beb — "${r.text}" harian 🔁, udah aku siapin 🌸 (terjadwal)`;
+    return `Besok jam ${jam} ya beb — "${r.text}" harian 🔁${r.delivered ? reminderDeliveryStamp(r) : ""}, udah aku siapin 🌸 (terjadwal)`;
   }
   if (upcoming.length === 1) {
     const r = upcoming[0];
