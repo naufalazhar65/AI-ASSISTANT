@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSy
 import { tmpdir } from "node:os";
 import { connect as tlsConnect } from "node:tls";
 import { dirname, extname, join, relative } from "node:path";
-import { resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
+import { appRoot, resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
@@ -634,4 +634,59 @@ export function tlsExpiryDays(host: string, port = 443): Promise<number | null> 
     socket.on("timeout", () => { socket.destroy(); resolve(null); });
     socket.on("error", () => resolve(null));
   });
+}
+
+// ── Local lab lifecycle (so Mia can start its own practice target) ──────────
+const LABS: Record<string, { port: number; cmd: string; args: string[] }> = {
+  "vuln-node": { port: 4010, cmd: "node", args: [join(repoRoot(), "labs", "pentest", "vuln-node", "server.js")] },
+};
+
+function portListening(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("lsof", ["-iTCP:" + port, "-sTCP:LISTEN", "-P", "-n"], { timeout: 5000 }, (_e, stdout) => resolve(!!stdout && stdout.includes("LISTEN")));
+  });
+}
+
+export async function labStatus(): Promise<string> {
+  const rows: string[] = [];
+  for (const [name, spec] of Object.entries(LABS)) {
+    rows.push(`• ${name} (:${spec.port}) — ${(await portListening(spec.port)) ? "UP ✅" : "down"}`);
+  }
+  // Docker lab (optional) ports
+  for (const [n, p] of [["juice-shop", 3001], ["dvwa", 8081], ["webgoat", 8082]] as [string, number][]) {
+    if (await portListening(p)) rows.push(`• ${n} (:${p}) — UP (docker)`);
+  }
+  return `🧪 LAB STATUS\n${rows.join("\n")}\n\nNyalakan: lab_start name="vuln-node" (tanpa Docker).`;
+}
+
+export async function labStart(name = "vuln-node"): Promise<string> {
+  const spec = LABS[name];
+  if (!spec) return `Error: lab "${name}" tak dikenal (pilih: ${Object.keys(LABS).join(", ")})`;
+  if (await portListening(spec.port)) return `✅ Lab ${name} sudah jalan di http://127.0.0.1:${spec.port}`;
+  const { spawn } = await import("node:child_process");
+  const dir = join(appRoot(), ".data", "labs");
+  mkdirSync(dir, { recursive: true });
+  const logPath = join(dir, `${name}.log`);
+  const out = (await import("node:fs")).openSync(logPath, "a");
+  const child = spawn(spec.cmd, spec.args, { detached: true, stdio: ["ignore", out, out] });
+  child.unref();
+  writeFileSync(join(dir, `${name}.pid`), String(child.pid ?? ""));
+  await new Promise((r) => setTimeout(r, 1200));
+  const up = await portListening(spec.port);
+  return up
+    ? `✅ Lab ${name} jalan di http://127.0.0.1:${spec.port} (pid ${child.pid}, log ${logPath})`
+    : `⚠️ Lab ${name} dijalankan (pid ${child.pid}) tapi port ${spec.port} belum listen — cek ${logPath}`;
+}
+
+export async function labStop(name = "vuln-node"): Promise<string> {
+  const spec = LABS[name];
+  if (!spec) return `Error: lab "${name}" tak dikenal`;
+  const pidFile = join(appRoot(), ".data", "labs", `${name}.pid`);
+  try {
+    const pid = Number(readFileSync(pidFile, "utf8").trim());
+    if (pid > 1) process.kill(pid, "SIGKILL");
+    return `🛑 Lab ${name} dihentikan (pid ${pid})`;
+  } catch {
+    return `ℹ️ Tak ada pid tercatat untuk ${name} (mungkin sudah mati).`;
+  }
 }

@@ -3300,6 +3300,14 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (_args, ctx) => { try { const { reportPdf } = await import("./security"); return await reportPdf(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_pdf failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "lab_status", description: "Status lab pentest lokal (vuln-node :4010 tanpa Docker; juice-shop/dvwa/webgoat bila Docker). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => { try { const { labStatus } = await import("./security"); return await labStatus(); } catch (e) { return `Error: ${e instanceof Error ? e.message : "lab_status failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "lab_start", description: "Nyalakan/matikan lab latihan lokal (default vuln-node :4010, tanpa Docker). Write, confirm.", parameters: { type: "object", properties: { action: { type: "string", enum: ["start", "stop"] }, name: { type: "string", description: "default vuln-node" } }, required: ["action"] } } },
+    execute: async (args) => { try { const { labStart, labStop } = await import("./security"); const name = typeof args.name === "string" && args.name ? args.name : "vuln-node"; return String(args.action) === "stop" ? await labStop(name) : await labStart(name); } catch (e) { return `Error: ${e instanceof Error ? e.message : "lab_start failed"}`; } },
+  },
+  {
     definition: {
       type: "function",
       risk: "read",
