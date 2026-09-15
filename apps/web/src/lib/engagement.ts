@@ -61,6 +61,7 @@ export function normalizeHost(raw: unknown): string {
       .trim()
       .toLowerCase()
       .replace(/^[a-z]+:\/\//, "")
+      .replace(/^\*\./, "") // wildcard scope (`*.example.com`) → base domain
       .split("/")[0]
   );
 }

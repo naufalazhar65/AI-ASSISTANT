@@ -673,10 +673,18 @@ async function main() {
     console.log("oast_dns (no-state) + passiveSubdomains: OK");
   }
   {
+    const { rapydSign, rapydRequest } = await import("./src/lib/rapyd");
+    const sig = rapydSign("get", "/v1/payments", "", "ak", "sk", "salt123", "1700000000");
+    if (!/^[A-Za-z0-9+/=]+$/.test(sig) || rapydSign("get", "/v1/payments", "", "ak", "sk", "salt123", "1700000000") !== sig) throw new Error("rapydSign format/determinism");
+    if (!/sandbox/i.test(await rapydRequest("verify_rapyd", { path: "/v1/payments", access_key: "a", secret_key: "b", base: "https://api.rapyd.net" }))) throw new Error("rapyd_request must refuse non-sandbox");
+    if (!/wajib/i.test(await rapydRequest("verify_rapyd", { path: "/v1/payments", access_key: "", secret_key: "" }))) throw new Error("rapyd_request must require keys");
+    console.log("rapyd_request (signature + sandbox guard): OK");
+  }
+  {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
@@ -691,6 +699,9 @@ async function main() {
     if (!engagementAllows("app.ptx.co.id") || !targetAllowed("https://app.ptx.co.id/x")) throw new Error("engagement scope not honored");
     if (targetAllowed("evil.coid") || engagementAllows("sub.app.ptx.co.id") !== true) throw new Error("engagement scope match wrong");
     if (engagementAllows("ptx.co.id") || engagementAllows("co.id")) throw new Error("parent domain authorized by a subdomain-only scope (scope escalation)");
+    const ew = createEngagement({ name: "Verify Wildcard", client: "PT X", authorization: "PO-W", scope: ["*.wild.example"] });
+    if (!engagementAllows("app.wild.example") || !engagementAllows("wild.example") || engagementAllows("evil.example")) throw new Error("wildcard scope not honored");
+    closeEngagement(ew.id);
     closeEngagement(e.id);
     if (engagementAllows("app.ptx.co.id")) throw new Error("closed engagement still allows");
     rmSync(appRoot() + "/.data/engagements.json", { force: true });

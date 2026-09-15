@@ -3621,6 +3621,10 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (_args, ctx) => { try { const { oastDnsStop } = await import("./oastDns"); return await oastDnsStop(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "oast_dns_stop failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "rapyd_request", description: "Kirim request API Rapyd SANDBOX dengan signature HMAC otomatis (access_key/secret_key sandbox). RoE: sandbox-only. Write, confirm.", parameters: { type: "object", properties: { method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"] }, path: { type: "string", description: "mis. /v1/payments atau /v1/customers" }, body: { type: "string", description: "JSON body (opsional)" }, access_key: { type: "string" }, secret_key: { type: "string" }, base: { type: "string", description: "default https://sandboxapi.rapyd.net" } }, required: ["path", "access_key", "secret_key"] } } },
+    execute: async (args, ctx) => { try { const { rapydRequest } = await import("./rapyd"); return await rapydRequest(ctx.rawUser, { method: typeof args.method === "string" ? args.method : undefined, path: String(args.path || ""), body: typeof args.body === "string" ? args.body : undefined, access_key: String(args.access_key || ""), secret_key: String(args.secret_key || ""), base: typeof args.base === "string" ? args.base : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "rapyd_request failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },
     execute: async (args) => { try { const { trivyScan } = await import("./security"); return await trivyScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "trivy_scan failed"}`; } },
   },
@@ -4437,7 +4441,7 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   // call counter. Best-effort, never disturbs the result.
   try {
     // Never persist sensitive tool args (e.g. a password handed to breach_check).
-    auditLog(rawUser, `tool:${call.name}`, ["breach_check", "password_strength", "hash_identify", "jwt_inspect"].includes(call.name) ? "[redacted]" : JSON.stringify(args).slice(0, 300));
+    auditLog(rawUser, `tool:${call.name}`, ["breach_check", "password_strength", "hash_identify", "jwt_inspect", "rapyd_request"].includes(call.name) ? "[redacted]" : JSON.stringify(args).slice(0, 300));
   } catch { /* no-op */ }
   recordToolCall(rawUser, call.name);
   const userKey = sanitizeUser(rawUser);

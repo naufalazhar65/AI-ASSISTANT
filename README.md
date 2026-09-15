@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-240-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-241-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 ---
@@ -75,7 +75,7 @@ flowchart LR
 
 ---
 
-## 🛠️ Tools — 240 total
+## 🛠️ Tools — 241 total
 
 | Category | Tools | Notes |
 |----------|-------|-------|
