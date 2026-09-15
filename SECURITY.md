@@ -129,11 +129,11 @@ refused.
 |---|---|
 | `security_playbook` | loads a pentest knowledge pack on demand (`name=` or `query=`, no args = catalog) |
 
-**77 packs across 11 categories** live in
+**78 packs across 11 categories** live in
 `apps/web/security-playbooks/<category>/<name>.md`, **adapted from
 [Strix](https://github.com/usestrix/strix) (Apache-2.0)**:
 
-- `methodology` — application-security-testing (AppSec end-to-end), owasp-top-10-testing (**OWASP Top 10:2025**), api-security-testing (**API Top 10:2023**), whitebox-code-review, fix-and-verify, source-aware-whitebox, browser-transport-tampering (tamper via app transport when a WAF blocks programmatic replay)
+- `methodology` — application-security-testing (AppSec end-to-end), owasp-top-10-testing (**OWASP Top 10:2025**), api-security-testing (**API Top 10:2023**), whitebox-code-review, fix-and-verify, source-aware-whitebox, browser-transport-tampering (tamper via app transport when a WAF blocks programmatic replay), authenticated-testing (CDP to the user's own browser — real session, secrets never reach the LLM)
 - `scan_modes` — scan-modes (quick / standard / deep / diff)
 - `analysis` — counterevidence, severity-calibration, fix-verification, source-aware-discovery
 - `vulnerabilities` (×28) — ssrf, idor, xss, sql_injection, ssti, xxe, csrf, race_conditions, http_request_smuggling, authentication_jwt, mass_assignment, path_traversal, nosql_injection, insecure_deserialization, prototype_pollution, business_logic, subdomain-takeover, llm-prompt-injection, …

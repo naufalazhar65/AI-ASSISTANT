@@ -3523,6 +3523,22 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "cdp_status", description: "Cek Chrome lokal (remote-debugging) yang dikendalikan user + daftar tab-nya. Fondasi uji ber-autentikasi: request dijalankan di sesi browser user, rahasia tak masuk LLM. Read/auto, hanya 127.0.0.1.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => { try { const { cdpStatus } = await import("./cdp"); return await cdpStatus(); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cdp_status failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "cdp_request", description: "Kirim request HTTP DI DALAM tab browser user (cookie/CF-clearance berlaku), jadi lolos WAF dan memakai sesi login. `token_from` = ekspresi JS in-page (mis. localStorage.getItem('token')) yang dievaluasi saat request → token TIDAK pernah masuk ke Mia. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { tab: { type: "string", description: "potongan URL tab, mis. member.webmd.com" }, url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] }, headers: { type: "object", description: "header tambahan (JSON)" }, body: { type: "string" }, token_from: { type: "string", description: "ekspresi JS in-page untuk Bearer token (opsional)" } }, required: ["tab", "url"] } } },
+    execute: async (args) => { try { const { cdpRequest } = await import("./cdp"); return await cdpRequest({ tab: String(args.tab || ""), url: String(args.url || ""), method: typeof args.method === "string" ? args.method : undefined, headers: args.headers && typeof args.headers === "object" ? (args.headers as Record<string, string>) : undefined, body: typeof args.body === "string" ? args.body : undefined, token_from: typeof args.token_from === "string" ? args.token_from : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cdp_request failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "cdp_eval", description: "Jalankan JS di tab browser user (scope-gated) — baca state halaman, pasang patch tamper (lihat tamper_script), atau panggil API app. Write, confirm.", parameters: { type: "object", properties: { tab: { type: "string" }, expr: { type: "string", description: "ekspresi JS" } }, required: ["tab", "expr"] } } },
+    execute: async (args) => { try { const { cdpEval } = await import("./cdp"); return await cdpEval(String(args.tab || ""), String(args.expr || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cdp_eval failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "cdp_open", description: "Arahkan tab browser user ke URL (scope-gated) — untuk memulai sesi uji ber-autentikasi. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
+    execute: async (args) => { try { const { cdpOpen } = await import("./cdp"); return await cdpOpen(String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cdp_open failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "content_discover", description: "Content discovery aktif (scope-gated): robots.txt/sitemap, link halaman, endpoint dari file JS, + probe path umum (mis. /admin,/.env,/swagger.json). Hanya lab/engagement. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. http://127.0.0.1:4010 atau https://app.klien.com" } }, required: ["url"] } } },
     execute: async (args, ctx) => { try { const { contentDiscover } = await import("./recon"); return await contentDiscover(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "content_discover failed"}`; } },
   },

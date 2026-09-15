@@ -306,6 +306,14 @@ async function main() {
   if (msgs.filter((m) => m.role === "tool" && m.tool_call_id === "b").length !== 1) throw new Error("ensureToolResults not idempotent");
   console.log("ensureToolResults (tool_call_id coverage + idempotent): OK");
 
+  // --- CDP authenticated-testing tools: scope guards (no Chrome needed) ---
+  const { cdpOpen, cdpRequest, cdpStatus } = await import("./src/lib/cdp");
+  if (!(await cdpOpen("https://evil.example.com")).startsWith("Error: SCOPE")) throw new Error("cdpOpen scope guard failed");
+  if (!(await cdpRequest({ tab: "x", url: "https://evil.example.com" })).startsWith("Error: SCOPE")) throw new Error("cdpRequest scope guard failed");
+  if (!(await cdpOpen("ftp://x")).startsWith("Error:")) throw new Error("cdpOpen should reject non-http");
+  if (!/CDP|Error:/.test(await cdpStatus())) throw new Error("cdpStatus bad output");
+  console.log("cdp_* scope guards + status: OK");
+
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
   const xmlLeaked = 'Aku cek ya <td>, sementara itu <invoke name="browser_open"><parameter name="url">https://x/y</parameter></invoke> ya beb 🌸';
