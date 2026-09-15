@@ -3539,6 +3539,31 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { cdpOpen } = await import("./cdp"); return await cdpOpen(String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cdp_open failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "poc_verify", description: "Buktikan lead sebelum lapor: jalankan request N× (default 3), fingerprint tiap respons (status+body), cek determinisme, assertion expect_status/expect_contains, dan opsional banding baseline (kontrol) → verdict layak-lapor. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] }, headers: { type: "object" }, body: { type: "string" }, session: { type: "string", description: "nama http_session (opsional)" }, times: { type: "number", description: "default 3, maks 8" }, expect_status: { type: "number" }, expect_contains: { type: "string" }, baseline_url: { type: "string", description: "request kontrol (mis. id/identitas lain)" }, baseline_method: { type: "string" }, baseline_body: { type: "string" }, baseline_session: { type: "string" }, save_evidence: { type: "boolean" } }, required: ["url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { pocVerify } = await import("./poc");
+        return await pocVerify(ctx.rawUser, {
+          url: String(args.url || ""),
+          method: typeof args.method === "string" ? args.method : undefined,
+          headers: args.headers && typeof args.headers === "object" ? (args.headers as Record<string, string>) : undefined,
+          body: typeof args.body === "string" ? args.body : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+          times: typeof args.times === "number" ? args.times : undefined,
+          expect_status: typeof args.expect_status === "number" ? args.expect_status : undefined,
+          expect_contains: typeof args.expect_contains === "string" ? args.expect_contains : undefined,
+          baseline_url: typeof args.baseline_url === "string" ? args.baseline_url : undefined,
+          baseline_method: typeof args.baseline_method === "string" ? args.baseline_method : undefined,
+          baseline_body: typeof args.baseline_body === "string" ? args.baseline_body : undefined,
+          baseline_session: typeof args.baseline_session === "string" ? args.baseline_session : undefined,
+          save_evidence: args.save_evidence === true,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "poc_verify failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "content_discover", description: "Content discovery aktif (scope-gated): robots.txt/sitemap, link halaman, endpoint dari file JS, + probe path umum (mis. /admin,/.env,/swagger.json). Hanya lab/engagement. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. http://127.0.0.1:4010 atau https://app.klien.com" } }, required: ["url"] } } },
     execute: async (args, ctx) => { try { const { contentDiscover } = await import("./recon"); return await contentDiscover(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "content_discover failed"}`; } },
   },

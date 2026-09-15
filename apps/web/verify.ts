@@ -314,6 +314,26 @@ async function main() {
   if (!/CDP|Error:/.test(await cdpStatus())) throw new Error("cdpStatus bad output");
   console.log("cdp_* scope guards + status: OK");
 
+  // --- poc_verify: scope guard + deterministic PoC against a local server ---
+  const { pocVerify } = await import("./src/lib/poc");
+  if (!(await pocVerify("v", { url: "https://evil.example.com" })).startsWith("Error: SCOPE")) throw new Error("pocVerify scope guard failed");
+  if (!(await pocVerify("v", { url: "not-a-url" })).startsWith("Error:")) throw new Error("pocVerify url guard failed");
+  {
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      if (req.url === "/ok") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"secret":"hunter2"}'); return; }
+      res.writeHead(403, { "content-type": "text/plain" }); res.end("forbidden");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    const good = await pocVerify("v", { url: `http://127.0.0.1:${port}/ok`, times: 3, expect_status: 200, expect_contains: "hunter2", baseline_url: `http://127.0.0.1:${port}/no` });
+    if (!good.includes("STABIL") && !good.includes("terkonfirmasi")) throw new Error(`pocVerify should confirm a deterministic 200: ${good.split("\n").slice(0, 4).join(" | ")}`);
+    const bad = await pocVerify("v", { url: `http://127.0.0.1:${port}/no`, times: 2, expect_status: 200 });
+    if (!bad.includes("assertion belum terpenuhi")) throw new Error("pocVerify should flag a failed assertion");
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+  console.log("poc_verify (scope + deterministic PoC + assertion): OK");
+
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
   const xmlLeaked = 'Aku cek ya <td>, sementara itu <invoke name="browser_open"><parameter name="url">https://x/y</parameter></invoke> ya beb 🌸';
@@ -798,7 +818,7 @@ async function main() {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "security_hunt", "race", "ws_probe", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "security_hunt", "race", "ws_probe", "poc_verify", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");

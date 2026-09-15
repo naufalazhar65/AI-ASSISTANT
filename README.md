@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-255-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-256-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![Playbooks](https://img.shields.io/badge/security%20playbooks-78-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
@@ -130,7 +130,7 @@ Full guide, scope rules, and examples: **[SECURITY.md](./SECURITY.md)**.
 | **Exploit-aid (authorized)** | `http_request` · `cdp_status` · `cdp_request` · `cdp_eval` · `cdp_open` · `bola_diff` · `jwt_attack` · `race` · `ws_probe` · `oast_create/poll` · `oast_dns_create/poll` · `http_session` · `tamper_script` |
 | **Scanners (lab/engagement)** | `pentest_scan` (nmap/nuclei/nikto/ffuf) · `sqlmap_scan` · `zap_scan` · `trivy_scan` |
 | **Analysis** | `password_strength` · `hash_identify` · `jwt_inspect` · `ioc_extract` · `cvss_score` |
-| **Findings & reports** | `finding_add/list/resolve/export` · `hardening_plan/pdf` · `report_generate/save/pdf` · `platform_severity` · `submission_track` |
+| **Findings & reports** | `finding_add/list/resolve/export` · `poc_verify` · `hardening_plan/pdf` · `report_generate/save/pdf` · `platform_severity` · `submission_track` |
 | **Knowledge & agility** | `security_playbook` (78 packs) · `hunt_log` (per-target hunt memory: dead/lead/finding + auto-pivot) · `engagement_targets` (ready worklist from active engagements) |
 | **Lab & practice** | `lab_start` → `http://127.0.0.1:4010` (SQLi/XSS/IDOR/SSRF/JWT/CSRF/…, no Docker) · `pentest_resources` |
 
@@ -160,7 +160,7 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Life** | `mood_log/recent`, `health`, `habit_log/stats`, `spotify_*`, `calendar_*`, `waze_route`, `weather`, `hotel_search`, `cinema_showtimes`, `train_search`, `bus_search` | Keyless travel data, Premium for playback |
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
 
-**255 tools total.** Full list derives from the registry — see
+**256 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---
