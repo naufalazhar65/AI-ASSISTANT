@@ -163,6 +163,11 @@ frontmatter into the matching category folder.
 | `param_fuzz` | inject a small XSS/SQLi/SSTI/redirect/cmdi payload set into each param, flags reflection/SQL-error/SSTI-eval/redirect/timing (optional `callback` adds SSRF) | write → confirm |
 | `jwt_attack` | decode / forge `alg:none` · HS256 · alg-confusion / crack weak HS256 secret (local crypto; test the token via `http_request`) | read, auto |
 | `evidence_capture` | save raw HTTP request/response and/or a full-page screenshot to `reports/evidence/` for the report | write → confirm |
+| `scope_import` | parse a program's Targets (pasted `text` or public `url`) into in-scope/out-of-scope + a ready `engagement_create` suggestion | read, auto |
+| `recon_diff` | diff cached subdomains vs now → flag **new**/gone assets (passive CT) | read, auto |
+| `recon_screenshot` | visual recon — screenshot cached live hosts (≤12) to `reports/evidence/` | write → confirm |
+| `crawl` | bounded same-origin BFS crawl — pages, paths, forms+fields, JS files (≤60 pages, depth ≤3) | write → confirm |
+| `param_discover` | probe ~100 common param names for hidden parameters (response change/reflection) | write → confirm |
 
 Flow: `recon_*` → `content_discover` → `http_session` A/B → `http_request`/`bola_diff` → `oast_create` → send payload → `oast_poll` → `finding_add` → `report_*`. Default **manual + rate-limited**; automated scanners only if the program RoE allows.
 

@@ -123,3 +123,49 @@ export async function paramFuzz(rawUser: unknown, opts: { url: string; params?: 
   const lines = hits.map((h) => `• [${h.klass}] ${h.param} = ${h.payload.slice(0, 40)}\n   ↳ ${h.signal}${h.evidence ? `\n   ↳ ${h.evidence.slice(0, 180)}` : ""}`);
   return `${head}\n${lines.join("\n")}\n\n⚠️ Sinyal ≠ vuln. Verifikasi manual (konteks reflection, counterevidence, pastikan bukan WAF/halaman default) sebelum finding_add.`;
 }
+
+/** Common hidden-parameter names to probe. */
+export const COMMON_PARAMS = [
+  "id", "user", "user_id", "uid", "account", "account_id", "profile", "name", "username", "email",
+  "file", "filename", "path", "dir", "folder", "page", "view", "template", "include", "load",
+  "url", "uri", "link", "href", "src", "source", "dest", "destination", "target", "redirect", "next", "return", "returnto", "continue", "callback", "ref", "referer",
+  "q", "query", "search", "keyword", "filter", "sort", "order", "orderby", "limit", "offset", "page_no", "start", "count",
+  "token", "key", "api_key", "apikey", "secret", "access_token", "auth", "session", "sid", "jwt",
+  "role", "admin", "is_admin", "debug", "test", "mode", "env", "state", "status", "action", "cmd", "exec", "command", "run",
+  "type", "format", "output", "json", "xml", "data", "payload", "body", "content", "value", "input", "text",
+  "category", "cat", "product", "product_id", "item", "item_id", "order_id", "invoice", "doc", "document", "report", "export", "download",
+  "lang", "locale", "country", "timezone", "date", "from", "to", "start_date", "end_date", "price", "amount",
+];
+
+/** Probe many common param names for hidden parameters (response change/reflection). */
+export async function paramDiscover(rawUser: unknown, opts: { url: string; names?: string[]; method?: string }): Promise<string> {
+  void rawUser;
+  const raw = (opts.url || "").trim();
+  if (!/^https?:\/\//i.test(raw)) return "Error: URL harus http(s).";
+  if (!targetAllowed(raw)) return "Error: SCOPE — param_discover hanya untuk lab / engagement aktif / PENTEST_LAB_TARGETS.";
+  let base: URL;
+  try {
+    base = new URL(raw);
+  } catch {
+    return "Error: URL tidak valid.";
+  }
+  const method = (opts.method || "GET").toUpperCase() === "POST" ? "POST" : "GET";
+  const names = [...new Set(opts.names && opts.names.length ? opts.names : COMMON_PARAMS)].slice(0, 100);
+  const baseline = await probe(base.toString(), method, method === "POST" ? base.searchParams.toString() : undefined);
+  const sentinel = `mia${Math.random().toString(36).slice(2, 8)}`;
+  const hits: { name: string; signal: string }[] = [];
+  await pool(names, 5, async (name) => {
+    const u = new URL(base.toString());
+    u.searchParams.set(name, sentinel);
+    const p = await probe(u.toString(), method, method === "POST" ? u.searchParams.toString() : undefined);
+    if (p.err) return;
+    const signals: string[] = [];
+    if (p.body.includes(sentinel)) signals.push("reflection");
+    if (p.status !== baseline.status) signals.push(`status ${baseline.status}->${p.status}`);
+    else if (p.body !== baseline.body && Math.abs(p.body.length - baseline.body.length) > 25) signals.push(`body berubah (${p.body.length - baseline.body.length > 0 ? "+" : ""}${p.body.length - baseline.body.length}b)`);
+    if (signals.length) hits.push({ name, signal: signals.join("; ") });
+  });
+  const head = `🔍 PARAM DISCOVER ${base.origin}${base.pathname} — ${names.length} nama dicoba, ${hits.length} kandidat param tersembunyi.`;
+  if (!hits.length) return `${head}\nTidak ada param yang mengubah respons. (Coba wordlist lebih besar via \`names\`.)`;
+  return `${head}\n${hits.sort((a, b) => a.name.localeCompare(b.name)).map((h) => `• ?${h.name} — ${h.signal}`).join("\n")}\n\nVerifikasi manual, lalu fuzz kandidat dengan \`param_fuzz\`.`;
+}

@@ -479,6 +479,128 @@ export async function contentDiscover(rawUser: unknown, urlRaw: string): Promise
   return parts.join("\n");
 }
 
+// ── Active: same-origin crawler (bounded BFS) ───────────────────────────────
+export async function crawlSite(rawUser: unknown, urlRaw: string, maxPages = 30, depth = 2): Promise<string> {
+  const raw = (urlRaw || "").trim();
+  if (!/^https?:\/\//i.test(raw)) return "Error: URL harus http(s).";
+  if (!targetAllowed(raw)) return "Error: SCOPE — crawl hanya untuk lab / engagement aktif / PENTEST_LAB_TARGETS.";
+  const start = new URL(raw);
+  const origin = start.origin;
+  const cap = Math.min(60, Math.max(1, Number(maxPages) || 30));
+  const maxDepth = Math.min(3, Math.max(0, Number(depth) || 2));
+  const seen = new Set<string>([start.pathname + start.search]);
+  const queue: { url: string; d: number }[] = [{ url: start.toString(), d: 0 }];
+  const paths = new Set<string>();
+  const forms: string[] = [];
+  const scripts = new Set<string>();
+  let fetched = 0;
+  while (queue.length && fetched < cap) {
+    const { url, d } = queue.shift() as { url: string; d: number };
+    if (fetched < cap) fetched++;
+    const html = await getText(url, 400_000);
+    if (!html) continue;
+    try {
+      paths.add(new URL(url).pathname + new URL(url).search);
+    } catch { /* skip */ }
+    if (d < maxDepth) {
+      for (const m of html.matchAll(/(?:href|src)=["']([^"']+)["']/gi)) {
+        try {
+          const nu = new URL(m[1], url);
+          if (nu.origin !== origin) continue;
+          if (/\.(png|jpe?g|gif|svg|css|woff2?|ttf|ico|map|webp|pdf|zip)$/i.test(nu.pathname)) continue;
+          const key = nu.pathname + nu.search;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          queue.push({ url: nu.toString(), d: d + 1 });
+          if (/\.js(\?|$)/i.test(nu.pathname)) scripts.add(nu.toString());
+        } catch { /* skip */ }
+      }
+    }
+    for (const fm of html.matchAll(/<form\b[^>]*>([\s\S]*?)<\/form>/gi)) {
+      const formTag = fm[0].match(/<form\b[^>]*>/i)?.[0] || "";
+      const action = formTag.match(/action=["']([^"']*)["']/i)?.[1] || "";
+      const method = (formTag.match(/method=["']([^"']*)["']/i)?.[1] || "GET").toUpperCase();
+      const names = [...fm[1].matchAll(/<(?:input|select|textarea)\b[^>]*name=["']([^"']+)["']/gi)].map((x) => x[1]);
+      if (names.length) {
+        try {
+          const au = new URL(action || url, url);
+          forms.push(`${method} ${au.pathname} — ${names.join(", ")}`);
+        } catch { /* skip */ }
+      }
+    }
+  }
+  const found = [...paths].filter((p) => p && p !== "/").slice(0, 200);
+  if (found.length) saveRecon(rawUser, start.hostname, { endpoints: found });
+  const parts = [`🕷️ CRAWL ${origin} — ${fetched} halaman, ${found.length} path, ${forms.length} form, ${scripts.size} JS.`];
+  if (found.length) parts.push(`\n🔗 Path:\n${found.slice(0, 80).map((p) => `• ${p}`).join("\n")}`);
+  if (forms.length) parts.push(`\n📝 Form (method action — field):\n${[...new Set(forms)].slice(0, 40).map((f) => `• ${f}`).join("\n")}`);
+  if (scripts.size) parts.push(`\n📜 JS (${scripts.size}): ${[...scripts].slice(0, 15).join(", ")}`);
+  parts.push("\nLanjut: `param_fuzz`/`param_discover` pada path/form → finding_add.");
+  return parts.join("\n");
+}
+
+// ── Passive: new-asset diff (subdomains since last run) ─────────────────────
+export async function reconDiff(rawUser: unknown, domainRaw: string): Promise<string> {
+  const d = cleanDomain(domainRaw);
+  if (!d) return "Error: domain tidak valid, mis. example.com";
+  const prev = readRecon(rawUser)[d]?.subdomains || [];
+  const found = new Set<string>();
+  for (const h of await crtsh(d)) found.add(h);
+  if (!found.size) for (const h of await hackertarget(d)) found.add(h);
+  const next = [...found].sort().slice(0, RECON_MAX_SUBS);
+  const prevSet = new Set(prev);
+  const nextSet = new Set(next);
+  const added = next.filter((h) => !prevSet.has(h));
+  const removed = prev.filter((h) => !nextSet.has(h));
+  if (next.length) saveRecon(rawUser, d, { subdomains: next });
+  if (!prev.length) return `🗂️ recon_diff ${d}: belum ada cache — ${next.length} subdomain disimpan sebagai baseline. Jalankan lagi nanti untuk melihat aset BARU.`;
+  const head = `🔄 recon_diff ${d}: +${added.length} baru, -${removed.length} hilang (total ${next.length}).`;
+  if (!added.length && !removed.length) return `${head}\nTidak ada perubahan.`;
+  const parts = [head];
+  if (added.length) parts.push(`\n🆕 BARU (prioritaskan — aset baru = bug baru):\n${added.map((h) => `• ${h}`).join("\n")}`);
+  if (removed.length) parts.push(`\n🗑️ Hilang:\n${removed.map((h) => `• ${h}`).join("\n")}`);
+  return parts.join("\n");
+}
+
+// ── Active: visual recon (screenshot cached live hosts) ─────────────────────
+export async function reconScreenshot(rawUser: unknown, domainRaw: string, hostsRaw?: string[]): Promise<string> {
+  const explicit = (hostsRaw || []).map((h) => h.trim()).filter(Boolean);
+  const d = cleanDomain(domainRaw);
+  if (!explicit.length && !d) return "Error: beri `domain` (FQDN) atau `hosts` eksplisit (mis. 127.0.0.1:4010).";
+  const cached = d ? readRecon(rawUser)[d]?.live?.map((l) => l.url) || [] : [];
+  const hosts = [...new Set((explicit.length ? explicit : cached).map((h) => (/^https?:\/\//i.test(h) ? h : `http://${h}`)))]
+    .filter((h) => targetAllowed(h))
+    .slice(0, 12);
+  if (!hosts.length) return `Tidak ada host dalam scope untuk ${d || "hosts"} — jalankan recon_httpx dulu, atau beri \`hosts\`, atau atur scope (engagement/PENTEST_LAB_TARGETS).`;
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return "Error: invalid user";
+  const dir = join(userDataRoot(), userKey, "reports", "evidence");
+  mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
+  const saved: string[] = [];
+  try {
+    for (const h of hosts) {
+      try {
+        const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+        await page.goto(h, { waitUntil: "domcontentloaded", timeout: 15_000 });
+        await page.waitForTimeout(700);
+        const safe = h.replace(/^https?:\/\//, "").replace(/[^a-z0-9.-]/gi, "_").slice(0, 60);
+        const f = join(dir, `site-${safe}-${stamp}.png`);
+        await page.screenshot({ path: f });
+        await page.close();
+        saved.push(`• ${h} → ${f}`);
+      } catch {
+        saved.push(`• ${h} → gagal`);
+      }
+    }
+  } finally {
+    await browser.close().catch(() => {});
+  }
+  return `📸 Screenshot ${saved.length}/${hosts.length} host:\n${saved.join("\n")}`;
+}
+
 /** Cached recon summary (no network). */
 export function reconList(rawUser: unknown): string {
   const store = readRecon(rawUser);

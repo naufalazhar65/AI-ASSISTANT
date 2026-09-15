@@ -1992,7 +1992,7 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
-      risk: "write",
+      risk: "read",
       function: {
         name: "spotify_play",
         description:
@@ -2017,7 +2017,7 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
-      risk: "write",
+      risk: "read",
       function: {
         name: "spotify_pause",
         description: "Pause Spotify playback. Requires confirmation.",
@@ -2039,7 +2039,7 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
-      risk: "write",
+      risk: "read",
       function: {
         name: "spotify_next",
         description: "Skip to the next track on Spotify. Requires confirmation.",
@@ -2061,7 +2061,7 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
-      risk: "write",
+      risk: "read",
       function: {
         name: "spotify_previous",
         description: "Go back to the previous track on Spotify. Requires confirmation.",
@@ -2083,7 +2083,7 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
-      risk: "write",
+      risk: "read",
       function: {
         name: "spotify_volume",
         description: "Set Spotify volume to a percentage (0–100). Requires confirmation.",
@@ -3516,6 +3516,26 @@ const toolRegistry: ToolPlugin[] = [
         return `Error: ${e instanceof Error ? e.message : "evidence_capture failed"}`;
       }
     },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "scope_import", description: "Parse scope program bug bounty (tempel `text` daftar Targets, atau `url` halaman policy publik) → daftar in-scope/out-of-scope + saran engagement_create. Read, auto.", parameters: { type: "object", properties: { text: { type: "string", description: "Tempel bagian Targets / In scope dari program" }, url: { type: "string", description: "URL halaman policy/targets publik (opsional)" } }, required: [] } } },
+    execute: async (args) => { try { const { scopeImport } = await import("./scopeImport"); return await scopeImport({ text: typeof args.text === "string" ? args.text : undefined, url: typeof args.url === "string" ? args.url : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "scope_import failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "crawl", description: "Crawl same-origin (BFS terbatas): halaman, path, form + field, file JS. Scope-gated. Opsi maxPages (≤60) & depth (≤3). Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, maxPages: { type: "number" }, depth: { type: "number" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { crawlSite } = await import("./recon"); return await crawlSite(ctx.rawUser, String(args.url || ""), typeof args.maxPages === "number" ? args.maxPages : 30, typeof args.depth === "number" ? args.depth : 2); } catch (e) { return `Error: ${e instanceof Error ? e.message : "crawl failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "param_discover", description: "Cari parameter tersembunyi: probe ~100 nama param umum, flag bila respons berubah/reflect. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, names: { type: "array", description: "Nama param kustom (opsional)" }, method: { type: "string", enum: ["GET", "POST"] } }, required: ["url"] } } },
+    execute: async (args) => { try { const { paramDiscover } = await import("./paramFuzz"); return await paramDiscover(undefined, { url: String(args.url || ""), names: Array.isArray(args.names) ? args.names.map(String) : undefined, method: typeof args.method === "string" ? args.method : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "param_discover failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "recon_diff", description: "Bandingkan subdomain cache vs sekarang → tandai aset BARU/hilang (pasif, CT). Read, auto.", parameters: { type: "object", properties: { domain: { type: "string" } }, required: ["domain"] } } },
+    execute: async (args, ctx) => { try { const { reconDiff } = await import("./recon"); return await reconDiff(ctx.rawUser, String(args.domain || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_diff failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "recon_screenshot", description: "Visual recon: screenshot host hidup (dari cache recon_httpx via `domain`, atau `hosts` eksplisit spt 127.0.0.1:4010) ke reports/evidence/. Scope-gated (≤12 host). Write, confirm.", parameters: { type: "object", properties: { domain: { type: "string", description: "FQDN (opsional bila `hosts` diisi)" }, hosts: { type: "array", description: "Host spesifik (opsional)" } }, required: [] } } },
+    execute: async (args, ctx) => { try { const { reconScreenshot } = await import("./recon"); return await reconScreenshot(ctx.rawUser, String(args.domain || ""), Array.isArray(args.hosts) ? args.hosts.map(String) : undefined); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_screenshot failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },

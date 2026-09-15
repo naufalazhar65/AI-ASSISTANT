@@ -591,10 +591,23 @@ async function main() {
     console.log("jwt_attack + param_fuzz + evidence_capture: OK");
   }
   {
+    const { parseScopeText, scopeImport } = await import("./src/lib/scopeImport");
+    const sc = parseScopeText("In scope\n*.example.com\napi.example.com\nOut of scope\ndocs.example.com");
+    if (!sc.inScope.includes("*.example.com") || !sc.inScope.includes("api.example.com") || sc.inScope.includes("docs.example.com") || !sc.outOfScope.includes("docs.example.com")) throw new Error(`parseScopeText: ${JSON.stringify(sc)}`);
+    if (!/engagement_create/.test(await scopeImport({ text: "targets: app.acme.com" }))) throw new Error("scope_import suggestion");
+    if (!/Error/.test(await scopeImport({}))) throw new Error("scope_import empty input");
+    const { paramDiscover } = await import("./src/lib/paramFuzz");
+    if (!/SCOPE/.test(await paramDiscover(undefined, { url: "https://google.com/?a=1" }))) throw new Error("param_discover scope guard");
+    const { crawlSite, reconScreenshot } = await import("./src/lib/recon");
+    if (!/SCOPE/.test(await crawlSite("verify_rc", "https://google.com"))) throw new Error("crawl scope guard");
+    if (!/Tidak ada host|Error/.test(await reconScreenshot("verify_rc", "example.com"))) throw new Error("recon_screenshot no-hosts path");
+    console.log("scope_import + crawl + param_discover + recon_screenshot: OK");
+  }
+  {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
