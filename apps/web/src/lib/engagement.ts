@@ -7,6 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { appRoot } from "./users";
+import { readHunt } from "./huntLog";
 
 export type Engagement = {
   id: string;
@@ -146,4 +147,42 @@ export function engagementsText(): string {
   return rows
     .map((e) => `• ${e.id} [${e.status}] ${e.name} — ${e.client}\n   Izin: ${e.authorization}\n   Scope: ${e.scope.join(", ")}${e.outOfScope.length ? ` | out: ${e.outOfScope.join(", ")}` : ""}${e.windowStart || e.windowEnd ? `\n   Window: ${e.windowStart || "?"} .. ${e.windowEnd || "?"}` : ""}`)
     .join("\n");
+}
+
+/**
+ * Match a hunt-log target against a scope host key: exact host, or the target's
+ * host is a subdomain of the scope (scope `webmd.com` ↔ target
+ * `member.webmd.com/admin`). Pure — unit-tested.
+ */
+export function scopeHostMatches(target: string, key: string): boolean {
+  if (!key) return false;
+  const h = target.split("/")[0];
+  return h === key || h.endsWith(`.${key}`);
+}
+
+/**
+ * Worklist: every in-scope host of the ACTIVE engagements, joined with the hunt
+ * log (status + note) so a session starts from a ready list and skips targets
+ * already marked dead/lead/finding.
+ */
+export function engagementTargetsText(rawUser?: unknown): string {
+  const active = listEngagements().filter((e) => e.status === "active");
+  if (!active.length) return "Tidak ada engagement aktif — buat dulu: engagement_create (name, client, authorization, scope[]).";
+  const hunted = rawUser === undefined ? [] : readHunt(rawUser);
+  const statusOf = (host: string): { status: string; note: string } | null => {
+    const key = host.replace(/^https?:\/\//, "").replace(/^\*\./, "").replace(/^\./, "").split("/")[0].toLowerCase();
+    const hit = hunted.find((x) => scopeHostMatches(x.target, key));
+    return hit ? { status: hit.status, note: hit.note } : null;
+  };
+  const lines: string[] = [];
+  for (const e of active) {
+    lines.push(`\n🎯 ${e.id} — ${e.name} (${e.client})`);
+    for (const s of e.scope) {
+      const st = statusOf(s);
+      lines.push(`• ${s}${st ? ` [${st.status}]${st.note ? ` — ${st.note.slice(0, 80)}` : ""}` : ""}`);
+    }
+    if (e.outOfScope.length) lines.push(`   (out of scope: ${e.outOfScope.join(", ")})`);
+  }
+  lines.push("\nMulai dari host tanpa status / `todo`; SKIP yang `dead`. Update lewat hunt_log.");
+  return `🗂️ Engagement targets (worklist):${lines.join("\n")}`;
 }

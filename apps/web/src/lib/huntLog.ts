@@ -36,6 +36,11 @@ function storePath(rawUser: unknown): string {
   return join(userDataRoot(), user, "hunt-state.json");
 }
 
+/** Raw entries (for joins such as the engagement worklist). */
+export function readHunt(rawUser: unknown): HuntEntry[] {
+  return read(rawUser);
+}
+
 function read(rawUser: unknown): HuntEntry[] {
   try {
     const p = storePath(rawUser);

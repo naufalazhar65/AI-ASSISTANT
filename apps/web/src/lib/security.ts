@@ -17,7 +17,7 @@ import { appRoot, resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from 
 import { engagementAllows, listEngagements, normalizeHost } from "./engagement";
 import { assertPublicUrl } from "./netGuard";
 import { sessionHeaders, captureCookies } from "./httpSession";
-import { recordHttp } from "./httpHistory";
+import { recordHttp, readHttpHistory } from "./httpHistory";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
@@ -455,6 +455,26 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
   // Severity must agree with the CVSS band (severity-calibration): a supplied
   // score wins; otherwise the requested severity drives the default score.
   const sev = hasCvss ? severityFromCvss(cvss as number) : requestedSev;
+  const target = (f.target || "").slice(0, 200);
+  // If no evidence was supplied, attach the most recent matching http_history
+  // entry (so report_generate has a raw request/response to cite without the
+  // user copy-pasting it).
+  let evidence = (f.evidence || "").trim();
+  if (!evidence && target) {
+    try {
+      const host = target.replace(/^https?:\/\//, "").split("/")[0].toLowerCase();
+      const hist = readHttpHistory(rawUser);
+      for (let i = hist.length - 1; i >= 0; i--) {
+        const hrec = hist[i];
+        if (hrec && host && hrec.url.toLowerCase().includes(host)) {
+          evidence = `[auto from http_history] ${hrec.method} ${hrec.url} → ${hrec.status} @${hrec.at}`;
+          break;
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
   const row: Finding = {
     id: `F-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     title,
@@ -462,8 +482,8 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
     cvss,
     owasp: (f.owasp || "").slice(0, 120),
     cwe: (f.cwe || "").slice(0, 60),
-    target: (f.target || "").slice(0, 200),
-    evidence: (f.evidence || "").slice(0, 2000),
+    target,
+    evidence: evidence.slice(0, 2000),
     steps: (f.steps || "").slice(0, 1500),
     impact: (f.impact || "").slice(0, 1000),
     rootCause: (f.rootCause || "").slice(0, 1000),

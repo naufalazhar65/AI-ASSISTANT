@@ -10,7 +10,7 @@ import { pushToOwner } from "../channels/pushTarget";
 import { logInfo, logError } from "./appLogger";
 import { tlsExpiryDays } from "./security";
 
-type State = { ports: string[]; certAlerted: Record<string, boolean>; engAlerted: Record<string, boolean>; scopeSeen: Record<string, string[]>; updatedAt: string };
+type State = { ports: string[]; certAlerted: Record<string, boolean>; engAlerted: Record<string, boolean>; scopeSeen: Record<string, string[]>; scopeWatchAt?: string; updatedAt: string };
 
 function stateFile(): string {
   return join(appRoot(), ".data", "security-watch", "state.json");
@@ -18,9 +18,9 @@ function stateFile(): string {
 function readState(): State {
   try {
     const s = JSON.parse(readFileSync(stateFile(), "utf8")) as State;
-    return { ports: Array.isArray(s.ports) ? s.ports : [], certAlerted: s.certAlerted || {}, engAlerted: s.engAlerted || {}, scopeSeen: s.scopeSeen || {}, updatedAt: s.updatedAt || "" };
+    return { ports: Array.isArray(s.ports) ? s.ports : [], certAlerted: s.certAlerted || {}, engAlerted: s.engAlerted || {}, scopeSeen: s.scopeSeen || {}, scopeWatchAt: s.scopeWatchAt || "", updatedAt: s.updatedAt || "" };
   } catch {
-    return { ports: [], certAlerted: {}, engAlerted: {}, scopeSeen: {}, updatedAt: "" };
+    return { ports: [], certAlerted: {}, engAlerted: {}, scopeSeen: {}, scopeWatchAt: "", updatedAt: "" };
   }
 }
 function writeState(s: State): void {
@@ -101,7 +101,41 @@ export async function runSecurityWatchTick(): Promise<void> {
       }
     }
 
-    writeState({ ports, certAlerted, engAlerted, scopeSeen, updatedAt: new Date().toISOString() });
+    // Auto recon-watch: also cover the ACTIVE engagements' root domains (new
+    // assets there are where fresh bugs appear) — bounded to 6 domains and at
+    // most ~2×/day so the heartbeat stays cheap.
+    const lastAuto = st.scopeWatchAt ? Date.parse(st.scopeWatchAt) : 0;
+    if (Date.now() - lastAuto > 12 * 3600 * 1000) {
+      const roots = new Set<string>();
+      for (const en of listEngagements()) {
+        if (en.status !== "active") continue;
+        for (const s of en.scope) {
+          const host = s.replace(/^https?:\/\//, "").replace(/^\*\./, "").split("/")[0].trim();
+          if (!host) continue;
+          const parts = host.split(".");
+          roots.add(parts.length >= 2 ? parts.slice(-2).join(".") : host);
+          if (roots.size >= 6) break;
+        }
+        if (roots.size >= 6) break;
+      }
+      if (roots.size) {
+        const { passiveSubdomains } = await import("./recon");
+        for (const d of roots) {
+          const subs = await passiveSubdomains(d);
+          if (!subs.length) continue;
+          const had = Array.isArray(scopeSeen[d]);
+          const known = new Set(scopeSeen[d] || []);
+          if (had) {
+            const fresh = subs.filter((h) => !known.has(h));
+            if (fresh.length) alerts.push(`Aset BARU (engagement ${d}): ${fresh.slice(0, 12).join(", ")}`);
+          }
+          scopeSeen[d] = subs.slice(0, 500);
+        }
+      }
+      st.scopeWatchAt = new Date().toISOString();
+    }
+
+    writeState({ ports, certAlerted, engAlerted, scopeSeen, scopeWatchAt: st.scopeWatchAt, updatedAt: new Date().toISOString() });
     if (alerts.length) {
       logInfo("security-watch", alerts.join("; "));
       await pushToOwner(`🔐 Security watch:\n- ${alerts.join("\n- ")}`).catch(() => {});

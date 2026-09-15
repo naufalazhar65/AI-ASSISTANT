@@ -3689,6 +3689,14 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { apiHunt } = await import("./hunt"); return await apiHunt(ctx.rawUser, String(args.url || ""), { spec: typeof args.spec === "string" ? args.spec : undefined, session: typeof args.session === "string" ? args.session : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "api_hunt failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "suite_hunt", description: "Hunt satu host dalam SATU konfirmasi: security_hunt + auth_hunt (+ api_hunt bila ada spec/session), gabung jadi LEADS berprioritas, dan otomatis tulis hunt_log. Scope-gated, bounded. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. https://app.klien.com" }, deep: { type: "boolean", description: "tambah param_discover" }, spec: { type: "string", description: "OpenAPI/Postman JSON (opsional → aktifkan api_hunt)" }, session: { type: "string", description: "nama http_session (opsional)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { suiteHunt } = await import("./hunt"); return await suiteHunt(ctx.rawUser, String(args.url || ""), { deep: args.deep === true, spec: typeof args.spec === "string" ? args.spec : undefined, session: typeof args.session === "string" ? args.session : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "suite_hunt failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "engagement_targets", description: "Worklist host siap-uji dari semua engagement AKTIF (scope digabung status hunt_log) — mulai dari yang tanpa status/`todo`, skip yang `dead`. Read/auto, lokal tanpa jaringan.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { engagementTargetsText } = await import("./engagement"); return engagementTargetsText(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "engagement_targets failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },
     execute: async (args) => { try { const { trivyScan } = await import("./security"); return await trivyScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "trivy_scan failed"}`; } },
   },

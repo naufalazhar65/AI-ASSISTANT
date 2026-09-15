@@ -273,6 +273,39 @@ async function main() {
   if (!(await apiHunt("verify_scopeguard", "https://evil.example.com")).startsWith("Error: SCOPE")) throw new Error("apiHunt scope guard failed");
   console.log("hunt_log store + auth_hunt/api_hunt scope guard: OK");
 
+  // --- suite_hunt scope guard + engagement worklist + finding auto-evidence ---
+  const { suiteHunt } = await import("./src/lib/hunt");
+  if (!(await suiteHunt("verify_suite", "https://evil.example.com")).startsWith("Error: SCOPE")) throw new Error("suiteHunt scope guard failed");
+  const { engagementTargetsText, scopeHostMatches } = await import("./src/lib/engagement");
+  if (!/Engagement targets|Tidak ada engagement aktif/.test(engagementTargetsText("verify_engtargets"))) throw new Error("engagementTargetsText bad output");
+  // Worklist join: a scope host must pick up a hunt-log note on one of its subdomains.
+  if (!scopeHostMatches("member.example.com/admin", "example.com")) throw new Error("scopeHostMatches missed subdomain");
+  if (!scopeHostMatches("example.com", "example.com")) throw new Error("scopeHostMatches missed exact");
+  if (scopeHostMatches("notexample.com", "example.com")) throw new Error("scopeHostMatches false-positive");
+  const { recordHttp } = await import("./src/lib/httpHistory");
+  const { addFinding } = await import("./src/lib/security");
+  const evidUser = "verify_finding_evid_tmp";
+  recordHttp(evidUser, { method: "GET", url: "https://example.com/api/user/1", status: 200, bytes: 10, ms: 5, at: new Date().toISOString() });
+  const evidFinding = addFinding(evidUser, { title: "evidence auto-attach", target: "example.com", cvss: 3.1 });
+  if (evidFinding.severity !== "low") throw new Error(`CVSS 3.1 should be low, got ${evidFinding.severity}`);
+  if (!evidFinding.evidence.includes("[auto from http_history]")) throw new Error("finding evidence auto-attach failed");
+  rmSync(join(appRoot(), ".data", "users", evidUser), { recursive: true, force: true });
+  console.log("suite_hunt guard + engagement worklist + finding auto-evidence: OK");
+
+  // --- tool_calls must always have matching tool results (strict-gateway 400) ---
+  const { ensureToolResults } = await import("./src/lib/agent");
+  const msgs: Array<{ role: string; content?: unknown; tool_calls?: Array<{ id: string }>; tool_call_id?: string }> = [
+    { role: "user", content: "hi" },
+    { role: "assistant", tool_calls: [{ id: "a" }, { id: "b" }] },
+    { role: "tool", tool_call_id: "a", content: "done" },
+  ];
+  ensureToolResults(msgs as never);
+  const ids = msgs.filter((m) => m.role === "tool").map((m) => m.tool_call_id);
+  if (!ids.includes("a") || !ids.includes("b")) throw new Error("ensureToolResults did not fill the missing id");
+  ensureToolResults(msgs as never);
+  if (msgs.filter((m) => m.role === "tool" && m.tool_call_id === "b").length !== 1) throw new Error("ensureToolResults not idempotent");
+  console.log("ensureToolResults (tool_call_id coverage + idempotent): OK");
+
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
   const xmlLeaked = 'Aku cek ya <td>, sementara itu <invoke name="browser_open"><parameter name="url">https://x/y</parameter></invoke> ya beb 🌸';

@@ -228,3 +228,67 @@ export async function apiHunt(rawUser: unknown, urlRaw: string, opts: { spec?: s
     : "\n\n🎯 LEADS: tidak ada endpoint sensitif yang terbuka tanpa auth dari sampel ini.";
   return `🧭 API HUNT ${origin} — ${endpoints.length} endpoint${session ? ` (dengan sesi "${opts.session}")` : " (tanpa auth)"}\n${rows.join("\n")}${leadBlock}\n\n⚠️ 2xx tanpa auth belum tentu vuln (endpoint publik sah) — konfirmasi dampak sebelum finding_add. BOLA butuh 2 identitas (bola_diff).`;
 }
+
+// ── suite_hunt: one confirmation runs the whole per-host chain + logs it ─────
+// security_hunt + auth_hunt (+ api_hunt when a spec is given), merged into one
+// prioritized lead list and written to hunt_log automatically so the next turn
+// (or session) starts from memory instead of re-discovering.
+
+/** Pull the `• …` bullets out of each engine's 🎯 LEADS block. */
+function extractLeads(text: string): string[] {
+  const after = text.split("🎯 LEADS")[1];
+  if (!after) return [];
+  const block = after.split("⚠️")[0];
+  return block
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("• "))
+    .map((l) => l.slice(2).trim());
+}
+
+export async function suiteHunt(
+  rawUser: unknown,
+  urlRaw: string,
+  opts: { deep?: boolean; spec?: string; session?: string } = {}
+): Promise<string> {
+  const url = (urlRaw || "").trim();
+  if (!/^https?:\/\//i.test(url)) return "Error: URL harus http(s).";
+  if (!targetAllowed(url)) return "Error: SCOPE — suite_hunt hanya untuk lab / engagement aktif / PENTEST_LAB_TARGETS.";
+
+  const sections: string[] = [];
+  const leads: string[] = [];
+
+  const sec = await safe(() => securityHunt(rawUser, url, { deep: opts.deep === true }), "");
+  if (sec) {
+    leads.push(...extractLeads(sec));
+    sections.push(`━━ security_hunt ━━\n${sec}`);
+  }
+
+  const auth = await safe(() => authHunt(rawUser, url), "");
+  if (auth) {
+    leads.push(...extractLeads(auth));
+    sections.push(`━━ auth_hunt ━━\n${auth}`);
+  }
+
+  if (opts.spec || opts.session) {
+    const api = await safe(() => apiHunt(rawUser, url, { spec: opts.spec, session: opts.session }), "");
+    if (api) {
+      leads.push(...extractLeads(api));
+      sections.push(`━━ api_hunt ━━\n${api}`);
+    }
+  }
+
+  const uniq = [...new Set(leads)];
+  const status = uniq.length ? "lead" : "dead";
+  const note = uniq.length ? `${uniq.length} lead (${uniq[0].slice(0, 100)})` : "tanpa sinyal otomatis (pemetaan bersih)";
+  const logged = await safe(async () => {
+    const { huntSet } = await import("./huntLog");
+    return huntSet(rawUser, url, status, note);
+  }, "");
+
+  const leadBlock = uniq.length
+    ? `🎯 LEADS GABUNGAN (${uniq.length}) — verifikasi manual + counterevidence:\n${uniq.slice(0, 25).map((l) => `• ${l}`).join("\n")}`
+    : "🎯 LEADS: tidak ada sinyal otomatis dari ketiga mesin — tandai dead atau uji manual alur ber-akun.";
+
+  return `🧪 SUITE HUNT ${url}${opts.deep ? " (deep)" : ""}\n\n${leadBlock}\n\n🗂️ ${logged}\n\n${sections.join("\n\n")}`;
+}
