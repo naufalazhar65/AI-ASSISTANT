@@ -467,7 +467,16 @@ export async function contentDiscover(rawUser: unknown, urlRaw: string): Promise
     }
   }
 
-  const html = await getText(raw, 400_000);
+  // Base fetch (manual redirect) — capture the page body AND any catch-all
+  // redirect target, so a host that 301s everything to /login isn't reported
+  // as "19 interesting paths".
+  let html: string | null = null;
+  let baseRedirect = "";
+  try {
+    const br = await fetch(raw, { redirect: "manual", headers: { "User-Agent": UA, Accept: "*/*" }, signal: AbortSignal.timeout(8000) });
+    if (br.status >= 300 && br.status < 400) baseRedirect = br.headers.get("location") || "";
+    else if (br.ok) html = (await br.text()).slice(0, 400_000);
+  } catch { /* ignore */ }
   if (html) {
     for (const m of html.matchAll(/(?:href|src|action)=["']([^"']+)["']/gi)) {
       try {
@@ -503,6 +512,7 @@ export async function contentDiscover(rawUser: unknown, urlRaw: string): Promise
     try {
       const r = await fetch(`${origin}${p}`, { method: "GET", redirect: "manual", headers: { "User-Agent": UA }, signal: AbortSignal.timeout(6000) });
       if (r.status === 404 || r.status >= 500) return;
+      if (r.status >= 300 && r.status < 400 && baseRedirect && (r.headers.get("location") || "") === baseRedirect) return; // catch-all redirect
       const ct = r.headers.get("content-type") || "";
       if (baseShell && ct.includes("text/html")) {
         const body = (await r.text()).replace(/\s+/g, " ").slice(0, 3000);
