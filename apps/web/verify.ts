@@ -692,6 +692,11 @@ async function main() {
     console.log("provider tool caps (groq keeps pentest suite): OK");
   }
   {
+    // Preserve the owner's REAL engagements.json (this test must never destroy
+    // user data) — snapshot and restore around the test.
+    const fs = await import("node:fs");
+    const engPath = appRoot() + "/.data/engagements.json";
+    const engagementsBefore = fs.existsSync(engPath) ? fs.readFileSync(engPath, "utf8") : null;
     const { createEngagement, engagementAllows, closeEngagement } = await import("./src/lib/engagement");
     const { isLabTarget, targetAllowed } = await import("./src/lib/security");
     if (isLabTarget("app.ptx.co.id")) throw new Error("public host should not be a lab target");
@@ -704,7 +709,8 @@ async function main() {
     closeEngagement(ew.id);
     closeEngagement(e.id);
     if (engagementAllows("app.ptx.co.id")) throw new Error("closed engagement still allows");
-    rmSync(appRoot() + "/.data/engagements.json", { force: true });
+    if (engagementsBefore === null) rmSync(engPath, { force: true });
+    else fs.writeFileSync(engPath, engagementsBefore);
     console.log("engagement scope guard: OK");
   {
     const { parseNpmLock, parseRequirements } = await import("./src/lib/security");
