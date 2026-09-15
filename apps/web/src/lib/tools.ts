@@ -3577,6 +3577,26 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { graphqlProbe } = await import("./apiSpec"); return await graphqlProbe(String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "graphql_probe failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "cve_intel", description: "Intel CVE/exploit (keyless): NVD keyword search + searchsploit (bila terpasang). Read, auto. Untuk 'CVE apache 2.4.7', 'exploit untuk X'.", parameters: { type: "object", properties: { query: { type: "string", description: "produk/versi/keyword" } }, required: ["query"] } } },
+    execute: async (args) => { try { const { cveIntel } = await import("./cveIntel"); return await cveIntel(String(args.query || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cve_intel failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "recon_dnsbrute", description: "DNS brute pasif (native, keyless): ~120 nama subdomain umum → host yang resolve (+ cek wildcard). Read, auto.", parameters: { type: "object", properties: { domain: { type: "string" } }, required: ["domain"] } } },
+    execute: async (args, ctx) => { try { const { reconDnsBrute } = await import("./recon"); return await reconDnsBrute(ctx.rawUser, String(args.domain || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_dnsbrute failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "recon_ports", description: "Cek port umum (native TCP connect) pada host ber-scope. Opsi `ports`. Write, confirm.", parameters: { type: "object", properties: { host: { type: "string", description: "mis. 127.0.0.1 atau example.com" }, ports: { type: "array", description: "Port spesifik (opsional)" } }, required: ["host"] } } },
+    execute: async (args) => { try { const { reconPorts } = await import("./recon"); const ports = Array.isArray(args.ports) ? args.ports.map((x) => Number(x)).filter((n) => Number.isInteger(n)) : undefined; return await reconPorts(undefined, String(args.host || ""), ports); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_ports failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "bucket_enum", description: "Enum bucket S3/GCS dari nama domain (keyless, scope-gated): kandidat nama → deteksi bucket ada/publik. Write, confirm.", parameters: { type: "object", properties: { domain: { type: "string" }, names: { type: "array", description: "Nama bucket tambahan (opsional)" } }, required: ["domain"] } } },
+    execute: async (args) => { try { const { bucketEnum } = await import("./recon"); return await bucketEnum(undefined, String(args.domain || ""), Array.isArray(args.names) ? args.names.map(String) : undefined); } catch (e) { return `Error: ${e instanceof Error ? e.message : "bucket_enum failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "submission_track", description: "Tracker submission bounty: action add (title/severity/cvss/platform/url/status) | list | update (id + status/url) | delete (id). Read, auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["add", "list", "update", "delete"] }, id: { type: "string" }, title: { type: "string" }, severity: { type: "string" }, cvss: { type: "number" }, platform: { type: "string" }, url: { type: "string" }, status: { type: "string", enum: ["draft", "submitted", "triaged", "needs-info", "duplicate", "n/a", "resolved", "paid"] } }, required: ["action"] } } },
+    execute: async (args, ctx) => { try { const { submissionTrack } = await import("./submissions"); return submissionTrack(ctx.rawUser, String(args.action || ""), { id: typeof args.id === "string" ? args.id : undefined, title: typeof args.title === "string" ? args.title : undefined, severity: typeof args.severity === "string" ? args.severity : undefined, cvss: typeof args.cvss === "number" ? args.cvss : undefined, platform: typeof args.platform === "string" ? args.platform : undefined, url: typeof args.url === "string" ? args.url : undefined, status: typeof args.status === "string" ? args.status : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "submission_track failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },
     execute: async (args) => { try { const { trivyScan } = await import("./security"); return await trivyScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "trivy_scan failed"}`; } },
   },

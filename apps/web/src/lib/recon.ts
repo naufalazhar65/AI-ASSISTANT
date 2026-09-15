@@ -13,7 +13,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
-import { targetAllowed, scanTextSecrets } from "./security";
+import { targetAllowed, scanTextSecrets, splitHostPort, politeDelay } from "./security";
 
 const UA = "mia-assistant/1.0";
 export const RECON_MAX_SUBS = 500;
@@ -650,6 +650,103 @@ export async function reconScreenshot(rawUser: unknown, domainRaw: string, hosts
     await browser.close().catch(() => {});
   }
   return `📸 Screenshot ${saved.length}/${hosts.length} host:\n${saved.join("\n")}`;
+}
+
+// ── DNS brute (native, keyless) ─────────────────────────────────────────────
+const DNS_WORDS = [
+  "www", "api", "app", "admin", "dev", "staging", "stage", "test", "uat", "qa", "prod", "portal", "dashboard", "auth", "login", "sso", "id", "accounts",
+  "static", "cdn", "assets", "media", "img", "images", "mail", "smtp", "mx", "vpn", "git", "gitlab", "jenkins", "ci", "jira", "confluence", "wiki",
+  "docs", "support", "help", "status", "blog", "shop", "store", "pay", "payments", "billing", "internal", "intranet", "db", "database", "redis",
+  "mongo", "mysql", "postgres", "kibana", "grafana", "prometheus", "metrics", "monitoring", "sentry", "logs", "backup", "files", "upload", "downloads",
+  "s3", "storage", "bucket", "mobile", "m", "web", "webmail", "remote", "ftp", "demo", "sandbox", "preview", "beta", "alpha", "edge", "origin", "gw",
+  "gateway", "proxy", "lb", "k8s", "kube", "registry", "docker", "repo", "packages",
+];
+
+export async function reconDnsBrute(rawUser: unknown, domainRaw: string): Promise<string> {
+  const d = cleanDomain(domainRaw);
+  if (!d) return "Error: domain tidak valid, mis. example.com";
+  const dns = await import("node:dns");
+  const resolve = (h: string) => dns.promises.resolve4(h).catch(() => [] as string[]);
+  const wildcard = (await resolve(`mia-wildcard-${Math.random().toString(36).slice(2, 8)}.${d}`)).length > 0;
+  const names = DNS_WORDS.slice(0, 120);
+  const hits: { host: string; ips: string[] }[] = [];
+  await pool(names, 20, async (w) => {
+    await politeDelay();
+    const h = `${w}.${d}`;
+    const ips = await resolve(h);
+    if (ips.length) hits.push({ host: h, ips });
+  });
+  if (hits.length) {
+    const prev = readRecon(rawUser)[d]?.subdomains || [];
+    saveRecon(rawUser, d, { subdomains: [...new Set([...prev, ...hits.map((h) => h.host)])].slice(0, RECON_MAX_SUBS) });
+  }
+  const head = `🧬 DNS BRUTE ${d} — ${names.length} nama, ${hits.length} resolve${wildcard ? " ⚠️ WILDCARD aktif (bisa false-positive)" : ""}.`;
+  return hits.length ? `${head}\n${hits.map((h) => `• ${h.host} → ${h.ips.slice(0, 3).join(", ")}`).join("\n")}` : `${head}\nTidak ada yang resolve.`;
+}
+
+// ── Port check (native TCP connect / naabu if present) ──────────────────────
+const COMMON_PORTS = [21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 445, 993, 995, 1433, 1521, 2049, 2375, 3000, 3306, 3389, 4443, 5000, 5432, 5601, 5900, 6379, 8000, 8008, 8080, 8081, 8443, 9000, 9090, 9200, 11211, 27017];
+
+export async function reconPorts(rawUser: unknown, hostRaw: string, ports?: number[]): Promise<string> {
+  void rawUser;
+  const raw = (hostRaw || "").trim();
+  if (!raw) return "Error: beri host, mis. 127.0.0.1 atau example.com";
+  if (!targetAllowed(raw)) return "Error: SCOPE — recon_ports hanya untuk lab / engagement aktif / PENTEST_LAB_TARGETS.";
+  const { host } = splitHostPort(raw);
+  const list = (ports && ports.length ? ports : COMMON_PORTS).filter((p) => Number.isInteger(p) && p > 0 && p < 65536).slice(0, 100);
+  const net = await import("node:net");
+  const check = (port: number) =>
+    new Promise<boolean>((resolve) => {
+      const s = net.connect({ host, port });
+      let done = false;
+      const fin = (v: boolean) => {
+        if (!done) {
+          done = true;
+          s.destroy();
+          resolve(v);
+        }
+      };
+      s.setTimeout(1500);
+      s.on("connect", () => fin(true));
+      s.on("timeout", () => fin(false));
+      s.on("error", () => fin(false));
+    });
+  const open: number[] = [];
+  await pool(list, 25, async (p) => {
+    if (await check(p)) open.push(p);
+  });
+  const head = `🔌 PORTS ${host} — ${list.length} diperiksa, ${open.length} terbuka.`;
+  return open.length ? `${head}\n${open.sort((a, b) => a - b).join(", ")}` : `${head}\nTidak ada port umum yang terbuka (bisa difilter firewall).`;
+}
+
+// ── Cloud bucket enumeration (S3 / GCS, keyless) ────────────────────────────
+const BUCKET_SUFFIXES = ["", "-backup", "-backups", "-dev", "-staging", "-test", "-prod", "-assets", "-static", "-media", "-public", "-files", "-uploads", "-data", "-logs", "-cdn", "-images", "-prod-backup", "-archive"];
+
+async function headStatus(url: string): Promise<number | null> {
+  try {
+    const res = await fetch(url, { method: "GET", redirect: "manual", headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(8000) });
+    return res.status;
+  } catch {
+    return null;
+  }
+}
+
+export async function bucketEnum(rawUser: unknown, domainRaw: string, names?: string[]): Promise<string> {
+  void rawUser;
+  const d = cleanDomain(domainRaw);
+  if (!d) return "Error: domain tidak valid, mis. example.com";
+  if (!targetAllowed(d)) return "Error: SCOPE — bucket_enum butuh domain dalam scope (engagement / PENTEST_LAB_TARGETS).";
+  const base = d.split(".")[0].replace(/[^a-z0-9-]/g, "");
+  const candidates = [...new Set([...BUCKET_SUFFIXES.map((s) => `${base}${s}`), ...(names || []).map((n) => n.toLowerCase().trim()).filter(Boolean)])].slice(0, 30);
+  const hits: string[] = [];
+  await pool(candidates, 5, async (b) => {
+    const s3 = await headStatus(`https://${b}.s3.amazonaws.com`);
+    if (s3 && s3 !== 404) hits.push(`• S3 ${b} → ${s3}${s3 === 200 ? " (LIST PUBLIK!)" : " (ada)"}`);
+    const gcs = await headStatus(`https://storage.googleapis.com/${b}`);
+    if (gcs && gcs !== 404) hits.push(`• GCS ${b} → ${gcs}${gcs === 200 ? " (LIST PUBLIK!)" : " (ada)"}`);
+  });
+  const head = `🪣 BUCKET ENUM ${d} — ${candidates.length} kandidat, ${hits.length} bucket ada.`;
+  return hits.length ? `${head}\n${hits.join("\n")}\n\nVerifikasi isi (jangan eksfiltrasi data nyata); 200 = listing publik.` : `${head}\nTidak ada bucket publik terdeteksi.`;
 }
 
 /** Cached recon summary (no network). */

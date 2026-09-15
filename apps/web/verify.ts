@@ -629,10 +629,27 @@ async function main() {
     console.log("requests + platform_severity + api_spec + graphql_probe + js_mine: OK");
   }
   {
+    const { cveIntel } = await import("./src/lib/cveIntel");
+    if (!/Error/.test(await cveIntel(""))) throw new Error("cve_intel empty query");
+    const { submissionTrack } = await import("./src/lib/submissions");
+    const su = "verify_subs";
+    const added = submissionTrack(su, "add", { title: "Reflected XSS on /greet", severity: "medium", cvss: 6.1, platform: "bugcrowd" });
+    if (!/S-/.test(added)) throw new Error("submission add");
+    const dupHint = submissionTrack(su, "add", { title: "XSS reflected on /greet param", severity: "medium" });
+    if (!/Mirip|duplikat/i.test(dupHint)) throw new Error("submission dedup hint");
+    if (!/Submission/.test(submissionTrack(su, "list", {}))) throw new Error("submission list");
+    rmSync(appRoot() + "/.data/users/" + su, { recursive: true, force: true });
+    const { reconPorts, bucketEnum, reconDnsBrute } = await import("./src/lib/recon");
+    if (!/SCOPE/.test(await reconPorts(undefined, "https://google.com"))) throw new Error("recon_ports scope guard");
+    if (!/SCOPE/.test(await bucketEnum(undefined, "google.com"))) throw new Error("bucket_enum scope guard");
+    if (!/Error/.test(await reconDnsBrute("verify_dns", "not a domain"))) throw new Error("recon_dnsbrute invalid domain");
+    console.log("cve_intel + submission_track + recon_dnsbrute/ports + bucket_enum: OK");
+  }
+  {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");

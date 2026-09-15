@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-229-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-234-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 ---
@@ -75,7 +75,7 @@ flowchart LR
 
 ---
 
-## 🛠️ Tools — 229 total
+## 🛠️ Tools — 234 total
 
 | Category | Tools | Notes |
 |----------|-------|-------|
@@ -108,7 +108,7 @@ flowchart LR
 | **Security — findings** | `finding_add/list/resolve/export`, `hardening_plan`, `report_generate/save/pdf`, `hardening_pdf` | CVSS/OWASP/CWE, CSV/JSON/**SARIF**, MD/PDF |
 | **Security — lab & engagement** | `lab_status/start/fetch`, `engagement_create/list/close`, `pentest_resources` | `labs/pentest` (no-Docker vuln-node), client authorization + scope guard |
 | **Security — playbooks** | `security_playbook` | 75 knowledge packs (adapted from Strix, Apache-2.0): per-class vuln (ssrf/idor/xss/sqli/ssti/xxe/race/…), tooling, cloud, frameworks, protocols, analysis, **workflow** (AppSec / OWASP Top 10:2025 / API Top 10:2023 / whitebox / fix-and-verify / scan-modes) |
-| **Security — bug bounty** | `scope_import`, `recon_diff`, `recon_screenshot`, `crawl`, `content_discover`, `js_mine`, `api_spec`, `graphql_probe`, `param_discover`, `param_fuzz`, `oast_create/poll/stop`, `http_session`, `bola_diff`, `request_save/run`, `jwt_attack`, `evidence_capture`, `platform_severity` | Scope parsing, new-asset diff, visual recon, crawler, JS/API/GraphQL surface, hidden-param discovery, param fuzzing, OOB/blind proof, multi-identity authz, request collections, JWT forge/crack, platform severity (H1/VRT), evidence |
+| **Security — bug bounty** | `scope_import`, `recon_diff/screenshot/dnsbrute/ports`, `crawl`, `content_discover`, `js_mine`, `api_spec`, `graphql_probe`, `bucket_enum`, `cve_intel`, `param_discover`, `param_fuzz`, `oast_create/poll/stop`, `http_session`, `bola_diff`, `request_save/run`, `jwt_attack`, `evidence_capture`, `platform_severity`, `submission_track` | Scope parsing, new-asset diff, visual recon, DNS brute + port check, crawler, JS/API/GraphQL surface, cloud-bucket enum, CVE intel, hidden-param discovery, param fuzzing, OOB/blind proof, multi-identity authz, request collections, JWT forge/crack, H1/VRT severity, evidence, submission tracker |
 | **Self-Update** | `auto_update_status`, `auto_update` | **Auto-Update Mia** mandiri: daily 04:00 WIB `git pull --ff-only` + `npm install` + gates `typecheck/test/verify` + push ringkasan + restart; `auto_update` = konfirmasi |
 
 > **Risk:** `read` = auto-run, `write/delete` = inline `ya/tidak` (FR-014) — except `spotify_play` (immediate).

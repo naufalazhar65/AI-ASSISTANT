@@ -173,6 +173,11 @@ frontmatter into the matching category folder.
 | `graphql_probe` | GraphQL introspection → query/mutation fields; flags when introspection is disabled | write → confirm |
 | `request_save` / `request_run` | save request templates with `{{variables}}` and replay them (scope-gated) | read / write → confirm |
 | `platform_severity` | map CVSS/severity → HackerOne severity + Bugcrowd VRT priority (also added to the report) | read, auto |
+| `recon_dnsbrute` | passive DNS wordlist (~120 common names) + wildcard check | read, auto |
+| `recon_ports` | common TCP ports (native connect) on an in-scope host | write → confirm |
+| `bucket_enum` | S3/GCS bucket candidates from the domain name (public-list detection) | write → confirm |
+| `cve_intel` | CVE/exploit intel — NVD keyword search + searchsploit if installed | read, auto |
+| `submission_track` | track submitted reports + status (dedup hint) | read, auto |
 
 Flow: `recon_*` → `content_discover` → `http_session` A/B → `http_request`/`bola_diff` → `oast_create` → send payload → `oast_poll` → `finding_add` → `report_*`. Default **manual + rate-limited**; automated scanners only if the program RoE allows.
 
