@@ -181,6 +181,7 @@ frontmatter into the matching category folder.
 | `cors_audit` | CORS misconfiguration test (arbitrary Origin reflection, wildcard+credentials, null) | write → confirm |
 | `csp_audit` | passive CSP analysis (unsafe-inline/eval, wildcard, data:, missing object-src/frame-ancestors) | read, auto |
 | `http_history` | Burp-like log of active requests (http_request/bola_diff/cors) | read, auto |
+| `oast_dns_create` / `oast_dns_poll` / `oast_dns_stop` | **DNS** out-of-band callback (interactsh-client) — confirms blind SQLi / XXE-OOB / SSRF-DNS / log4j | read, auto |
 
 Flow: `recon_*` → `content_discover` → `http_session` A/B → `http_request`/`bola_diff` → `oast_create` → send payload → `oast_poll` → `finding_add` → `report_*`. Default **manual + rate-limited**; automated scanners only if the program RoE allows.
 
@@ -279,6 +280,8 @@ engagement_close id=ENG-…
 | Docker lab / ZAP | `brew install --cask docker` (heavy) — optional |
 | Scan extra own hosts | `PENTEST_LAB_TARGETS=host1,host2` (own/authorized) |
 | Watch certs (heartbeat) | `SECURITY_CERT_DOMAINS=example.com` · `SECURITY_CERT_DAYS=14` |
+| Watch new assets | `SECURITY_SCOPE_WATCH=example.com,app.example.com` (heartbeat pushes new subdomains) |
+| Politeness delay | `SECURITY_REQUEST_DELAY_MS=200` (jitter between active requests) |
 | Cmd-injection lab endpoint | `VULN_ALLOW_CMDI=1` |
 
 ---

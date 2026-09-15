@@ -3609,6 +3609,18 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { httpHistoryText } = await import("./httpHistory"); return httpHistoryText(ctx.rawUser, typeof args.limit === "number" ? args.limit : 40); } catch (e) { return `Error: ${e instanceof Error ? e.message : "http_history failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "oast_dns_create", description: "Buat domain DNS-OAST unik (interactsh-client) untuk membuktikan blind bugs via DNS — blind SQLi/XXE OOB/SSRF-DNS/log4j. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { oastDnsCreate } = await import("./oastDns"); return await oastDnsCreate(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "oast_dns_create failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "oast_dns_poll", description: "Cek interaksi DNS/HTTP yang masuk ke domain DNS-OAST (bukti out-of-band). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { oastDnsPoll } = await import("./oastDns"); return await oastDnsPoll(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "oast_dns_poll failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "oast_dns_stop", description: "Hentikan DNS-OAST (interactsh-client). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { oastDnsStop } = await import("./oastDns"); return await oastDnsStop(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "oast_dns_stop failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },
     execute: async (args) => { try { const { trivyScan } = await import("./security"); return await trivyScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "trivy_scan failed"}`; } },
   },

@@ -10,7 +10,7 @@ import { pushToOwner } from "../channels/pushTarget";
 import { logInfo, logError } from "./appLogger";
 import { tlsExpiryDays } from "./security";
 
-type State = { ports: string[]; certAlerted: Record<string, boolean>; engAlerted: Record<string, boolean>; updatedAt: string };
+type State = { ports: string[]; certAlerted: Record<string, boolean>; engAlerted: Record<string, boolean>; scopeSeen: Record<string, string[]>; updatedAt: string };
 
 function stateFile(): string {
   return join(appRoot(), ".data", "security-watch", "state.json");
@@ -18,9 +18,9 @@ function stateFile(): string {
 function readState(): State {
   try {
     const s = JSON.parse(readFileSync(stateFile(), "utf8")) as State;
-    return { ports: Array.isArray(s.ports) ? s.ports : [], certAlerted: s.certAlerted || {}, engAlerted: s.engAlerted || {}, updatedAt: s.updatedAt || "" };
+    return { ports: Array.isArray(s.ports) ? s.ports : [], certAlerted: s.certAlerted || {}, engAlerted: s.engAlerted || {}, scopeSeen: s.scopeSeen || {}, updatedAt: s.updatedAt || "" };
   } catch {
-    return { ports: [], certAlerted: {}, engAlerted: {}, updatedAt: "" };
+    return { ports: [], certAlerted: {}, engAlerted: {}, scopeSeen: {}, updatedAt: "" };
   }
 }
 function writeState(s: State): void {
@@ -83,7 +83,25 @@ export async function runSecurityWatchTick(): Promise<void> {
       }
     }
 
-    writeState({ ports, certAlerted, engAlerted, updatedAt: new Date().toISOString() });
+    // Scope-watch: alert on NEW subdomains for domains in SECURITY_SCOPE_WATCH.
+    const watch = (process.env.SECURITY_SCOPE_WATCH || "").split(",").map((x) => x.trim()).filter(Boolean);
+    const scopeSeen = { ...st.scopeSeen };
+    if (watch.length) {
+      const { passiveSubdomains } = await import("./recon");
+      for (const d of watch) {
+        const subs = await passiveSubdomains(d);
+        if (!subs.length) continue;
+        const had = Array.isArray(scopeSeen[d]);
+        const known = new Set(scopeSeen[d] || []);
+        if (had) {
+          const fresh = subs.filter((h) => !known.has(h));
+          if (fresh.length) alerts.push(`Aset BARU di ${d}: ${fresh.slice(0, 15).join(", ")}`);
+        }
+        scopeSeen[d] = subs.slice(0, 500);
+      }
+    }
+
+    writeState({ ports, certAlerted, engAlerted, scopeSeen, updatedAt: new Date().toISOString() });
     if (alerts.length) {
       logInfo("security-watch", alerts.join("; "));
       await pushToOwner(`🔐 Security watch:\n- ${alerts.join("\n- ")}`).catch(() => {});

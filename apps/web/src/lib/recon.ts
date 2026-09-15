@@ -151,6 +151,17 @@ async function certspotter(domain: string): Promise<string[]> {
   return body ? parseCertspotter(body, domain) : [];
 }
 
+/** Merged passive subdomains: crt.sh + certspotter (+ hackertarget fallback). */
+export async function passiveSubdomains(domain: string): Promise<string[]> {
+  const d = cleanDomain(domain);
+  if (!d) return [];
+  const found = new Set<string>();
+  const [crt, cs] = await Promise.all([crtsh(d), certspotter(d)]);
+  for (const h of [...crt, ...cs]) found.add(h);
+  if (!found.size) for (const h of await hackertarget(d)) found.add(h);
+  return [...found].sort();
+}
+
 async function hackertarget(domain: string): Promise<string[]> {
   const body = await fetchText(`https://api.hackertarget.com/hostsearch/?q=${encodeURIComponent(domain)}`, 15_000);
   if (!body || /error|exceeded/i.test(body)) return [];
@@ -166,8 +177,8 @@ async function hackertarget(domain: string): Promise<string[]> {
 export async function reconSubdomains(rawUser: unknown, domainRaw: string): Promise<string> {
   const d = cleanDomain(domainRaw);
   if (!d) return "Error: domain tidak valid, mis. example.com";
-  const found = new Set<string>();
   const sources: string[] = [];
+  const found = new Set<string>();
   const [crt, cs] = await Promise.all([crtsh(d), certspotter(d)]);
   if (crt.length) sources.push("crt.sh");
   if (cs.length) sources.push("certspotter");
