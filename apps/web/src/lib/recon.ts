@@ -496,10 +496,19 @@ export async function contentDiscover(rawUser: unknown, urlRaw: string): Promise
   });
 
   const hits: string[] = [];
+  // SPA catch-all: if an unknown path returns the SAME HTML shell as the base
+  // page, it's a client-side router — NOT a real file. Suppress those.
+  const baseShell = (html || "").replace(/\s+/g, " ").slice(0, 3000);
   await pool([...new Set(COMMON_PATHS)].slice(0, 20), 6, async (p) => {
     try {
       const r = await fetch(`${origin}${p}`, { method: "GET", redirect: "manual", headers: { "User-Agent": UA }, signal: AbortSignal.timeout(6000) });
-      if (r.status !== 404) hits.push(`${r.status} ${p}`);
+      if (r.status === 404 || r.status >= 500) return;
+      const ct = r.headers.get("content-type") || "";
+      if (baseShell && ct.includes("text/html")) {
+        const body = (await r.text()).replace(/\s+/g, " ").slice(0, 3000);
+        if (body === baseShell || Math.abs(body.length - baseShell.length) < 20) return; // SPA shell
+      }
+      hits.push(`${r.status} ${p}`);
     } catch { /* skip */ }
   });
 
@@ -529,16 +538,19 @@ export async function jsMine(rawUser: unknown, urlRaw: string): Promise<string> 
   }
   const origin = base.origin;
   const jsUrls = new Set<string>();
-  const html = await getText(raw, 500_000);
-  if (html && /<script|<!doctype|<html/i.test(html)) {
+  // A direct `.js` URL is ALWAYS a JS bundle — check it FIRST. (Bundles often
+  // contain the literal string "<script" inside strings, which used to make the
+  // HTML heuristic misfire and report "no JS found".)
+  const html = await getText(raw, 900_000);
+  if (/\.jsx?(\?|$)/i.test(base.pathname)) {
+    jsUrls.add(raw);
+  } else if (html && /<script|<!doctype|<html/i.test(html)) {
     for (const m of html.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)) {
       try {
         const u = new URL(m[1], raw);
         if (u.origin === origin) jsUrls.add(u.toString());
       } catch { /* skip */ }
     }
-  } else if (/\.js(\?|$)/i.test(base.pathname)) {
-    jsUrls.add(raw);
   }
   if (!jsUrls.size) return `Tidak menemukan file JS di ${raw}. (Arahkan langsung ke file .js, atau ke halaman HTML yang memuat script.)`;
   const endpoints = new Set<string>();
