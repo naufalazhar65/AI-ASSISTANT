@@ -181,6 +181,8 @@ frontmatter into the matching category folder.
 | `cors_audit` | CORS misconfiguration test (arbitrary Origin reflection, wildcard+credentials, null) | write → confirm |
 | `csp_audit` | passive CSP analysis (unsafe-inline/eval, wildcard, data:, missing object-src/frame-ancestors) | read, auto |
 | `http_history` | Burp-like log of active requests (http_request/bola_diff/cors) | read, auto |
+| `race` | send N identical requests concurrently → double-spend / TOCTOU / missing idempotency (count ≤30, not a DoS) | write → confirm |
+| `ws_probe` | WebSocket handshake + first frames (optional message) | write → confirm |
 | `oast_dns_create` / `oast_dns_poll` / `oast_dns_stop` | **DNS** out-of-band callback (interactsh-client) — confirms blind SQLi / XXE-OOB / SSRF-DNS / log4j | read, auto |
 | `rapyd_request` | Rapyd **sandbox** API client — computes the HMAC request signature automatically (access_key/secret_key sandbox); refuses non-sandbox hosts (RoE); args redacted in the audit log | write → confirm |
 

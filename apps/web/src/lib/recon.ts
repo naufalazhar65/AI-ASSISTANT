@@ -386,6 +386,31 @@ export function matchTakeover(cname: string): string | null {
   return null;
 }
 
+/** Body signatures that indicate a service domain is UNCLAIMED (takeover). */
+const TAKEOVER_BODY: Record<string, RegExp> = {
+  "GitHub Pages": /There isn't a GitHub Pages site here/i,
+  Heroku: /No such app|there is no app configured|heroku \| no such app/i,
+  "AWS S3": /NoSuchBucket|The specified bucket does not exist/i,
+  Netlify: /Not Found - Request ID|page not found/i,
+  Shopify: /Sorry, this shop is currently unavailable/i,
+  Zendesk: /Help Center Closed|This help center no longer exists/i,
+  Fastly: /Fastly error: unknown domain/i,
+  Surge: /project not found/i,
+  Pantheon: /The gods are wise|404 Not Found/i,
+  Tumblr: /There's nothing here|doesn't currently exist/i,
+  WordPress: /doesn't exist|Do you want to register/i,
+  Ghost: /Domain error/i,
+  Bitbucket: /Repository not found|404/i,
+  Webflow: /The page you are looking for doesn't exist|404/i,
+  Cargo: /404/i,
+};
+
+/** True only if a service's UNCLAIMED body signature matches (takeover confirmed). */
+export function takeoverBodyMatches(service: string, body: string): boolean {
+  const re = TAKEOVER_BODY[service];
+  return !!re && re.test(body || "");
+}
+
 /**
  * Passive subdomain-takeover check: resolves CNAMEs of cached subdomains and
  * flags those pointing at known claimable services. DNS-only (no HTTP), so it
@@ -409,13 +434,33 @@ export async function reconTakeover(rawUser: unknown, domainRaw: string): Promis
   });
   const hits: TakeoverHit[] = results.filter((r) => r.service).map((r) => ({ host: r.h, cname: r.cnames[0], service: r.service as string }));
   const withCname = results.filter((r) => r.cnames.length);
+  // Confirm candidates by fetching the host and matching the service's
+  // "unclaimed" body signature.
+  const confirmed: string[] = [];
+  await pool(hits.slice(0, 15), 5, async (h) => {
+    for (const scheme of ["https", "http"]) {
+      try {
+        const res = await fetch(`${scheme}://${h.host}`, { redirect: "manual", headers: { "User-Agent": UA }, signal: AbortSignal.timeout(8000) });
+        const body = (await res.text()).slice(0, 5000);
+        if (takeoverBodyMatches(h.service, body)) {
+          confirmed.push(`${h.host} (${h.service})`);
+          break;
+        }
+      } catch { /* try next scheme */ }
+    }
+  });
   saveRecon(rawUser, d, { takeovers: hits }); // always overwrite so stale hits don't linger
-  const head = `🎯 TAKEOVER CHECK ${d} — ${hosts.length} host, ${withCname.length} punya CNAME, ${hits.length} kandidat.`;
+  const head = `🎯 TAKEOVER CHECK ${d} — ${hosts.length} host, ${withCname.length} punya CNAME, ${hits.length} kandidat, ${confirmed.length} TERKONFIRMASI via body.`;
   if (!withCname.length) {
     return `${head}\nTidak ada CNAME (bisa jadi A/Cloudflare). Jalankan recon_subdomains dulu agar lebih banyak host diuji.`;
   }
   const list = withCname.slice(0, 40).map((r) => `• ${r.h} → ${r.cnames.join(", ")}${r.service ? `  ⚠️ ${r.service}` : ""}`);
-  return `${head}\n${list.join("\n")}${hits.length ? `\n\n⚠️ Kandidat: ${hits.map((h) => `${h.host} (${h.service})`).join(", ")} — VERIFIKASI apakah layanan belum diklaim sebelum menyimpulkan takeover.` : "\nTidak ada CNAME layanan yang dikenal rentan."}`;
+  const tail = confirmed.length
+    ? `\n\n✅ TERKONFIRMASI (body cocok 'unclaimed' — kandidat takeover kuat): ${confirmed.join(", ")}`
+    : hits.length
+      ? `\n\n⚠️ Kandidat: ${hits.map((h) => `${h.host} (${h.service})`).join(", ")} — VERIFIKASI apakah layanan belum diklaim.`
+      : "\nTidak ada CNAME layanan yang dikenal rentan.";
+  return `${head}\n${list.join("\n")}${tail}`;
 }
 
 // ── Active: content discovery (robots/sitemap/links/JS mining + common paths) ─

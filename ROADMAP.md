@@ -243,4 +243,4 @@ _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
 - [x] **Audit hardening**: `netGuard.assertPublicUrl` bersama, scope subdomain env, metadata diblok, ID anti-tabrakan, `engagement_create` confirm, `web_audit` anti-SSRF, suite pentest masuk `CORE_TOOL_NAMES`
 - [x] **Bug-bounty toolkit**: OAST (`oast_*`, blind/OOB), `http_session`+`bola_diff` (BOLA/IDOR 2 identitas), `content_discover`, `param_fuzz`, `jwt_attack`, `evidence_capture`, RoE manual/rate-limit + authorization via policy URL
 - [x] **Bounty workflow completeness**: `scope_import` (parse Targets→engagement), `crawl` (same-origin BFS), `param_discover` (hidden params), `recon_diff` (new assets), `recon_screenshot` (visual recon)
-- Pedoman & scope: `SECURITY.md`. **Total tools 242.**
+- Pedoman & scope: `SECURITY.md`. **Total tools 244.**

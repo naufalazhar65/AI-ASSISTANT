@@ -681,10 +681,20 @@ async function main() {
     console.log("rapyd_request (signature + sandbox guard): OK");
   }
   {
+    const { takeoverBodyMatches } = await import("./src/lib/recon");
+    if (!takeoverBodyMatches("GitHub Pages", "There isn't a GitHub Pages site here")) throw new Error("takeover body github");
+    if (takeoverBodyMatches("GitHub Pages", "welcome to my site")) throw new Error("takeover body false positive");
+    const { raceAttack, wsProbe } = await import("./src/lib/attack");
+    if (!/SCOPE/.test(await raceAttack("v", { url: "https://google.com" }))) throw new Error("race scope guard");
+    if (!/ws:\/\//i.test(await wsProbe("v", "https://x"))) throw new Error("ws scheme guard");
+    if (!/SCOPE/.test(await wsProbe("v", "wss://google.com/ws"))) throw new Error("ws scope guard");
+    console.log("race + ws_probe + takeover body: OK");
+  }
+  {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "race", "ws_probe", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
