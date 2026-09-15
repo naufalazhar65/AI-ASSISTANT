@@ -118,6 +118,20 @@ export async function browserNavigate(action: string): Promise<string> {
   return `Navigated ${action} — now at ${p.url()}`;
 }
 
+/** Evaluate a JS expression in the current Playwright page (no external daemon).
+ *  Read-only inspection: enumerate script[src], DOM, fetch endpoints, etc. */
+export async function browserEval(expr: string): Promise<string> {
+  const code = (expr || "").trim();
+  if (!code) throw new Error("empty expression");
+  const p = await ensurePage();
+  if (p.url() === "about:blank") throw new Error("no page open — browser_open first");
+  const val = await (p.evaluate as unknown as (s: string) => Promise<unknown>)(code).catch((e) => {
+    throw new Error(e instanceof Error ? e.message : String(e));
+  });
+  const out = typeof val === "string" ? val : JSON.stringify(val, null, 2);
+  return `Eval: ${(out ?? "").slice(0, 4000)}`;
+}
+
 export async function browserClose(): Promise<string> {
   try {
     if (page) await page.close().catch(() => {});

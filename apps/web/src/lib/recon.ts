@@ -504,23 +504,29 @@ export async function contentDiscover(rawUser: unknown, urlRaw: string): Promise
     }
   });
 
-  const hits: string[] = [];
-  // SPA catch-all: if an unknown path returns the SAME HTML shell as the base
-  // page, it's a client-side router — NOT a real file. Suppress those.
+  // Common-path probe with catch-all suppression.
+  // - SPA shell: a path returning the SAME HTML as the base page is a router.
+  // - Redirect catch-all: many paths 301/302 to the SAME Location → universal redirect.
   const baseShell = (html || "").replace(/\s+/g, " ").slice(0, 3000);
+  const probed: { status: number; path: string; loc: string }[] = [];
   await pool([...new Set(COMMON_PATHS)].slice(0, 20), 6, async (p) => {
     try {
       const r = await fetch(`${origin}${p}`, { method: "GET", redirect: "manual", headers: { "User-Agent": UA }, signal: AbortSignal.timeout(6000) });
       if (r.status === 404 || r.status >= 500) return;
-      if (r.status >= 300 && r.status < 400 && baseRedirect && (r.headers.get("location") || "") === baseRedirect) return; // catch-all redirect
+      const loc = r.status >= 300 && r.status < 400 ? r.headers.get("location") || "" : "";
+      if (loc && baseRedirect && loc === baseRedirect) return; // same redirect as the base page
       const ct = r.headers.get("content-type") || "";
       if (baseShell && ct.includes("text/html")) {
         const body = (await r.text()).replace(/\s+/g, " ").slice(0, 3000);
         if (body === baseShell || Math.abs(body.length - baseShell.length) < 20) return; // SPA shell
       }
-      hits.push(`${r.status} ${p}`);
+      probed.push({ status: r.status, path: p, loc });
     } catch { /* skip */ }
   });
+  // Suppress redirects that many probed paths share (universal catch-all).
+  const locCount = new Map<string, number>();
+  for (const r of probed) if (r.loc) locCount.set(r.loc, (locCount.get(r.loc) || 0) + 1);
+  const hits = probed.filter((r) => !(r.loc && (locCount.get(r.loc) || 0) >= 3)).map((r) => `${r.status} ${r.path}`);
 
   const links = [...paths].filter((p) => p && p !== "/").slice(0, 60);
   const eps = [...endpoints].slice(0, 60);

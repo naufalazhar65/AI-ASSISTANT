@@ -16,7 +16,7 @@ import { addSleep, addWake, addWater, healthDeleteLast, healthStats, healthUpdat
 import { forget as clawicForget, memoryStats as clawicStats, recall as clawicRecall, remember as clawicRemember } from "./clawicMemory";
 import { ensureFreshIndex, rebuildIndex, searchCodebaseIn, indexSummary } from "./codebaseIndex";
 import { readDailyMemory } from "./dailyMemory";
-import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate } from "./browser";
+import { browserOpen, browserSnapshot, browserClick, browserType, browserNavigate, browserEval } from "./browser";
 import { listDevicesText, deviceExec, deviceScreenshot, pairDevice } from "./devices";
 import { listCalText, addCalEvent, checkCalAvailability } from "./calendar";
 import { addMood, listMoods, moodTrend } from "./mood";
@@ -1245,6 +1245,24 @@ const toolRegistry: ToolPlugin[] = [
         return await browserNavigate(typeof args.action === "string" ? args.action : "");
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "cannot navigate"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "browser_eval",
+        description: "Evaluate a JS expression in the current Playwright page (after browser_open) — enumerate script[src]/DOM/fetch endpoints. No external daemon needed. Read, auto.",
+        parameters: { type: "object", properties: { expr: { type: "string", description: "JS expression, mis. \"[...document.querySelectorAll('script[src]')].map(s=>s.src)\"" } }, required: ["expr"] },
+      },
+    },
+    execute: async (args) => {
+      try {
+        return await browserEval(typeof args.expr === "string" ? args.expr : "");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "browser_eval failed"}`;
       }
     },
   },
