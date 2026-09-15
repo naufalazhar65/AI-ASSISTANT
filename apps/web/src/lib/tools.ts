@@ -3667,6 +3667,28 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { securityHunt } = await import("./hunt"); return await securityHunt(ctx.rawUser, String(args.url || ""), { deep: args.deep === true }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "security_hunt failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "hunt_log", description: "Memori hunt per-target (catat/lihat) supaya tidak mengulang jalan buntu. action=note (target+status+note+evidence) | list | get. status: todo/testing/dead/lead/finding. Read/auto, lokal tanpa jaringan — CEK `list` sebelum menguji target agar tidak mengulang yang sudah dead.", parameters: { type: "object", properties: { action: { type: "string", enum: ["note", "list", "get"], description: "default note" }, target: { type: "string", description: "mis. db.klien.com/admin (host[/path])" }, status: { type: "string", enum: ["todo", "testing", "dead", "lead", "finding"] }, note: { type: "string" }, evidence: { type: "string" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { huntSet, huntListText, huntGetText } = await import("./huntLog");
+        const action = String(args.action || (args.target ? "note" : "list"));
+        if (action === "list") return huntListText(ctx.rawUser);
+        if (action === "get") return huntGetText(ctx.rawUser, String(args.target || ""));
+        return huntSet(ctx.rawUser, String(args.target || ""), String(args.status || "todo"), String(args.note || ""), String(args.evidence || ""));
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "hunt_log failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "auth_hunt", description: "Probe permukaan alur auth satu host in-scope (login/register/forgot/reset/providers/csrf/openid) → status + redirect + flag cookie + CSP per path, lalu rangkum LEADS. Scope-gated, bounded. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. https://app.klien.com" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { authHunt } = await import("./hunt"); return await authHunt(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "auth_hunt failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "api_hunt", description: "Spec-driven API hunt: ambil OpenAPI/Postman JSON (url=spec, atau spec=JSON), enumerasi endpoint, probe masing-masing tanpa auth (opsional `session`) → flag endpoint sensitif yang jawab tanpa kredensial. Scope-gated, ≤20 endpoint. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL spec / base API" }, spec: { type: "string", description: "JSON spec (bila tak mau fetch)" }, session: { type: "string", description: "nama http_session (opsional)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { apiHunt } = await import("./hunt"); return await apiHunt(ctx.rawUser, String(args.url || ""), { spec: typeof args.spec === "string" ? args.spec : undefined, session: typeof args.session === "string" ? args.session : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "api_hunt failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },
     execute: async (args) => { try { const { trivyScan } = await import("./security"); return await trivyScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "trivy_scan failed"}`; } },
   },

@@ -6,6 +6,8 @@ import { targetAllowed } from "./security";
 import { webAudit, corsAudit, cspAudit } from "./security";
 import { contentDiscover, crawlSite, jsMine } from "./recon";
 import { paramDiscover } from "./paramFuzz";
+import { parseOpenApi, parsePostman } from "./apiSpec";
+import { sessionHeaders } from "./httpSession";
 
 const MAX_LINE = 1600;
 
@@ -76,4 +78,153 @@ export async function securityHunt(rawUser: unknown, urlRaw: string, opts: { dee
     ? `\n\n🎯 LEADS (verifikasi manual sebelum finding_add):\n${[...new Set(leads)].slice(0, 20).map((l) => `• ${l}`).join("\n")}`
     : "\n\n🎯 LEADS: tidak ada sinyal otomatis — lanjutkan uji manual (alur auth/IDOR/logic).";
   return `${header}${leadBlock}\n\n⚠️ Ini pemetaan otomatis, bukan temuan final. Jalankan deep=true untuk param-discovery; verifikasi + counterevidence dulu.`;
+}
+
+// ── auth_hunt: auth-flow surface probe (server-side chain) ───────────────────
+// One call instead of many model rounds: fetch the common auth endpoints and
+// report status/redirect/cookie-flag/CSP signals per path, then derive leads.
+// Active → scope-gated; bounded (one request per path, low-rate).
+
+const AUTH_PATHS = [
+  "/login",
+  "/signin",
+  "/auth/login",
+  "/register",
+  "/signup",
+  "/forgot-password",
+  "/auth/login/forgot-password",
+  "/reset-password",
+  "/auth/login/reset-password",
+  "/api/auth/providers",
+  "/api/auth/csrf",
+  "/api/auth/session",
+  "/.well-known/openid-configuration",
+];
+const SESSIONISH = /sess|sid|auth|token|jwt|login|credential/i;
+
+type Probe = { status: number; location: string; server: string; csp: boolean; cookies: string[]; ct: string };
+
+async function probe(url: string, headers?: Record<string, string>): Promise<Probe> {
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { "User-Agent": "mia-assistant/1.0", ...(headers || {}) },
+    redirect: "manual",
+    signal: AbortSignal.timeout(12_000),
+  });
+  const h = res.headers as unknown as { getSetCookie?: () => string[] };
+  const cookies =
+    typeof h.getSetCookie === "function" ? h.getSetCookie.call(res.headers) : [res.headers.get("set-cookie")].filter((x): x is string => !!x);
+  return {
+    status: res.status,
+    location: res.headers.get("location") || "",
+    server: res.headers.get("server") || "",
+    csp: !!res.headers.get("content-security-policy"),
+    cookies,
+    ct: res.headers.get("content-type") || "",
+  };
+}
+
+function cookieProblems(setCookies: string[]): string[] {
+  const out: string[] = [];
+  for (const c of setCookies) {
+    const name = c.split("=")[0].trim();
+    const lower = c.toLowerCase();
+    const missing = ["httponly", "secure", "samesite"].filter((f) => !lower.includes(f));
+    if (missing.length && SESSIONISH.test(name)) out.push(`${name} [tanpa ${missing.join("/")}]`);
+    else if (missing.length) out.push(`${name} [tanpa ${missing.join("/")}] (kemungkinan tracking)`);
+  }
+  return out;
+}
+
+export async function authHunt(rawUser: unknown, urlRaw: string): Promise<string> {
+  const url = (urlRaw || "").trim();
+  if (!/^https?:\/\//i.test(url)) return "Error: URL harus http(s).";
+  if (!targetAllowed(url)) return "Error: SCOPE — auth_hunt hanya untuk lab / engagement aktif / PENTEST_LAB_TARGETS.";
+  let base: string;
+  try {
+    base = new URL(url).origin;
+  } catch {
+    return "Error: URL tidak valid.";
+  }
+  const leads: string[] = [];
+  const rows: string[] = [];
+  for (const p of AUTH_PATHS) {
+    const r = await safe(() => probe(base + p), null as Probe | null);
+    if (!r) {
+      rows.push(`${p} → (gagal)`);
+      continue;
+    }
+    const bits = [`${r.status}`];
+    if (r.location) bits.push(`→ ${r.location.slice(0, 80)}`);
+    if (r.server) bits.push(`server=${r.server}`);
+    if (!r.csp) bits.push("tanpa CSP");
+    const cp = cookieProblems(r.cookies);
+    if (cp.length) bits.push(`cookie: ${cp.join(", ")}`);
+    rows.push(`${p} → ${bits.join(" | ")}`);
+    // Leads
+    if (/forgot|reset|register|signup/i.test(p) && r.status >= 200 && r.status < 300) leads.push(`auth-flow ${p} → ${r.status} (alur ber-akun; uji enumerasi/reset-token manual)`);
+    if (/providers|openid-configuration/i.test(p) && r.status === 200) leads.push(`${p} → 200 (konfigurasi auth terbuka; cek info yang bocor)`);
+    for (const c of cp) if (SESSIONISH.test(c) && !/tracking/.test(c)) leads.push(`cookie sesi tanpa flag di ${p}: ${c}`);
+    await new Promise((res) => setTimeout(res, 150));
+  }
+  const body = rows.map((r) => `• ${r}`).join("\n");
+  const leadBlock = leads.length
+    ? `\n\n🎯 LEADS (verifikasi manual + counterevidence):\n${[...new Set(leads)].slice(0, 20).map((l) => `• ${l}`).join("\n")}`
+    : "\n\n🎯 LEADS: tidak ada sinyal otomatis — uji manual alur auth (enumerasi, reset token, session).";
+  return `🔐 AUTH HUNT ${base}\n${body}${leadBlock}\n\n⚠️ Pemetaan otomatis, bukan temuan. Alur ber-akun (forgot/reset/login) perlu akun uji + uji manual; lihat security_playbook name=browser-transport-tampering / idor-triage.`;
+}
+
+// ── api_hunt: spec-driven unauthenticated authz probe ────────────────────────
+// Feed an OpenAPI/Postman spec URL (or JSON via `spec`): enumerate endpoints,
+// then probe each unauthenticated (optionally with a saved session) to flag
+// endpoints that answer without credentials. Bounded (≤20 endpoints).
+
+export async function apiHunt(rawUser: unknown, urlRaw: string, opts: { spec?: string; session?: string } = {}): Promise<string> {
+  const url = (urlRaw || "").trim();
+  if (!/^https?:\/\//i.test(url)) return "Error: URL harus http(s).";
+  if (!targetAllowed(url)) return "Error: SCOPE — api_hunt hanya untuk lab / engagement aktif / PENTEST_LAB_TARGETS.";
+  let specText = opts.spec || "";
+  if (!specText) {
+    const raw = await safe(
+      async () => (await fetch(url, { headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(15_000) })).text(),
+      ""
+    );
+    if (!raw) return "Error: gagal mengambil spec — pastikan URL spec OpenAPI/Postman dapat diakses.";
+    specText = raw;
+  }
+  let spec: unknown;
+  try {
+    spec = JSON.parse(specText);
+  } catch {
+    return "Error: spec bukan JSON — ambil raw OpenAPI/Postman JSON dulu (api_spec text=...).";
+  }
+  const endpoints = [...parseOpenApi(spec), ...parsePostman(spec)];
+  if (!endpoints.length) return "Tidak ada endpoint terbaca dari spec (butuh OpenAPI atau Postman collection JSON).";
+  const session = opts.session ? sessionHeaders(rawUser, opts.session) : null;
+  const authHeaders = session ? { ...session.headers, ...(session.cookie && !session.headers.cookie ? { cookie: session.cookie } : {}) } : undefined;
+  const origin = new URL(url).origin;
+  const leads: string[] = [];
+  const rows: string[] = [];
+  for (const ep of endpoints.slice(0, 20)) {
+    const path = ep.path.replace(/\{[^}]+\}/g, "1");
+    const full = /^https?:\/\//i.test(path) ? path : origin + (path.startsWith("/") ? path : `/${path}`);
+    // Probe with GET (safe, no side effects); a write method in the spec is only
+    // noted — we don't send POST/PUT/DELETE unauth (RoE: no state-changing calls).
+    const specMethod = (ep.method || "GET").toUpperCase();
+    const probeMethod = /^(GET|HEAD)$/.test(specMethod) ? specMethod : "GET";
+    const r = await safe(() => probe(full, authHeaders), null as Probe | null);
+    if (!r) {
+      rows.push(`${probeMethod} ${ep.path} → (gagal)`);
+      continue;
+    }
+    rows.push(`${probeMethod} ${ep.path} → ${r.status}${r.ct ? ` (${r.ct.split(";")[0]})` : ""}${probeMethod !== specMethod ? ` [spec: ${specMethod}]` : ""}`);
+    if (!authHeaders && r.status >= 200 && r.status < 300 && /admin|user|account|secret|token|internal|private/i.test(ep.path)) {
+      leads.push(`${probeMethod} ${ep.path} → ${r.status} TANPA auth (kandidat broken function-level authorization)`);
+    }
+    await new Promise((res) => setTimeout(res, 150));
+  }
+  const leadBlock = leads.length
+    ? `\n\n🎯 LEADS (verifikasi manual + counterevidence):\n${[...new Set(leads)].slice(0, 20).map((l) => `• ${l}`).join("\n")}`
+    : "\n\n🎯 LEADS: tidak ada endpoint sensitif yang terbuka tanpa auth dari sampel ini.";
+  return `🧭 API HUNT ${origin} — ${endpoints.length} endpoint${session ? ` (dengan sesi "${opts.session}")` : " (tanpa auth)"}\n${rows.join("\n")}${leadBlock}\n\n⚠️ 2xx tanpa auth belum tentu vuln (endpoint publik sah) — konfirmasi dampak sebelum finding_add. BOLA butuh 2 identitas (bola_diff).`;
 }

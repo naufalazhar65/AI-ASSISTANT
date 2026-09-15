@@ -258,6 +258,21 @@ async function main() {
   if (jsonFieldDiff({ a: 1 }, { a: 1 }).length !== 0) throw new Error("jsonFieldDiff false-positive on equal objects");
   console.log("tamper_script generator + bola field-diff: OK");
 
+  // --- hunt log (agility memory) + new orchestrator scope guards ---
+  const { huntSet, huntListText, huntGetText, normalizeTarget } = await import("./src/lib/huntLog");
+  if (normalizeTarget("HTTPS://Example.com/") !== "example.com") throw new Error("normalizeTarget wrong");
+  const huntLogUser = "verify_huntlog_tmp";
+  if (!huntSet(huntLogUser, "example.com/admin", "dead", "catch-all rewrite").includes("dead")) throw new Error("huntSet note failed");
+  huntSet(huntLogUser, "example.com/admin", "lead", "cookie tanpa HttpOnly");
+  if (!huntListText(huntLogUser).includes("example.com/admin")) throw new Error("huntListText missing target");
+  if (!huntGetText(huntLogUser, "example.com/admin").includes("lead")) throw new Error("huntGetText not updated");
+  if (!huntSet(huntLogUser, "x", "bogus").startsWith("Error:")) throw new Error("huntSet should reject invalid status");
+  rmSync(join(appRoot(), ".data", "users", huntLogUser), { recursive: true, force: true });
+  const { authHunt, apiHunt } = await import("./src/lib/hunt");
+  if (!(await authHunt("verify_scopeguard", "https://evil.example.com")).startsWith("Error: SCOPE")) throw new Error("authHunt scope guard failed");
+  if (!(await apiHunt("verify_scopeguard", "https://evil.example.com")).startsWith("Error: SCOPE")) throw new Error("apiHunt scope guard failed");
+  console.log("hunt_log store + auth_hunt/api_hunt scope guard: OK");
+
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
   const xmlLeaked = 'Aku cek ya <td>, sementara itu <invoke name="browser_open"><parameter name="url">https://x/y</parameter></invoke> ya beb 🌸';
