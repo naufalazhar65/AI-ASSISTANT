@@ -127,6 +127,30 @@ async function crtsh(domain: string): Promise<string[]> {
   return body ? parseCertNames(body, domain) : [];
 }
 
+/** Parse Cert Spotter issuances JSON → subdomains of `domain`. */
+export function parseCertspotter(body: string, domain: string): string[] {
+  let rows: { dns_names?: string[] }[];
+  try {
+    rows = JSON.parse(body) as { dns_names?: string[] }[];
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(rows)) return [];
+  const out = new Set<string>();
+  for (const r of rows) {
+    for (const n of r.dns_names || []) {
+      const h = String(n).toLowerCase().replace(/^\*\./, "").replace(/\.$/, "");
+      if (h.endsWith("." + domain) && h !== domain) out.add(h);
+    }
+  }
+  return [...out].sort();
+}
+
+async function certspotter(domain: string): Promise<string[]> {
+  const body = await fetchText(`https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=true&expand=dns_names`, 20_000);
+  return body ? parseCertspotter(body, domain) : [];
+}
+
 async function hackertarget(domain: string): Promise<string[]> {
   const body = await fetchText(`https://api.hackertarget.com/hostsearch/?q=${encodeURIComponent(domain)}`, 15_000);
   if (!body || /error|exceeded/i.test(body)) return [];
@@ -144,9 +168,10 @@ export async function reconSubdomains(rawUser: unknown, domainRaw: string): Prom
   if (!d) return "Error: domain tidak valid, mis. example.com";
   const found = new Set<string>();
   const sources: string[] = [];
-  const crt = await crtsh(d);
+  const [crt, cs] = await Promise.all([crtsh(d), certspotter(d)]);
   if (crt.length) sources.push("crt.sh");
-  for (const h of crt) found.add(h);
+  if (cs.length) sources.push("certspotter");
+  for (const h of [...crt, ...cs]) found.add(h);
   if (!found.size) {
     const ht = await hackertarget(d);
     if (ht.length) sources.push("hackertarget");

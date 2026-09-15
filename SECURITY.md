@@ -178,6 +178,9 @@ frontmatter into the matching category folder.
 | `bucket_enum` | S3/GCS bucket candidates from the domain name (public-list detection) | write → confirm |
 | `cve_intel` | CVE/exploit intel — NVD keyword search + searchsploit if installed | read, auto |
 | `submission_track` | track submitted reports + status (dedup hint) | read, auto |
+| `cors_audit` | CORS misconfiguration test (arbitrary Origin reflection, wildcard+credentials, null) | write → confirm |
+| `csp_audit` | passive CSP analysis (unsafe-inline/eval, wildcard, data:, missing object-src/frame-ancestors) | read, auto |
+| `http_history` | Burp-like log of active requests (http_request/bola_diff/cors) | read, auto |
 
 Flow: `recon_*` → `content_discover` → `http_session` A/B → `http_request`/`bola_diff` → `oast_create` → send payload → `oast_poll` → `finding_add` → `report_*`. Default **manual + rate-limited**; automated scanners only if the program RoE allows.
 

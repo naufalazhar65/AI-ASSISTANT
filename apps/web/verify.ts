@@ -646,10 +646,29 @@ async function main() {
     console.log("cve_intel + submission_track + recon_dnsbrute/ports + bucket_enum: OK");
   }
   {
+    const { parseCertspotter } = await import("./src/lib/recon");
+    const cs = parseCertspotter(JSON.stringify([{ dns_names: ["*.example.com", "api.example.com", "evil.com"] }]), "example.com");
+    if (!cs.includes("api.example.com") || cs.includes("evil.com") || cs.includes("example.com")) throw new Error(`parseCertspotter: ${JSON.stringify(cs)}`);
+    const { corsVerdict, analyzeCsp, corsAudit, cspAudit } = await import("./src/lib/security");
+    if (!corsVerdict("https://evil.example", "true", "https://evil.example").some((s) => /serius/.test(s))) throw new Error("corsVerdict reflect+creds");
+    if (corsVerdict(null, null, "https://evil.example").length) throw new Error("corsVerdict clean");
+    if (!analyzeCsp("script-src 'unsafe-inline' *").some((s) => /unsafe-inline/.test(s))) throw new Error("analyzeCsp unsafe-inline");
+    if (!analyzeCsp("").some((s) => /tidak ada/.test(s))) throw new Error("analyzeCsp missing");
+    if (!/SCOPE/.test(await corsAudit("https://google.com", "verify_cors"))) throw new Error("cors_audit scope guard");
+    if (!/Error/.test(await cspAudit("ftp://x"))) throw new Error("csp_audit scheme guard");
+    const { recordHttp, readHttpHistory, httpHistoryText } = await import("./src/lib/httpHistory");
+    const hu = "verify_http_hist";
+    recordHttp(hu, { method: "GET", url: "http://x/y", status: 200, bytes: 12, ms: 3, at: new Date().toISOString() });
+    if (readHttpHistory(hu).length !== 1 || !/GET/.test(httpHistoryText(hu))) throw new Error("httpHistory record");
+    rmSync(appRoot() + "/.data/users/" + hu, { recursive: true, force: true });
+    rmSync(appRoot() + "/.data/users/verify_cors", { recursive: true, force: true });
+    console.log("certspotter + cors_audit + csp_audit + http_history: OK");
+  }
+  {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");

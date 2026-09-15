@@ -17,6 +17,7 @@ import { appRoot, resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from 
 import { engagementAllows, listEngagements, normalizeHost } from "./engagement";
 import { assertPublicUrl } from "./netGuard";
 import { sessionHeaders, captureCookies } from "./httpSession";
+import { recordHttp } from "./httpHistory";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
@@ -581,6 +582,90 @@ export async function webAudit(url: string): Promise<string> {
     "Catatan: audit pasif (1x GET). Jadikan temuan via finding_add bila perlu.",
   ].filter(Boolean);
   return lines.join("\n");
+}
+
+// ── CORS misconfiguration audit (active; scoped) ────────────────────────────
+/** Pure: verdict lines from Access-Control-Allow-Origin/Credentials vs a test origin. */
+export function corsVerdict(acao: string | null, acac: string | null, origin: string): string[] {
+  const out: string[] = [];
+  const a = (acao || "").trim();
+  if (!a) return out;
+  if (a === "*") out.push("ACAO: * (wildcard)");
+  if (a === origin) out.push("ACAO merefleksikan Origin arbitrer");
+  if (a.toLowerCase() === "null") out.push("ACAO: null (exploit via sandboxed iframe)");
+  if ((a === origin || a === "*") && /true/i.test(acac || "")) out.push("⚠️ credentials=true + origin arbitrer/wildcard → CORS misconfiguration serius");
+  return out;
+}
+
+export async function corsAudit(url: string, rawUser?: unknown): Promise<string> {
+  const u = (url || "").trim();
+  if (!/^https?:\/\//i.test(u)) return "Error: URL harus http(s).";
+  if (!targetAllowed(u)) return "Error: SCOPE — cors_audit hanya untuk lab / engagement aktif / PENTEST_LAB_TARGETS.";
+  const origin = "https://evil.example";
+  const send = (method: string, extra: Record<string, string>) =>
+    fetch(u, { method, headers: { "User-Agent": "mia-assistant/1.0", Origin: origin, ...extra }, redirect: "manual", signal: AbortSignal.timeout(12_000) });
+  let getA: string | null = null, getC: string | null = null, optA: string | null = null, optC: string | null = null, getStatus = 0, optStatus = 0;
+  try {
+    const g = await send("GET", {});
+    getStatus = g.status; getA = g.headers.get("access-control-allow-origin"); getC = g.headers.get("access-control-allow-credentials");
+    recordHttp(rawUser, { method: "GET", url: u, status: g.status, bytes: 0, ms: 0, at: new Date().toISOString() });
+  } catch { /* ignore */ }
+  try {
+    const o = await send("OPTIONS", { "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "authorization" });
+    optStatus = o.status; optA = o.headers.get("access-control-allow-origin"); optC = o.headers.get("access-control-allow-credentials");
+  } catch { /* ignore */ }
+  const verdict = [...new Set([...corsVerdict(getA, getC, origin), ...corsVerdict(optA, optC, origin)])];
+  const head = `🛡️ CORS AUDIT ${u} (Origin: ${origin})`;
+  const detail = `• GET ${getStatus}: ACAO=${getA || "-"} ACAC=${getC || "-"}\n• OPTIONS ${optStatus||"-"}: ACAO=${optA || "-"} ACAC=${optC || "-"}`;
+  if (!verdict.length) return `${head}\n${detail}\nTidak ada refleksi origin / wildcard+kredensial terdeteksi (baik).`;
+  return `${head}\n${detail}\n⚠️ ${verdict.join("\n⚠️ ")}\n\nVerifikasi dampak (butuh endpoint sensitif yang mengembalikan data dgn kredensial) sebelum finding_add.`;
+}
+
+// ── CSP audit (passive) ─────────────────────────────────────────────────────
+/** Pure: weaknesses in a Content-Security-Policy value. */
+export function analyzeCsp(policy: string): string[] {
+  const out: string[] = [];
+  const p = (policy || "").toLowerCase();
+  if (!p.trim()) {
+    out.push("CSP tidak ada");
+    return out;
+  }
+  if (!/default-src/.test(p)) out.push("tanpa default-src");
+  if (/'unsafe-inline'/.test(p)) out.push("unsafe-inline → XSS lebih mudah");
+  if (/'unsafe-eval'/.test(p)) out.push("unsafe-eval");
+  if (/(^|[\s;])\*($|[\s;])/.test(p)) out.push("wildcard source (*)");
+  if (/script-src[^;]*data:/.test(p)) out.push("script-src mengizinkan data:");
+  if (!/object-src\s+'none'/.test(p)) out.push("object-src bukan 'none'");
+  if (!/frame-ancestors/.test(p)) out.push("tanpa frame-ancestors (clickjacking)");
+  if (!/base-uri/.test(p)) out.push("tanpa base-uri");
+  return out;
+}
+
+export async function cspAudit(url: string): Promise<string> {
+  const u = (url || "").trim();
+  if (!/^https?:\/\//i.test(u)) return "Error: URL harus http(s).";
+  if (!targetAllowed(u)) {
+    try {
+      assertPublicUrl(u);
+    } catch (e) {
+      return `Error: ${e instanceof Error ? e.message : "URL tidak diizinkan"}`;
+    }
+  }
+  let res: Response;
+  try {
+    res = await fetch(u, { redirect: "manual", headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(12_000) });
+  } catch (e) {
+    return `Error: fetch gagal (${e instanceof Error ? e.message : String(e)}).`;
+  }
+  const csp = res.headers.get("content-security-policy");
+  const ro = res.headers.get("content-security-policy-report-only");
+  const policy = csp || ro || "";
+  const issues = analyzeCsp(policy);
+  const head = `🛡️ CSP AUDIT ${u} → HTTP ${res.status}`;
+  const src = csp ? "Content-Security-Policy" : ro ? "Content-Security-Policy-Report-Only" : "(tidak ada)";
+  const pol = policy ? policy.slice(0, 600) : "-";
+  if (!issues.length) return `${head}\nSumber: ${src}\nKebijakan: ${pol}\nTidak ada kelemahan CSP dasar terdeteksi (bagus).`;
+  return `${head}\nSumber: ${src}\nKebijakan: ${pol}\n⚠️ ${issues.join("\n⚠️ ")}\n\nCSP longgar mempermudah XSS — korelasikan dengan temuan injeksi sebelum finding_add.`;
 }
 
 // ── Email/DNS domain audit (SPF/DMARC/DKIM/CAA/MX) ──────────────────────────
@@ -1196,9 +1281,11 @@ export async function httpRequest(
     if (s.cookie && !hasCookie) headers["cookie"] = s.cookie;
   }
   Object.assign(headers, opts.headers || {});
+  const t0 = Date.now();
   const res = await fetch(u, { method, headers, body: method === "GET" || method === "HEAD" ? undefined : opts.body, redirect: "manual", signal: AbortSignal.timeout(15_000) });
   const ct = res.headers.get("content-type") || "";
   const body = (await res.text()).slice(0, 3000);
+  recordHttp(rawUser, { method, url: u, status: res.status, bytes: body.length, ms: Date.now() - t0, at: new Date().toISOString() });
   let saved = "";
   if (opts.saveSession) {
     const getSet = (res.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie;
@@ -1229,9 +1316,11 @@ export async function bolaDiff(
   const run = async (s: { headers: Record<string, string>; cookie: string }) => {
     const h: Record<string, string> = { "User-Agent": "mia-assistant/1.0", ...s.headers };
     if (s.cookie) h["cookie"] = s.cookie;
+    const t0 = Date.now();
     try {
       const res = await fetch(u, { method, headers: h, body: method === "GET" || method === "HEAD" ? undefined : opts.body, redirect: "manual", signal: AbortSignal.timeout(15_000) });
       const body = (await res.text()).slice(0, 1500);
+      recordHttp(rawUser, { method, url: u, status: res.status, bytes: body.length, ms: Date.now() - t0, at: new Date().toISOString() });
       return { status: res.status, len: body.length, body };
     } catch (e) {
       return { status: 0, len: 0, body: `Error: ${e instanceof Error ? e.message : e}` };

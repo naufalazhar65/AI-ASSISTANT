@@ -3597,6 +3597,18 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { submissionTrack } = await import("./submissions"); return submissionTrack(ctx.rawUser, String(args.action || ""), { id: typeof args.id === "string" ? args.id : undefined, title: typeof args.title === "string" ? args.title : undefined, severity: typeof args.severity === "string" ? args.severity : undefined, cvss: typeof args.cvss === "number" ? args.cvss : undefined, platform: typeof args.platform === "string" ? args.platform : undefined, url: typeof args.url === "string" ? args.url : undefined, status: typeof args.status === "string" ? args.status : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "submission_track failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "cors_audit", description: "Uji misconfiguration CORS (scope-gated): kirim Origin arbitrer + preflight OPTIONS, flag refleksi origin / wildcard+credentials / null. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { corsAudit } = await import("./security"); return await corsAudit(String(args.url || ""), ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cors_audit failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "csp_audit", description: "Audit pasif CSP (Content-Security-Policy): flag unsafe-inline/eval, wildcard, data:, tanpa object-src 'none'/frame-ancestors/base-uri. Read, auto.", parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
+    execute: async (args) => { try { const { cspAudit } = await import("./security"); return await cspAudit(String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "csp_audit failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "http_history", description: "Riwayat request HTTP yang dikirim tool aktif (http_request/bola_diff/cors) — mirip log Burp. Read, auto.", parameters: { type: "object", properties: { limit: { type: "number" } }, required: [] } } },
+    execute: async (args, ctx) => { try { const { httpHistoryText } = await import("./httpHistory"); return httpHistoryText(ctx.rawUser, typeof args.limit === "number" ? args.limit : 40); } catch (e) { return `Error: ${e instanceof Error ? e.message : "http_history failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },
     execute: async (args) => { try { const { trivyScan } = await import("./security"); return await trivyScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "trivy_scan failed"}`; } },
   },
