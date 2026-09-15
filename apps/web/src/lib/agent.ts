@@ -702,7 +702,26 @@ async function runOneCompletionOnce(
     reader.cancel().catch(() => {});
   }
 
-  return { text, toolCalls: toolCalls.filter((c): c is ToolCall => !!c) };
+  return { text, toolCalls: normalizeToolCallIds(toolCalls.filter((c): c is ToolCall => !!c)) };
+}
+
+/**
+ * Ensure every tool call has a unique, non-blank id. Strict OpenAI-compatible
+ * gateways (OpenCode Go) reject a follow-up whose assistant `tool_calls` carry a
+ * blank or duplicated id ("insufficient tool messages following tool_calls
+ * message") — seen when the model emits the same tool twice in one turn. Both
+ * the assistant message and its tool results are built from this list, so the
+ * ids stay consistent.
+ */
+export function normalizeToolCallIds(calls: ToolCall[]): ToolCall[] {
+  const seen = new Set<string>();
+  return calls.map((c, i) => {
+    if (!c.id || seen.has(c.id)) {
+      c = { ...c, id: `call_${i}_${Math.random().toString(36).slice(2, 10)}` };
+    }
+    seen.add(c.id);
+    return c;
+  });
 }
 
 /** Last non-empty user content from the conversation (used for title inference). */

@@ -230,6 +230,19 @@ async function main() {
   }
   console.log("provider tool cap (groq<=128, 9router<=64, live tools kept): OK");
 
+  // --- tool-call id normalization: blank/duplicate ids 400 strict gateways ---
+  const { normalizeToolCallIds } = await import("./src/lib/agent");
+  const normalized = normalizeToolCallIds([
+    { id: "a", name: "api_spec", arguments: "{}" },
+    { id: "a", name: "api_spec", arguments: "{}" },
+    { id: "", name: "engagement_list", arguments: "{}" },
+  ]);
+  if (normalized[0].id !== "a") throw new Error("normalize changed a unique id");
+  if (!normalized[1].id || normalized[1].id === "a") throw new Error("duplicate id not re-issued");
+  if (!normalized[2].id) throw new Error("blank id not filled");
+  if (new Set(normalized.map((c) => c.id)).size !== 3) throw new Error("tool-call ids not unique");
+  console.log("tool-call id normalization (unique + non-blank): OK");
+
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
   const xmlLeaked = 'Aku cek ya <td>, sementara itu <invoke name="browser_open"><parameter name="url">https://x/y</parameter></invoke> ya beb 🌸';
