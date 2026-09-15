@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { appRoot } from "./users";
 
 type Pack = { id: string; category: string; name: string; description: string; body: string };
-const MAX_CHARS = 12_000;
+const MAX_CHARS = 20_000;
 
 function packsDir(): string {
   return join(appRoot(), "security-playbooks");
@@ -78,14 +78,17 @@ export function securityPlaybook(name?: string, query?: string): string {
     const terms = q.split(/[^a-z0-9]+/).filter((t) => t.length > 2);
     const scored = packs
       .map((p) => {
-        const desc = p.description.toLowerCase();
-        const body = p.body.toLowerCase();
         const pname = p.name.toLowerCase();
+        const nameTokens = new Set(pname.split(/[^a-z0-9]+/));
+        const descTokens = new Set(p.description.toLowerCase().split(/[^a-z0-9]+/));
+        const body = p.body.toLowerCase();
         let score = 0;
         for (const t of terms) {
-          if (pname.includes(t)) score += 5;
-          if (desc.includes(t)) score += 3;
-          score += body.split(t).length - 1;
+          // Exact name-token match dominates so `sql` prefers sql_injection over nosql_injection.
+          if (nameTokens.has(t)) score += 50;
+          else if (pname.includes(t)) score += 8;
+          if (descTokens.has(t)) score += 10;
+          score += Math.min(body.split(t).length - 1, 8); // small, capped term-frequency signal
         }
         return { p, score };
       })

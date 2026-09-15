@@ -532,6 +532,8 @@ async function main() {
     const { securityPlaybook } = await import("./src/lib/securityPlaybook");
     const list = securityPlaybook();
     if (!/Security playbooks/.test(list) || !/counterevidence/.test(list)) throw new Error("security_playbook list");
+    if ((list.match(/• /g) || []).length < 60) throw new Error("security_playbook catalog too small (packs missing?)");
+    if (!securityPlaybook(undefined, "blind sql injection").split("\n")[0].includes("PLAYBOOK: sql-injection")) throw new Error("playbook query ranking (sql vs nosql)");
     const pack = securityPlaybook("counterevidence");
     if (!/Closure/i.test(pack)) throw new Error("security_playbook load counterevidence");
     const missing = securityPlaybook("no-such-pack");

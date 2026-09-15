@@ -107,7 +107,7 @@ flowchart LR
 | **Security — deps** | `dep_audit`, `verify_patch`, `trivy_scan` | CVE via OSV/trivy + fixed-version/patch check |
 | **Security — findings** | `finding_add/list/resolve/export`, `hardening_plan`, `report_generate/save/pdf`, `hardening_pdf` | CVSS/OWASP/CWE, CSV/JSON/**SARIF**, MD/PDF |
 | **Security — lab & engagement** | `lab_status/start/fetch`, `engagement_create/list/close`, `pentest_resources` | `labs/pentest` (no-Docker vuln-node), client authorization + scope guard |
-| **Security — playbooks** | `security_playbook` | 13 knowledge packs (adapted from Strix, Apache-2.0): counterevidence/severity/fix-verification/… |
+| **Security — playbooks** | `security_playbook` | 68 knowledge packs (adapted from Strix, Apache-2.0): per-class vuln (ssrf/idor/xss/sqli/ssti/xxe/race/…), tooling, cloud, frameworks, protocols, analysis |
 | **Self-Update** | `auto_update_status`, `auto_update` | **Auto-Update Mia** mandiri: daily 04:00 WIB `git pull --ff-only` + `npm install` + gates `typecheck/test/verify` + push ringkasan + restart; `auto_update` = konfirmasi |
 
 > **Risk:** `read` = auto-run, `write/delete` = inline `ya/tidak` (FR-014) — except `spotify_play` (immediate).

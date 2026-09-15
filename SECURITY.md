@@ -123,13 +123,19 @@ refused.
 |---|---|
 | `security_playbook` | loads a pentest knowledge pack on demand (`name=` or `query=`, no args = catalog) |
 
-Packs live in `apps/web/security-playbooks/<category>/<name>.md` and are
-**adapted from [Strix](https://github.com/usestrix/strix) (Apache-2.0)**:
-`counterevidence` / `severity-calibration` / `fix-verification` /
-`source-aware-discovery` (analysis), `hypothesis` (tooling), `source-aware-sast`
-(custom), `infrastructure-lifecycle` (recon), `subdomain-takeover` +
-`llm-prompt-injection` (vulnerabilities), `oauth` + `graphql` (protocols),
-`llm-applications` (technologies), `nextjs` (frameworks).
+**68 packs across 9 categories** live in
+`apps/web/security-playbooks/<category>/<name>.md`, **adapted from
+[Strix](https://github.com/usestrix/strix) (Apache-2.0)**:
+
+- `analysis` — counterevidence, severity-calibration, fix-verification, source-aware-discovery
+- `vulnerabilities` (×26) — ssrf, idor, xss, sql_injection, ssti, xxe, csrf, race_conditions, http_request_smuggling, authentication_jwt, mass_assignment, path_traversal, nosql_injection, insecure_deserialization, prototype_pollution, business_logic, subdomain-takeover, llm-prompt-injection, …
+- `tooling` — nmap, nuclei, httpx, ffuf, sqlmap, subfinder, katana, naabu, semgrep, hurl, python, agent_browser, hypothesis
+- `protocols` — oauth, graphql
+- `frameworks` — nextjs, django, fastapi, nestjs
+- `technologies` — llm-applications, active_directory, auth0, firebase, supabase, grafana_prometheus, electron_desktop_apps
+- `cloud` — aws, azure, gcp, kubernetes
+- `reconnaissance` — asset_discovery, infrastructure-lifecycle
+- `custom` — source-aware-sast, dependency_cve_scanning, api_spec_testing, npx_confusion
 
 The agent is instructed to **load the relevant pack before testing**, and to run
 the counterevidence → severity-calibration → fix-verification passes before
