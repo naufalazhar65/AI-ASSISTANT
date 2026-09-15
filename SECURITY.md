@@ -181,6 +181,7 @@ frontmatter into the matching category folder.
 | `cors_audit` | CORS misconfiguration test (arbitrary Origin reflection, wildcard+credentials, null) | write → confirm |
 | `csp_audit` | passive CSP analysis (unsafe-inline/eval, wildcard, data:, missing object-src/frame-ancestors) | read, auto |
 | `http_history` | Burp-like log of active requests (http_request/bola_diff/cors) | read, auto |
+| `security_hunt` | **one-shot autonomous hunt** on an in-scope host: header/cookie + CSP + CORS + content discovery + crawl + JS mining (+ param discovery with `deep`) → ranked LEADS | write → confirm |
 | `race` | send N identical requests concurrently → double-spend / TOCTOU / missing idempotency (count ≤30, not a DoS) | write → confirm |
 | `ws_probe` | WebSocket handshake + first frames (optional message) | write → confirm |
 | `oast_dns_create` / `oast_dns_poll` / `oast_dns_stop` | **DNS** out-of-band callback (interactsh-client) — confirms blind SQLi / XXE-OOB / SSRF-DNS / log4j | read, auto |

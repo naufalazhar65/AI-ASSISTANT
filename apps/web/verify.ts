@@ -691,10 +691,16 @@ async function main() {
     console.log("race + ws_probe + takeover body: OK");
   }
   {
+    const { securityHunt } = await import("./src/lib/hunt");
+    if (!/SCOPE/.test(await securityHunt("v", "https://google.com"))) throw new Error("security_hunt scope guard");
+    if (!/Error/.test(await securityHunt("v", "not-a-url"))) throw new Error("security_hunt url guard");
+    console.log("security_hunt (scope + url guards): OK");
+  }
+  {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "race", "ws_probe", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "security_hunt", "race", "ws_probe", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");

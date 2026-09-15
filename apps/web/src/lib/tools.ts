@@ -3651,6 +3651,10 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { wsProbe } = await import("./attack"); return await wsProbe(ctx.rawUser, String(args.url || ""), typeof args.message === "string" ? args.message : undefined); } catch (e) { return `Error: ${e instanceof Error ? e.message : "ws_probe failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "security_hunt", description: "HUNT OTONOM satu host in-scope: jalankan header/cookie audit + CSP + CORS + content discovery + crawl + JS mining (+ param discovery bila deep) lalu rangkum LEADS. Scope-gated, bounded. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. https://app.klien.com" }, deep: { type: "boolean", description: "tambah param_discover (~100 request)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { securityHunt } = await import("./hunt"); return await securityHunt(ctx.rawUser, String(args.url || ""), { deep: args.deep === true }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "security_hunt failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },
     execute: async (args) => { try { const { trivyScan } = await import("./security"); return await trivyScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "trivy_scan failed"}`; } },
   },
