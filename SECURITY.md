@@ -160,6 +160,9 @@ frontmatter into the matching category folder.
 | `http_request` | now takes `session` (apply stored cookies/headers) and `save_session` (capture Set-Cookie after login) | write → confirm |
 | `bola_diff` | same request with two sessions (A/B) → flags IDOR/BOLA (identical 200 to both identities) | write → confirm |
 | `content_discover` | robots.txt/sitemap, page links, JS endpoint mining, bounded common-path probe (`/admin`, `/.env`, `/swagger.json`, …) | write → confirm |
+| `param_fuzz` | inject a small XSS/SQLi/SSTI/redirect/cmdi payload set into each param, flags reflection/SQL-error/SSTI-eval/redirect/timing (optional `callback` adds SSRF) | write → confirm |
+| `jwt_attack` | decode / forge `alg:none` · HS256 · alg-confusion / crack weak HS256 secret (local crypto; test the token via `http_request`) | read, auto |
+| `evidence_capture` | save raw HTTP request/response and/or a full-page screenshot to `reports/evidence/` for the report | write → confirm |
 
 Flow: `recon_*` → `content_discover` → `http_session` A/B → `http_request`/`bola_diff` → `oast_create` → send payload → `oast_poll` → `finding_add` → `report_*`. Default **manual + rate-limited**; automated scanners only if the program RoE allows.
 

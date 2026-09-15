@@ -572,6 +572,25 @@ async function main() {
     console.log("oast + http_session + bola_diff + content_discover: OK");
   }
   {
+    const { jwtAttack } = await import("./src/lib/jwt");
+    const forged = jwtAttack({ action: "hs256", secret: "secret", claims: '{"role":"admin"}' });
+    const tok = (forged.match(/(\S+\.\S+\.\S+)/) || [])[1] || "";
+    if (!tok) throw new Error("jwt hs256 forge");
+    const payload = JSON.parse(Buffer.from(tok.split(".")[1], "base64url").toString()) as { role?: string };
+    if (payload.role !== "admin") throw new Error("jwt claims merge");
+    if (!/secret/.test(jwtAttack({ action: "crack", token: tok }))) throw new Error("jwt crack");
+    if (!/none/i.test(jwtAttack({ action: "none", token: tok }))) throw new Error("jwt none");
+    const { paramFuzz, classify } = await import("./src/lib/paramFuzz");
+    if (!/SCOPE/.test(await paramFuzz(undefined, { url: "https://google.com/?q=1" }))) throw new Error("param_fuzz scope guard");
+    const base = { status: 200, body: "hello", loc: "", ms: 10, err: false };
+    if (!classify("<script>x</script>", "xss", { status: 200, body: "echo <script>x</script>", loc: "", ms: 12, err: false }, base).some((s) => /reflection/.test(s))) throw new Error("classify reflection");
+    if (!classify("'", "sqli", { status: 500, body: "SQL syntax error near", loc: "", ms: 11, err: false }, base).some((s) => /SQL error/.test(s))) throw new Error("classify sql error");
+    const { evidenceCapture } = await import("./src/lib/evidence");
+    if (!/SCOPE/.test(await evidenceCapture("verify_ev", { url: "https://google.com" }))) throw new Error("evidence scope guard");
+    rmSync(appRoot() + "/.data/users/verify_ev", { recursive: true, force: true });
+    console.log("jwt_attack + param_fuzz + evidence_capture: OK");
+  }
+  {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);

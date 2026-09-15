@@ -242,4 +242,4 @@ _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
 - [x] **Disiplin analisis** wajib (counterevidence → severity-calibration → fix-verification) sebelum finding/report
 - [x] **Audit hardening**: `netGuard.assertPublicUrl` bersama, scope subdomain env, metadata diblok, ID anti-tabrakan, `engagement_create` confirm, `web_audit` anti-SSRF, suite pentest masuk `CORE_TOOL_NAMES`
 - [x] **Bug-bounty toolkit**: OAST (`oast_*`, blind/OOB), `http_session`+`bola_diff` (BOLA/IDOR 2 identitas), `content_discover`, RoE manual/rate-limit + authorization via policy URL
-- Pedoman & scope: `SECURITY.md`. **Total tools 215.**
+- Pedoman & scope: `SECURITY.md`. **Total tools 218.**

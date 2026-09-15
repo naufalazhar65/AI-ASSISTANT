@@ -3497,6 +3497,27 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { contentDiscover } = await import("./recon"); return await contentDiscover(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "content_discover failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "param_fuzz", description: "Fuzz parameter URL dgn payload (XSS/SQLi/SSTI/redirect/cmdi) → deteksi reflection, SQL error, eval 7*7, open-redirect, timing. Scope-gated, low-rate. Opsi `callback` (dari oast_create) menambah kelas SSRF. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dgn param, mis. http://127.0.0.1:4010/greet?name=x" }, params: { type: "array", description: "Param spesifik (opsional; default dari URL)" }, classes: { type: "array", description: "xss/sqli/ssti/redirect/cmdi/ssrf (opsional)" }, method: { type: "string", enum: ["GET", "POST"] }, callback: { type: "string", description: "URL OAST untuk kelas ssrf (opsional)" } }, required: ["url"] } } },
+    execute: async (args) => { try { const { paramFuzz } = await import("./paramFuzz"); const params = Array.isArray(args.params) ? args.params.map(String) : undefined; const classes = Array.isArray(args.classes) ? args.classes.map(String) : undefined; return await paramFuzz(undefined, { url: String(args.url || ""), params, classes, method: typeof args.method === "string" ? args.method : undefined, callback: typeof args.callback === "string" ? args.callback : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "param_fuzz failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "jwt_attack", description: "Toolkit JWT: decode, forge alg:none, HS256 (secret), alg-confusion (public key), crack secret HS256 lemah. Lokal (tanpa jaringan). Read, auto. Uji token hasilnya via http_request ke target berizin.", parameters: { type: "object", properties: { action: { type: "string", enum: ["decode", "none", "hs256", "confusion", "crack"] }, token: { type: "string" }, secret: { type: "string" }, publicKey: { type: "string", description: "PEM kunci publik server (untuk confusion)" }, claims: { type: "string", description: "JSON claim override, mis. {\"role\":\"admin\"}" }, words: { type: "string", description: "kata tambahan untuk crack" } }, required: ["action"] } } },
+    execute: async (args) => { try { const { jwtAttack } = await import("./jwt"); return jwtAttack({ action: String(args.action || ""), token: typeof args.token === "string" ? args.token : undefined, secret: typeof args.secret === "string" ? args.secret : undefined, publicKey: typeof args.publicKey === "string" ? args.publicKey : undefined, claims: typeof args.claims === "string" ? args.claims : undefined, words: typeof args.words === "string" ? args.words : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "jwt_attack failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "evidence_capture", description: "Simpan bukti laporan: raw HTTP request/response (`request`) dan/atau screenshot halaman (`url`) ke reports/evidence/. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL untuk screenshot full-page" }, request: { type: "object", description: "{\"url\":\"...\",\"method\":\"GET\",\"headers\":{},\"body\":\"\"} untuk raw HTTP" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { evidenceCapture } = await import("./evidence");
+        const r = (args.request && typeof args.request === "object") ? (args.request as { url?: unknown; method?: unknown; headers?: unknown; body?: unknown }) : undefined;
+        const request = r && typeof r.url === "string" ? { url: r.url, method: typeof r.method === "string" ? r.method : undefined, headers: r.headers && typeof r.headers === "object" ? (r.headers as Record<string, string>) : undefined, body: typeof r.body === "string" ? r.body : undefined } : undefined;
+        return await evidenceCapture(ctx.rawUser, { url: typeof args.url === "string" ? args.url : undefined, request });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "evidence_capture failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },
     execute: async (args) => { try { const { trivyScan } = await import("./security"); return await trivyScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "trivy_scan failed"}`; } },
   },
