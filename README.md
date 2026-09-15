@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-209-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-215-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 ---
@@ -75,7 +75,7 @@ flowchart LR
 
 ---
 
-## 🛠️ Tools — 209 total
+## 🛠️ Tools — 215 total
 
 | Category | Tools | Notes |
 |----------|-------|-------|
@@ -107,7 +107,8 @@ flowchart LR
 | **Security — deps** | `dep_audit`, `verify_patch`, `trivy_scan` | CVE via OSV/trivy + fixed-version/patch check |
 | **Security — findings** | `finding_add/list/resolve/export`, `hardening_plan`, `report_generate/save/pdf`, `hardening_pdf` | CVSS/OWASP/CWE, CSV/JSON/**SARIF**, MD/PDF |
 | **Security — lab & engagement** | `lab_status/start/fetch`, `engagement_create/list/close`, `pentest_resources` | `labs/pentest` (no-Docker vuln-node), client authorization + scope guard |
-| **Security — playbooks** | `security_playbook` | 68 knowledge packs (adapted from Strix, Apache-2.0): per-class vuln (ssrf/idor/xss/sqli/ssti/xxe/race/…), tooling, cloud, frameworks, protocols, analysis |
+| **Security — playbooks** | `security_playbook` | 75 knowledge packs (adapted from Strix, Apache-2.0): per-class vuln (ssrf/idor/xss/sqli/ssti/xxe/race/…), tooling, cloud, frameworks, protocols, analysis, **workflow** (AppSec / OWASP Top 10:2025 / API Top 10:2023 / whitebox / fix-and-verify / scan-modes) |
+| **Security — bug bounty** | `oast_create/poll/stop`, `http_session`, `bola_diff`, `content_discover` | OOB/blind proof (SSRF/blind-XSS/XXE/RCE), multi-identity authz (BOLA/IDOR), content discovery (robots/JS/paths) |
 | **Self-Update** | `auto_update_status`, `auto_update` | **Auto-Update Mia** mandiri: daily 04:00 WIB `git pull --ff-only` + `npm install` + gates `typecheck/test/verify` + push ringkasan + restart; `auto_update` = konfirmasi |
 
 > **Risk:** `read` = auto-run, `write/delete` = inline `ya/tidak` (FR-014) — except `spotify_play` (immediate).
@@ -126,6 +127,7 @@ scope rules + examples: **[SECURITY.md](./SECURITY.md)**.
 - **Authorized scans:** `pentest_scan` (nmap/nuclei/nikto/ffuf) · `sqlmap_scan` · `zap_scan` · `http_request`
 - **Findings → report:** `finding_add` (CVSS/OWASP/CWE) → `hardening_plan` → `report_pdf` / `finding_export` (CSV/JSON/SARIF)
 - **Methodology:** `security_playbook` (counterevidence / severity-calibration / fix-verification / per-class packs, adapted from Strix)
+- **Bug bounty:** `oast_create`/`oast_poll` (blind/OOB proof) · `http_session` + `bola_diff` (two-identity BOLA/IDOR) · `content_discover` (robots/sitemap/JS/paths)
 - **Practice lab (no Docker):** `lab_start` → `http://127.0.0.1:4010` (SQLi/XSS/IDOR/SSRF/JWT/CSRF/…)
 - **Client pentest:** `engagement_create` (authorization + scope) → only in-scope hosts are scannable
 

@@ -82,7 +82,7 @@ export function extractParams(urls: string[], domain: string): ParamHit[] {
 
 // ── Per-user cache ──────────────────────────────────────────────────────────
 export type LiveHost = { url: string; status: number; server: string; title: string };
-type ReconEntry = { subdomains?: string[]; live?: LiveHost[]; params?: ParamHit[]; takeovers?: TakeoverHit[]; updatedAt?: string };
+type ReconEntry = { subdomains?: string[]; live?: LiveHost[]; params?: ParamHit[]; takeovers?: TakeoverHit[]; endpoints?: string[]; updatedAt?: string };
 type ReconStore = Record<string, ReconEntry>;
 
 function storePath(userKey: string): string {
@@ -380,6 +380,103 @@ export async function reconTakeover(rawUser: unknown, domainRaw: string): Promis
   }
   const list = withCname.slice(0, 40).map((r) => `• ${r.h} → ${r.cnames.join(", ")}${r.service ? `  ⚠️ ${r.service}` : ""}`);
   return `${head}\n${list.join("\n")}${hits.length ? `\n\n⚠️ Kandidat: ${hits.map((h) => `${h.host} (${h.service})`).join(", ")} — VERIFIKASI apakah layanan belum diklaim sebelum menyimpulkan takeover.` : "\nTidak ada CNAME layanan yang dikenal rentan."}`;
+}
+
+// ── Active: content discovery (robots/sitemap/links/JS mining + common paths) ─
+async function getText(url: string, cap = 200_000): Promise<string | null> {
+  try {
+    const res = await fetch(url, { redirect: "manual", headers: { "User-Agent": UA, Accept: "*/*" }, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const t = await res.text();
+    return t.slice(0, cap);
+  } catch {
+    return null;
+  }
+}
+
+const COMMON_PATHS = ["/admin", "/api", "/api/v1", "/login", "/dashboard", "/graphql", "/swagger.json", "/openapi.json", "/api-docs", "/.well-known/security.txt", "/.env", "/.git/config", "/backup", "/actuator/health", "/server-status", "/phpinfo.php", "/robots.txt", "/sitemap.xml"];
+
+/**
+ * Active content discovery for an authorized host: robots.txt + sitemap, page
+ * links, JS endpoint mining, and a small bounded common-path probe. Low-rate,
+ * capped. Scope-gated (`targetAllowed`).
+ */
+export async function contentDiscover(rawUser: unknown, urlRaw: string): Promise<string> {
+  const raw = (urlRaw || "").trim();
+  if (!/^https?:\/\//i.test(raw)) return "Error: URL harus http(s), mis. https://app.example.com";
+  if (!targetAllowed(raw)) return "Error: SCOPE — content_discover hanya untuk lab / engagement aktif / PENTEST_LAB_TARGETS.";
+  let base: URL;
+  try {
+    base = new URL(raw);
+  } catch {
+    return "Error: URL tidak valid.";
+  }
+  const origin = base.origin;
+  const paths = new Set<string>([base.pathname + base.search]);
+  const jsFiles = new Set<string>();
+
+  const robots = await getText(`${origin}/robots.txt`, 100_000);
+  const sitemaps: string[] = [];
+  if (robots) {
+    for (const m of robots.matchAll(/^(?:Disallow|Allow):\s*(\S+)/gim)) if (m[1] && m[1] !== "/") paths.add(m[1]);
+    for (const m of robots.matchAll(/^Sitemap:\s*(\S+)/gim)) sitemaps.push(m[1]);
+  }
+  for (const sm of [`${origin}/sitemap.xml`, ...sitemaps].slice(0, 3)) {
+    const xml = await getText(sm, 300_000);
+    if (xml) for (const m of xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)) {
+      try {
+        const u = new URL(m[1]);
+        if (u.origin === origin) paths.add(u.pathname + u.search);
+      } catch { /* skip */ }
+    }
+  }
+
+  const html = await getText(raw, 400_000);
+  if (html) {
+    for (const m of html.matchAll(/(?:href|src|action)=["']([^"']+)["']/gi)) {
+      try {
+        const u = new URL(m[1], raw);
+        if (u.origin === origin) {
+          paths.add(u.pathname + u.search);
+          if (/\.js(\?|$)/i.test(u.pathname)) jsFiles.add(u.toString());
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  const endpoints = new Set<string>();
+  await pool([...jsFiles].slice(0, 8), 4, async (s) => {
+    const js = await getText(s, 500_000);
+    if (!js) return;
+    for (const m of js.matchAll(/["'`](\/[A-Za-z0-9_\-./]{2,}(?:\?[^"'`\s]*)?)["'`]/g)) {
+      if (!/\.(png|jpe?g|gif|svg|css|woff2?|ttf|ico|map|webp)$/i.test(m[1])) endpoints.add(m[1]);
+    }
+    for (const m of js.matchAll(/(?:fetch|axios(?:\.\w+)?|\.open)\(\s*["'`]([^"'`]+)["'`]/g)) {
+      try {
+        const u = new URL(m[1], s);
+        if (u.origin === origin) endpoints.add(u.pathname + u.search);
+      } catch { /* skip */ }
+    }
+  });
+
+  const hits: string[] = [];
+  await pool([...new Set(COMMON_PATHS)].slice(0, 20), 6, async (p) => {
+    try {
+      const r = await fetch(`${origin}${p}`, { method: "GET", redirect: "manual", headers: { "User-Agent": UA }, signal: AbortSignal.timeout(6000) });
+      if (r.status !== 404) hits.push(`${r.status} ${p}`);
+    } catch { /* skip */ }
+  });
+
+  const links = [...paths].filter((p) => p && p !== "/").slice(0, 60);
+  const eps = [...endpoints].slice(0, 60);
+  const saved = [...new Set([...links, ...eps])].slice(0, RECON_MAX_SUBS);
+  if (saved.length) saveRecon(rawUser, base.hostname, { endpoints: saved });
+  const parts = [`🔎 CONTENT DISCOVER ${origin} — ${links.length} path, ${eps.length} endpoint JS, ${hits.length} path umum "menarik".`];
+  if (links.length) parts.push(`\n🔗 Path/link:\n${links.map((p) => `• ${p}`).join("\n")}`);
+  if (eps.length) parts.push(`\n🧩 Endpoint dari JS:\n${eps.map((p) => `• ${p}`).join("\n")}`);
+  if (hits.length) parts.push(`\n⚠️ Path umum (cek manual):\n${hits.sort().map((h) => `• ${h}`).join("\n")}`);
+  parts.push("\nLanjut: uji tiap endpoint ber-parameter dengan http_request / playbook kelas terkait → finding_add.");
+  return parts.join("\n");
 }
 
 /** Cached recon summary (no network). */

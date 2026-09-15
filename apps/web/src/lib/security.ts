@@ -16,6 +16,7 @@ import { dirname, extname, join, relative } from "node:path";
 import { appRoot, resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
 import { engagementAllows, listEngagements, normalizeHost } from "./engagement";
 import { assertPublicUrl } from "./netGuard";
+import { sessionHeaders, captureCookies } from "./httpSession";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
@@ -224,6 +225,12 @@ export function pentestResources(): string {
     "• PentesterLab, OverTheWire, Root-Me, picoCTF",
     "• CyberDefenders / LetsDefend / Blue Team Labs — blue team & DFIR",
     "",
+    "BUG BOUNTY (BERIZIN dalam scope — safe harbor; BUKAN target latihan yang dilarang):",
+    "• HackerOne, Bugcrowd, YesWeHack, Intigriti, Open Bug Bounty",
+    "• Aset in-scope BOLEH diuji. Daftarkan host ke `engagement_create` (authorization = URL policy program, scope=[host in-scope], out_of_scope=[...]) dulu supaya tool aktif jalan.",
+    "• PATUHI RoE: HANYA host in-scope; default MANUAL + rate-limit (banyak program MELARANG scanner otomatis / DoS / stress / social engineering — tanyakan dulu sebelum pakai nmap/nuclei/ffuf/sqlmap/zap); pakai akun uji; jangan sentuh data user lain.",
+    "• Format laporan sesuai platform: Title / Severity / Steps / Evidence / Impact / Remediation.",
+    "",
     "Lab LOKAL (aman untuk Mia praktik langsung) — `docker compose -f labs/pentest/docker-compose.yml up -d`:",
     "• OWASP Juice Shop  http://localhost:3001",
     "• DVWA              http://localhost:8081  (admin / password)",
@@ -244,16 +251,44 @@ export function pentestResources(): string {
 
 // ── Guarded pentest scanning (OWN lab / authorized targets only) ─────────────
 
+/** Split `host`, `host:port`, `[v6]:port`, or a URL into `{ host, port? }`. */
+export function splitHostPort(raw: string): { host: string; port?: string } {
+  const t = (raw || "").trim().replace(/^[a-z]+:\/\//i, "").replace(/\/.*$/, "");
+  const m = /^\[([^\]]+)\]:(\d+)$/.exec(t) || /^([^:]+):(\d+)$/.exec(t);
+  return m ? { host: m[1], port: m[2] } : { host: t };
+}
+
+/** nmap takes a host, not `host:port`/URL — split an explicit port into `-p`. */
+function nmapArgs(t: string): string[] {
+  const { host, port } = splitHostPort(t);
+  return port ? ["-sV", "-T4", "-Pn", "-p", port, host] : ["-sV", "-T4", "-Pn", host];
+}
+
+/** URL-based scanners (nuclei/ffuf/gobuster/whatweb/nikto) need a scheme:
+ *  `host:port` → `http://host:port` (https for 443/8443). URLs pass through. */
+export function normalizeUrlTarget(raw: string): string {
+  const t = (raw || "").trim();
+  if (/^https?:\/\//i.test(t)) return t;
+  const { port } = splitHostPort(t);
+  return `${port === "443" || port === "8443" ? "https" : "http"}://${t}`;
+}
+
 const PENTEST_TOOLS: Record<string, { bin: string; formula: string; timeoutMs?: number; args: (t: string, wordlist: string) => string[] }> = {
-  nmap: { bin: "nmap", formula: "nmap", timeoutMs: 120_000, args: (t) => ["-sV", "-T4", "-Pn", t] },
+  nmap: { bin: "nmap", formula: "nmap", timeoutMs: 120_000, args: (t) => nmapArgs(t) },
   // nuclei default scans EVERY template (very slow, hangs 100s+). `-as`
   // (automatic/tech-aware scan) is bounded (~10s here) and still useful.
-  nuclei: { bin: "nuclei", formula: "nuclei", timeoutMs: 180_000, args: (t) => ["-u", t, "-as", "-silent", "-no-color", "-no-interactsh", "-duc", "-severity", "critical,high,medium", "-timeout", "5", "-rl", "150"] },
-  nikto: { bin: "nikto", formula: "nikto", timeoutMs: 180_000, args: (t) => ["-h", t] },
-  ffuf: { bin: "ffuf", formula: "ffuf", timeoutMs: 120_000, args: (t, w) => ["-u", t.includes("FUZZ") ? t : `${t.replace(/\/$/, "")}/FUZZ`, "-w", w, "-s", "-mc", "all"] },
-  whatweb: { bin: "whatweb", formula: "whatweb (gem install whatweb)", timeoutMs: 60_000, args: (t) => [t] },
-  gobuster: { bin: "gobuster", formula: "gobuster", timeoutMs: 120_000, args: (t, w) => ["dir", "-u", t, "-w", w, "-q"] },
+  nuclei: { bin: "nuclei", formula: "nuclei", timeoutMs: 180_000, args: (t) => ["-u", normalizeUrlTarget(t), "-as", "-silent", "-no-color", "-no-interactsh", "-duc", "-severity", "critical,high,medium", "-timeout", "5", "-rl", "150"] },
+  nikto: { bin: "nikto", formula: "nikto", timeoutMs: 180_000, args: (t) => ["-h", normalizeUrlTarget(t)] },
+  ffuf: { bin: "ffuf", formula: "ffuf", timeoutMs: 120_000, args: (t, w) => ["-u", normalizeUrlTarget(t.includes("FUZZ") ? t : `${t.replace(/\/$/, "")}/FUZZ`), "-w", w, "-s", "-mc", "all"] },
+  whatweb: { bin: "whatweb", formula: "whatweb (gem install whatweb)", timeoutMs: 60_000, args: (t) => [normalizeUrlTarget(t)] },
+  gobuster: { bin: "gobuster", formula: "gobuster", timeoutMs: 120_000, args: (t, w) => ["dir", "-u", normalizeUrlTarget(t), "-w", w, "-q"] },
 };
+
+/** Build the argv a pentest tool would run (pure — for tests/inspection). */
+export function pentestArgv(tool: string, target: string, wordlist = ""): string[] | null {
+  const spec = PENTEST_TOOLS[tool];
+  return spec ? spec.args(target, wordlist) : null;
+}
 
 /**
  * Public hosts that EXPLICITLY permit security testing (follow their rules +
@@ -362,13 +397,26 @@ function writeFindings(userKey: string, rows: Finding[]): void {
 
 const DEFAULT_CVSS: Record<string, number> = { critical: 9.8, high: 8.1, medium: 5.5, low: 3.1, info: 0 };
 
+/** CVSS v3.1 base-score band → Mia severity label (single source of truth). */
+export function severityFromCvss(score: number): string {
+  if (score <= 0) return "info";
+  if (score < 4) return "low";
+  if (score < 7) return "medium";
+  if (score < 9) return "high";
+  return "critical";
+}
+
 export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; steps?: string; impact?: string; rootCause?: string; remediation?: string; references?: string }): Finding {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const title = (f.title || "").trim().slice(0, 200);
   if (!title) throw new Error("judul temuan wajib");
-  const sev = SEVERITIES.includes((f.severity || "").toLowerCase()) ? (f.severity as string).toLowerCase() : "medium";
-  const cvss = typeof f.cvss === "number" && f.cvss >= 0 && f.cvss <= 10 ? Math.round(f.cvss * 10) / 10 : DEFAULT_CVSS[sev] ?? null;
+  const requestedSev = SEVERITIES.includes((f.severity || "").toLowerCase()) ? (f.severity as string).toLowerCase() : "medium";
+  const hasCvss = typeof f.cvss === "number" && f.cvss >= 0 && f.cvss <= 10;
+  const cvss = hasCvss ? Math.round((f.cvss as number) * 10) / 10 : DEFAULT_CVSS[requestedSev] ?? null;
+  // Severity must agree with the CVSS band (severity-calibration): a supplied
+  // score wins; otherwise the requested severity drives the default score.
+  const sev = hasCvss ? severityFromCvss(cvss as number) : requestedSev;
   const row: Finding = {
     id: `F-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     title,
@@ -1006,7 +1054,7 @@ export function cvssScore(vector: string): string {
   const expl = 8.22 * AV * AC * PR * UI;
   const roundup = (x: number) => Math.ceil(x * 10) / 10;
   const score = impact <= 0 ? 0 : roundup(Math.min((S === "U" ? 1 : 1.08) * (impact + expl), 10));
-  const sev = score === 0 ? "none" : score < 4 ? "low" : score < 7 ? "medium" : score < 9 ? "high" : "critical";
+  const sev = score === 0 ? "none" : severityFromCvss(score);
   return `📊 CVSS v3.1 base score: ${score.toFixed(1)} (${sev})\nVector: ${v}`;
 }
 
@@ -1093,25 +1141,72 @@ export function encoding(action: string, format: string, text: string): string {
 }
 
 // ── HTTP request (API testing on lab/authorized targets) ────────────────────
-export async function httpRequest(opts: { url: string; method?: string; headers?: Record<string, string>; body?: string }): Promise<string> {
+export async function httpRequest(
+  opts: { url: string; method?: string; headers?: Record<string, string>; body?: string; session?: string; saveSession?: string },
+  rawUser?: unknown
+): Promise<string> {
   const u = (opts.url || "").trim();
   if (!/^https?:\/\//i.test(u)) return "Error: URL harus http(s).";
   if (!targetAllowed(u)) return "Error: SCOPE — http_request hanya untuk localhost/lab atau host di engagement aktif.";
   const method = (opts.method || "GET").toUpperCase();
-  const res = await fetch(u, {
-    method,
-    headers: { "User-Agent": "mia-assistant/1.0", ...(opts.headers || {}) },
-    body: method === "GET" || method === "HEAD" ? undefined : opts.body,
-    redirect: "manual",
-    signal: AbortSignal.timeout(15_000),
-  });
+  const headers: Record<string, string> = { "User-Agent": "mia-assistant/1.0" };
+  if (opts.session) {
+    const s = sessionHeaders(rawUser, opts.session);
+    if (!s) return `Error: session "${opts.session}" tidak ada — buat dulu dengan http_session action=set.`;
+    Object.assign(headers, s.headers);
+    const hasCookie = Object.keys(headers).some((k) => k.toLowerCase() === "cookie");
+    if (s.cookie && !hasCookie) headers["cookie"] = s.cookie;
+  }
+  Object.assign(headers, opts.headers || {});
+  const res = await fetch(u, { method, headers, body: method === "GET" || method === "HEAD" ? undefined : opts.body, redirect: "manual", signal: AbortSignal.timeout(15_000) });
   const ct = res.headers.get("content-type") || "";
   const body = (await res.text()).slice(0, 3000);
+  let saved = "";
+  if (opts.saveSession) {
+    const getSet = (res.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie;
+    const sc = typeof getSet === "function" ? getSet.call(res.headers) : [res.headers.get("set-cookie")].filter((x): x is string => !!x);
+    const n = captureCookies(rawUser, opts.saveSession, sc);
+    saved = `\n🔑 session "${opts.saveSession}" diperbarui (${n} cookie total).`;
+  }
   const hdrs = ["content-type", "location", "access-control-allow-origin", "set-cookie", "www-authenticate"]
     .map((h) => (res.headers.get(h) ? `${h}: ${res.headers.get(h)}` : ""))
     .filter(Boolean)
     .join("\n");
-  return `🌐 HTTP ${method} ${u} -> ${res.status} ${res.statusText} (${ct})\n${hdrs}\n\n${body}`;
+  return `🌐 HTTP ${method} ${u} -> ${res.status} ${res.statusText} (${ct})${saved}\n${hdrs}\n\n${body}`;
+}
+
+// ── BOLA/IDOR differ (same request, two identities) ─────────────────────────
+export async function bolaDiff(
+  rawUser: unknown,
+  opts: { url: string; method?: string; sessionA: string; sessionB: string; body?: string }
+): Promise<string> {
+  const u = (opts.url || "").trim();
+  if (!/^https?:\/\//i.test(u)) return "Error: URL harus http(s).";
+  if (!targetAllowed(u)) return "Error: SCOPE — bola_diff hanya untuk localhost/lab atau host di engagement aktif.";
+  const sa = sessionHeaders(rawUser, opts.sessionA);
+  const sb = sessionHeaders(rawUser, opts.sessionB);
+  if (!sa) return `Error: session A "${opts.sessionA}" tidak ada.`;
+  if (!sb) return `Error: session B "${opts.sessionB}" tidak ada.`;
+  const method = (opts.method || "GET").toUpperCase();
+  const run = async (s: { headers: Record<string, string>; cookie: string }) => {
+    const h: Record<string, string> = { "User-Agent": "mia-assistant/1.0", ...s.headers };
+    if (s.cookie) h["cookie"] = s.cookie;
+    try {
+      const res = await fetch(u, { method, headers: h, body: method === "GET" || method === "HEAD" ? undefined : opts.body, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+      const body = (await res.text()).slice(0, 1500);
+      return { status: res.status, len: body.length, body };
+    } catch (e) {
+      return { status: 0, len: 0, body: `Error: ${e instanceof Error ? e.message : e}` };
+    }
+  };
+  const [a, b] = await Promise.all([run(sa), run(sb)]);
+  const sameBody = a.status === b.status && a.len > 0 && a.body === b.body;
+  const flags: string[] = [];
+  if (a.status === 200 && b.status === 200 && sameBody) flags.push("⚠️ A dan B dapat respons IDENTIK (200) → indikasi objek sama diberikan ke dua identitas (BOLA/IDOR). Verifikasi objek memang milik A.");
+  else if (a.status === 200 && (b.status === 401 || b.status === 403)) flags.push("✅ B ditolak (401/403) saat A boleh → otorisasi tampak ditegakkan.");
+  else if (a.status === 200 && b.status === 404) flags.push("ℹ️ B 404 — bisa jadi objek disembunyikan; verifikasi manual.");
+  else if (a.status === 0 || b.status === 0) flags.push("❌ salah satu request gagal — cek session/URL.");
+  return `🆚 BOLA/IDOR diff ${method} ${u}\n• sesi ${opts.sessionA}: ${a.status} (${a.len} b)\n• sesi ${opts.sessionB}: ${b.status} (${b.len} b)\n${flags.length ? flags.join("\n") : "Tidak ada sinyal kuat — bandingkan body di bawah."}\n\n— ${opts.sessionA} preview —\n${a.body.slice(0, 400)}\n\n— ${opts.sessionB} preview —\n${b.body.slice(0, 400)}`;
 }
 
 // ── Trivy (filesystem/image CVE scan, keyless, sandbox path) ────────────────

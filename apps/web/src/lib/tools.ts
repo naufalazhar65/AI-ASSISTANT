@@ -3174,7 +3174,7 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "finding_add",
-        description: "Catat satu temuan pentest (Title/Severity/CVSS/OWASP/CWE/Evidence/Impact/Remediation). Read, auto.",
+        description: "Catat satu temuan pentest (Title/Severity/CVSS/OWASP/CWE/Evidence/Impact/Remediation). Bila `cvss` diisi, severity DITURUNKAN otomatis dari band CVSS (mis. 6.1→medium, 9.8→critical) — tak perlu menebak. Read, auto.",
         parameters: {
           type: "object",
           properties: {
@@ -3454,8 +3454,47 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { encoding } = await import("./security"); return encoding(String(args.action || ""), String(args.format || ""), String(args.text || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "encoding failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "write", function: { name: "http_request", description: "Kirim HTTP request (method/headers/body) ke target LAB/berizin saja (untuk uji API: REST/GraphQL/mass-assignment). Publik ditolak. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string", description: "GET/POST/PUT/PATCH/DELETE" }, headers: { type: "object", description: "Header tambahan" }, body: { type: "string" } }, required: ["url"] } } },
-    execute: async (args) => { try { const { httpRequest } = await import("./security"); return await httpRequest({ url: String(args.url || ""), method: typeof args.method === "string" ? args.method : undefined, headers: (args.headers && typeof args.headers === "object") ? (args.headers as Record<string, string>) : undefined, body: typeof args.body === "string" ? args.body : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "http_request failed"}`; } },
+    definition: { type: "function", risk: "write", function: { name: "http_request", description: "Kirim HTTP request (method/headers/body) ke target LAB/berizin saja (uji API: REST/GraphQL/mass-assignment). Opsional `session`=nama sesi (cookie+header tersimpan), `save_session`=simpan Set-Cookie ke sesi itu. Publik ditolak. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string", description: "GET/POST/PUT/PATCH/DELETE" }, headers: { type: "object", description: "Header tambahan" }, body: { type: "string" }, session: { type: "string", description: "Nama sesi tersimpan (mis. 'A'/'B')" }, save_session: { type: "string", description: "Simpan cookie respons ke nama sesi ini" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { httpRequest } = await import("./security"); return await httpRequest({ url: String(args.url || ""), method: typeof args.method === "string" ? args.method : undefined, headers: (args.headers && typeof args.headers === "object") ? (args.headers as Record<string, string>) : undefined, body: typeof args.body === "string" ? args.body : undefined, session: typeof args.session === "string" ? args.session : undefined, saveSession: typeof args.save_session === "string" ? args.save_session : undefined }, ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "http_request failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "oast_create", description: "Buat callback URL OAST unik (webhook.site, keyless) untuk konfirmasi BLIND bugs (SSRF/blind XSS/XXE/RCE/SQLi-OOB). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { oastCreate } = await import("./oast"); return await oastCreate(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "oast_create failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "oast_poll", description: "Cek interaksi yang masuk ke callback OAST (bukti out-of-band). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { oastPoll } = await import("./oast"); return await oastPoll(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "oast_poll failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "oast_stop", description: "Hapus token OAST aktif. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { oastStop } = await import("./oast"); return await oastStop(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "oast_stop failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "http_session", description: "Kelola sesi HTTP bernama (cookie+header) untuk uji terautentikasi/BOLA: action set (name + cookie/headers) | list | delete. Read, auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["set", "list", "delete"] }, name: { type: "string" }, cookie: { type: "string", description: "mis. 'sid=abc; csrf=xyz'" }, headers: { type: "object", description: "Header tetap, mis. {\"Authorization\":\"Bearer ...\"}" } }, required: ["action"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const mod = await import("./httpSession");
+        const a = String(args.action || "").toLowerCase();
+        if (a === "list") return mod.listSessions(ctx.rawUser);
+        const name = String(args.name || "");
+        if (a === "delete") return mod.deleteSession(ctx.rawUser, name) ? `🗑️ session "${name}" dihapus.` : `Session "${name}" tidak ada.`;
+        if (a === "set") {
+          const s = mod.setSession(ctx.rawUser, name, { headers: (args.headers && typeof args.headers === "object") ? (args.headers as Record<string, string>) : undefined, cookie: typeof args.cookie === "string" ? args.cookie : undefined });
+          return `🔑 session "${name}" disimpan (${Object.keys(s.cookies).length} cookie, ${Object.keys(s.headers).length} header).`;
+        }
+        return "Error: action harus set|list|delete.";
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "http_session failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "bola_diff", description: "Uji BOLA/IDOR: kirim request SAMA dengan dua sesi (A & B) lalu bandingkan status/body. Hanya lab/engagement. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string" }, session_a: { type: "string", description: "nama sesi identitas A" }, session_b: { type: "string", description: "nama sesi identitas B" }, body: { type: "string" } }, required: ["url", "session_a", "session_b"] } } },
+    execute: async (args, ctx) => { try { const { bolaDiff } = await import("./security"); return await bolaDiff(ctx.rawUser, { url: String(args.url || ""), method: typeof args.method === "string" ? args.method : undefined, sessionA: String(args.session_a || ""), sessionB: String(args.session_b || ""), body: typeof args.body === "string" ? args.body : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "bola_diff failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "content_discover", description: "Content discovery aktif (scope-gated): robots.txt/sitemap, link halaman, endpoint dari file JS, + probe path umum (mis. /admin,/.env,/swagger.json). Hanya lab/engagement. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. http://127.0.0.1:4010 atau https://app.klien.com" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { contentDiscover } = await import("./recon"); return await contentDiscover(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "content_discover failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },

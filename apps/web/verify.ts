@@ -450,6 +450,7 @@ async function main() {
       throw new Error("pentest_resources missing platforms/local lab URLs");
     }
     if (!/SCOPE:/.test(pr) || !/melarang otomasi|JANGAN diautomasi/.test(pr)) throw new Error("pentest_resources missing scope/ToS note");
+    if (!/BUG BOUNTY/.test(pr) || !/HackerOne|Bugcrowd/.test(pr) || !/scope/i.test(pr)) throw new Error("pentest_resources missing bug-bounty guidance");
     console.log("pentest_resources (platforms + local lab + scope): OK");
   {
     const { isLabTarget, addFinding, listFindingsText, generateReport } = await import("./src/lib/security");
@@ -532,7 +533,8 @@ async function main() {
     const { securityPlaybook } = await import("./src/lib/securityPlaybook");
     const list = securityPlaybook();
     if (!/Security playbooks/.test(list) || !/counterevidence/.test(list)) throw new Error("security_playbook list");
-    if ((list.match(/• /g) || []).length < 60) throw new Error("security_playbook catalog too small (packs missing?)");
+    if ((list.match(/• /g) || []).length < 70) throw new Error("security_playbook catalog too small (packs missing?)");
+    if (!/methodology/.test(list) || /tidak ditemukan/.test(securityPlaybook("owasp-top-10-testing"))) throw new Error("workflow (methodology) playbooks missing");
     if (!securityPlaybook(undefined, "blind sql injection").split("\n")[0].includes("PLAYBOOK: sql-injection")) throw new Error("playbook query ranking (sql vs nosql)");
     const pack = securityPlaybook("counterevidence");
     if (!/Closure/i.test(pack)) throw new Error("security_playbook load counterevidence");
@@ -550,10 +552,30 @@ async function main() {
     console.log("security_playbook + takeover + sast: OK");
   }
   {
+    const { setSession, listSessions, deleteSession, sessionHeaders, parseCookieString } = await import("./src/lib/httpSession");
+    if (parseCookieString("sid=abc; csrf=xyz").csrf !== "xyz") throw new Error("parseCookieString pairs");
+    if (parseCookieString("sid=abc; Path=/; HttpOnly").Path !== undefined || parseCookieString("sid=abc; Path=/; HttpOnly").sid !== "abc") throw new Error("parseCookieString skips attributes");
+    const su = "verify_http_session";
+    setSession(su, "A", { cookie: "sid=aaa; csrf=t1", headers: { Authorization: "Bearer tokA" } });
+    setSession(su, "B", { cookies: { sid: "bbb" } });
+    const a = sessionHeaders(su, "A");
+    if (!a || a.cookie !== "sid=aaa; csrf=t1" || a.headers.Authorization !== "Bearer tokA") throw new Error(`sessionHeaders: ${JSON.stringify(a)}`);
+    if (!/A/.test(listSessions(su)) || !/B/.test(listSessions(su))) throw new Error("listSessions");
+    if (!deleteSession(su, "A") || deleteSession(su, "A")) throw new Error("deleteSession");
+    rmSync(appRoot() + "/.data/users/" + su, { recursive: true, force: true });
+    const { oastPoll } = await import("./src/lib/oast");
+    if (!/Belum ada OAST/i.test(await oastPoll("verify_oast_user"))) throw new Error("oastPoll no-token path");
+    const { bolaDiff } = await import("./src/lib/security");
+    if (!/SCOPE/.test(await bolaDiff("verify_bola", { url: "https://google.com", sessionA: "A", sessionB: "B" }))) throw new Error("bola_diff scope guard");
+    const { contentDiscover } = await import("./src/lib/recon");
+    if (!/SCOPE/.test(await contentDiscover("verify_cd", "https://google.com"))) throw new Error("content_discover scope guard");
+    console.log("oast + http_session + bola_diff + content_discover: OK");
+  }
+  {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
@@ -606,9 +628,30 @@ async function main() {
     console.log("encoding + pro report fields: OK");
   }
   {
-    const { cvssScore, addFinding, resolveFinding, exportFindings, listFindingsText } = await import("./src/lib/security");
+    const { cvssScore, severityFromCvss, splitHostPort, normalizeUrlTarget, pentestArgv, addFinding, resolveFinding, exportFindings, listFindingsText } = await import("./src/lib/security");
+    if (splitHostPort("127.0.0.1:4010").host !== "127.0.0.1" || splitHostPort("127.0.0.1:4010").port !== "4010") throw new Error("splitHostPort host:port");
+    if (splitHostPort("http://[::1]:8080/x").host !== "::1" || splitHostPort("http://[::1]:8080/x").port !== "8080") throw new Error("splitHostPort ipv6 url");
+    if (splitHostPort("scanme.nmap.org").host !== "scanme.nmap.org" || splitHostPort("scanme.nmap.org").port !== undefined) throw new Error("splitHostPort bare host");
+    if (normalizeUrlTarget("127.0.0.1:4010") !== "http://127.0.0.1:4010" || normalizeUrlTarget("example.com:443") !== "https://example.com:443" || normalizeUrlTarget("https://x/y") !== "https://x/y") throw new Error("normalizeUrlTarget");
+    const nmapA = pentestArgv("nmap", "127.0.0.1:4010") || [];
+    if (!nmapA.includes("-p") || !nmapA.includes("4010")) throw new Error(`pentest nmap argv: ${nmapA.join(" ")}`);
+    const ffA = pentestArgv("ffuf", "127.0.0.1:4010", "/w") || [];
+    if (!ffA.includes("http://127.0.0.1:4010/FUZZ")) throw new Error(`pentest ffuf argv: ${ffA.join(" ")}`);
+    const goA = pentestArgv("gobuster", "example.com:443", "/w") || [];
+    if (!goA.includes("https://example.com:443")) throw new Error(`pentest gobuster argv: ${goA.join(" ")}`);
+    const nucA = pentestArgv("nuclei", "127.0.0.1:4010") || [];
+    if (!nucA.includes("http://127.0.0.1:4010")) throw new Error(`pentest nuclei argv: ${nucA.join(" ")}`);
+    if ((pentestArgv("whatweb", "host:80") || [])[0] !== "http://host:80") throw new Error("pentest whatweb argv");
     if (!/9\.8/.test(cvssScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"))) throw new Error("cvssScore AV:N should be 9.8");
     if (!/5\.3/.test(cvssScore("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"))) throw new Error("cvssScore C:L should be 5.3");
+    // severity must follow the CVSS band (calibration), not the caller's label
+    if (severityFromCvss(6.1) !== "medium" || severityFromCvss(9.8) !== "critical" || severityFromCvss(3.1) !== "low" || severityFromCvss(0) !== "info") throw new Error("severityFromCvss bands");
+    const su = "verify_sev_user";
+    const f1 = addFinding(su, { title: "XSS reflected", severity: "high", cvss: 6.1, remediation: "encode" });
+    if (f1.severity !== "medium" || f1.cvss !== 6.1) throw new Error(`addFinding severity must follow cvss: ${f1.severity}/${f1.cvss}`);
+    const f2 = addFinding(su, { title: "No cvss", severity: "high", remediation: "x" });
+    if (f2.severity !== "high" || f2.cvss !== 8.1) throw new Error(`addFinding default cvss by severity: ${f2.severity}/${f2.cvss}`);
+    rmSync(appRoot() + "/.data/users/" + su, { recursive: true, force: true });
     const u = "verify_resolve_user";
     const f = addFinding(u, { title: "Tutup aku", severity: "low", remediation: "x" });
     if (!resolveFinding(u, f.id) || /Tutup aku/.test(listFindingsText(u))) throw new Error("resolveFinding failed");

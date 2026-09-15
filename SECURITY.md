@@ -7,10 +7,16 @@ reports. Everything here is **keyless** by default and runs on the owner's Mac.
 > **Scope & ethics (hard rule).** Only test systems you own or have **written
 > authorization** for. Active scans are limited to `localhost`, RFC1918/private
 > hosts, an **active Engagement** scope, `PENTEST_LAB_TARGETS`, or the two
-> explicitly scan-permitted public hosts. Public third-party demos (e.g.
+> explicitly scan-permitted public hosts. **Bug bounty** programs
+> (HackerOne/Bugcrowd/YesWeHack/Intigriti) authorize their **in-scope** assets
+> under safe harbour — register those hosts via `engagement_create`
+> (authorization = the program policy URL, `scope` = in-scope assets) and follow
+> the program's RoE: in-scope hosts only, **manual + rate-limited by default**
+> (automated scanners only if the RoE allows), no DoS/stress, no other users'
+> data, no social engineering when banned. Public third-party demos (e.g.
 > `itsecgames.com`/bWAPP online, TryHackMe, Hack The Box, PortSwigger) are **not**
 > targets — use them as learning material only. Mia cannot verify legality; the
-> Engagement record (client + authorization reference) is your audit trail.
+> Engagement record (client/program + authorization reference) is your audit trail.
 
 ---
 
@@ -123,12 +129,14 @@ refused.
 |---|---|
 | `security_playbook` | loads a pentest knowledge pack on demand (`name=` or `query=`, no args = catalog) |
 
-**68 packs across 9 categories** live in
+**75 packs across 11 categories** live in
 `apps/web/security-playbooks/<category>/<name>.md`, **adapted from
 [Strix](https://github.com/usestrix/strix) (Apache-2.0)**:
 
+- `methodology` — application-security-testing (AppSec end-to-end), owasp-top-10-testing (**OWASP Top 10:2025**), api-security-testing (**API Top 10:2023**), whitebox-code-review, fix-and-verify, source-aware-whitebox
+- `scan_modes` — scan-modes (quick / standard / deep / diff)
 - `analysis` — counterevidence, severity-calibration, fix-verification, source-aware-discovery
-- `vulnerabilities` (×26) — ssrf, idor, xss, sql_injection, ssti, xxe, csrf, race_conditions, http_request_smuggling, authentication_jwt, mass_assignment, path_traversal, nosql_injection, insecure_deserialization, prototype_pollution, business_logic, subdomain-takeover, llm-prompt-injection, …
+- `vulnerabilities` (×28) — ssrf, idor, xss, sql_injection, ssti, xxe, csrf, race_conditions, http_request_smuggling, authentication_jwt, mass_assignment, path_traversal, nosql_injection, insecure_deserialization, prototype_pollution, business_logic, subdomain-takeover, llm-prompt-injection, …
 - `tooling` — nmap, nuclei, httpx, ffuf, sqlmap, subfinder, katana, naabu, semgrep, hurl, python, agent_browser, hypothesis
 - `protocols` — oauth, graphql
 - `frameworks` — nextjs, django, fastapi, nestjs
@@ -141,6 +149,19 @@ The agent is instructed to **load the relevant pack before testing**, and to run
 the counterevidence → severity-calibration → fix-verification passes before
 recording a finding. Add a pack by dropping a `.md` with `name:`/`description:`
 frontmatter into the matching category folder.
+
+---
+
+### 2.11 Bug-bounty toolkit
+| Tool | What | Risk |
+|---|---|---|
+| `oast_create` / `oast_poll` / `oast_stop` | out-of-band callback (webhook.site, keyless) — **confirms blind** SSRF / blind-XSS / XXE / RCE by a real callback hit | read, auto |
+| `http_session` | named cookie/header sessions (`set`/`list`/`delete`) for authenticated & multi-identity testing | read, auto |
+| `http_request` | now takes `session` (apply stored cookies/headers) and `save_session` (capture Set-Cookie after login) | write → confirm |
+| `bola_diff` | same request with two sessions (A/B) → flags IDOR/BOLA (identical 200 to both identities) | write → confirm |
+| `content_discover` | robots.txt/sitemap, page links, JS endpoint mining, bounded common-path probe (`/admin`, `/.env`, `/swagger.json`, …) | write → confirm |
+
+Flow: `recon_*` → `content_discover` → `http_session` A/B → `http_request`/`bola_diff` → `oast_create` → send payload → `oast_poll` → `finding_add` → `report_*`. Default **manual + rate-limited**; automated scanners only if the program RoE allows.
 
 ---
 
