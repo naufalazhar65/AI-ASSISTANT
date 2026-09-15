@@ -3511,6 +3511,18 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { bolaDiff } = await import("./security"); return await bolaDiff(ctx.rawUser, { url: String(args.url || ""), method: typeof args.method === "string" ? args.method : undefined, sessionA: String(args.session_a || ""), sessionB: String(args.session_b || ""), body: typeof args.body === "string" ? args.body : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "bola_diff failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "tamper_script", description: "Buat skrip Console siap-tempel untuk men-tamper body request JSON milik app sendiri (patch fetch+XHR). Solusi saat WAF/Cloudflare memblokir replay programatik (curl/fetch manual): app tetap mengirim request-nya, kita ubah body in-flight. Pakai untuk uji IDOR (`set` UserId) / mass assignment (`add` field). Read/auto, tanpa jaringan.", parameters: { type: "object", properties: { url_contains: { type: "string", description: "potongan URL target, mis. UpdateUserProfile" }, set: { type: "object", description: "field yang DIGANTI, mis. {\"UserId\":\"999999\"}" }, add: { type: "object", description: "field TAMBAHAN (mass assignment), mis. {\"IsPremium\":true}" } }, required: ["url_contains"] } } },
+    execute: async (args) => {
+      try {
+        const { buildTamperScript } = await import("./tamper");
+        const asMap = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : undefined);
+        return buildTamperScript({ urlContains: String(args.url_contains || ""), set: asMap(args.set), add: asMap(args.add) });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "tamper_script failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "content_discover", description: "Content discovery aktif (scope-gated): robots.txt/sitemap, link halaman, endpoint dari file JS, + probe path umum (mis. /admin,/.env,/swagger.json). Hanya lab/engagement. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. http://127.0.0.1:4010 atau https://app.klien.com" } }, required: ["url"] } } },
     execute: async (args, ctx) => { try { const { contentDiscover } = await import("./recon"); return await contentDiscover(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "content_discover failed"}`; } },
   },

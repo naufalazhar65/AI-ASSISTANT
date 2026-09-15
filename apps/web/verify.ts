@@ -243,6 +243,21 @@ async function main() {
   if (new Set(normalized.map((c) => c.id)).size !== 3) throw new Error("tool-call ids not unique");
   console.log("tool-call id normalization (unique + non-blank): OK");
 
+  // --- tamper_script generator + bola JSON field-diff ---
+  const { buildTamperScript } = await import("./src/lib/tamper");
+  const ts = buildTamperScript({ urlContains: "UpdateUserProfile", set: { UserId: "999999" }, add: { IsPremium: true } });
+  for (const needle of ["UpdateUserProfile", "XMLHttpRequest", "PATCHED", "IsPremium", "999999"]) {
+    if (!ts.includes(needle)) throw new Error(`tamper_script missing ${needle}`);
+  }
+  if (!buildTamperScript({ urlContains: "" }).startsWith("Error:")) throw new Error("tamper_script should reject empty url_contains");
+  if (!buildTamperScript({ urlContains: "x" }).startsWith("Error:")) throw new Error("tamper_script should reject empty set/add");
+  const { jsonFieldDiff } = await import("./src/lib/security");
+  const diff = jsonFieldDiff({ a: 1, b: 2, nested: { id: 5 } }, { a: 1, b: 3, nested: { id: 6 } });
+  if (diff.length !== 2 || !diff.some((d) => d.startsWith("b:")) || !diff.some((d) => d.includes("nested.id")))
+    throw new Error(`jsonFieldDiff wrong: ${JSON.stringify(diff)}`);
+  if (jsonFieldDiff({ a: 1 }, { a: 1 }).length !== 0) throw new Error("jsonFieldDiff false-positive on equal objects");
+  console.log("tamper_script generator + bola field-diff: OK");
+
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
   const xmlLeaked = 'Aku cek ya <td>, sementara itu <invoke name="browser_open"><parameter name="url">https://x/y</parameter></invoke> ya beb 🌸';

@@ -238,9 +238,9 @@ _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
 - [x] Lab lokal no-Docker `labs/pentest/vuln-node` (13+ kelas) + Docker compose opsional
 - [x] **Engagement & Scope** (otorisasi klien + guard scope-aware) + monitoring heartbeat (port/cert/engagement)
 - [x] **Recon suite** (`recon.ts`, keyless): `recon_subdomains` (CT/pasif), `recon_params` (OTX/urlscan/Wayback), `recon_takeover` (CNAME fingerprint), `recon_httpx` (probe aktif, scope-gated), `recon_list`
-- [x] **White-box & playbooks** (adaptasi Strix, Apache-2.0): `sast_scan` (semgrep) + `security_playbook` (**75 pack** / 11 kategori: analysis, vulnerabilities ×28, tooling, protocols, frameworks, technologies, cloud, reconnaissance, custom, **methodology** (AppSec/OWASP 2025/API 2023/whitebox/fix-and-verify/source-aware), **scan_modes**) + `apps/web/security-playbooks/`
+- [x] **White-box & playbooks** (adaptasi Strix, Apache-2.0): `sast_scan` (semgrep) + `security_playbook` (**77 pack** / 11 kategori: analysis, vulnerabilities ×28, tooling, protocols, frameworks, technologies, cloud, reconnaissance, custom, **methodology** (AppSec/OWASP 2025/API 2023/whitebox/fix-and-verify/source-aware), **scan_modes**) + `apps/web/security-playbooks/`
 - [x] **Disiplin analisis** wajib (counterevidence → severity-calibration → fix-verification) sebelum finding/report
 - [x] **Audit hardening**: `netGuard.assertPublicUrl` bersama, scope subdomain env, metadata diblok, ID anti-tabrakan, `engagement_create` confirm, `web_audit` anti-SSRF, suite pentest masuk `CORE_TOOL_NAMES`
 - [x] **Bug-bounty toolkit**: OAST (`oast_*`, blind/OOB), `http_session`+`bola_diff` (BOLA/IDOR 2 identitas), `content_discover`, `param_fuzz`, `jwt_attack`, `evidence_capture`, RoE manual/rate-limit + authorization via policy URL
 - [x] **Bounty workflow completeness**: `scope_import` (parse Targets→engagement), `crawl` (same-origin BFS), `param_discover` (hidden params), `recon_diff` (new assets), `recon_screenshot` (visual recon)
-- Pedoman & scope: `SECURITY.md`. **Total tools 245.**
+- Pedoman & scope: `SECURITY.md`. **Total tools 246.**

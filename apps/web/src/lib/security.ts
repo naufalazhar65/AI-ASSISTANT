@@ -1301,6 +1301,28 @@ export async function httpRequest(
 }
 
 // ── BOLA/IDOR differ (same request, two identities) ─────────────────────────
+/**
+ * Recursively list leaf paths whose values differ (or that exist on only one
+ * side). Pure — used by bola_diff to show WHICH field differs, so an IDOR verdict
+ * names the leaked field instead of a vague "bodies differ".
+ */
+export function jsonFieldDiff(a: unknown, b: unknown, prefix = "", out: string[] = []): string[] {
+  if (a === b) return out;
+  const bothObjects =
+    a !== null && b !== null && typeof a === "object" && typeof b === "object" && Array.isArray(a) === Array.isArray(b);
+  if (!bothObjects) {
+    if (JSON.stringify(a) !== JSON.stringify(b)) {
+      out.push(`${prefix || "(root)"}: ${JSON.stringify(a)} ≠ ${JSON.stringify(b)}`);
+    }
+    return out;
+  }
+  const keys = new Set([...Object.keys(a as object), ...Object.keys(b as object)]);
+  for (const k of keys) {
+    jsonFieldDiff((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], prefix ? `${prefix}.${k}` : k, out);
+  }
+  return out;
+}
+
 export async function bolaDiff(
   rawUser: unknown,
   opts: { url: string; method?: string; sessionA: string; sessionB: string; body?: string }
@@ -1319,9 +1341,9 @@ export async function bolaDiff(
     const t0 = Date.now();
     try {
       const res = await fetch(u, { method, headers: h, body: method === "GET" || method === "HEAD" ? undefined : opts.body, redirect: "manual", signal: AbortSignal.timeout(15_000) });
-      const body = (await res.text()).slice(0, 1500);
-      recordHttp(rawUser, { method, url: u, status: res.status, bytes: body.length, ms: Date.now() - t0, at: new Date().toISOString() });
-      return { status: res.status, len: body.length, body };
+      const full = await res.text();
+      recordHttp(rawUser, { method, url: u, status: res.status, bytes: full.length, ms: Date.now() - t0, at: new Date().toISOString() });
+      return { status: res.status, len: full.length, body: full.slice(0, 8000) };
     } catch (e) {
       return { status: 0, len: 0, body: `Error: ${e instanceof Error ? e.message : e}` };
     }
@@ -1333,7 +1355,29 @@ export async function bolaDiff(
   else if (a.status === 200 && (b.status === 401 || b.status === 403)) flags.push("✅ B ditolak (401/403) saat A boleh → otorisasi tampak ditegakkan.");
   else if (a.status === 200 && b.status === 404) flags.push("ℹ️ B 404 — bisa jadi objek disembunyikan; verifikasi manual.");
   else if (a.status === 0 || b.status === 0) flags.push("❌ salah satu request gagal — cek session/URL.");
-  return `🆚 BOLA/IDOR diff ${method} ${u}\n• sesi ${opts.sessionA}: ${a.status} (${a.len} b)\n• sesi ${opts.sessionB}: ${b.status} (${b.len} b)\n${flags.length ? flags.join("\n") : "Tidak ada sinyal kuat — bandingkan body di bawah."}\n\n— ${opts.sessionA} preview —\n${a.body.slice(0, 400)}\n\n— ${opts.sessionB} preview —\n${b.body.slice(0, 400)}`;
+
+  // Structured field diff: parse both bodies as JSON and name the differing
+  // leaves (sensitive-looking ones flagged) — a BOLA verdict should point at the
+  // exact leaked field, not just "bodies differ".
+  let diffText = "";
+  const parseJson = (s: string): unknown => { try { return JSON.parse(s); } catch { return null; } };
+  const ja = parseJson(a.body);
+  const jb = parseJson(b.body);
+  const SENSITIVE = /(userid|accounttype|usertype|role|admin|verified|premium|email|owner|tenant|balance|status)/i;
+  if (ja && jb && typeof ja === "object" && typeof jb === "object") {
+    const paths = jsonFieldDiff(ja, jb);
+    if (paths.length) {
+      const sensitive = paths.filter((p) => SENSITIVE.test(p.split(":")[0]));
+      diffText =
+        `\n\n🔎 field diff (${paths.length} beda${sensitive.length ? `, ${sensitive.length} terlihat sensitif` : ""}):\n` +
+        paths.slice(0, 25).map((p) => `${SENSITIVE.test(p.split(":")[0]) ? "⚠️" : "•"} ${p}`).join("\n") +
+        (paths.length > 25 ? `\n… dan ${paths.length - 25} lagi` : "");
+    } else {
+      diffText = "\n\n🔎 field diff: JSON A dan B identik di semua field — untuk BOLA ini justru sinyal objek yang SAMA diberikan ke dua identitas.";
+    }
+  }
+
+  return `🆚 BOLA/IDOR diff ${method} ${u}\n• sesi ${opts.sessionA}: ${a.status} (${a.len} b)\n• sesi ${opts.sessionB}: ${b.status} (${b.len} b)\n${flags.length ? flags.join("\n") : "Tidak ada sinyal kuat — bandingkan body di bawah."}${diffText}\n\n— ${opts.sessionA} preview —\n${a.body.slice(0, 400)}\n\n— ${opts.sessionB} preview —\n${b.body.slice(0, 400)}`;
 }
 
 // ── Trivy (filesystem/image CVE scan, keyless, sandbox path) ────────────────
