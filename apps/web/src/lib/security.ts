@@ -153,21 +153,34 @@ export function scanForSecrets(dirRel = "", maxFiles = 500): { hits: SecretHit[]
         continue;
       }
       const rel = relative(root, full);
-      const lines = text.split("\n");
-      for (const p of SECRET_PATTERNS) {
-        p.re.lastIndex = 0;
-        let m: RegExpExecArray | null;
-        while ((m = p.re.exec(text))) {
-          const line = text.slice(0, m.index).split("\n").length;
-          hits.push({ file: rel, line, type: p.name });
-          if (hits.length >= 50) break;
-        }
-        void lines;
+      for (const h of scanTextSecrets(text)) {
+        hits.push({ file: rel, line: h.line, type: h.type });
+        if (hits.length >= 50) break;
       }
     }
   };
   walk(root);
   return { hits, scanned };
+}
+
+/** Find secret patterns in a text blob (returns line+type only, never the value). */
+export function scanTextSecrets(text: string, max = 200): { line: number; type: string }[] {
+  const out: { line: number; type: string }[] = [];
+  for (const p of SECRET_PATTERNS) {
+    p.re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = p.re.exec(text))) {
+      out.push({ line: text.slice(0, m.index).split("\n").length, type: p.name });
+      if (out.length >= max) return out;
+    }
+  }
+  return out;
+}
+
+/** Optional polite delay between active requests (env SECURITY_REQUEST_DELAY_MS). */
+export function politeDelay(): Promise<void> {
+  const ms = Math.max(0, Number(process.env.SECURITY_REQUEST_DELAY_MS) || 0);
+  return ms ? new Promise((r) => setTimeout(r, ms + Math.floor(Math.random() * ms * 0.3))) : Promise.resolve();
 }
 
 /** TLS certificate hygiene for a host (yours / authorized). Keyless via node:tls. */
@@ -406,6 +419,30 @@ export function severityFromCvss(score: number): string {
   return "critical";
 }
 
+/** CVSS score → platform severities (HackerOne severity + Bugcrowd VRT priority). */
+export function platformFromCvss(score: number): { h1: string; vrt: string } {
+  if (score >= 9) return { h1: "critical", vrt: "P1" };
+  if (score >= 7) return { h1: "high", vrt: "P2" };
+  if (score >= 4) return { h1: "medium", vrt: "P3" };
+  if (score > 0) return { h1: "low", vrt: "P4" };
+  return { h1: "none", vrt: "P5" };
+}
+
+/** Map a CVSS score/vector/severity label to HackerOne + Bugcrowd VRT. */
+export function platformSeverity(opts: { cvss?: number; vector?: string; severity?: string }): string {
+  let score: number | null = null;
+  if (typeof opts.cvss === "number") score = Math.round(opts.cvss * 10) / 10;
+  else if (opts.vector) {
+    const m = /base score:\s*([0-9]+(?:\.[0-9]+)?)/.exec(cvssScore(opts.vector));
+    if (m) score = Number(m[1]);
+  } else if (opts.severity) {
+    score = DEFAULT_CVSS[opts.severity.toLowerCase()] ?? null;
+  }
+  if (score === null) return "Error: beri `cvss` (angka), `vector` (CVSS:3.1/...), atau `severity`.";
+  const band = platformFromCvss(score);
+  return `📊 Platform severity — CVSS ${score} → HackerOne "${band.h1}" · Bugcrowd VRT ${band.vrt}`;
+}
+
 export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; steps?: string; impact?: string; rootCause?: string; remediation?: string; references?: string }): Finding {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
@@ -461,7 +498,7 @@ export function generateReport(rawUser: unknown): string {
   const body = sorted
     .map(
       (f, i) =>
-        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[f.owasp, f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Target**: ${f.target || "-"}\n- **Steps to Reproduce**: ${f.steps || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
+        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[f.owasp, f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Platform**: ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n- **Steps to Reproduce**: ${f.steps || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
     )
     .join("\n\n");
   return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts}) — rata-rata CVSS ${avg}\n\n${(() => { const a = listEngagements().find((e) => e.status === "active"); return a ? `> Engagement: ${a.id} — ${a.name} (${a.client})\n> Izin: ${a.authorization}\n> Scope: ${a.scope.join(", ")}${a.windowEnd ? ` (s/d ${a.windowEnd})` : ""}` : "> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif."; })()}\n\n${body}`;
@@ -1142,14 +1179,15 @@ export function encoding(action: string, format: string, text: string): string {
 
 // ── HTTP request (API testing on lab/authorized targets) ────────────────────
 export async function httpRequest(
-  opts: { url: string; method?: string; headers?: Record<string, string>; body?: string; session?: string; saveSession?: string },
+  opts: { url: string; method?: string; headers?: Record<string, string>; body?: string; session?: string; saveSession?: string; user_agent?: string },
   rawUser?: unknown
 ): Promise<string> {
   const u = (opts.url || "").trim();
   if (!/^https?:\/\//i.test(u)) return "Error: URL harus http(s).";
   if (!targetAllowed(u)) return "Error: SCOPE — http_request hanya untuk localhost/lab atau host di engagement aktif.";
+  await politeDelay();
   const method = (opts.method || "GET").toUpperCase();
-  const headers: Record<string, string> = { "User-Agent": "mia-assistant/1.0" };
+  const headers: Record<string, string> = { "User-Agent": opts.user_agent || "mia-assistant/1.0" };
   if (opts.session) {
     const s = sessionHeaders(rawUser, opts.session);
     if (!s) return `Error: session "${opts.session}" tidak ada — buat dulu dengan http_session action=set.`;

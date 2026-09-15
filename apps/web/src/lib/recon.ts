@@ -13,7 +13,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
-import { targetAllowed } from "./security";
+import { targetAllowed, scanTextSecrets } from "./security";
 
 const UA = "mia-assistant/1.0";
 export const RECON_MAX_SUBS = 500;
@@ -476,6 +476,57 @@ export async function contentDiscover(rawUser: unknown, urlRaw: string): Promise
   if (eps.length) parts.push(`\n🧩 Endpoint dari JS:\n${eps.map((p) => `• ${p}`).join("\n")}`);
   if (hits.length) parts.push(`\n⚠️ Path umum (cek manual):\n${hits.sort().map((h) => `• ${h}`).join("\n")}`);
   parts.push("\nLanjut: uji tiap endpoint ber-parameter dengan http_request / playbook kelas terkait → finding_add.");
+  return parts.join("\n");
+}
+
+// ── Active: JS mining (endpoints + secrets from bundles) ────────────────────
+export async function jsMine(rawUser: unknown, urlRaw: string): Promise<string> {
+  void rawUser;
+  const raw = (urlRaw || "").trim();
+  if (!/^https?:\/\//i.test(raw)) return "Error: URL harus http(s).";
+  if (!targetAllowed(raw)) return "Error: SCOPE — js_mine hanya untuk lab / engagement aktif / PENTEST_LAB_TARGETS.";
+  let base: URL;
+  try {
+    base = new URL(raw);
+  } catch {
+    return "Error: URL tidak valid.";
+  }
+  const origin = base.origin;
+  const jsUrls = new Set<string>();
+  const html = await getText(raw, 500_000);
+  if (html && /<script|<!doctype|<html/i.test(html)) {
+    for (const m of html.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)) {
+      try {
+        const u = new URL(m[1], raw);
+        if (u.origin === origin) jsUrls.add(u.toString());
+      } catch { /* skip */ }
+    }
+  } else if (/\.js(\?|$)/i.test(base.pathname)) {
+    jsUrls.add(raw);
+  }
+  if (!jsUrls.size) return `Tidak menemukan file JS di ${raw}. (Arahkan langsung ke file .js, atau ke halaman HTML yang memuat script.)`;
+  const endpoints = new Set<string>();
+  const secrets: string[] = [];
+  await pool([...jsUrls].slice(0, 10), 4, async (js) => {
+    const body = await getText(js, 900_000);
+    if (!body) return;
+    const name = new URL(js).pathname.split("/").pop() || js;
+    for (const m of body.matchAll(/["'`](\/[A-Za-z0-9_\-./]{2,}(?:\?[^"'`\s]*)?)["'`]/g)) {
+      if (!/\.(png|jpe?g|gif|svg|css|woff2?|ttf|ico|map|webp)$/i.test(m[1])) endpoints.add(m[1]);
+    }
+    for (const m of body.matchAll(/(?:https?:)?\/\/[A-Za-z0-9._-]+\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]*/g)) {
+      try {
+        const u = new URL(m[0], js);
+        if (u.origin === origin) endpoints.add(u.pathname + u.search);
+      } catch { /* skip */ }
+    }
+    for (const h of scanTextSecrets(body)) secrets.push(`${name}:${h.line} — ${h.type}`);
+  });
+  const eps = [...endpoints].slice(0, 80);
+  const parts = [`🧩 JS MINE ${origin} — ${jsUrls.size} JS, ${eps.length} endpoint, ${secrets.length} indikasi secret.`];
+  if (eps.length) parts.push(`\n🔗 Endpoint dari JS:\n${eps.map((e) => `• ${e}`).join("\n")}`);
+  if (secrets.length) parts.push(`\n🔐 Secret terdeteksi (nilai di-redact):\n${[...new Set(secrets)].slice(0, 40).map((s) => `• ${s}`).join("\n")}`);
+  parts.push("\nLanjut: uji endpoint ber-parameter (param_fuzz/param_discover). Secret → WAJIB rotate + finding_add.");
   return parts.join("\n");
 }
 

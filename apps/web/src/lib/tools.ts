@@ -3538,6 +3538,45 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { reconScreenshot } = await import("./recon"); return await reconScreenshot(ctx.rawUser, String(args.domain || ""), Array.isArray(args.hosts) ? args.hosts.map(String) : undefined); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_screenshot failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "request_save", description: "Kelola koleksi request + variabel {{x}}: action set (name + method/url/headers/body) | list | delete. Read, auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["set", "list", "delete"] }, name: { type: "string" }, method: { type: "string" }, url: { type: "string", description: "mis. {{base}}/api/users/{{id}}" }, headers: { type: "object" }, body: { type: "string" } }, required: ["action"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const m = await import("./requests");
+        const a = String(args.action || "").toLowerCase();
+        if (a === "list") return m.requestListText(ctx.rawUser);
+        const name = String(args.name || "");
+        if (a === "delete") return m.requestDelete(ctx.rawUser, name) ? `🗑️ request "${name}" dihapus.` : `Request "${name}" tidak ada.`;
+        if (a === "set") {
+          const r = m.requestSave(ctx.rawUser, name, { method: typeof args.method === "string" ? args.method : undefined, url: typeof args.url === "string" ? args.url : undefined, headers: args.headers && typeof args.headers === "object" ? (args.headers as Record<string, string>) : undefined, body: typeof args.body === "string" ? args.body : undefined });
+          return `🗂️ request "${name}" disimpan: ${r.method} ${r.url}`;
+        }
+        return "Error: action harus set|list|delete.";
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "request_save failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "request_run", description: "Jalankan request tersimpan dgn substitusi variabel {{x}} (vars={...}). Scope-gated. Write, confirm.", parameters: { type: "object", properties: { name: { type: "string" }, vars: { type: "object", description: "mis. {\"base\":\"https://app.x\",\"id\":\"42\"}" }, method: { type: "string" }, url: { type: "string" }, headers: { type: "object" }, body: { type: "string" } }, required: ["name"] } } },
+    execute: async (args, ctx) => { try { const { requestRun } = await import("./requests"); return await requestRun(ctx.rawUser, String(args.name || ""), { vars: args.vars && typeof args.vars === "object" ? (args.vars as Record<string, string>) : undefined, method: typeof args.method === "string" ? args.method : undefined, url: typeof args.url === "string" ? args.url : undefined, headers: args.headers && typeof args.headers === "object" ? (args.headers as Record<string, string>) : undefined, body: typeof args.body === "string" ? args.body : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "request_run failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "platform_severity", description: "Map CVSS (angka/vektor) atau severity → severity HackerOne + prioritas Bugcrowd VRT (P1-P5). Read, auto.", parameters: { type: "object", properties: { cvss: { type: "number" }, vector: { type: "string" }, severity: { type: "string" } }, required: [] } } },
+    execute: async (args) => { try { const { platformSeverity } = await import("./security"); return platformSeverity({ cvss: typeof args.cvss === "number" ? args.cvss : undefined, vector: typeof args.vector === "string" ? args.vector : undefined, severity: typeof args.severity === "string" ? args.severity : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "platform_severity failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "js_mine", description: "Mining file JS (scope-gated): ekstrak endpoint/path + indikasi secret/token (nilai di-redact) dari bundle. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "Halaman HTML atau file .js" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { jsMine } = await import("./recon"); return await jsMine(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "js_mine failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "api_spec", description: "Enumerasi endpoint dari spec OpenAPI/Swagger atau Postman (JSON): `path` (file sandbox), `url` (publik/target), atau `text`. Read, auto.", parameters: { type: "object", properties: { path: { type: "string" }, url: { type: "string" }, text: { type: "string" } }, required: [] } } },
+    execute: async (args) => { try { const { apiSpec } = await import("./apiSpec"); return await apiSpec({ path: typeof args.path === "string" ? args.path : undefined, url: typeof args.url === "string" ? args.url : undefined, text: typeof args.text === "string" ? args.text : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "api_spec failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "graphql_probe", description: "GraphQL introspection (scope-gated): daftar query/mutation; deteksi bila introspection dilarang. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
+    execute: async (args) => { try { const { graphqlProbe } = await import("./apiSpec"); return await graphqlProbe(String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "graphql_probe failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "trivy_scan", description: "Scan CVE filesystem/image dengan trivy (keyless) di path sandbox. Read, auto. Install: brew install trivy.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori (opsional; default repo)" } }, required: [] } } },
     execute: async (args) => { try { const { trivyScan } = await import("./security"); return await trivyScan(typeof args.dir === "string" ? args.dir : ""); } catch (e) { return `Error: ${e instanceof Error ? e.message : "trivy_scan failed"}`; } },
   },

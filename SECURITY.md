@@ -168,6 +168,11 @@ frontmatter into the matching category folder.
 | `recon_screenshot` | visual recon — screenshot cached live hosts (≤12) to `reports/evidence/` | write → confirm |
 | `crawl` | bounded same-origin BFS crawl — pages, paths, forms+fields, JS files (≤60 pages, depth ≤3) | write → confirm |
 | `param_discover` | probe ~100 common param names for hidden parameters (response change/reflection) | write → confirm |
+| `js_mine` | mine JS bundles for endpoints + secret/token indicators (values redacted) | write → confirm |
+| `api_spec` | enumerate endpoints from an OpenAPI/Swagger or Postman JSON spec (`path`/`url`/`text`) | read, auto |
+| `graphql_probe` | GraphQL introspection → query/mutation fields; flags when introspection is disabled | write → confirm |
+| `request_save` / `request_run` | save request templates with `{{variables}}` and replay them (scope-gated) | read / write → confirm |
+| `platform_severity` | map CVSS/severity → HackerOne severity + Bugcrowd VRT priority (also added to the report) | read, auto |
 
 Flow: `recon_*` → `content_discover` → `http_session` A/B → `http_request`/`bola_diff` → `oast_create` → send payload → `oast_poll` → `finding_add` → `report_*`. Default **manual + rate-limited**; automated scanners only if the program RoE allows.
 

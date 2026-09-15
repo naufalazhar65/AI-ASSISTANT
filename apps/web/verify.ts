@@ -604,10 +604,35 @@ async function main() {
     console.log("scope_import + crawl + param_discover + recon_screenshot: OK");
   }
   {
+    const { substituteVars, requestSave, readRequests, requestDelete } = await import("./src/lib/requests");
+    if (substituteVars("{{base}}/u/{{id}}", { base: "https://x", id: "7" }) !== "https://x/u/7") throw new Error("substituteVars");
+    if (substituteVars("{{unknown}}", {}) !== "{{unknown}}") throw new Error("substituteVars keeps unknown");
+    const ru = "verify_req";
+    requestSave(ru, "login", { method: "POST", url: "{{base}}/login", body: "u=a&p=b" });
+    if (readRequests(ru).login.method !== "POST" || !requestDelete(ru, "login") || requestDelete(ru, "login")) throw new Error("request store round-trip");
+    const { parseOpenApi, parsePostman, apiSpec, graphqlProbe } = await import("./src/lib/apiSpec");
+    const oa = parseOpenApi({ paths: { "/users/{id}": { get: { parameters: [{ name: "id" }] }, delete: {} } } });
+    if (oa.length !== 2 || oa[0].method !== "GET" || !oa[0].params.includes("id")) throw new Error(`parseOpenApi: ${JSON.stringify(oa)}`);
+    const pm = parsePostman({ item: [{ item: [{ name: "x", request: { method: "POST", url: { raw: "https://x/y" } } }] }] });
+    if (pm.length !== 1 || pm[0].method !== "POST") throw new Error("parsePostman");
+    const spec = await apiSpec({ text: JSON.stringify({ openapi: "3.0.0", paths: { "/a": { get: {} } } }) });
+    if (!/GET \/a/.test(spec)) throw new Error("api_spec text mode");
+    if (!/SCOPE/.test(await graphqlProbe("https://google.com/graphql"))) throw new Error("graphql_probe scope guard");
+    const { platformFromCvss, platformSeverity, scanTextSecrets } = await import("./src/lib/security");
+    if (platformFromCvss(9.8).vrt !== "P1" || platformFromCvss(6.1).h1 !== "medium" || platformFromCvss(0).vrt !== "P5") throw new Error("platformFromCvss");
+    if (!/HackerOne "high" · Bugcrowd VRT P2/.test(platformSeverity({ cvss: 8.1 }))) throw new Error("platformSeverity number");
+    if (!/HackerOne "critical" · Bugcrowd VRT P1/.test(platformSeverity({ vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" }))) throw new Error(`platformSeverity vector: ${platformSeverity({ vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" })}`);
+    if (!scanTextSecrets('const k="AKIAIOSFODNN7EXAMPLE"').some((h) => h.type === "AWS access key")) throw new Error("scanTextSecrets");
+    const { jsMine } = await import("./src/lib/recon");
+    if (!/SCOPE/.test(await jsMine("verify_js", "https://google.com/app.js"))) throw new Error("js_mine scope guard");
+    rmSync(appRoot() + "/.data/users/verify_req", { recursive: true, force: true });
+    console.log("requests + platform_severity + api_spec + graphql_probe + js_mine: OK");
+  }
+  {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
