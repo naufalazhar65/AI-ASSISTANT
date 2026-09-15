@@ -1198,11 +1198,26 @@ function ensurePlanFromIntent(messages: ChatMessage[], user: unknown, text: stri
  *  original user text: the tool already deleted the reminder, and addRem's
  *  repoint fallback would mint a junk one-shot like "coba ganti aja deh tidurnya
  *  jadi" (2026-09-11 live bug: "ubah jadi jam 8" → cancel ran → junk stored). */
+/** One risky tool awaiting/answering approval. */
+type ConfirmDecision = { call: ToolCall; allow: boolean };
+
+/** Normalize the singular `confirm_call` (web UI / legacy) and the plural
+ *  `confirm_calls` (batch approval from Telegram/Discord) into one list. */
+function confirmDecisions(opts: {
+  confirm_call?: ConfirmDecision;
+  confirm_calls?: ConfirmDecision[];
+}): ConfirmDecision[] {
+  if (opts.confirm_calls?.length) return opts.confirm_calls;
+  return opts.confirm_call ? [opts.confirm_call] : [];
+}
+
 function remindToolAlreadyHandled(opts: {
-  confirm_call?: { call: ToolCall; allow: boolean };
+  confirm_call?: ConfirmDecision;
+  confirm_calls?: ConfirmDecision[];
 }, needsConfirmation: ToolCall[] | null): boolean {
-  if (opts.confirm_call?.call?.name === "remind_me") return true;
-  if (opts.confirm_call?.call?.name === "cancel_reminder" && opts.confirm_call.allow === true) return true;
+  const decisions = confirmDecisions(opts);
+  if (decisions.some((d) => d.call?.name === "remind_me")) return true;
+  if (decisions.some((d) => d.call?.name === "cancel_reminder" && d.allow === true)) return true;
   return !!needsConfirmation?.some((c) => c.name === "remind_me");
 }
 
@@ -1213,9 +1228,10 @@ function remindToolAlreadyHandled(opts: {
  * confirming would error — better to let the deterministic path fill the gap.
  */
 function monitorAddAlreadyHandled(opts: {
-  confirm_call?: { call: ToolCall; allow: boolean };
+  confirm_call?: ConfirmDecision;
+  confirm_calls?: ConfirmDecision[];
 }): boolean {
-  return opts.confirm_call?.call?.name === "monitor_add" && opts.confirm_call.allow === true;
+  return confirmDecisions(opts).some((d) => d.call?.name === "monitor_add" && d.allow === true);
 }
 
 /** True when `spotify_play` already EXECUTED via this turn's confirm continuation. */
@@ -1908,14 +1924,16 @@ export async function runAssistantTurn(opts: {
   model?: string;
   user?: unknown;
   confirm_call?: { call: ToolCall; allow: boolean };
+  /** Batch approval (Telegram/Discord): several risky calls decided in one turn. */
+  confirm_calls?: { call: ToolCall; allow: boolean }[];
   /** Headless/automated turns (no human to approve risky tools): auto-denied. */
   autoDenyRisky?: boolean;
   /** Voice (default) keeps replies plain for TTS; "text"/"discord" allow markdown. */
   channel?: Channel;
 }): Promise<TurnResult> {
   checkRateLimit(opts.user);
-  if (opts.confirm_call && !opts.confirm_call.allow) {
-    auditLog(opts.user, "tool_confirm_denied", `${opts.confirm_call.call?.name ?? "unknown"}`);
+  for (const d of confirmDecisions(opts)) {
+    if (!d.allow) auditLog(opts.user, "tool_confirm_denied", `${d.call?.name ?? "unknown"}`);
   }
   const t0 = Date.now();
   let ok = true;
@@ -1943,6 +1961,8 @@ async function runAssistantTurnImpl(opts: {
   model?: string;
   user?: unknown;
   confirm_call?: { call: ToolCall; allow: boolean };
+  /** Batch approval (Telegram/Discord): several risky calls decided in one turn. */
+  confirm_calls?: { call: ToolCall; allow: boolean }[];
   /** Headless/automated turns (no human to approve risky tools): auto-denied. */
   autoDenyRisky?: boolean;
   /** Voice (default) keeps replies plain for TTS; "text"/"discord" allow markdown. */
@@ -2063,75 +2083,75 @@ async function runAssistantTurnImpl(opts: {
     }
   }
 
-  // Confirmation continuation: execute/decline the risky tool into the context.
-  if (opts.confirm_call) {
-    const call = opts.confirm_call.call;
-    if (!call || typeof call.id !== "string") {
-      throw new Error("confirm_call requires a valid call");
-    }
-    // Idempotency (invariant: risky tools execute at most once per call.id).
-    // A duplicate POST of the same confirm (double-click / client retry after a
-    // dropped stream) must NOT re-run a delete/add side effect — reuse the
-    // recorded tool result instead so the model still sees the outcome.
-    const cacheKey = confirmCacheKey(opts.user, call.id);
-    const cached = opts.confirm_call.allow ? confirmExecuted.get(cacheKey) : undefined;
-    const isDedup = !!cached && Date.now() - cached.at < CONFIRM_DEDUP_TTL_MS;
-    if (isDedup) {
-      // Prune stale entries occasionally so the map never grows unbounded.
-      if (confirmExecuted.size > 256) {
+  // Confirmation continuation: execute/decline the approved risky tool(s) into
+  // the context. `confirm_calls` (batch approval from Telegram/Discord) and the
+  // singular `confirm_call` (web UI) normalize to one list: every approved call
+  // runs, every un-approved one stays un-executed.
+  const confirmations = confirmDecisions(opts);
+  if (confirmations.length > 0) {
+    const seen = new Set<string>();
+    for (const { call, allow } of confirmations) {
+      if (!call || typeof call.id !== "string") {
+        throw new Error("confirm_call requires a valid call");
+      }
+      if (seen.has(call.id)) continue;
+      seen.add(call.id);
+      // Idempotency (invariant: risky tools execute at most once per call.id).
+      // A duplicate POST of the same confirm (double-click / client retry after a
+      // dropped stream) must NOT re-run a delete/add side effect — reuse the
+      // recorded tool result instead so the model still sees the outcome.
+      const cacheKey = confirmCacheKey(opts.user, call.id);
+      const cached = allow ? confirmExecuted.get(cacheKey) : undefined;
+      const isDedup = !!cached && Date.now() - cached.at < CONFIRM_DEDUP_TTL_MS;
+      if (isDedup && confirmExecuted.size > 256) {
+        // Prune stale entries occasionally so the map never grows unbounded.
         const now = Date.now();
         for (const [k, v] of confirmExecuted) {
           if (now - v.at >= CONFIRM_DEDUP_TTL_MS) confirmExecuted.delete(k);
         }
       }
+      let toolResult: string;
+      if (allow) {
+        toolResult = isDedup ? cached!.content : await executeTool(call, opts.user);
+        confirmExecuted.set(cacheKey, { at: Date.now(), content: toolResult });
+      } else {
+        toolResult = "The user declined this action. Do NOT execute it; briefly tell the user you skipped it.";
+      }
+      messages.push({ role: "tool", tool_call_id: call.id, content: toolResult });
+      // Model-authored reminder variety: when a remind_me was just CONFIRMED, ask
+      // the model (fire-and-forget) for a small variants pool so push time
+      // rotates Mia-style wordings instead of the static template. Skipped for a
+      // dedup replay (the turn was already enriched the first time).
+      if (allow && !isDedup && call.name === "remind_me") {
+        try {
+          const args = JSON.parse(call.arguments || "{}") as { text?: unknown };
+          if (typeof args.text === "string" && args.text.trim()) {
+            void enrichReminderVariants(opts.user, args.text, {
+              url: resolved.url,
+              apiKey: resolved.apiKey,
+              defaultModel: resolved.defaultModel,
+            });
+          }
+        } catch { /* best-effort enrichment */ }
+      }
     }
-    let toolResult: string;
-    if (opts.confirm_call.allow) {
-      toolResult = isDedup
-        ? cached!.content
-        : await executeTool(call, opts.user);
-      confirmExecuted.set(cacheKey, { at: Date.now(), content: toolResult });
-    } else {
-      toolResult = "The user declined this action. Do NOT execute it; briefly tell the user you skipped it.";
-    }
-    messages.push({
-      role: "tool",
-      tool_call_id: call.id,
-      content: toolResult,
-    });
-    // A single turn may propose several risky tools, but only one is confirmed
-    // at a time. Resolve every other pending tool_call id with an explicit
-    // "deferred" result so the follow-up completion never sends an assistant
+    // The model may have proposed more risky calls than the user approved in
+    // this batch. Resolve every remaining tool_call id with an explicit
+    // "not selected" result so the follow-up completion never sends an assistant
     // message whose tool_calls have missing tool results (strict gateways 400,
     // and the model otherwise re-tries the same lost call).
     const lastCallMsg = [...messages].reverse().find((m) => m.role === "assistant" && m.tool_calls?.length);
     if (lastCallMsg?.tool_calls) {
       const answered = new Set(messages.filter((m) => m.role === "tool" && m.tool_call_id).map((m) => m.tool_call_id));
       for (const tc of lastCallMsg.tool_calls) {
-        if (tc.id === call.id || answered.has(tc.id)) continue;
+        if (answered.has(tc.id)) continue;
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
           content:
-            "Deferred: only one action is confirmed at a time; this was NOT executed. If you still need it, propose it again.",
+            "Not selected: the user did not approve this action in this batch, so it was NOT executed. Do not run it; if it is still needed, propose it again.",
         });
       }
-    }
-    // Model-authored reminder variety: when a remind_me was just CONFIRMED, ask
-    // the model (fire-and-forget) for a small variants pool so push time
-    // rotates Mia-style wordings instead of the static template. Skipped for a
-    // dedup replay (the turn was already enriched the first time).
-    if (opts.confirm_call.allow && !isDedup && call.name === "remind_me") {
-      try {
-        const args = JSON.parse(call.arguments || "{}") as { text?: unknown };
-        if (typeof args.text === "string" && args.text.trim()) {
-          void enrichReminderVariants(opts.user, args.text, {
-            url: resolved.url,
-            apiKey: resolved.apiKey,
-            defaultModel: resolved.defaultModel,
-          });
-        }
-      } catch { /* best-effort enrichment */ }
     }
   }
 
@@ -2140,7 +2160,7 @@ async function runAssistantTurnImpl(opts: {
   const collector: { collect: (t: string) => void; webSearchSuccess?: boolean; verbatimHit?: boolean; suppressVerbatim?: boolean } = {
     collect: (t: string) => (text += t),
     // A confirmation continuation answers an action, not a list request.
-    suppressVerbatim: Boolean(opts.confirm_call),
+    suppressVerbatim: confirmations.length > 0,
   };
   let result!: { needsConfirmation: ToolCall[] | null };
   try {
@@ -2193,7 +2213,7 @@ async function runAssistantTurnImpl(opts: {
     // above before the follow-up completion failed (e.g. a transient rate
     // limit). Don't hide that the action succeeded — surface a graceful notice
     // instead of a bare internal-error, so the user isn't left guessing.
-    if (opts.confirm_call?.allow) {
+    if (confirmations.some((d) => d.allow)) {
       console.error("[agent] confirmed tool ran but follow-up failed:", err instanceof Error ? err.message : String(err));
       // If the follow-up failed due to token/quota, show that detail so the
       // user knows why (e.g. Groq 200k TPD) instead of generic "sibuk".
@@ -2350,8 +2370,9 @@ async function runAssistantTurnImpl(opts: {
   // this kills the historical double-play (confirm flow + deterministic autoplay
   // both firing) and the pre-approval confusion. Skipped on a spotify_* confirm
   // continuation (the tool already executed above).
-  const spotifyConfirmRan =
-    opts.confirm_call?.call?.name?.startsWith("spotify_") && opts.confirm_call?.allow === true;
+  const spotifyConfirmRan = confirmDecisions(opts).some(
+    (d) => d.call?.name?.startsWith("spotify_") && d.allow === true
+  );
   const pendingSpotify = (needsConfirmation ?? []).filter((c) => c.name.startsWith("spotify_"));
   if (needsConfirmation) {
     needsConfirmation = needsConfirmation.filter((c) => !c.name.startsWith("spotify_"));

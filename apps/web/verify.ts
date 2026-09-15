@@ -360,6 +360,20 @@ async function main() {
   const chunks = chunkReply(big, 2000);
   if (chunks.length < 2 || chunks.some((c) => c.length > 2000)) throw new Error("chunkText exceeded max");
   if (chunks.join("").replace(/\s/g, "") !== big.replace(/\s/g, "")) throw new Error("chunkText lost content");
+  const { parseConfirmReply, pendingConfirmPrompt } = await import("./src/channels/replyChunk");
+  const eq = (a: unknown, b: unknown, why: string) => {
+    if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${why}: got ${JSON.stringify(a)}`);
+  };
+  eq(parseConfirmReply("ya", 3), [true, true, true], "confirm all");
+  eq(parseConfirmReply("tidak", 2), [false, false], "confirm none");
+  eq(parseConfirmReply("ya 1,3", 3), [true, false, true], "confirm selective");
+  eq(parseConfirmReply("ya 2", 3), [false, true, false], "confirm single index");
+  eq(parseConfirmReply("halo", 2), null, "confirm unparsed reply");
+  eq(parseConfirmReply("ya 9", 3), null, "confirm out-of-range index");
+  if (!pendingConfirmPrompt([{ name: "security_hunt", arguments: '{"url":"https://x"}' }]).includes("security_hunt"))
+    throw new Error("pendingConfirmPrompt missing tool name");
+  if (!pendingConfirmPrompt([{ name: "a" }, { name: "b" }]).includes("1. **a**"))
+    throw new Error("pendingConfirmPrompt multi not numbered");
   const { reminderMessage: remMsg } = await import("./src/lib/reminderMessage");
   const rmsg = remMsg("minum air", "07:00");
   if (!rmsg.includes("minum air") || (rmsg.match(/minum air/g) || []).length > 1) throw new Error(`reminderMessage bad: ${rmsg}`);

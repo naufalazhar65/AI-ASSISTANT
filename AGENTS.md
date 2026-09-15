@@ -19,6 +19,8 @@ Architectural principle (new in v2.0): **Channel Adapter abstraction** — each 
 
 Discord gotcha (2026-09-03): a first-ever **DM** arrives as a bare packet that discord.js can't map to a full `Message`, so `messageCreate` never fires even though the gateway receives raw `MESSAGE_CREATE` — symptom: **DM doesn't respond while guild chats work**. Fix: client must set `partials:[Partials.Channel, Partials.Message]` and the handler must `await msg.fetch()` when `msg.partial`. Both are present in `apps/web/src/channels/discord.ts.` Keep them when refactoring.
 
+**Batch-selective tool confirmation (2026-09-15):** a turn that proposes several risky tools used to confirm only `needsConfirmation[0]`, mark the rest `Deferred` (`agent.ts`), and force the model to re-propose them one per turn — the cause of the slow one-command-at-a-time Discord/Telegram hunting loop. Now the agent accepts `confirm_calls?: {call,allow}[]` (singular `confirm_call` still supported for the web UI) and executes/declines every entry in one continuation; channels queue ALL pending calls and show one prompt: reply `ya` (all), `ya 1,3` (subset), or `tidak` (none). Shared parse/format lives in `apps/web/src/channels/replyChunk.ts` (`parseConfirmReply`/`pendingConfirmPrompt`; `bold` param = `**` Discord, `*` Telegram) so the two adapters can't drift. An unparsed reply re-prompts (never silently approves/drops). Unselected calls get a `Not selected` tool result (kept `Deferred` semantics → strict gateways never 400 on missing tool results).
+
 ## Repo layout
 
 - `apps/web` — Next.js app (UI, hooks, audio, ConversationManager, provider, `/api/*` proxy routes). `src/audio`, `src/ai`, `src/components`, `src/hooks`, `src/app`, `src/lib`, `persona/`.

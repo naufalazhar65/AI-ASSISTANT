@@ -1,5 +1,5 @@
 import { broadcastMiaState } from "@/lib/miaState";
-import { chunkText, TELEGRAM_MAX } from "./replyChunk";
+import { chunkText, TELEGRAM_MAX, parseConfirmReply, pendingConfirmPrompt } from "./replyChunk";
 
 /**
  * Telegram channel adapter (PRD v2.0 §8.1 FR-101).
@@ -120,8 +120,8 @@ type ChatState = {
   model?: string;
   /** Persistent text-only conversation (user/assistant) used as LLM context. */
   history: ChatMessage[];
-  /** Waiting for a yes/no confirmation of a risky tool (FR-014). */
-  pending: { messages: ChatMessage[]; call: ToolCall } | null;
+  /** Waiting for a yes/no confirmation of risky tool(s) (FR-014). */
+  pending: { messages: ChatMessage[]; calls: ToolCall[] } | null;
 };
 
 const PROVIDER_DEFAULT = process.env.TELEGRAM_PROVIDER || defaultProviderId();
@@ -435,13 +435,13 @@ async function withTyping<T>(ctx: Context, fn: () => Promise<T>): Promise<T> {
 
 async function handleConfirmation(ctx: Context, state: ChatState, user: string, text: string): Promise<void> {
   const pending = state.pending!;
-  const yes = /^(ya|yes|y|setuju|lanjut|ok|oke)$/i.test(text);
-  const no = /^(tidak|no|n|gak|nggak|skip|cancel|batal)$/i.test(text);
-  if (!yes && !no) {
-    await replyMia(ctx, "Balas `ya` untuk melanjutkan, atau `tidak` untuk membatalkan.");
+  const selection = parseConfirmReply(text, pending.calls.length);
+  if (!selection) {
+    await replyMia(ctx, pendingConfirmPrompt(pending.calls, "*"));
     return;
   }
   state.pending = null;
+  const decisions = pending.calls.map((call, i) => ({ call, allow: selection[i] }));
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
     result = await withTyping(ctx, () =>
@@ -451,7 +451,7 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
         model: state.model,
         user,
         channel: "text",
-        confirm_call: { call: pending.call, allow: yes },
+        confirm_calls: decisions,
       })
     );
   } catch (err) {
@@ -461,27 +461,17 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
   }
   if (result.needsConfirmation?.length) {
     // The follow-up asked for another risky tool: keep the confirmation chain
-    // going (the agent's own context already has the first tool result) instead
+    // going (the agent's own context already has the tool results) instead
     // of silently dropping it and replying a bare "Selesai.".
-    const call = result.needsConfirmation[0];
-    state.pending = { messages: result.messages ?? pending.messages, call };
-    let args = "";
-    try {
-      args = JSON.stringify(JSON.parse(call.arguments || "{}"));
-    } catch {
-      /* ignore */
-    }
-    await replyMia(
-      ctx,
-      `Mia ingin melakukan aksi berikut: *${call.name}*${args ? ` — \`${args}\`` : ""}\nBalas \`ya\` untuk melanjutkan, atau \`tidak\` untuk membatalkan.`
-    );
+    state.pending = { messages: result.messages ?? pending.messages, calls: result.needsConfirmation };
+    await replyMia(ctx, pendingConfirmPrompt(result.needsConfirmation, "*"));
     return;
   }
   state.history.push({ role: "assistant", content: result.text });
   if (!(await sendVoiceReply(ctx, result.text))) {
     let fallback = "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸";
-    if (!result.text && pending.call.name.startsWith("plan_")) {
-      fallback = pending.call.name === "plan_create"
+    if (!result.text && pending.calls[0]?.name.startsWith("plan_")) {
+      fallback = pending.calls[0].name === "plan_create"
         ? `Plan sudah kubuat beb — cek plan_list untuk lihat step-stepnya 🌸`
         : `Siap beb, step sudah kuupdate — lanjut ke step berikutnya yuk 🌸`;
     }
@@ -531,18 +521,8 @@ async function runTurn(
 
   // Risky tool requested → pause for inline yes/no confirmation (FR-014).
   if (result.needsConfirmation?.length) {
-    state.pending = { messages: result.messages ?? turnMessages, call: result.needsConfirmation[0] };
-    const call = result.needsConfirmation[0];
-    let args = "";
-    try {
-      args = JSON.stringify(JSON.parse(call.arguments || "{}"));
-    } catch {
-      /* ignore */
-    }
-    await replyMia(
-      ctx,
-      `Mia ingin melakukan aksi berikut: *${call.name}*${args ? ` — \`${args}\`` : ""}\nBalas \`ya\` untuk lanjut, atau \`tidak\` untuk membatalkan.`
-    );
+    state.pending = { messages: result.messages ?? turnMessages, calls: result.needsConfirmation };
+    await replyMia(ctx, pendingConfirmPrompt(result.needsConfirmation, "*"));
     return;
   }
 
@@ -580,11 +560,8 @@ async function runTurnWithVision(
     return;
   }
   if (result.needsConfirmation?.length) {
-    state.pending = { messages: (result.messages ?? turnMessages) as never, call: result.needsConfirmation[0] };
-    const call = result.needsConfirmation[0];
-    let args = "";
-    try { args = JSON.stringify(JSON.parse(call.arguments || "{}")); } catch {}
-    await replyMia(ctx, `Mia ingin melakukan aksi berikut: *${call.name}*${args ? ` — \`${args}\`` : ""}\nBalas \`ya\` untuk lanjut, atau \`tidak\` untuk membatalkan.`);
+    state.pending = { messages: (result.messages ?? turnMessages) as never, calls: result.needsConfirmation };
+    await replyMia(ctx, pendingConfirmPrompt(result.needsConfirmation, "*"));
     return;
   }
   state.history.push({ role: "assistant", content: result.text });
