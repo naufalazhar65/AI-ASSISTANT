@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSy
 import { execFile } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
-import { asBodyString, asNumber, asStringArray } from "./args";
+import { asBodyString, asNumber, asStringArray, redactArgsForDisplay } from "./args";
 import { addReminder, readReminders, type Reminder } from "./reminders";
 import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
@@ -4727,7 +4727,9 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   // call counter. Best-effort, never disturbs the result.
   try {
     // Never persist sensitive tool args (e.g. a password handed to breach_check).
-    auditLog(rawUser, `tool:${call.name}`, ["breach_check", "password_strength", "hash_identify", "jwt_inspect", "rapyd_request"].includes(call.name) ? "[redacted]" : JSON.stringify(args).slice(0, 300));
+    // Redact by KEY (any secret-ish arg, any tool) — the old 5-name list let
+    // http_request/jwt_attack/http_session/cdp_request write tokens into the log.
+    auditLog(rawUser, `tool:${call.name}`, redactArgsForDisplay(JSON.stringify(args)).slice(0, 300));
   } catch { /* no-op */ }
   recordToolCall(rawUser, call.name);
   const userKey = sanitizeUser(rawUser);

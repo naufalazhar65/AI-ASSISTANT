@@ -43,3 +43,32 @@ export function asStringArray(v: unknown): string[] | undefined {
   }
   return undefined;
 }
+
+import { redactSecrets } from "./memoryNoise";
+
+const SECRET_ARG_KEY = /(secret|token|password|passwd|api[_-]?key|access[_-]?key|authorization|cookie|bearer|credential|otp|pin|salt|signature)/i;
+
+/** Mask secret-ish argument values (recursively) for chat/audit display. Pure. */
+export function redactArgsForDisplay(json: string): string {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(json);
+  } catch {
+    return redactSecrets(json);
+  }
+  const walk = (v: unknown, key = ""): unknown => {
+    if (key && SECRET_ARG_KEY.test(key)) return "[redacted]";
+    if (Array.isArray(v)) return v.map((x) => walk(x));
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = walk(val, k);
+      return out;
+    }
+    return v;
+  };
+  try {
+    return redactSecrets(JSON.stringify(walk(obj)));
+  } catch {
+    return redactSecrets(json);
+  }
+}

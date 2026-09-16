@@ -33,6 +33,7 @@ const NOISE_RE = new RegExp(
 
 const SECRET_REDACT = [
   /auth0\|[A-Za-z0-9]+/gi,
+  /\br(?:sk|ak)_[A-Za-z0-9]{10,}/g,
   /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
   /\bBearer\s+\S+/gi,
   /\bAKIA[0-9A-Z]{10,}/g,
@@ -63,6 +64,11 @@ export function isNoiseLine(line: string): boolean {
 export function redactSecrets(text: string): string {
   let t = text || "";
   for (const re of SECRET_REDACT) t = t.replace(re, "[redacted]");
+  // JSON-ish "secretKey": "value" → mask the value (any key naming a credential).
+  t = t.replace(
+    /("(?:[a-z0-9_]*(?:secret|token|password|passwd|api[_-]?key|access[_-]?key|authorization|cookie|bearer|credential|signature)[a-z0-9_]*)"\s*:\s*)"[^"]*"/gi,
+    '$1"[redacted]"'
+  );
   return t;
 }
 

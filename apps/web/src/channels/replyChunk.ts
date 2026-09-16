@@ -1,3 +1,4 @@
+import { redactArgsForDisplay } from "../lib/args";
 export const DISCORD_MAX = 2000;
 export const TELEGRAM_MAX = 4096;
 
@@ -99,9 +100,21 @@ function splitByLines(text: string, max: number): string[] {
   return out;
 }
 
+
+/**
+ * Mask the local home directory in outbound text ("/Users/name/x" -> "~/x").
+ * Tool output/errors often carry absolute paths; they are not secrets but do
+ * expose the local username in chats. Pure-ish (uses $HOME). Unit-tested.
+ */
+export function scrubHomePath(text: string, home = typeof process !== "undefined" ? process.env?.HOME : undefined): string {
+  const h = (home || "").replace(/\/$/, "");
+  if (!h) return text;
+  return text.split(h).join("~");
+}
+
 /** Split long replies into channel-safe chunks; code fences stay balanced. */
 export function chunkText(text: string, max: number): string[] {
-  const safe = scrubToolMarkup(text ?? "");
+  const safe = scrubHomePath(scrubToolMarkup(text ?? ""));
   if (safe.length <= max) return [safe];
   return balanceFences(splitByLines(safe, max));
 }
@@ -113,12 +126,13 @@ type PendingAction = { name: string; arguments?: string };
  * reads exactly as before (no index); several are numbered so the user can pick.
  * `bold` is the channel's bold marker (** for Discord, * for Telegram).
  */
+
 function listPendingActions(calls: PendingAction[], bold: string): string {
   return calls
     .map((c, i) => {
       let args = "";
       try {
-        args = JSON.stringify(JSON.parse(c.arguments || "{}"));
+        args = redactArgsForDisplay(c.arguments || "{}");
       } catch {
         /* ignore malformed args */
       }

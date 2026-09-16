@@ -589,6 +589,26 @@ async function main() {
     if (/ini buat jadwal|Cek cuaca terkini/i.test(cleaned)) throw new Error(`stripScheduleEcho left the schedule echo: ${cleaned}`);
     if (!/25°C/.test(cleaned)) throw new Error("stripScheduleEcho dropped the real answer");
     console.log("automation schedule-echo strip: OK");
+
+  // --- secret redaction on every output/audit surface ---
+  {
+    const { redactArgsForDisplay } = await import("./src/lib/args");
+    const { redactSecrets } = await import("./src/lib/memoryNoise");
+    const a = redactArgsForDisplay(JSON.stringify({ url: "https://x", headers: { Authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.aaa.bbb", Cookie: "sid=1" }, access_key: "rak_ABC123456789", secret_key: "rsk_SECRET123456" }));
+    for (const bad of ["eyJ", "rak_", "rsk_", "sid=1"]) if (a.includes(bad)) throw new Error(`redactArgsForDisplay leaked ${bad}: ${a}`);
+    if (!a.includes("https://x")) throw new Error("redactArgsForDisplay dropped non-secret args");
+    const b = redactSecrets('{"password":"hunter2","note":"ok"} auth0|6aaa6aa27123f6e684d7e009');
+    if (b.includes("hunter2") || b.includes("auth0|")) throw new Error(`redactSecrets leaked: ${b}`);
+    if (!b.includes("ok")) throw new Error("redactSecrets dropped non-secret text");
+    console.log("secret redaction (args display + logs/json): OK");
+
+    // home-path masking at the channel send boundary
+    const { scrubHomePath, chunkText: chunkHome } = await import("./src/channels/replyChunk");
+    if (scrubHomePath("/Users/bob/app/x.ts", "/Users/bob") !== "~/app/x.ts") throw new Error("scrubHomePath wrong");
+    const realHome = process.env.HOME || "/Users/bob";
+    if (!/~\/app\/x.ts/.test(chunkHome(`buka ${realHome}/app/x.ts`, 500)[0])) throw new Error(`chunkText should mask the home path: ${chunkHome(`buka ${realHome}/app/x.ts`, 500)[0]}`);
+    console.log("home-path masking: OK");
+  }
   }
   }
 
