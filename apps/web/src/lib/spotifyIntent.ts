@@ -87,7 +87,36 @@ const NEXT_RE = /\b(?:next|skip|lanjut\s+lagu|ganti\s+lagu|pindah\s*(?:ke)?\s*(?
 const PREV_RE = /\b(?:previous|prev|kembali\s+ke\s+lagu|lagu\s+sebelumnya|mundur)\b/i;
 const VOLUME_RE = /\b(?:volume|besarin\s+suara|kecilin\s+suara|naikin\s+volume|turunin\s+volume|keras(?:in)?|pelan(?:in)?)\s*(?:\(|lagu|suara)?\b\s*(\d{1,3})?/i;
 
+
+/**
+ * True when "stop/pause" is meant for WHEN THE SONG ENDS ("stop aja kalau
+ * lagunya udah selesai", "matiin biar ga bablas sampe pagi") — that must become
+ * a sleep timer, NOT an immediate pause. Pure — unit-tested.
+ */
+export function detectSpotifyAfterTrack(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  if (!t) return false;
+  const stop = /(stop|matiin|matikan|jeda|pause|berhenti|mati)/.test(t);
+  if (!stop) return false;
+  const afterWord = /(setelah|sesudah|abis|habis|selesai|berakhir|kelar|kalau|kalo|bila|udah|sudah)/.test(t);
+  const songEnd = /(lagu(nya)?|musik(nya)?|nyanyian(nya)?)\s*(ini|itu|udah|sudah)?\s*(selesai|habis|abis|berakhir|kelar)?/.test(t);
+  const bablas = /bablas/.test(t);
+  // "stop ... setelah/kalau ... lagu (selesai)" or the "biar ga bablas" idiom
+  return (afterWord && songEnd) || bablas || /(selesai|habis|abis|berakhir|kelar)[^.!?]{0,25}(stop|matiin|matikan|jeda|pause|berhenti)/.test(t);
+}
+
+/** The spotify_* tool that performs a given control action (turn-dedupe key). */
+export function spotifyControlToolName(action: string): string {
+  return action === "pause" ? "spotify_pause"
+    : action === "next" ? "spotify_next"
+    : action === "previous" ? "spotify_previous"
+    : action === "volume" ? "spotify_volume"
+    : "spotify_play";
+}
+
 export function detectSpotifyControl(text: string): SpotifyControlIntent | null {
+  // "stop kalau lagunya udah selesai" is a SLEEP TIMER, not an immediate pause.
+  if (detectSpotifyAfterTrack(text)) return null;
   if (PAUSE_RE.test(text)) return { action: "pause" };
   if (NEXT_RE.test(text)) return { action: "next" };
   if (PREV_RE.test(text)) return { action: "previous" };

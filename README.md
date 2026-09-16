@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-273-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-274-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![Playbooks](https://img.shields.io/badge/security%20playbooks-78-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
@@ -162,7 +162,7 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Life** | `mood_log/recent`, `health`, `habit_log/stats`, `spotify_*`, `calendar_*`, `waze_route`, `weather`, `hotel_search`, `cinema_showtimes`, `train_search`, `bus_search` | Keyless travel data, Premium for playback |
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
 
-**273 tools total.** Full list derives from the registry — see
+**274 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---

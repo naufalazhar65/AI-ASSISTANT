@@ -471,3 +471,16 @@ export function syncWakePersona(rawUser: unknown): void {
     /* best-effort */
   }
 }
+
+/** Live (non-superseded) persona fact value by canonical key, e.g. "preference.song". */
+export function getPersonaFact(rawUser: unknown, key: string): string | null {
+  const canon = canonicalFactKey(key);
+  if (!canon) return null;
+  for (const file of ["USER.md", "SOUL.md"] as const) {
+    const view = readFactFile(rawUser, file);
+    if (!view) continue;
+    const hit = view.facts.find((f) => canonicalFactKey(f.key) === canon);
+    if (hit) return hit.value;
+  }
+  return null;
+}

@@ -2171,6 +2171,40 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
+      risk: "write",
+      function: {
+        name: "spotify_sleep_timer",
+        description:
+          "Sleep timer Spotify: after_track=true = matikan playback setelah lagu ini selesai; minutes=N = matikan N menit lagi; cancel=true = batalkan. Pakai ini (BUKAN remind_me) untuk 'stop lagunya kalau udah habis' / 'matiin spotify kalau ketiduran'. Tanpa argumen = status timer.",
+        parameters: {
+          type: "object",
+          properties: {
+            after_track: { type: "boolean", description: "matikan setelah lagu ini selesai" },
+            minutes: { type: "number", description: "matikan setelah N menit (maks 360)" },
+            cancel: { type: "boolean", description: "batalkan sleep timer" },
+          },
+          required: [],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { spotifySleepTimer, spotifySleepTimerStatus } = await import("./spotify");
+        const hasArgs = args.after_track === true || typeof args.minutes === "number" || args.cancel === true;
+        if (!hasArgs) return spotifySleepTimerStatus(ctx.rawUser);
+        return await spotifySleepTimer(ctx.rawUser, {
+          after_track: args.after_track === true,
+          minutes: asNumber(args.minutes),
+          cancel: args.cancel === true,
+        });
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
       risk: "read",
       function: {
         name: "mala",

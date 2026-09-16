@@ -608,6 +608,62 @@ async function main() {
     const realHome = process.env.HOME || "/Users/bob";
     if (!/~\/app\/x.ts/.test(chunkHome(`buka ${realHome}/app/x.ts`, 500)[0])) throw new Error(`chunkText should mask the home path: ${chunkHome(`buka ${realHome}/app/x.ts`, 500)[0]}`);
     console.log("home-path masking: OK");
+
+  // --- Spotify sleep timer plan (pure) ---
+  {
+    const { sleepTimerPlan } = await import("./src/lib/spotify");
+    const a = sleepTimerPlan({ minutes: 20 }, null) as { ms: number };
+    if (a.ms !== 20 * 60_000) throw new Error("sleepTimerPlan minutes wrong");
+    const b = sleepTimerPlan({ after_track: true }, { is_playing: true, progress_ms: 60_000, item: { duration_ms: 180_000, name: "X" } }) as { ms: number; label: string };
+    if (b.ms !== 121_500 || !/setelah lagu ini selesai/.test(b.label)) throw new Error(`sleepTimerPlan after_track wrong: ${JSON.stringify(b)}`);
+    const c = sleepTimerPlan({ after_track: true }, { is_playing: false, item: { duration_ms: 1000 } }) as { error?: string };
+    if (!c.error) throw new Error("paused playback should not plan an after_track stop");
+    if (!("error" in (sleepTimerPlan({}, null) as object))) throw new Error("sleepTimerPlan should ask for after_track/minutes");
+    console.log("spotify sleep timer plan: OK");
+
+  // --- spotify intent: after-track must not pause immediately ---
+  {
+    const { detectSpotifyAfterTrack, detectSpotifyControl } = await import("./src/lib/spotifyIntent");
+    for (const s of [
+      "oke kalo lagunya udh selesai stop aja ya soalnya mau tidur",
+      "stop aja kalau lagunya udah selesai",
+      "matiin biar ga bablas sampe pagi",
+    ]) {
+      if (!detectSpotifyAfterTrack(s)) throw new Error(`after-track not detected: ${s}`);
+      if (detectSpotifyControl(s) !== null) throw new Error(`after-track should not be an immediate control: ${s}`);
+    }
+    if (detectSpotifyAfterTrack("stop lagunya sekarang")) throw new Error("immediate stop wrongly treated as after-track");
+    if (detectSpotifyControl("stop lagunya sekarang")?.action !== "pause") throw new Error("immediate pause no longer works");
+    console.log("spotify after-track intent routing: OK");
+
+  // --- "lagu favoritku" resolves to the persona fact, not a literal search ---
+  {
+    const { resolveFavoriteQuery } = await import("./src/lib/spotify");
+    if (resolveFavoriteQuery("lagu favoritku dari m2m", "The Day You Went Away (M2M)", "M2M") !== "The Day You Went Away M2M")
+      throw new Error("resolveFavoriteQuery should use the persona song");
+    if (resolveFavoriteQuery("The Day You Went Away M2M", null, null) !== "The Day You Went Away M2M")
+      throw new Error("resolveFavoriteQuery must not change a real song query");
+    if (resolveFavoriteQuery("lagu favoritku", null, "M2M") !== "lagu favoritku")
+      throw new Error("resolveFavoriteQuery should fall back when there is no saved song");
+    const { getPersonaFact, setPersonaFact } = await import("./src/lib/persona");
+    const pfUser = "verify_personafact";
+    setPersonaFact(pfUser, "preference.song", "Uji Lagu (Band Uji)");
+    if (getPersonaFact(pfUser, "preference.song") !== "Uji Lagu (Band Uji)") throw new Error("getPersonaFact round-trip failed");
+    rmSync(join(appRoot(), ".data", "users", pfUser), { recursive: true, force: true });
+    console.log("spotify favorite-song resolution + getPersonaFact: OK");
+
+  // --- turn-dedupe: a spotify control maps to exactly one tool name ---
+  {
+    const { spotifyControlToolName } = await import("./src/lib/spotifyIntent");
+    const map = [["pause", "spotify_pause"], ["next", "spotify_next"], ["previous", "spotify_previous"], ["volume", "spotify_volume"]] as const;
+    for (const [action, tool] of map) {
+      if (spotifyControlToolName(action) !== tool) throw new Error(`spotifyControlToolName(${action}) should be ${tool}`);
+    }
+    console.log("spotify control→tool dedupe key: OK");
+  }
+  }
+  }
+  }
   }
   }
   }

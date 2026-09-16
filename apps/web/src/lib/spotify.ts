@@ -361,6 +361,8 @@ interface PlayerSnapshot {
   trackUri?: string;
   contextUri?: string;
   deviceName?: string;
+  trackName?: string;
+  artists?: string;
 }
 
 async function currentPlayer(rawUser: unknown): Promise<PlayerSnapshot | null> {
@@ -405,8 +407,31 @@ async function verifyPlayback(rawUser: unknown, expectedUri?: string, timeoutMs 
 }
 
 /** Play a search result (first track) or resume (`query` empty). Returns a short summary. */
+
+/**
+ * "lagu favoritku" must NOT be searched literally (returns junk). Resolve it to
+ * the persona's saved song (+ artist when the song text lacks it). Pure — tested.
+ */
+export function resolveFavoriteQuery(query: string, favSong?: string | null, favArtist?: string | null): string {
+  const q = (query || "").trim();
+  if (!q) return q;
+  if (!/favorit|favourite|kesukaan|favoritku|lagu\s+fav\b|fav\s+song/i.test(q)) return q;
+  if (!favSong) return q;
+  const artist = (favArtist || "").trim();
+  const song = favSong.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  return artist && !new RegExp(artist.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(song) ? `${song} ${artist}` : song;
+}
+
 export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "playlist" | "album" | "track"): Promise<string> {
   console.log("[spotify] play requested:", { query, kind });
+  // "lagu favoritku" → use the persona fact (preference.song) as the query.
+  if (query && (!kind || kind === "track")) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { getPersonaFact } = require("./persona") as typeof import("./persona");
+      query = resolveFavoriteQuery(query, getPersonaFact(rawUser, "preference.song"), getPersonaFact(rawUser, "preference.artist"));
+    } catch { /* keep the raw query */ }
+  }
   let track: Record<string, unknown> | undefined;
   let contextUri: string | undefined;
   if (query && query.trim()) {
@@ -461,7 +486,10 @@ export async function spotifyPlay(rawUser: unknown, query?: string, kind?: "play
 
     const snap = (await verifyPlayback(rawUser)) || { isPlaying: false };
     const suffix = transferred ? ` di ${transferred}` : onDevice(snap);
-    if (snap.isPlaying) return `Pemutaran dilanjutkan${suffix ? ` ${suffix.trim()}` : ""}.`;
+    // Report WHICH track is actually playing: resuming plays whatever was queued,
+    // so a bare "dilanjutkan" let the model claim the wrong song.
+    const now = snap.trackName ? ` — yang jalan sekarang: ${snap.trackName}${snap.artists ? ` (${snap.artists})` : ""}` : "";
+    if (snap.isPlaying) return `Pemutaran dilanjutkan${suffix ? ` ${suffix.trim()}` : ""}${now}.`;
     return transferred
       ? `Sudah kuarahkan ke ${transferred}, tapi belum kedengeran muter — cek device-nya ya.`
       : "Perintah lanjut muter sudah masuk, tapi belum kedengeran — pastikan ada device aktif ya.";
@@ -837,4 +865,93 @@ export async function spotifyDevices(rawUser?: unknown): Promise<string> {
   return devices
     .map((d) => `- ${String(d.name)} (${String(d.type)})${d.is_active ? " ✓ aktif" : ""}`)
     .join("\n");
+}
+// ── Sleep timer ──────────────────────────────────────────────────────────────
+// "stop lagunya kalau udah selesai" / "matiin spotify 20 menit lagi". Playback
+// has no native "stop at end of track", so we schedule an in-process pause at
+// the computed moment. (In-process only: a server restart drops the timer — the
+// tool says so honestly when none is armed.)
+
+type SleepTimer = { timer: NodeJS.Timeout; stopAt: number; label: string };
+const sleepTimers = new Map<string, SleepTimer>();
+
+/** Pure plan for a sleep timer — unit-tested (no network). */
+export function sleepTimerPlan(
+  opts: { after_track?: boolean; minutes?: number },
+  player: { is_playing?: boolean; progress_ms?: number; item?: { duration_ms?: number; name?: string } } | null
+): { ms: number; label: string } | { error: string } {
+  const now = Date.now();
+  const hhmm = (at: number) => new Date(at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  if (typeof opts.minutes === "number" && opts.minutes > 0) {
+    const mins = Math.min(Math.round(opts.minutes), 360);
+    return { ms: mins * 60_000, label: `${mins} menit lagi (≈ ${hhmm(now + mins * 60_000)})` };
+  }
+  if (opts.after_track) {
+    if (!player || !player.item) return { error: "Spotify belum memutar lagu — tak ada yang bisa dijadwalkan." };
+    if (!player.is_playing) return { error: "Playback sedang dijeda; kalau mau, jadwalkan pakai minutes=N." };
+    const dur = Number(player.item.duration_ms) || 0;
+    const prog = Number(player.progress_ms) || 0;
+    if (!dur) return { error: "Durasi lagu tidak terbaca — coba lagi sebentar lagi." };
+    const ms = Math.min(Math.max(1000, dur - prog) + 1500, 360 * 60_000);
+    return { ms, label: `setelah lagu ini selesai (${player.item.name ? `"${player.item.name}" ` : ""}≈ ${hhmm(now + ms)})` };
+  }
+  return { error: "Sebutkan after_track=true (setelah lagu ini) atau minutes=N (N menit lagi)." };
+}
+
+/** Arm/cancel/status a playback sleep timer. */
+export async function spotifySleepTimer(
+  rawUser: unknown,
+  opts: { after_track?: boolean; minutes?: number; cancel?: boolean } = {}
+): Promise<string> {
+  if (!spotifyConfigured()) return "Spotify belum dikonfigurasi (SPOTIFY_CLIENT_ID/CLIENT_SECRET).";
+  if (!spotifyConnected(rawUser)) return spotifyToolErrorText(rawUser);
+  const key = sanitizeUser(rawUser) || "shared";
+
+  if (opts.cancel) {
+    const cur = sleepTimers.get(key);
+    if (!cur) return "Tidak ada sleep timer aktif.";
+    clearTimeout(cur.timer);
+    sleepTimers.delete(key);
+    return "🛑 Sleep timer dibatalkan — playback dibiarkan jalan.";
+  }
+
+  let player: Record<string, unknown> | null = null;
+  if (opts.after_track) player = await spotifyRequest<Record<string, unknown> | null>(rawUser, "GET", "/me/player");
+  const plan = sleepTimerPlan(opts, player as never);
+  if ("error" in plan) return `Error: ${plan.error}`;
+
+  const prev = sleepTimers.get(key);
+  if (prev) clearTimeout(prev.timer);
+  const stopAt = Date.now() + plan.ms;
+  const timer = setTimeout(() => {
+    sleepTimers.delete(key);
+    void spotifyPause(rawUser)
+      .then((r) => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { pushToOwner } = require("../channels/pushTarget") as typeof import("../channels/pushTarget");
+          void pushToOwner(`⏹️ Sleep timer: playback kumatikan. ${r}`);
+        } catch {
+          /* best-effort notify */
+        }
+      })
+      .catch(() => {});
+  }, plan.ms);
+  timer.unref?.();
+  sleepTimers.set(key, { timer, stopAt, label: plan.label });
+  return `⏱️ Oke — Spotify kumatikan ${plan.label}.`;
+}
+
+/** Human status of the current sleep timer (no args path). */
+export function spotifySleepTimerStatus(rawUser: unknown): string {
+  const cur = sleepTimers.get(sanitizeUser(rawUser) || "shared");
+  if (!cur) return "Tidak ada sleep timer aktif. Sebutkan after_track=true atau minutes=N untuk memasang.";
+  const left = Math.max(0, Math.round((cur.stopAt - Date.now()) / 60_000));
+  return `⏱️ Sleep timer aktif — berhenti ${cur.label} (≈ ${left} menit lagi).`;
+}
+
+/** Map "not connected" to the auth link (mirrors tools.ts spotifyToolError). */
+function spotifyToolErrorText(rawUser: unknown): string {
+  if (!spotifyConfigured()) return "Spotify belum dikonfigurasi (SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET).";
+  return `Koneksi Spotify belum dibuat. Buka link ini sekali untuk menghubungkan: ${spotifyAuthUrl(rawUser)}`;
 }

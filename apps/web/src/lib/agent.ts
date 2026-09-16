@@ -26,7 +26,7 @@ import { logError, logFeatureRequest, logLearning } from "./learnings";
 import { enrichReminderVariants } from "./reminderVariants";
 import { detectMonitorIntents, detectMonitorIntent, cryptoSubject } from "./monitorIntent";
 import { addMonitor } from "./monitor";
-import { detectSpotifyControl, detectSpotifyIntent, detectSpotifyResume, SpotifyControlIntent } from "./spotifyIntent";
+import { SpotifyControlIntent, detectSpotifyControl, detectSpotifyIntent, detectSpotifyResume, spotifyControlToolName } from "./spotifyIntent";
 import { detectPriceIntent } from "./priceIntent";
 import { freerideGetConfig } from "./freeride";
 import { detectPlaceIntent, placeNudge } from "./placeIntent";
@@ -288,7 +288,7 @@ const SYSTEM_PROMPT = [
   + "Use browser_use_open (read, daemon new_tab ~50ms) + browser_use_state (read, AX indices — WAJIB before click) + browser_use_click/input/type/keys/tab/close (write, indices or x y) + browser_use_get/eval/scroll/wait/screenshot (read) for persistent browser automation. Daemon preserves tab across calls — first nav is new_tab, not goto. Prefer browser_open (Playwright headless) for quick JS read, browser_use for interactive/form/screenshot/daemon, cua_browser for typed Chromium. Always state before click, scroll then state if not found, close when done. "
   + "Use learnings_search (query) to find past corrections/learnings or learnings_review for counts — when user asks 'learning apa', 'error apa aja', 'review learnings'. Both run immediately without confirmation. "
   + "Mia updates herself daily (mandiri, no Clawdbot/OpenClaw): AUTO_UPDATE_HOUR default 04:00 git pull --ff-only + npm install + gates typecheck/test/verify + summary push. auto_update_status (read, auto) shows jadwal/last run/riwayat; auto_update (write, confirm) runs the update NOW — when user says 'update mia', 'coba update', 'update dong' call auto_update (confirm first). "
-  + "RULE: kalau user cuma BERTANYA lagu apa yang sedang diputar (\"lagu apa\", \"sedang putar apa\", \"what's playing\") → pakai spotify_status (read), JANGAN play/ganti lagu. Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_next/spotify_previous/spotify_volume to control playback (they run immediately, no confirmation). If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
+  + "RULE: kalau user cuma BERTANYA lagu apa yang sedang diputar (\"lagu apa\", \"sedang putar apa\", \"what's playing\") → pakai spotify_status (read), JANGAN play/ganti lagu. Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_next/spotify_previous/spotify_volume to control playback (they run immediately, no confirmation). Untuk permintaan 'stop lagunya kalau udah selesai / biar nggak bablas / matiin spotify kalau ketiduran' pakai spotify_sleep_timer (after_track=true atau minutes=N) — JANGAN remind_me (reminder cuma ngingetin, tidak menghentikan playback). Kalau user bilang 'lagu favoritku/kesukaanku', panggil spotify_play dengan query itu apa adanya — sistem otomatis mengambil judulnya dari persona (preference.song) + artist. SPOTIFY HONESTY: jangan pernah mengklaim sebuah lagu sudah diputar kecuali hasil tool-nya menyebut judul itu. Kalau tool bilang 'Pemutaran dilanjutkan — yang jalan sekarang: X', sebut X apa adanya (jangan mengarang judul lain); kalau ragu, panggil spotify_status dulu. If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
   "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. Present the returned list as one email per line.",
   "save_note, delete_note, library_remove, memory_hygiene, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan, lab_start, http_request, cua_keys, cua_mouse, clipboard_set, write_file, edit_file, browser_click, browser_type, browser_navigate, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_tab, browser_use_close, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, brv_curate, brv_swarm_curate, brv_review_approve, brv_review_reject, summarize_template, freeride_auto, freeride_switch, freeride_rotate, auto_update, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
@@ -818,13 +818,23 @@ function memoryRecallBlock(recall: string): string {
  * If a risky (WRITE/DELETE/...) tool is requested on a fresh turn, it returns
  * those calls for confirmation instead of executing them.
  */
+/** Turn-local state shared across the agent loop and the deterministic post-processors. */
+interface TurnCollector {
+  collect: (text: string) => void;
+  webSearchSuccess?: boolean;
+  verbatimHit?: boolean;
+  suppressVerbatim?: boolean;
+  /** spotify_* tools that already ran this turn (risk `read`) — dedupe key. */
+  spotifyCallsExecuted?: Set<string>;
+}
+
 async function runAgent(
   messages: ChatMessage[],
   url: string,
   apiKey: string,
   defaultModel: string,
   systemPrompt: string,
-  collector: { collect: (text: string) => void; webSearchSuccess?: boolean; verbatimHit?: boolean; suppressVerbatim?: boolean },
+  collector: TurnCollector,
   round: number,
   model?: string,
   user?: unknown,
@@ -1018,6 +1028,9 @@ async function runAgent(
     }
     messages.push({ role: "tool", tool_call_id: call.id, content });
     if (call.name === "web_search" && !/^error:|^No results found/i.test(content)) collector.webSearchSuccess = true;
+    // Spotify tools are risk `read` → they run right here. Remember them so the
+    // deterministic fallback later this turn cannot repeat the same action.
+    if (call.name.startsWith("spotify_")) (collector.spotifyCallsExecuted ??= new Set<string>()).add(call.name);
   }
 
   if (round < MAX_TOOL_ROUNDS) {
@@ -1541,7 +1554,19 @@ async function scheduleSpotifyFromIntent(
 async function scheduleSpotifyControlFromIntent(messages: ChatMessage[], user: unknown, text: string): Promise<string> {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
-  const ctrl = detectSpotifyControl(messageText(lastUser.content));
+  const userText = messageText(lastUser.content);
+  // "stop aja kalau lagunya udah selesai" → sleep timer (a pause now would cut
+  // the song). Checked BEFORE the control parser.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { detectSpotifyAfterTrack } = require("./spotifyIntent") as typeof import("./spotifyIntent");
+    if (detectSpotifyAfterTrack(userText)) {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { spotifySleepTimer } = require("./spotify") as typeof import("./spotify");
+      return await spotifySleepTimer(user, { after_track: true });
+    }
+  } catch { /* fall through to the normal control path */ }
+  const ctrl = detectSpotifyControl(userText);
   if (!ctrl) return text;
   let result: string;
   try {
@@ -2291,7 +2316,7 @@ async function runAssistantTurnImpl(opts: {
 
   let text = "";
   let needsConfirmation: ToolCall[] | null = null;
-  const collector: { collect: (t: string) => void; webSearchSuccess?: boolean; verbatimHit?: boolean; suppressVerbatim?: boolean } = {
+  const collector: TurnCollector = {
     collect: (t: string) => (text += t),
     // A confirmation continuation answers an action, not a list request.
     suppressVerbatim: confirmations.length > 0,
@@ -2527,7 +2552,15 @@ async function runAssistantTurnImpl(opts: {
     const playCall = pendingSpotify.find((c) => c.name === "spotify_play");
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content;
     const ctrl = lastUserMsg ? detectSpotifyControl(messageText(lastUserMsg)) : null;
-    if (ctrl) {
+    // Spotify tools are risk `read`, so the model's own spotify_* call ALREADY
+    // executed in the tool loop. Re-running the deterministic path doubled the
+    // action (observed live: the song restarted right after Mia's reply) — the
+    // fallback may only fill in what this turn did NOT already do.
+    const already = collector.spotifyCallsExecuted ?? new Set<string>();
+    const ctrlTool = ctrl ? spotifyControlToolName(ctrl.action) : null;
+    if (ctrl && ctrlTool && already.has(ctrlTool)) {
+      /* no-op: the model's identical control call already ran this turn */
+    } else if (ctrl) {
       // Deterministic single action from the user's own words — this is the
       // source of truth. Native spotify_* calls are ignored here so a
       // duplicated/broken 9router emission can NEVER cause a double next/pause.
@@ -2555,7 +2588,9 @@ async function runAssistantTurnImpl(opts: {
         }
       }
     }
-    text = await scheduleSpotifyFromIntent(messages, opts.user, text, playCall ? queryArgOf(playCall) : null);
+    if (!already.has("spotify_play")) {
+      text = await scheduleSpotifyFromIntent(messages, opts.user, text, playCall ? queryArgOf(playCall) : null);
+    }
   }
   text = await schedulePriceFromIntent(messages, opts.user, text);
   // Link intelligence: deterministic post-turn capture of a shared URL
