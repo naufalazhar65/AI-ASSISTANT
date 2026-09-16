@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-270-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-273-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![Playbooks](https://img.shields.io/badge/security%20playbooks-78-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
@@ -86,7 +86,7 @@ npm run dev -w @voice/web             # http://localhost:3000
 npm run typecheck && npm test && npx tsx apps/web/verify.ts
 ```
 
-> **Voice pipeline:** mic → VAD → Whisper ASR → LLM → Orpheus TTS per sentence — barge-in <200ms, first audio <1.5s.
+> **Voice pipeline:** mic → VAD → Whisper ASR → LLM → TTS per sentence — barge-in <200ms, first audio <1.5s. Indonesian replies use the local macOS voice (`say -v Damayanti`), English/Arabic via Groq Orpheus.
 
 ---
 
@@ -155,14 +155,14 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Web** | `web_search`, `research`, `google_news`, `fetch_url` | DDG + Bing fallback, Google News RSS dedup, SSRF-guarded |
 | **Code** | `file_read`, `write_file`, `edit_file`, `codebase_search`, `codebase_refresh` | Sandboxed multi-root `resolveInSandbox`, `ALLOWED_WORKSPACES` |
 | **Shell** | `exec` (read), `exec_write` (write) | Allowlist + SafeExec guard |
-| **Memory** | `save_note`, `list_notes`, `delete_note`, `search_memory`, `memory_get` | Per-user `notes.json`, BM25 + embedding, `dailyMemory` |
+| **Memory** | `save_note`, `list_notes`, `delete_note`, `search_memory`, `memory_get`, `persona_show`, `persona_set`, `persona_forget` | Per-user `notes.json`, BM25 + embedding, `dailyMemory` |
 | **Knowledge** | `brv_*` (ByteRover), `summarize*` (20 formats), `humanize*` | `.brv` context tree, Summarize Pro, 24 humanize patterns |
 | **Desktop** | `browser_*`, `browser_use_*`, `cua_*`, `device_*`, `clipboard_*` | Playwright, browser-use daemon, native GUI, paired devices |
 | **Productivity** | `add_task/list/complete/cancel/reschedule`, `remind_me`, `reminders_list`, `create_automation`, `plan_*` | Daily/heartbeat, internal planning board |
 | **Life** | `mood_log/recent`, `health`, `habit_log/stats`, `spotify_*`, `calendar_*`, `waze_route`, `weather`, `hotel_search`, `cinema_showtimes`, `train_search`, `bus_search` | Keyless travel data, Premium for playback |
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
 
-**270 tools total.** Full list derives from the registry — see
+**273 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---

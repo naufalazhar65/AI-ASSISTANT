@@ -46,6 +46,16 @@ export async function synthesizeSpeech(input: { text: string; voice?: string }):
   const text = (input.text ?? "").trim().slice(0, MAX_INPUT_CHARS);
   if (!text) throw new TtsError("missing text", 400);
 
+  // FR-010 Indonesian: Groq Orpheus has no Indonesian model, so Indonesian used
+  // to be read with English pronunciation. macOS ships a real Indonesian voice
+  // (Damayanti) locally — use it when the text looks Indonesian. Falls through
+  // to the provider on any failure, so this never regresses the existing path.
+  const { looksIndonesian, localIdTtsEnabled, sayToWav } = await import("./ttsLocal");
+  if (localIdTtsEnabled() && looksIndonesian(text)) {
+    const wav = await sayToWav(text);
+    if (wav) return wav;
+  }
+
   if (provider === "elevenlabs") {
     const apiKey = process.env.ELEVENLABS_API_KEY;
     if (!apiKey) throw new TtsError("ELEVENLABS_API_KEY is not set", 500);

@@ -1,6 +1,33 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { sanitizeUser, appRoot, userDataRoot } from "./users";
+import {
+  canonicalFactKey,
+  looksLikeSecret,
+  mergeFact,
+  capFacts,
+  renderFactsBlock,
+  splitFactFile,
+  type Fact,
+} from "./personaFacts";
+
+/** Max live facts kept per file (core keys survive the cap first). */
+export const MAX_FACTS = 80;
+/**
+ * Atomic file write (tmp + rename). Persona files are the single source of truth
+ * for identity — a crash mid-write must never leave a truncated file.
+ */
+function writeAtomic(path: string, data: string): void {
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+  } catch {
+    /* ignore */
+  }
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, data, "utf8");
+  renameSync(tmp, path);
+}
+
 import { loadDailyMemoryPrompt } from "./dailyMemory";
 
 /**
@@ -65,7 +92,9 @@ function extractInjectableBody(file: string, body: string): string {
     const header = headers[0];
     const idx = body.indexOf(header);
     if (idx !== -1) {
-      const block = body.slice(idx).trim();
+      // Never inject the superseded history: old values would look like live
+      // facts (e.g. a replaced food preference).
+      const block = body.slice(idx).split("\n## Superseded")[0].trim();
       // If block is just the header with no facts, fall back to key facts elsewhere
       if (block.length > header.length + 10) return block;
       // SOUL has no facts under ## Style yet — extract tone lines as fallback
@@ -142,39 +171,25 @@ export function upsertPersonaFact(
   mkdirSync(dir, { recursive: true });
   const path = join(dir, fileName);
   if (!existsSync(path)) return;
-  const valueTrim = value.trim();
-  if (!key.trim() || !valueTrim) return;
 
-  const text = readFileSync(path, "utf8");
+  const canon = canonicalFactKey(key);
+  const valueTrim = (value ?? "").trim();
+  if (!canon || !valueTrim) return;
+  // A credential/token is NEVER a persona fact.
+  if (looksLikeSecret(valueTrim)) return;
+
   const header = headers[0];
-  const headerIdx = text.indexOf(header);
-  const prefix = `${key}:`;
-
-  let head: string;
-  let block: string;
-  let tail: string;
-
-  if (headerIdx === -1) {
-    // No section yet: append a new section at the end.
-    head = text.replace(/\s*$/, "\n");
-    block = "";
-    tail = "";
-  } else {
-    head = text.slice(0, headerIdx);
-    const blockStart = headerIdx + header.length;
-    const nextHeaderMatch = text.slice(blockStart).match(/\n## /);
-    const blockEnd = nextHeaderMatch ? blockStart + nextHeaderMatch.index! : text.length;
-    block = text.slice(blockStart, blockEnd);
-    tail = text.slice(blockEnd);
+  const text = readFileSync(path, "utf8");
+  const { head, facts, superseded } = splitFactFile(text, header);
+  const merged = mergeFact(facts, canon, valueTrim);
+  const sup = [...superseded];
+  if (merged.superseded) {
+    sup.push(`- [superseded] ${canon}: ${merged.superseded.from} → ${merged.superseded.to} (${new Date().toISOString().slice(0, 10)})`);
   }
+  const capped = capFacts(merged.facts, MAX_FACTS);
+  writeAtomic(path, `${head}${renderFactsBlock(capped.facts, sup)}`);
 
-  const lines = block.split("\n").filter((l) => !l.trimStart().startsWith(`- ${prefix}`));
-  const insertion = `- ${prefix} ${valueTrim}`;
-  const newBlock = block === "" ? `\n${header}\n\n${insertion}\n\n` : `${lines.join("\n").replace(/\s*$/, "")}\n${insertion}\n\n`;
-
-  writeFileSync(path, `${head}${newBlock}${tail.replace(/^\n+/, "").trimStart()}`, "utf8");
-
-  // Continuous hygiene: collapse duplicates left by parallel capture passes.
+  // Continuous hygiene: collapse anything a parallel capture pass left behind.
   try {
     hygienizePersona(rawUser);
   } catch {
@@ -243,45 +258,53 @@ const DISALLOWED_USER_KEYS = new Set([
 function hygienizeUserFile(path: string): HygieneResult {
   const result: HygieneResult = { file: "USER.md", removed: 0, changed: false, conflicts: [] };
   const original = readFileSync(path, "utf8");
-  const seen = new Map<string, number>();
-  const facts: { key: string; value: string }[] = [];
+  const header = FACT_SECTIONS["USER.md"][0];
+  const { head, superseded } = splitFactFile(original, header);
+  const supIdx = original.indexOf("## Superseded");
+  const main = supIdx === -1 ? original : original.slice(0, supIdx);
+
+  const idxByKey = new Map<string, number>();
+  const facts: Fact[] = [];
   const conflicts = new Map<string, HygieneConflict>();
   const nonFact: string[] = [];
-  for (const line of original.split("\n")) {
+  for (const line of main.split("\n")) {
     const m = FACT_LINE_RE.exec(line);
     if (m) {
       const key = m[1].trim();
       const value = m[2].trim();
-      // Drop transient/internal keys and empty-bloated values
-      if (DISALLOWED_USER_KEYS.has(key.toLowerCase())) {
+      // Drop transient/internal keys, overlong prose, and secret-looking values.
+      if (DISALLOWED_USER_KEYS.has(key.toLowerCase()) || value.length > 200 || looksLikeSecret(value)) {
         result.removed++;
         continue;
       }
-      if (value.length > 200) {
-        // Overlong value likely junk/prose — skip
-        result.removed++;
-        continue;
-      }
-      const prev = seen.get(key);
+      const canon = canonicalFactKey(key) || key.toLowerCase();
+      const prev = idxByKey.get(canon);
       if (prev !== undefined) {
         const old = facts[prev].value;
-        if (old !== value) conflicts.set(key, { key, kept: value, superseded: old });
-        facts[prev].value = value;
+        if (old !== value) conflicts.set(canon, { key: canon, kept: value, superseded: old });
+        facts[prev] = { key: canon, value };
         result.removed++;
       } else {
-        seen.set(key, facts.length);
-        facts.push({ key, value });
+        idxByKey.set(canon, facts.length);
+        facts.push({ key: canon, value });
       }
       continue;
     }
     if (/^##\s+Facts\s*$/i.test(line.trim())) continue; // rebuilt below
     nonFact.push(line);
   }
-  const head = collapseBlanks(nonFact);
-  const rebuilt = `${head}\n\n## Facts\n\n${facts.map((f) => `- ${f.key}: ${f.value}`).join("\n")}\n`;
+
+  const capped = capFacts(facts, MAX_FACTS);
+  result.removed += capped.dropped;
   result.conflicts = [...conflicts.values()];
+  const supLines = [...superseded];
+  for (const c of result.conflicts) supLines.push(`- [superseded] ${c.key}: ${c.superseded} → ${c.kept} (${new Date().toISOString().slice(0, 10)})`);
+
+  const headText = collapseBlanks(nonFact).replace(/\s*$/, "");
+  const rebuilt = `${headText ? `${headText}\n\n` : ""}${renderFactsBlock(capped.facts, supLines)}`;
+  void head;
   if (rebuilt.replace(/\s+$/, "") !== original.replace(/\s+$/, "")) {
-    writeFileSync(path, rebuilt, "utf8");
+    writeAtomic(path, rebuilt);
     result.changed = true;
   }
   return result;
@@ -305,7 +328,7 @@ function hygienizeSoulFile(path: string): HygieneResult {
   }
   const rebuilt = collapseBlanks(out);
   if (rebuilt !== original.replace(/\s+$/, "")) {
-    writeFileSync(path, `${rebuilt}\n`, "utf8");
+    writeAtomic(path, `${rebuilt}\n`);
     result.changed = true;
   }
   return result;
@@ -363,4 +386,68 @@ export const PERSONA_TOTAL_MAX_CHARS = 8000;
 export function truncateWithMarker(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}\n… (truncated — file has more; ask to read it if needed)`;
+}
+
+// --- User-facing persona control (show / set / forget) -----------------------
+
+/** Read the user's persona files into a structured view (facts + superseded). */
+function readFactFile(rawUser: unknown, file: "USER.md" | "SOUL.md"): { path: string; head: string; facts: Fact[]; superseded: string[] } | null {
+  const userKey = sanitizeUser(rawUser);
+  if (userKey) ensureUserPersona(userKey);
+  const path = join(personaDir(userKey), file);
+  if (!existsSync(path)) return null;
+  const { head, facts, superseded } = splitFactFile(readFileSync(path, "utf8"), FACT_SECTIONS[file][0]);
+  return { path, head, facts, superseded };
+}
+
+/** Human-readable "what Mia remembers about you" (USER facts + SOUL style). */
+export function personaFactsText(rawUser: unknown): string {
+  const user = readFactFile(rawUser, "USER.md");
+  const soul = readFactFile(rawUser, "SOUL.md");
+  const lines: string[] = [`🧠 Yang kuingat tentang kamu:`];
+  if (!user?.facts.length) lines.push("(belum ada fakta tersimpan)");
+  else for (const f of user.facts) lines.push(`• ${f.key}: ${f.value}`);
+  if (soul?.facts.length) {
+    lines.push("", "🎀 Gaya yang kamu minta:");
+    for (const f of soul.facts) lines.push(`• ${f.key}: ${f.value}`);
+  }
+  const sup = [...(user?.superseded ?? []), ...(soul?.superseded ?? [])];
+  if (sup.length) lines.push("", `🕓 Riwayat (digantikan): ${sup.length} entri — lihat persona/<user>/USER.md`);
+  lines.push("", "Hapus dengan `lupakan <kata kunci>`.");
+  return lines.join("\n");
+}
+
+/** Forget facts matching a query (canonical key, key substring, or value). */
+export function forgetPersonaFact(rawUser: unknown, queryRaw: string): string {
+  const q = (queryRaw || "").trim().toLowerCase();
+  if (!q) return "Error: sebutkan apa yang mau dilupakan (mis. 'kopi').";
+  const canonQ = canonicalFactKey(q);
+  let removed = 0;
+  const keptKeys: string[] = [];
+  for (const file of ["USER.md", "SOUL.md"] as const) {
+    const view = readFactFile(rawUser, file);
+    if (!view) continue;
+    const keep = view.facts.filter((f) => {
+      const hit = f.key.toLowerCase().includes(q) || f.value.toLowerCase().includes(q) || (canonQ && canonicalFactKey(f.key) === canonQ);
+      if (hit) removed++;
+      return !hit;
+    });
+    const supKeep = view.superseded.filter((l) => !l.toLowerCase().includes(q));
+    const removedSup = view.superseded.length - supKeep.length;
+    removed += removedSup;
+    if (keep.length === view.facts.length && removedSup === 0) continue;
+    writeAtomic(view.path, `${view.head}${renderFactsBlock(keep, supKeep)}`);
+  }
+  if (!removed) return `Tidak ada yang cocok dengan "${queryRaw}" — tak ada yang kuhapus.`;
+  return `🧽 Kuhapus ${removed} entri yang cocok dengan "${queryRaw}". Sisa: ${keptKeys.length ? keptKeys.join(", ") : "lihat persona_show"}.`;
+}
+
+/** Explicitly remember a fact ("ingat ini: ...") — canonicalised + secret-safe. */
+export function setPersonaFact(rawUser: unknown, key: string, value: string, target: PersonaTarget = "USER"): string {
+  const canon = canonicalFactKey(key);
+  const v = (value || "").trim();
+  if (!canon || !v) return "Error: butuh `key` dan `value`.";
+  if (looksLikeSecret(v)) return "Tidak kusimpan — sepertinya itu token/rahasia, bukan fakta tentangmu.";
+  upsertPersonaFact(target, canon, v, rawUser);
+  return `✅ Kuingat: ${canon} = ${v}`;
 }

@@ -11,6 +11,7 @@ import { readTasks } from "./tasks";
 import { readReminders } from "./reminders";
 import { readMoods } from "./mood";
 import { readDailyMemory } from "./dailyMemory";
+import { isNoiseLine, redactSecrets } from "./memoryNoise";
 import { holidayInfo } from "./holiday";
 import { pushToOwner } from "../channels/pushTarget";
 import { briefingEnabled, briefingHour } from "./config";
@@ -180,7 +181,9 @@ export function buildMorningBriefing(rawUser?: unknown, now = new Date()): strin
       const snippets = yesterday.split("\n").map((l) => l.trim()).filter(Boolean)
         .filter((l) => !/^#/.test(l) && !/\(automation\)/.test(l) && !/laporan terjadwal/i.test(l))
         .filter((l) => !/^\[persona\]/i.test(l) && !/^Mia:/i.test(l))
-        .map((l) => l.replace(/^(User|Assistant):\s*/, "")).slice(0, 2);
+        .map((l) => redactSecrets(l.replace(/^(User|Assistant):\s*/, "")))
+        .filter((l) => l && !isNoiseLine(l))
+        .slice(0, 2);
       if (snippets.length) lines.push(`Kemarin kita ngobrol soal "${snippets[0].slice(0, 120)}" — aku inget, mau lanjutin hari ini? ✨`);
     }
   }

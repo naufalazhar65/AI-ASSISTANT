@@ -489,7 +489,87 @@ async function main() {
   if (asBodyString('{"a":1}') !== '{"a":1}') throw new Error("asBodyString should pass a string through");
   if (asBodyString(undefined) !== undefined || asBodyString(null) !== undefined) throw new Error("asBodyString should return undefined for empty");
   if (asBodyString([1, 2]) !== "[1,2]") throw new Error("asBodyString should stringify arrays");
+  const { asNumber, asStringArray } = await import("./src/lib/args");
+  if (asNumber("3") !== 3 || asNumber(4) !== 4) throw new Error("asNumber should coerce numeric strings");
+  if (asNumber("abc") !== undefined || asNumber("") !== undefined) throw new Error("asNumber should reject junk");
+  if (JSON.stringify(asStringArray("a, b")) !== '["a","b"]') throw new Error("asStringArray should split a comma string");
+  if (JSON.stringify(asStringArray(["x", "y"])) !== '["x","y"]') throw new Error("asStringArray should pass arrays through");
+  if (asStringArray("") !== undefined) throw new Error("asStringArray should be undefined for empty");
   console.log("asBodyString (object/array/string body): OK");
+
+  // --- local Indonesian TTS detector (FR-010 Indonesian) ---
+  const { looksIndonesian } = await import("./src/lib/ttsLocal");
+  if (!looksIndonesian("Halo Mas Naufal, apa kabar hari ini?")) throw new Error("looksIndonesian missed Indonesian");
+  if (!looksIndonesian("Jangan lupa makan siang ya")) throw new Error("looksIndonesian missed Indonesian (2)");
+  if (looksIndonesian("Please merge the pull request and deploy")) throw new Error("looksIndonesian false-positive English");
+  if (looksIndonesian("مرحبا كيف حالك")) throw new Error("looksIndonesian should exclude Arabic");
+  if (looksIndonesian("")) throw new Error("looksIndonesian should be false for empty");
+  console.log("looksIndonesian (ID vs EN vs AR): OK");
+
+  // --- memory noise filter + secret redaction (recap/memory hygiene) ---
+  const { isNoiseLine, redactSecrets } = await import("./src/lib/memoryNoise");
+  if (!isNoiseLine('Mia: query{ candidate(id: "auth0|6aaa6aa27123f6e684d7e009"){ documentId { value } } }')) throw new Error("isNoiseLine missed a GraphQL/tool line");
+  if (!isNoiseLine('cdp_request tab=jobstreet.com url=https://graphql.seek.com/graphql method=POST')) throw new Error("isNoiseLine missed a tool-command line");
+  if (!isNoiseLine('{"query":"{__typename}"}')) throw new Error("isNoiseLine missed a JSON payload");
+  if (isNoiseLine("Halo Mas, tadi aku masak rendang buat keluarga.")) throw new Error("isNoiseLine false-positive on normal chat");
+  if (redactSecrets("id auth0|6aaa6aa27123f6e684d7e009 ok").includes("auth0|")) throw new Error("redactSecrets left an auth0 id");
+  if (redactSecrets("Bearer eyJhbGciOiJIUzI1NiJ9.abc.def").includes("eyJ")) throw new Error("redactSecrets left a JWT");
+  console.log("memoryNoise (tool/secrets filtered, chat kept): OK");
+
+  // --- scope-gating matrix: every ACTIVE tool must refuse an out-of-scope URL ---
+  {
+    const out = "https://evil.example.com";
+    const matrix: [string, Record<string, unknown>][] = [
+      ["security_hunt", { url: out }], ["suite_hunt", { url: out }], ["auth_hunt", { url: out }],
+      ["api_hunt", { url: out }], ["oauth_hunt", { url: out }], ["poc_verify", { url: out }],
+      ["tech_watch", { url: out }], ["cloud_misconfig", { base_domain: "evil.example.com" }],
+      ["content_discover", { url: out }], ["param_fuzz", { url: out }], ["crawl", { url: out }],
+      ["param_discover", { url: out }], ["race", { url: out }], ["ws_probe", { url: "ws://evil.example.com" }],
+      ["recon_httpx", { domain: "evil.example.com" }], ["recon_ports", { host: "evil.example.com" }],
+      ["recon_screenshot", { domain: "evil.example.com" }], ["recon_dnsbrute", { domain: "evil.example.com" }],
+      ["bucket_enum", { domain: "evil.example.com" }], ["js_mine", { url: out }], ["graphql_probe", { url: out }],
+      ["evidence_capture", { url: out }], ["http_request", { url: out }], ["pentest_scan", { tool: "nmap", target: out }],
+      ["sqlmap_scan", { url: out }], ["nuclei_custom", { target: out }], ["cdp_request", { tab: "x", url: out }],
+      ["cdp_open", { url: out }], ["flow_run", { flow: { steps: [{ url: out }] } }],
+    ];
+    for (const [name, args] of matrix) {
+      const r = await executeTool({ id: "t", name, arguments: JSON.stringify(args) }, "verify_scope_matrix");
+      if (!/SCOPE|lab|engagement|tidak diizinkan/i.test(r)) {
+        throw new Error(`scope gate missing for ${name}: ${String(r).slice(0, 120)}`);
+      }
+    }
+    console.log(`scope-gating matrix (${matrix.length} active tools refuse out-of-scope): OK`);
+
+  // --- persona facts: canonical keys, conflicts, secrets, cap, split + tools ---
+  {
+    const pf = await import("./src/lib/personaFacts");
+    if (pf.canonicalFactKey("favorite_food") !== "preference.food") throw new Error("canonical favorite_food");
+    if (pf.canonicalFactKey("preference.food") !== "preference.food") throw new Error("canonical preference.food");
+    if (pf.canonicalFactKey("name") !== "name") throw new Error("canonical name must stay");
+    if (pf.canonicalFactKey("preference.crypto_monitor") !== "preference.crypto_monitor") throw new Error("non-preference key must stay");
+    if (!pf.looksLikeSecret("auth0|6aaa6aa27123f6e684d7e009") || !pf.looksLikeSecret("eyJhbGciOiJIUzI1NiJ9.abc.def")) throw new Error("looksLikeSecret missed a token");
+    if (pf.looksLikeSecret("nasi goreng")) throw new Error("looksLikeSecret false-positive");
+    const m1 = pf.mergeFact([{ key: "name", value: "Naufal" }], "favorite_food", "nasi goreng");
+    const m2 = pf.mergeFact(m1.facts, "preference.food", "bakso");
+    if (m2.facts.filter((f) => f.key === "preference.food").length !== 1) throw new Error("canonical merge should collapse synonyms");
+    if (!m2.superseded || m2.superseded.from !== "nasi goreng" || m2.superseded.to !== "bakso") throw new Error("mergeFact should report the superseded value");
+    const capped = pf.capFacts(Array.from({ length: 100 }, (_, i) => ({ key: `k${i}`, value: "v" })), 80);
+    if (capped.facts.length !== 80 || capped.dropped !== 20) throw new Error("capFacts wrong");
+    const split = pf.splitFactFile("# U\n\n## Facts\n\n- name: Naufal\n\n## Superseded\n\n- [superseded] name: beb → Naufal (2026-01-01)\n");
+    if (split.facts.length !== 1 || split.facts[0].key !== "name") throw new Error("splitFactFile should read only live facts");
+    if (split.superseded.length !== 1) throw new Error("splitFactFile should keep superseded history");
+    const pu = "verify_persona_tools";
+    await executeTool({ id: "t", name: "persona_set", arguments: JSON.stringify({ key: "favorite_food", value: "nasi goreng" }) }, pu);
+    const secretRes = await executeTool({ id: "t", name: "persona_set", arguments: JSON.stringify({ key: "token", value: "eyJhbGciOiJIUzI1NiJ9.abc.def" }) }, pu);
+    if (!/tidak kusimpan|rahasia/i.test(secretRes)) throw new Error("persona_set should refuse a secret");
+    const showRes = await executeTool({ id: "t", name: "persona_show", arguments: "{}" }, pu);
+    if (!/preference\.food: nasi goreng/.test(showRes)) throw new Error(`persona_show missing canonical fact: ${showRes.slice(0, 120)}`);
+    const forgetRes = await executeTool({ id: "t", name: "persona_forget", arguments: JSON.stringify({ query: "food" }) }, pu);
+    if (!/Kuhapus/i.test(forgetRes)) throw new Error(`persona_forget should remove the fact: ${forgetRes}`);
+    rmSync(join(appRoot(), ".data", "users", pu), { recursive: true, force: true });
+    console.log("persona facts (canonical/secret/conflict/cap/split + tools): OK");
+  }
+  }
 
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");

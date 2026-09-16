@@ -1,5 +1,5 @@
 import { broadcastMiaState } from "@/lib/miaState";
-import { chunkText, DISCORD_MAX, parseConfirmReply, pendingConfirmPrompt } from "./replyChunk";
+import { chunkText, DISCORD_MAX, parseConfirmReply, pendingConfirmPrompt, EMPTY_REPLY_FALLBACK, COMMAND_EMPTY_FALLBACK } from "./replyChunk";
 
 /**
  * Discord channel adapter (PRD v2.0 §8.1 FR-101 / ROADMAP Fase 2.3).
@@ -271,7 +271,7 @@ export async function startDiscordBot(): Promise<void> {
           const opt = interaction.options.data.map((o) => String(o.value ?? "")).join(" ").trim();
           const fakeText = `/${cmd}${opt ? ` ${opt}` : ""}`;
           const res = handleUnifiedCommand(state as ChatSessionState, fakeText);
-          replyText = res.handled ? (res.replyText || "…") : `Perintah /${cmd} tidak dikenal.`;
+          replyText = res.handled ? (res.replyText || COMMAND_EMPTY_FALLBACK) : `Perintah /${cmd} tidak dikenal.`;
         }
         await interaction.editReply(replyText.slice(0, 1900)).catch((e) => console.warn("[discord] editReply failed:", e instanceof Error ? e.message : String(e)));
         return;
@@ -507,7 +507,7 @@ async function handleCommand(msg: Message, state: ChatState, text: string, user:
   }
   const res = handleUnifiedCommand(state as ChatSessionState, text);
   if (res.handled) {
-    await replyMia(msg, res.replyText || "…");
+    await replyMia(msg, res.replyText || COMMAND_EMPTY_FALLBACK);
     return;
   }
 }
@@ -550,7 +550,7 @@ async function handleConfirmation(msg: Message, state: ChatState, user: string, 
     return;
   }
   state.history.push({ role: "assistant", content: result.text });
-  let fallback = "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸";
+  let fallback = EMPTY_REPLY_FALLBACK;
   if (!result.text && pending.calls[0]?.name.startsWith("plan_")) {
     fallback = pending.calls[0].name === "plan_create"
       ? `Plan sudah kubuat beb — cek plan_list untuk lihat step-stepnya 🌸`
@@ -610,7 +610,7 @@ async function runTurn(
   state.history.push({ role: "assistant", content: result.text });
   await replyMiaVoice(
     msg,
-    result.text || "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸",
+    result.text || EMPTY_REPLY_FALLBACK,
     voiceTurn
   );
 }
@@ -644,5 +644,5 @@ async function runTurnWithVision(
     return;
   }
   state.history.push({ role: "assistant", content: result.text });
-  await replyMiaVoice(msg, result.text || "…", voiceTurn);
+  await replyMiaVoice(msg, result.text || EMPTY_REPLY_FALLBACK, voiceTurn);
 }

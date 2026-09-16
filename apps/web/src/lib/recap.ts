@@ -14,6 +14,7 @@ import { readMoods } from "./mood";
 import { pushToOwner } from "../channels/pushTarget";
 import { recapHour } from "./config";
 import { logInfo, logError } from "./appLogger";
+import { isNoiseLine, redactSecrets } from "./memoryNoise";
 
 let timer: NodeJS.Timeout | null = null;
 let started = false;
@@ -88,35 +89,24 @@ function isJunkLine(line: string): boolean {
   if (/^\[persona\]/i.test(line)) return true; // persona capture log
   // Automation/system injection inside a "User:" turn — not real conversation.
   if (/terjadwal \(automation\)|\[Scheduled automation\]|laporan terjadwal/i.test(line)) return true;
+  // Tool calls / payloads / shell flags / auth ids — never human conversation.
+  if (isNoiseLine(line)) return true;
   return false;
 }
 
 /** Clean the daily-memory text into human conversation snippets for the recap. */
 function cleanSnippets(mem: string): string[] {
   const out: string[] = [];
-  let prevUserWasJunk = false;
   for (const raw of mem.split("\n")) {
     const line = raw.trim();
-    const isUser = /^User:\s/i.test(line);
-    if (isJunkLine(line)) {
-      // A junk "User:" line (automation/system) — suppress its Mia reply too.
-      if (isUser) prevUserWasJunk = true;
-      continue;
-    }
-    // Normalize "User:"/"Mia:" prefixes; keep the essence, collapse whitespace.
-    const m = line.match(/^(User|Mia):\s*(.*)$/i);
-    if (m) {
-      const speaker = m[1] === "Mia" ? "Mia" : "Mas Naufal";
-      const body = m[2].replace(/\s+/g, " ").trim().slice(0, 140);
-      if (!body) { continue; }
-      if (speaker === "Mia" && prevUserWasJunk) { prevUserWasJunk = false; continue; }
-      prevUserWasJunk = false;
-      out.push(`${speaker}: ${body}`);
-      continue;
-    }
-    // Orphan lines (no prefix) — keep only if short & non-junk (could be a note).
-    const t = line.replace(/\s+/g, " ").slice(0, 120);
-    if (t) out.push(t);
+    if (isJunkLine(line)) continue;
+    // Recap "highlights" = what the HUMAN talked about. Mia's turns and orphan
+    // lines (system/technical text) made the reflection read like a log.
+    const m = line.match(/^User:\s*(.*)$/i);
+    if (!m) continue;
+    const body = redactSecrets(m[1]).replace(/\s+/g, " ").trim().slice(0, 140);
+    if (!body || isJunkLine(body)) continue;
+    out.push(`Mas Naufal: ${body}`);
   }
   // Collapse near-duplicates & keep at most 4, most recent at the end.
   const seen = new Set<string>();

@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSy
 import { execFile } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
-import { asBodyString } from "./args";
+import { asBodyString, asNumber, asStringArray } from "./args";
 import { addReminder, readReminders, type Reminder } from "./reminders";
 import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
@@ -212,7 +212,7 @@ const toolRegistry: ToolPlugin[] = [
         typeof args.query === "string" ? args.query : "",
         typeof args.language === "string" ? args.language : "id-ID",
         typeof args.region === "string" ? args.region : undefined,
-        typeof args.within === "number" ? args.within : undefined
+        asNumber(args.within)
       ),
   },
   {
@@ -252,7 +252,7 @@ const toolRegistry: ToolPlugin[] = [
         typeof args.query === "string" ? args.query : "",
         typeof args.language === "string" ? args.language : "id-ID",
         typeof args.region === "string" ? args.region : undefined,
-        typeof args.within === "number" ? args.within : undefined
+        asNumber(args.within)
       ),
   },
   {
@@ -2534,11 +2534,11 @@ const toolRegistry: ToolPlugin[] = [
         const r = await getHotels(loc, bud, {
           checkin: typeof args.checkin === "string" ? args.checkin : undefined,
           checkout: typeof args.checkout === "string" ? args.checkout : undefined,
-          adults: typeof args.adults === "number" ? args.adults : undefined,
-          rooms: typeof args.rooms === "number" ? args.rooms : undefined,
+          adults: asNumber(args.adults),
+          rooms: asNumber(args.rooms),
           sort: args.sort === "price" || args.sort === "rating" || args.sort === "popularity" ? args.sort : undefined,
-          minRating: typeof args.minRating === "number" ? args.minRating : undefined,
-          stars: typeof args.stars === "number" ? args.stars : undefined,
+          minRating: asNumber(args.minRating),
+          stars: asNumber(args.stars),
         });
         // Return ONLY the formatted list — it is delivered verbatim (VERBATIM_LIST),
         // so the model can't collapse it into a paragraph or leak the JSON.
@@ -2852,7 +2852,7 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => {
       try {
         const { cuaHotkey, cuaPressKey, cuaType } = await import("./cua");
-        const opts = { pid: typeof args.pid === "number" ? args.pid : undefined, windowId: typeof args.window_id === "number" ? args.window_id : undefined, deliveryMode: args.delivery_mode === "foreground" ? ("foreground" as const) : args.delivery_mode === "background" ? ("background" as const) : undefined };
+        const opts = { pid: asNumber(args.pid), windowId: asNumber(args.window_id), deliveryMode: args.delivery_mode === "foreground" ? ("foreground" as const) : args.delivery_mode === "background" ? ("background" as const) : undefined };
         const action = String(args.action || "");
         if (action === "hotkey") {
           const keys = Array.isArray(args.keys) ? args.keys.map(String) : [];
@@ -2862,7 +2862,7 @@ const toolRegistry: ToolPlugin[] = [
         if (action === "press") {
           const key = String(args.key || "");
           if (!key) return "Error: `key` wajib untuk press.";
-          const modifiers = Array.isArray(args.modifiers) ? args.modifiers.map(String) : undefined;
+          const modifiers = asStringArray(args.modifiers);
           return cuaPressKey(key, modifiers, opts);
         }
         if (action === "type") {
@@ -2912,18 +2912,18 @@ const toolRegistry: ToolPlugin[] = [
         if (action === "scroll") {
           const dir = args.direction;
           if (dir !== "up" && dir !== "down" && dir !== "left" && dir !== "right") return "Error: `direction` wajib untuk scroll (up/down/left/right).";
-          return cuaScroll({ pid: typeof args.pid === "number" ? args.pid : undefined, windowId: typeof args.window_id === "number" ? args.window_id : undefined, direction: dir, amount: typeof args.amount === "number" ? args.amount : undefined, by: args.by === "page" ? "page" : args.by === "line" ? "line" : undefined });
+          return cuaScroll({ pid: asNumber(args.pid), windowId: asNumber(args.window_id), direction: dir, amount: asNumber(args.amount), by: args.by === "page" ? "page" : args.by === "line" ? "line" : undefined });
         }
         if (action === "right_click") {
           if (typeof args.pid !== "number") return "Error: right_click butuh pid (atau element_index).";
-          return cuaRightClick({ pid: args.pid, windowId: typeof args.window_id === "number" ? args.window_id : undefined, elementIndex: typeof args.element_index === "number" ? args.element_index : undefined, x: typeof args.x === "number" ? args.x : undefined, y: typeof args.y === "number" ? args.y : undefined });
+          return cuaRightClick({ pid: args.pid, windowId: asNumber(args.window_id), elementIndex: asNumber(args.element_index), x: asNumber(args.x), y: asNumber(args.y) });
         }
         if (action === "double_click") {
-          return cuaDoubleClick({ pid: typeof args.pid === "number" ? args.pid : undefined, windowId: typeof args.window_id === "number" ? args.window_id : undefined, elementIndex: typeof args.element_index === "number" ? args.element_index : undefined, x: typeof args.x === "number" ? args.x : undefined, y: typeof args.y === "number" ? args.y : undefined });
+          return cuaDoubleClick({ pid: asNumber(args.pid), windowId: asNumber(args.window_id), elementIndex: asNumber(args.element_index), x: asNumber(args.x), y: asNumber(args.y) });
         }
         if (action === "drag") {
           if ([args.from_x, args.from_y, args.to_x, args.to_y].some((v) => typeof v !== "number")) return "Error: drag butuh from_x,from_y,to_x,to_y.";
-          return cuaDrag({ fromX: args.from_x as number, fromY: args.from_y as number, toX: args.to_x as number, toY: args.to_y as number, pid: typeof args.pid === "number" ? args.pid : undefined, windowId: typeof args.window_id === "number" ? args.window_id : undefined, durationMs: typeof args.duration_ms === "number" ? args.duration_ms : undefined });
+          return cuaDrag({ fromX: args.from_x as number, fromY: args.from_y as number, toX: args.to_x as number, toY: args.to_y as number, pid: asNumber(args.pid), windowId: asNumber(args.window_id), durationMs: asNumber(args.duration_ms) });
         }
         return "Error: action harus 'scroll' | 'right_click' | 'double_click' | 'drag'.";
       } catch (e) {
@@ -3048,7 +3048,7 @@ const toolRegistry: ToolPlugin[] = [
           if (typeof args.window_id !== "number" || [args.x1, args.y1, args.x2, args.y2].some((v) => typeof v !== "number")) {
             return "Error: zoom butuh window_id + x1,y1,x2,y2 (pixel dari cua_window_state).";
           }
-          return cuaZoom({ windowId: args.window_id, x1: args.x1 as number, y1: args.y1 as number, x2: args.x2 as number, y2: args.y2 as number, pid: typeof args.pid === "number" ? args.pid : undefined });
+          return cuaZoom({ windowId: args.window_id, x1: args.x1 as number, y1: args.y1 as number, x2: args.x2 as number, y2: args.y2 as number, pid: asNumber(args.pid) });
         }
         return "Error: action harus 'desktop' | 'zoom'.";
       } catch (e) {
@@ -3256,7 +3256,7 @@ const toolRegistry: ToolPlugin[] = [
         const f = addFinding(ctx.rawUser, {
           title: String(args.title || ""),
           severity: typeof args.severity === "string" ? args.severity : undefined,
-          cvss: typeof args.cvss === "number" ? args.cvss : undefined,
+          cvss: asNumber(args.cvss),
           owasp: typeof args.owasp === "string" ? args.owasp : undefined,
           cwe: typeof args.cwe === "string" ? args.cwe : undefined,
           target: typeof args.target === "string" ? args.target : undefined,
@@ -3361,7 +3361,7 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "write", function: { name: "sqlmap_scan", description: "Uji SQL injection dengan sqlmap ke URL (butuh parameter, mis. ?id=1). HANYA localhost/lab/aset berizin (publik DITOLAK). Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dengan parameter, mis. http://localhost:8081/vulnerabilities/sqli/?id=1&Submit=Submit" }, level: { type: "number", description: "1-5 (default 1)" }, risk: { type: "number", description: "1-3 (default 1)" } }, required: ["url"] } } },
-    execute: async (args) => { try { const { sqlmapScan } = await import("./security"); return await sqlmapScan(String(args.url || ""), { level: typeof args.level === "number" ? args.level : undefined, risk: typeof args.risk === "number" ? args.risk : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "sqlmap_scan failed"}`; } },
+    execute: async (args) => { try { const { sqlmapScan } = await import("./security"); return await sqlmapScan(String(args.url || ""), { level: asNumber(args.level), risk: asNumber(args.risk) }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "sqlmap_scan failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "report_pdf", description: "Buat PDF laporan pentest (dari temuan) via Playwright → .data/users/<user>/reports/*.pdf. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
@@ -3385,7 +3385,7 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "write", function: { name: "recon_httpx", description: "Probe AKTIF host hidup (HTTP/HTTPS) untuk subdomain hasil recon_subdomains (atau `hosts`). HANYA lab/engagement/PENTEST_LAB_TARGETS (publik DITOLAK). Write, confirm.", parameters: { type: "object", properties: { domain: { type: "string" }, hosts: { type: "array", description: "Host spesifik (opsional; default subdomain tercache)" } }, required: ["domain"] } } },
-    execute: async (args, ctx) => { try { const { reconHttpx } = await import("./recon"); const hosts = Array.isArray(args.hosts) ? args.hosts.map(String) : undefined; return await reconHttpx(ctx.rawUser, String(args.domain || ""), hosts); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_httpx failed"}`; } },
+    execute: async (args, ctx) => { try { const { reconHttpx } = await import("./recon"); const hosts = asStringArray(args.hosts); return await reconHttpx(ctx.rawUser, String(args.domain || ""), hosts); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_httpx failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "recon_params", description: "Recon PASIF URL + query-parameter dari arsip publik (OTX + urlscan + Wayback) — keyless. Menandai param menarik (id/redirect/url/file/dst) untuk uji manual IDOR/SSRF/LFI. Read, auto.", parameters: { type: "object", properties: { domain: { type: "string" } }, required: ["domain"] } } },
@@ -3586,8 +3586,8 @@ const toolRegistry: ToolPlugin[] = [
           headers: args.headers && typeof args.headers === "object" ? (args.headers as Record<string, string>) : undefined,
           body: asBodyString(args.body),
           session: typeof args.session === "string" ? args.session : undefined,
-          times: typeof args.times === "number" ? args.times : undefined,
-          expect_status: typeof args.expect_status === "number" ? args.expect_status : undefined,
+          times: asNumber(args.times),
+          expect_status: asNumber(args.expect_status),
           expect_contains: typeof args.expect_contains === "string" ? args.expect_contains : undefined,
           baseline_url: typeof args.baseline_url === "string" ? args.baseline_url : undefined,
           baseline_method: typeof args.baseline_method === "string" ? args.baseline_method : undefined,
@@ -3607,6 +3607,18 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: { type: "function", risk: "read", function: { name: "tech_watch", description: "Fingerprint teknologi host (framework/versi dari header+marker), diff vs snapshot terakhir, dan cari CVE untuk yang berubah. Scope-gated, read/auto, bounded (1 GET).", parameters: { type: "object", properties: { url: { type: "string" }, cve: { type: "boolean", description: "cari CVE (default true saat ada perubahan)" } }, required: ["url"] } } },
     execute: async (args, ctx) => { try { const { techWatch } = await import("./techWatch"); return await techWatch(ctx.rawUser, String(args.url || ""), { cve: args.cve !== false }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "tech_watch failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "persona_show", description: "Tampilkan apa yang Mia ingat tentang user (fakta persona USER + gaya SOUL, plus riwayat yang digantikan). Read/auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_a, ctx) => { try { const { personaFactsText } = await import("./persona"); return personaFactsText(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "persona_show failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "persona_set", description: "Simpan fakta tentang user secara eksplisit (mis. 'ingat ini: aku suka kopi tubruk'). Key kanonik + nilai; rahasia/token DITOLAK. Write, confirm.", parameters: { type: "object", properties: { key: { type: "string", description: "mis. preference.coffee / name / job" }, value: { type: "string" }, target: { type: "string", enum: ["USER", "SOUL"], description: "USER (fakta) atau SOUL (gaya)" } }, required: ["key", "value"] } } },
+    execute: async (args, ctx) => { try { const { setPersonaFact } = await import("./persona"); return setPersonaFact(ctx.rawUser, String(args.key || ""), String(args.value || ""), args.target === "SOUL" ? "SOUL" : "USER"); } catch (e) { return `Error: ${e instanceof Error ? e.message : "persona_set failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "persona_forget", description: "Hapus fakta persona yang cocok dengan kata kunci (key atau value). Write, confirm.", parameters: { type: "object", properties: { query: { type: "string", description: "mis. 'kopi'" } }, required: ["query"] } } },
+    execute: async (args, ctx) => { try { const { forgetPersonaFact } = await import("./persona"); return forgetPersonaFact(ctx.rawUser, String(args.query || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "persona_forget failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "policy_show", description: "Lihat policy auto-approve (tool mana yang boleh jalan tanpa konfirmasi saat engagement aktif). Read/auto.", parameters: { type: "object", properties: {}, required: [] } } },
@@ -3656,11 +3668,11 @@ const toolRegistry: ToolPlugin[] = [
       try {
         const { campaignRun } = await import("./campaign");
         return await campaignRun(ctx.rawUser, {
-          targets: Array.isArray(args.targets) ? args.targets.map(String) : undefined,
+          targets: asStringArray(args.targets),
           engagement: typeof args.engagement === "string" ? args.engagement : undefined,
           deep: args.deep === true,
-          max_hosts: typeof args.max_hosts === "number" ? args.max_hosts : undefined,
-          max_seconds: typeof args.max_seconds === "number" ? args.max_seconds : undefined,
+          max_hosts: asNumber(args.max_hosts),
+          max_seconds: asNumber(args.max_seconds),
           stop_on_lead: args.stop_on_lead === true,
           spec: typeof args.spec === "string" ? args.spec : undefined,
           session: typeof args.session === "string" ? args.session : undefined,
@@ -3681,9 +3693,9 @@ const toolRegistry: ToolPlugin[] = [
         const { bountyRun } = await import("./bounty");
         return await bountyRun(ctx.rawUser, {
           engagement: typeof args.engagement === "string" ? args.engagement : undefined,
-          targets: Array.isArray(args.targets) ? args.targets.map(String) : undefined,
-          max_hosts: typeof args.max_hosts === "number" ? args.max_hosts : undefined,
-          max_seconds: typeof args.max_seconds === "number" ? args.max_seconds : undefined,
+          targets: asStringArray(args.targets),
+          max_hosts: asNumber(args.max_hosts),
+          max_seconds: asNumber(args.max_seconds),
           deep: args.deep === true,
           spec: typeof args.spec === "string" ? args.spec : undefined,
           session: typeof args.session === "string" ? args.session : undefined,
@@ -3711,7 +3723,7 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "write", function: { name: "param_fuzz", description: "Fuzz parameter URL dgn payload (XSS/SQLi/SSTI/redirect/cmdi) → deteksi reflection, SQL error, eval 7*7, open-redirect, timing. Scope-gated, low-rate. Opsi `callback` (dari oast_create) menambah kelas SSRF. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dgn param, mis. http://127.0.0.1:4010/greet?name=x" }, params: { type: "array", description: "Param spesifik (opsional; default dari URL)" }, classes: { type: "array", description: "xss/sqli/ssti/redirect/cmdi/ssrf (opsional)" }, method: { type: "string", enum: ["GET", "POST"] }, callback: { type: "string", description: "URL OAST untuk kelas ssrf (opsional)" } }, required: ["url"] } } },
-    execute: async (args) => { try { const { paramFuzz } = await import("./paramFuzz"); const params = Array.isArray(args.params) ? args.params.map(String) : undefined; const classes = Array.isArray(args.classes) ? args.classes.map(String) : undefined; return await paramFuzz(undefined, { url: String(args.url || ""), params, classes, method: typeof args.method === "string" ? args.method : undefined, callback: typeof args.callback === "string" ? args.callback : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "param_fuzz failed"}`; } },
+    execute: async (args) => { try { const { paramFuzz } = await import("./paramFuzz"); const params = asStringArray(args.params); const classes = asStringArray(args.classes); return await paramFuzz(undefined, { url: String(args.url || ""), params, classes, method: typeof args.method === "string" ? args.method : undefined, callback: typeof args.callback === "string" ? args.callback : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "param_fuzz failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "jwt_attack", description: "Toolkit JWT: decode, forge alg:none, HS256 (secret), alg-confusion (public key), crack secret HS256 lemah. Lokal (tanpa jaringan). Read, auto. Uji token hasilnya via http_request ke target berizin.", parameters: { type: "object", properties: { action: { type: "string", enum: ["decode", "none", "hs256", "confusion", "crack"] }, token: { type: "string" }, secret: { type: "string" }, publicKey: { type: "string", description: "PEM kunci publik server (untuk confusion)" }, claims: { type: "string", description: "JSON claim override, mis. {\"role\":\"admin\"}" }, words: { type: "string", description: "kata tambahan untuk crack" } }, required: ["action"] } } },
@@ -3740,7 +3752,7 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "write", function: { name: "param_discover", description: "Cari parameter tersembunyi: probe ~100 nama param umum, flag bila respons berubah/reflect. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, names: { type: "array", description: "Nama param kustom (opsional)" }, method: { type: "string", enum: ["GET", "POST"] } }, required: ["url"] } } },
-    execute: async (args) => { try { const { paramDiscover } = await import("./paramFuzz"); return await paramDiscover(undefined, { url: String(args.url || ""), names: Array.isArray(args.names) ? args.names.map(String) : undefined, method: typeof args.method === "string" ? args.method : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "param_discover failed"}`; } },
+    execute: async (args) => { try { const { paramDiscover } = await import("./paramFuzz"); return await paramDiscover(undefined, { url: String(args.url || ""), names: asStringArray(args.names), method: typeof args.method === "string" ? args.method : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "param_discover failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "recon_diff", description: "Bandingkan subdomain cache vs sekarang → tandai aset BARU/hilang (pasif, CT). Read, auto.", parameters: { type: "object", properties: { domain: { type: "string" } }, required: ["domain"] } } },
@@ -3748,7 +3760,7 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "write", function: { name: "recon_screenshot", description: "Visual recon: screenshot host hidup (dari cache recon_httpx via `domain`, atau `hosts` eksplisit spt 127.0.0.1:4010) ke reports/evidence/. Scope-gated (≤12 host). Write, confirm.", parameters: { type: "object", properties: { domain: { type: "string", description: "FQDN (opsional bila `hosts` diisi)" }, hosts: { type: "array", description: "Host spesifik (opsional)" } }, required: [] } } },
-    execute: async (args, ctx) => { try { const { reconScreenshot } = await import("./recon"); return await reconScreenshot(ctx.rawUser, String(args.domain || ""), Array.isArray(args.hosts) ? args.hosts.map(String) : undefined); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_screenshot failed"}`; } },
+    execute: async (args, ctx) => { try { const { reconScreenshot } = await import("./recon"); return await reconScreenshot(ctx.rawUser, String(args.domain || ""), asStringArray(args.hosts)); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_screenshot failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "request_save", description: "Kelola koleksi request + variabel {{x}}: action set (name + method/url/headers/body) | list | delete. Read, auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["set", "list", "delete"] }, name: { type: "string" }, method: { type: "string" }, url: { type: "string", description: "mis. {{base}}/api/users/{{id}}" }, headers: { type: "object" }, body: { type: "string" } }, required: ["action"] } } },
@@ -3775,7 +3787,7 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "read", function: { name: "platform_severity", description: "Map CVSS (angka/vektor) atau severity → severity HackerOne + prioritas Bugcrowd VRT (P1-P5). Read, auto.", parameters: { type: "object", properties: { cvss: { type: "number" }, vector: { type: "string" }, severity: { type: "string" } }, required: [] } } },
-    execute: async (args) => { try { const { platformSeverity } = await import("./security"); return platformSeverity({ cvss: typeof args.cvss === "number" ? args.cvss : undefined, vector: typeof args.vector === "string" ? args.vector : undefined, severity: typeof args.severity === "string" ? args.severity : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "platform_severity failed"}`; } },
+    execute: async (args) => { try { const { platformSeverity } = await import("./security"); return platformSeverity({ cvss: asNumber(args.cvss), vector: typeof args.vector === "string" ? args.vector : undefined, severity: typeof args.severity === "string" ? args.severity : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "platform_severity failed"}`; } },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "js_mine", description: "Mining file JS (scope-gated): ekstrak endpoint/path + indikasi secret/token (nilai di-redact) dari bundle. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "Halaman HTML atau file .js" } }, required: ["url"] } } },
@@ -3803,11 +3815,11 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "write", function: { name: "bucket_enum", description: "Enum bucket S3/GCS dari nama domain (keyless, scope-gated): kandidat nama → deteksi bucket ada/publik. Write, confirm.", parameters: { type: "object", properties: { domain: { type: "string" }, names: { type: "array", description: "Nama bucket tambahan (opsional)" } }, required: ["domain"] } } },
-    execute: async (args) => { try { const { bucketEnum } = await import("./recon"); return await bucketEnum(undefined, String(args.domain || ""), Array.isArray(args.names) ? args.names.map(String) : undefined); } catch (e) { return `Error: ${e instanceof Error ? e.message : "bucket_enum failed"}`; } },
+    execute: async (args) => { try { const { bucketEnum } = await import("./recon"); return await bucketEnum(undefined, String(args.domain || ""), asStringArray(args.names)); } catch (e) { return `Error: ${e instanceof Error ? e.message : "bucket_enum failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "submission_track", description: "Tracker submission bounty: action add (title/severity/cvss/platform/url/status) | list | update (id + status/url) | delete (id). Read, auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["add", "list", "update", "delete"] }, id: { type: "string" }, title: { type: "string" }, severity: { type: "string" }, cvss: { type: "number" }, platform: { type: "string" }, url: { type: "string" }, status: { type: "string", enum: ["draft", "submitted", "triaged", "needs-info", "duplicate", "n/a", "resolved", "paid"] } }, required: ["action"] } } },
-    execute: async (args, ctx) => { try { const { submissionTrack } = await import("./submissions"); return submissionTrack(ctx.rawUser, String(args.action || ""), { id: typeof args.id === "string" ? args.id : undefined, title: typeof args.title === "string" ? args.title : undefined, severity: typeof args.severity === "string" ? args.severity : undefined, cvss: typeof args.cvss === "number" ? args.cvss : undefined, platform: typeof args.platform === "string" ? args.platform : undefined, url: typeof args.url === "string" ? args.url : undefined, status: typeof args.status === "string" ? args.status : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "submission_track failed"}`; } },
+    execute: async (args, ctx) => { try { const { submissionTrack } = await import("./submissions"); return submissionTrack(ctx.rawUser, String(args.action || ""), { id: typeof args.id === "string" ? args.id : undefined, title: typeof args.title === "string" ? args.title : undefined, severity: typeof args.severity === "string" ? args.severity : undefined, cvss: asNumber(args.cvss), platform: typeof args.platform === "string" ? args.platform : undefined, url: typeof args.url === "string" ? args.url : undefined, status: typeof args.status === "string" ? args.status : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "submission_track failed"}`; } },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "cors_audit", description: "Uji misconfiguration CORS (scope-gated): kirim Origin arbitrer + preflight OPTIONS, flag refleksi origin / wildcard+credentials / null. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
@@ -3839,7 +3851,7 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "write", function: { name: "race", description: "Uji RACE CONDITION: kirim N request identik paralel, bandingkan outcome (double-spend/idempotency). Scope-gated, count ≤30 (bukan DoS). Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string" }, body: { type: "string" }, headers: { type: "object" }, count: { type: "number", description: "2-30 (default 10)" } }, required: ["url"] } } },
-    execute: async (args, ctx) => { try { const { raceAttack } = await import("./attack"); return await raceAttack(ctx.rawUser, { url: String(args.url || ""), method: typeof args.method === "string" ? args.method : undefined, body: asBodyString(args.body), headers: args.headers && typeof args.headers === "object" ? (args.headers as Record<string, string>) : undefined, count: typeof args.count === "number" ? args.count : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "race failed"}`; } },
+    execute: async (args, ctx) => { try { const { raceAttack } = await import("./attack"); return await raceAttack(ctx.rawUser, { url: String(args.url || ""), method: typeof args.method === "string" ? args.method : undefined, body: asBodyString(args.body), headers: args.headers && typeof args.headers === "object" ? (args.headers as Record<string, string>) : undefined, count: asNumber(args.count) }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "race failed"}`; } },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "ws_probe", description: "Probe endpoint WebSocket (ws/wss): handshake + frame awal (opsional kirim `message`). Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "ws:// atau wss://" }, message: { type: "string", description: "pesan yang dikirim setelah open (opsional)" } }, required: ["url"] } } },
@@ -4055,7 +4067,7 @@ const toolRegistry: ToolPlugin[] = [
       const { brvSearch } = await import("./byterover");
       return brvSearch(
         typeof args.query === "string" ? args.query : "",
-        typeof args.limit === "string" ? parseInt(args.limit, 10) : typeof args.limit === "number" ? args.limit : undefined,
+        typeof args.limit === "string" ? parseInt(args.limit, 10) : asNumber(args.limit),
         typeof args.scope === "string" ? args.scope : undefined,
         typeof args.format === "string" ? args.format : undefined
       );
@@ -4126,7 +4138,7 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: async (args) => {
       const { brvVcLog } = await import("./byterover");
-      return brvVcLog(typeof args.limit === "string" ? parseInt(args.limit, 10) : typeof args.limit === "number" ? args.limit : undefined);
+      return brvVcLog(typeof args.limit === "string" ? parseInt(args.limit, 10) : asNumber(args.limit));
     },
   },
   {
@@ -4150,7 +4162,7 @@ const toolRegistry: ToolPlugin[] = [
       const { brvSwarmQuery } = await import("./byterover");
       return brvSwarmQuery(
         typeof args.query === "string" ? args.query : "",
-        typeof args.limit === "string" ? parseInt(args.limit, 10) : typeof args.limit === "number" ? args.limit : undefined
+        typeof args.limit === "string" ? parseInt(args.limit, 10) : asNumber(args.limit)
       );
     },
   },

@@ -42,20 +42,68 @@ export function scrubToolMarkup(text: string): string {
   return t;
 }
 
-/** Split long replies into channel-safe chunks on newline boundaries when possible. */
+/**
+ * Re-open/close ``` fences across split chunks so each chunk renders as valid
+ * markdown (a fence cut in half makes Discord/Telegram show raw backticks).
+ */
+function balanceFences(chunks: string[]): string[] {
+  const out: string[] = [];
+  let openLang: string | null = null;
+  for (let i = 0; i < chunks.length; i++) {
+    const isLast = i === chunks.length - 1;
+    // Compute the fence state over the chunk's OWN lines first (the prefix we
+    // add below must not be counted as a closing fence).
+    let open: boolean = openLang !== null;
+    let lang: string = openLang ?? "";
+    for (const line of chunks[i].split("\n")) {
+      const m = /^\s*```(\S*)\s*$/.exec(line);
+      if (!m) continue;
+      if (!open) {
+        open = true;
+        lang = m[1] || "";
+      } else {
+        open = false;
+        lang = "";
+      }
+    }
+    let body = (openLang !== null ? `\`\`\`${openLang}\n` : "") + chunks[i];
+    if (open && !isLast) body += "\n```";
+    out.push(body);
+    openLang = open && !isLast ? lang : null;
+  }
+  return out;
+}
+
+/** Split by lines so a ``` fence token is never cut in half; hard-split only a
+ *  single line longer than max (no newline to break at). */
+function splitByLines(text: string, max: number): string[] {
+  const out: string[] = [];
+  let cur = "";
+  for (const line of text.split("\n")) {
+    if (line.length > max) {
+      if (cur) {
+        out.push(cur);
+        cur = "";
+      }
+      for (let i = 0; i < line.length; i += max) out.push(line.slice(i, i + max));
+      continue;
+    }
+    if (cur && cur.length + 1 + line.length > max) {
+      out.push(cur);
+      cur = line;
+    } else {
+      cur = cur ? `${cur}\n${line}` : line;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/** Split long replies into channel-safe chunks; code fences stay balanced. */
 export function chunkText(text: string, max: number): string[] {
   const safe = scrubToolMarkup(text ?? "");
   if (safe.length <= max) return [safe];
-  const out: string[] = [];
-  let remaining = safe;
-  while (remaining.length > max) {
-    let cut = remaining.lastIndexOf("\n", max);
-    if (cut < 1) cut = max;
-    out.push(remaining.slice(0, cut).trimEnd());
-    remaining = remaining.slice(cut).replace(/^\n+/, "");
-  }
-  if (remaining) out.push(remaining);
-  return out;
+  return balanceFences(splitByLines(safe, max));
 }
 
 type PendingAction = { name: string; arguments?: string };
@@ -112,3 +160,7 @@ export function parseConfirmReply(text: string, count: number): boolean[] | null
   }
   return null;
 }
+/** Shown when a turn produced no text at all (a bare "…" looked broken). */
+export const EMPTY_REPLY_FALLBACK = "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸";
+/** Shown when a slash-command produced no text. */
+export const COMMAND_EMPTY_FALLBACK = "Oke beb 🌸";

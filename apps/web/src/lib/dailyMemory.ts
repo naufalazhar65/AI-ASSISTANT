@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
+import { redactSecrets } from "./memoryNoise";
 
 function memoryDir(userKey: string | null): string {
   const key = userKey || "shared";
@@ -26,6 +27,12 @@ export function todayStr(tz?: string): string {
 }
 
 export function appendDailyMemory(rawUser: unknown, content: string): void {
+  if (!content.trim()) return;
+  // Redact secrets/tokens before storing (a leaked id must never persist in
+  // memory), but KEEP technical lines: memory is the agent's own store (RAG,
+  // resumption, Never-Forget checkpoints). Human-facing surfaces (recap /
+  // briefing / weekly) filter noise at read time instead.
+  content = content.split("\n").map((l) => redactSecrets(l)).join("\n");
   if (!content.trim()) return;
   const userKey = sanitizeUser(rawUser) || "shared";
   const dir = memoryDir(userKey);

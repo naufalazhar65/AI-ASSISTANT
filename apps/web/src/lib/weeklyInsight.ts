@@ -13,6 +13,7 @@
 //  - Env: WEEKLY_INSIGHT_HOUR (default 20, 0=off), WEEKLY_INSIGHT_DAY
 //    (0=Sunday..6=Saturday, default 0). Times are Asia/Jakarta like recap.
 
+import { isNoiseLine } from "./memoryNoise";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appRoot, userDataRoot, isTestUserKey, canonicalUserKey } from "./users";
@@ -54,6 +55,12 @@ const STOPWORDS = new Set([
   "mia", "naufal", "terima", "kasih", "makasih", "thanks", "please", "ada",
   "deh", "kok", "emang", "udh", "dah", "nya", "tuh", "gitu", "gini", "pengen",
   "pingin", "cari", "buat", "pakai", "pake", "ke", "di", "ke",
+  // Common fillers that dominated themes (seen live: "dulu (5 hari), terus (5 hari)").
+  "dulu", "terus", "terus", "sini", "sana", "kayak", "kaya", "sekali", "sangat",
+  "gitu", "gini", "gtu", "emang", "memang", "cuman", "hanya", "sedang", "sedikit",
+  "banyak", "semua", "orang", "waktu", "tahun", "bulan", "minggu", "kemarin", "besok",
+  "siang", "sore", "pagi", "malam", "jam", "menit", "kali", "nya", "lah", "kah",
+  "yes", "okay", "okey", "oke", "ok", "bagus", "baik", "benar", "salah", "bikin", "makan", "minum",
 ]);
 
 const JUNK_RE = /terjadwal \(automation\)|\[Scheduled automation\]|laporan terjadwal|\[persona\]/i;
@@ -136,7 +143,7 @@ function userLinesFromMemory(rawUser: unknown, date: string): string[] {
       const line = raw.trim();
       if (!line.startsWith("User:")) continue;
       const text = line.slice(5).trim();
-      if (!text || JUNK_RE.test(text)) continue;
+      if (!text || JUNK_RE.test(text) || isNoiseLine(text)) continue;
       if (/^<tool_call>[\s\S]*<\/tool_call>\s*$/i.test(text)) continue;
       out.push(text);
     }
@@ -256,7 +263,7 @@ export function buildWeeklyInsight(rawUser: unknown, now = new Date()): string {
       parts.push(`${active.length} task masih jalan${overdue.length ? `, ${overdue.length} lewat deadline — yuk sikat satu-satu 🌸` : " — semangat!"}`);
     }
     const doneCount = tasks.filter((t) => t.status === "done").length;
-    if (doneCount) parts.push(`${doneCount} task sudah kelar ✨ keren!`);
+    if (doneCount) parts.push(`${doneCount} task sudah kelar ✨ keren`);
     if (parts.length) lines.push(`Soal task: ${parts.join(", ")}.`);
   }
 

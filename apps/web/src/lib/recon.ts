@@ -774,6 +774,10 @@ const DNS_WORDS = [
 export async function reconDnsBrute(rawUser: unknown, domainRaw: string): Promise<string> {
   const d = cleanDomain(domainRaw);
   if (!d) return "Error: domain tidak valid, mis. example.com";
+  // DNS brute-force is ACTIVE enumeration (120 queries) — unlike the passive CT
+  // lookups, it must stay inside a lab / active engagement (same rule as
+  // recon_httpx). Passive sources (recon_subdomains/recon_params) stay open.
+  if (!targetAllowed(d)) return "Error: SCOPE — recon_dnsbrute hanya untuk lab / engagement aktif (pakai recon_subdomains untuk domain publik).";
   const dns = await import("node:dns");
   const resolve = (h: string) => dns.promises.resolve4(h).catch(() => [] as string[]);
   const wildcard = (await resolve(`mia-wildcard-${Math.random().toString(36).slice(2, 8)}.${d}`)).length > 0;

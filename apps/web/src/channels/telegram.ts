@@ -1,5 +1,5 @@
 import { broadcastMiaState } from "@/lib/miaState";
-import { chunkText, TELEGRAM_MAX, parseConfirmReply, pendingConfirmPrompt } from "./replyChunk";
+import { chunkText, TELEGRAM_MAX, parseConfirmReply, pendingConfirmPrompt, EMPTY_REPLY_FALLBACK, COMMAND_EMPTY_FALLBACK } from "./replyChunk";
 
 /**
  * Telegram channel adapter (PRD v2.0 §8.1 FR-101).
@@ -402,7 +402,7 @@ async function handleCommand(ctx: Context, state: ChatState, text: string, user:
   }
   const res = handleUnifiedCommand(state as ChatSessionState, text);
   if (res.handled) {
-    await replyMia(ctx, res.replyText || "…");
+    await replyMia(ctx, res.replyText || COMMAND_EMPTY_FALLBACK);
     return;
   }
 }
@@ -469,7 +469,7 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
   }
   state.history.push({ role: "assistant", content: result.text });
   if (!(await sendVoiceReply(ctx, result.text))) {
-    let fallback = "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸";
+    let fallback = EMPTY_REPLY_FALLBACK;
     if (!result.text && pending.calls[0]?.name.startsWith("plan_")) {
       fallback = pending.calls[0].name === "plan_create"
         ? `Plan sudah kubuat beb — cek plan_list untuk lihat step-stepnya 🌸`
@@ -529,10 +529,10 @@ async function runTurn(
   state.history.push({ role: "assistant", content: result.text });
   if (voiceTurn) {
     if (!(await sendVoiceReply(ctx, result.text))) {
-      await replyMia(ctx, result.text || "Hmm, jawabannya kepotong — coba tanya lagi ya 🌸");
+      await replyMia(ctx, result.text || EMPTY_REPLY_FALLBACK);
     }
   } else {
-    await replyMia(ctx, result.text || "…");
+    await replyMia(ctx, result.text || EMPTY_REPLY_FALLBACK);
   }
 }
 
@@ -566,6 +566,6 @@ async function runTurnWithVision(
   }
   state.history.push({ role: "assistant", content: result.text });
   if (voiceTurn) {
-    if (!(await sendVoiceReply(ctx, result.text))) await replyMia(ctx, result.text || "…");
-  } else await replyMia(ctx, result.text || "…");
+    if (!(await sendVoiceReply(ctx, result.text))) await replyMia(ctx, result.text || EMPTY_REPLY_FALLBACK);
+  } else await replyMia(ctx, result.text || EMPTY_REPLY_FALLBACK);
 }
