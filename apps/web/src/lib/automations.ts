@@ -148,7 +148,41 @@ export function nextRunAt(schedule: AutomationSchedule, after: number): number {
  * spec like "setiap pagi jam 8" / "setiap hari 08:30" (daily) or
  * "setiap N jam" (hourly). Returns the created automation.
  */
-export function addAutomation(prompt: string, whenSpec: string, rawUser?: unknown, now = Date.now()): Automation {
+/** True when two prompts describe the same recurring action (token overlap). Pure. */
+export function promptsSimilar(a: string, b: string): boolean {
+  const norm = (s: string) =>
+    new Set(
+      (s || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((t) => t.length > 2)
+    );
+  const A = norm(a);
+  const B = norm(b);
+  if (!A.size || !B.size) return a.trim().toLowerCase() === b.trim().toLowerCase();
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter++;
+  return inter / (A.size + B.size - inter) >= 0.5;
+}
+
+/** Same schedule AND near-identical prompt → the same automation, not a new one. Pure. */
+export function automationsSimilar(existing: Automation, prompt: string, schedule: AutomationSchedule): boolean {
+  if (JSON.stringify(existing.schedule) !== JSON.stringify(schedule)) return false;
+  return promptsSimilar(existing.prompt, prompt);
+}
+
+/**
+ * Add an automation, or MERGE into an existing near-identical one (same schedule
+ * + similar prompt). Without this, a model that re-proposes the same action right
+ * after it was confirmed created a duplicate that pushed the same message twice.
+ */
+export function addOrMergeAutomation(
+  prompt: string,
+  whenSpec: string,
+  rawUser?: unknown,
+  now = Date.now()
+): { automation: Automation; merged: boolean } {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const trimmed = prompt.trim().slice(0, 400);
@@ -156,6 +190,15 @@ export function addAutomation(prompt: string, whenSpec: string, rawUser?: unknow
 
   const schedule = parseSchedule(whenSpec);
   const automations = readAutomations(rawUser);
+  const existing = automations.find((a) => automationsSimilar(a, trimmed, schedule));
+  if (existing) {
+    // Adopt the newer wording and re-arm the schedule, but keep it ONE automation.
+    existing.prompt = trimmed;
+    existing.nextAt = nextRunAt(schedule, now);
+    existing.enabled = true;
+    writeAutomations(automations, userKey);
+    return { automation: existing, merged: true };
+  }
   const automation: Automation = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     prompt: trimmed,
@@ -166,7 +209,11 @@ export function addAutomation(prompt: string, whenSpec: string, rawUser?: unknow
   automations.push(automation);
   while (automations.length > MAX_AUTOMATIONS) automations.shift();
   writeAutomations(automations, userKey);
-  return automation;
+  return { automation, merged: false };
+}
+
+export function addAutomation(prompt: string, whenSpec: string, rawUser?: unknown, now = Date.now()): Automation {
+  return addOrMergeAutomation(prompt, whenSpec, rawUser, now).automation;
 }
 
 /**

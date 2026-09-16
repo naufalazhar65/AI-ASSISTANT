@@ -6,7 +6,7 @@ import { addReminder, readReminders, type Reminder } from "./reminders";
 import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
-import { addAutomation, describeSchedule } from "./automations";
+import { addOrMergeAutomation, describeSchedule } from "./automations";
 import { searchMemory } from "./rag";
 import { listLearnings, reviewLearnings, searchLearnings, logError } from "./learnings";
 import { guard as safeGuard } from "./safeExec";
@@ -635,8 +635,10 @@ const toolRegistry: ToolPlugin[] = [
       try {
         const prompt = typeof args.prompt === "string" ? args.prompt : "";
         const schedule = typeof args.schedule === "string" ? args.schedule : "";
-        const auto = addAutomation(prompt, schedule, ctx.rawUser);
-        return `Automation created: "${auto.prompt}" runs ${describeSchedule(auto.schedule)}.`;
+        const { automation: auto, merged } = addOrMergeAutomation(prompt, schedule, ctx.rawUser);
+        return merged
+          ? `Automation sudah ada (TIDAK diduplikasi) — prompt diperbarui: "${auto.prompt}" runs ${describeSchedule(auto.schedule)}. Katakan ke user bahwa automation itu sudah aktif (diperbarui), jangan buat lagi.`
+          : `Automation created: "${auto.prompt}" runs ${describeSchedule(auto.schedule)}.`;
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid automation"}`;
       }
@@ -3669,6 +3671,29 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: { type: "function", risk: "read", function: { name: "dup_check", description: "Cek kemungkinan duplikat sebelum submit: bandingkan judul (+target) dengan findings & submissions lokal (kemiripan token). Read/auto.", parameters: { type: "object", properties: { title: { type: "string" }, target: { type: "string" }, cwe: { type: "string" } }, required: ["title"] } } },
     execute: async (args, ctx) => { try { const { dupCheck } = await import("./dupes"); return dupCheck(ctx.rawUser, { title: String(args.title || ""), target: typeof args.target === "string" ? args.target : undefined, cwe: typeof args.cwe === "string" ? args.cwe : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "dup_check failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "bounty_run", description: "SATU PERINTAH bug-bounty (draft-only): engagement → worklist ber-ROI → campaign hunt bounded → klasifikasi lead → DRAFT finding (high-signal, +dup_check) → draft report → HANDOFF. TIDAK submit, tidak destruktif, tidak bypass WAF. Resumable. Write, confirm.", parameters: { type: "object", properties: { engagement: { type: "string", description: "id engagement (opsional; default engagement aktif pertama)" }, targets: { type: "array", description: "host eksplisit (opsional)" }, max_hosts: { type: "number", description: "default 5, maks 12" }, max_seconds: { type: "number", description: "budget, default 480s" }, deep: { type: "boolean" }, spec: { type: "string" }, session: { type: "string" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { bountyRun } = await import("./bounty");
+        return await bountyRun(ctx.rawUser, {
+          engagement: typeof args.engagement === "string" ? args.engagement : undefined,
+          targets: Array.isArray(args.targets) ? args.targets.map(String) : undefined,
+          max_hosts: typeof args.max_hosts === "number" ? args.max_hosts : undefined,
+          max_seconds: typeof args.max_seconds === "number" ? args.max_seconds : undefined,
+          deep: args.deep === true,
+          spec: typeof args.spec === "string" ? args.spec : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "bounty_run failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "bounty_status", description: "Riwayat ringkas bounty_run terakhir (host/lead/draft). Read/auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => { try { const { bountyStatus } = await import("./bounty"); return bountyStatus(); } catch (e) { return `Error: ${e instanceof Error ? e.message : "bounty_status failed"}`; } },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "content_discover", description: "Content discovery aktif (scope-gated): robots.txt/sitemap, link halaman, endpoint dari file JS, + probe path umum (mis. /admin,/.env,/swagger.json). Hanya lab/engagement. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. http://127.0.0.1:4010 atau https://app.klien.com" } }, required: ["url"] } } },

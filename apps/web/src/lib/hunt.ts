@@ -235,7 +235,7 @@ export async function apiHunt(rawUser: unknown, urlRaw: string, opts: { spec?: s
 // (or session) starts from memory instead of re-discovering.
 
 /** Pull the `• …` bullets out of each engine's 🎯 LEADS block. */
-function extractLeads(text: string): string[] {
+export function extractLeads(text: string): string[] {
   const after = text.split("🎯 LEADS")[1];
   if (!after) return [];
   const block = after.split("⚠️")[0];

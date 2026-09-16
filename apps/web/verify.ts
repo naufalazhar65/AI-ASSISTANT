@@ -414,6 +414,31 @@ async function main() {
   if (huntStatusFor(fakeEntries, "https://other.example.com") !== undefined) throw new Error("huntStatusFor false match");
   console.log("campaign huntStatusFor normalization: OK");
 
+  // --- bounty_run: lead classifier + no-engagement guard (no network) ---
+  const { isHighSignalLead, bountyRun, bountyStatus } = await import("./src/lib/bounty");
+  if (!isHighSignalLead("📂 BUCKET TERBUKA — listing publik")) throw new Error("isHighSignalLead missed open bucket");
+  if (!isHighSignalLead("cookie sesi tanpa HttpOnly di /login")) throw new Error("isHighSignalLead missed cookie flag");
+  if (isHighSignalLead("tidak ada sinyal otomatis")) throw new Error("isHighSignalLead false-positive");
+  const noTargets = await bountyRun("verify_bounty", { engagement: "ENG-does-not-exist" });
+  if (!/Tidak bisa jalan/.test(noTargets)) throw new Error(`bountyRun should refuse with an unknown engagement: ${noTargets.slice(0, 80)}`);
+  if (typeof (await bountyStatus()) !== "string") throw new Error("bountyStatus bad");
+  console.log("bounty_run classifier + guard: OK");
+
+  // --- automation dedupe/merge (duplicate-push bug fix) ---
+  const { promptsSimilar, addOrMergeAutomation, readAutomations } = await import("./src/lib/automations");
+  if (!promptsSimilar("cek cuaca Lake Home tiap 2 jam", "Cek cuaca di Lake Home, Serpong tiap 2 jam")) throw new Error("promptsSimilar missed near-dup");
+  if (promptsSimilar("cek cuaca hari ini", "kirim email laporan keuangan")) throw new Error("promptsSimilar false-positive");
+  const autoUser = "verify_autodup_tmp";
+  const r1 = addOrMergeAutomation("Cek cuaca Lake Home tiap 2 jam lalu kabari kalau mau hujan", "setiap 2 jam", autoUser);
+  const r2 = addOrMergeAutomation("Cek cuaca Lake Home tiap 2 jam dan kabari kalau ada tanda hujan", "setiap 2 jam", autoUser);
+  if (!r1 || r1.merged) throw new Error("first automation should be created, not merged");
+  if (!r2?.merged) throw new Error("near-identical automation should MERGE, not duplicate");
+  if (readAutomations(autoUser).length !== 1) throw new Error("automation duplicate not merged");
+  const r3 = addOrMergeAutomation("Kirim ringkasan berita teknologi tiap pagi", "setiap pagi jam 8", autoUser);
+  if (r3.merged) throw new Error("different automation should not merge");
+  rmSync(join(appRoot(), ".data", "users", autoUser), { recursive: true, force: true });
+  console.log("automation dedupe/merge: OK");
+
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
   const xmlLeaked = 'Aku cek ya <td>, sementara itu <invoke name="browser_open"><parameter name="url">https://x/y</parameter></invoke> ya beb 🌸';
