@@ -6,24 +6,28 @@
 // chains beyond recon→hunt→triage (no exploitation), and every step is the same
 // scope-gated code the manual tools use.
 
-import { listEngagements } from "./engagement";
+import { listEngagements, getEngagement, newestActiveEngagement } from "./engagement";
 import { readHunt, huntSet, normalizeTarget } from "./huntLog";
 import { suiteHunt, extractLeads } from "./hunt";
 import { targetAllowed } from "./security";
 
 const MAX_HOSTS_CAP = 12;
 
-function scopeHosts(): string[] {
+/**
+ * Hosts for a campaign. With `engagement` → that engagement only. Without it →
+ * the NEWEST active engagement (never the union of all active engagements, which
+ * once pointed a run at another program's hosts).
+ */
+function scopeHosts(engagement?: string): { hosts: string[]; label: string } {
+  const eng = engagement ? getEngagement(engagement) : newestActiveEngagement();
+  if (!eng) return { hosts: [], label: engagement ? `engagement ${engagement} tidak ditemukan` : "tidak ada engagement aktif" };
+  if (eng.status !== "active") return { hosts: [], label: `engagement ${eng.id} tidak aktif` };
   const out = new Set<string>();
-  for (const e of listEngagements()) {
-    if (e.status !== "active") continue;
-    for (const s of e.scope) {
-      const h = s.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-      if (!h || h.startsWith("*.")) continue; // wildcards can't be scanned directly
-      out.add(h);
-    }
+  for (const s of eng.scope) {
+    const h = s.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    if (h && !h.startsWith("*.")) out.add(h);
   }
-  return [...out];
+  return { hosts: [...out], label: `${eng.id} — ${eng.name}` };
 }
 
 /**
@@ -42,14 +46,15 @@ export type CampaignOutcome = { results: CampaignHostResult[]; ran: number; lead
 /** Structured campaign run (shared by campaign_run and bounty_run). */
 export async function campaignRunDetailed(
   rawUser: unknown,
-  opts: { targets?: string[]; deep?: boolean; max_hosts?: number; max_seconds?: number; stop_on_lead?: boolean; spec?: string; session?: string }
+  opts: { targets?: string[]; engagement?: string; deep?: boolean; max_hosts?: number; max_seconds?: number; stop_on_lead?: boolean; spec?: string; session?: string }
 ): Promise<{ outcome: CampaignOutcome; log: string[] }> {
   const explicit = (opts.targets || []).map((t) => t.trim()).filter(Boolean);
-  let targets = explicit.length ? explicit : scopeHosts();
-  const lines: string[] = [];
+  const scope = explicit.length ? { hosts: explicit, label: "targets eksplisit" } : scopeHosts(opts.engagement);
+  let targets = scope.hosts;
+  const lines: string[] = [explicit.length ? "" : `Engagement: ${scope.label}`].filter(Boolean);
   const results: CampaignHostResult[] = [];
   const skipped: string[] = [];
-  if (!targets.length) return { outcome: { results, ran: 0, leadHosts: 0, stop: "tidak ada target", skipped }, log: ["Tidak ada target: beri `targets` atau buat engagement aktif dengan scope host konkret."] };
+  if (!targets.length) return { outcome: { results, ran: 0, leadHosts: 0, stop: "tidak ada target", skipped }, log: [...lines, `Tidak ada target: ${scope.label}. Beri \`targets\`, atau buat/aktifkan engagement.`] };
   targets = targets.filter((t) => targetAllowed(/^https?:\/\//i.test(t) ? t : `https://${t}`));
   if (!targets.length) return { outcome: { results, ran: 0, leadHosts: 0, stop: "semua target di luar scope", skipped }, log: ["Error: SCOPE — semua target di luar lab/engagement aktif."] };
 
@@ -92,7 +97,7 @@ export async function campaignRunDetailed(
 
 export async function campaignRun(
   rawUser: unknown,
-  opts: { targets?: string[]; deep?: boolean; max_hosts?: number; max_seconds?: number; stop_on_lead?: boolean; spec?: string; session?: string }
+  opts: { targets?: string[]; engagement?: string; deep?: boolean; max_hosts?: number; max_seconds?: number; stop_on_lead?: boolean; spec?: string; session?: string }
 ): Promise<string> {
   const { outcome, log } = await campaignRunDetailed(rawUser, opts);
   log.push(`\nRingkas: ${outcome.ran} host dijalankan, ${outcome.leadHosts} menghasilkan lead.${outcome.stop ? ` Berhenti: ${outcome.stop}.` : ""}`);

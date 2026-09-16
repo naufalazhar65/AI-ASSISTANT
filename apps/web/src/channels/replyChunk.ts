@@ -17,9 +17,34 @@ export function interimWaitText(): string {
   return INTERIM_WAITS[Math.floor(Math.random() * INTERIM_WAITS.length)] ?? "Oke, sebentar ya…";
 }
 
+/**
+ * Last-line defense for the send boundary: some providers leak raw tool-call
+ * markup into the reply text (`<invoke name="fetch_url">…`), and a model can even
+ * splice it mid-sentence. The agent strips this before returning, but any path
+ * that bypasses that strip must still never show tags to the user — so every
+ * chunk sent to a channel is scrubbed here too.
+ */
+export function scrubToolMarkup(text: string): string {
+  let t = text ?? "";
+  // Closed blocks first (multiline), then any unclosed fragment to end-of-line.
+  t = t
+    .replace(/<invoke\b[\s\S]*?<\/invoke>/gi, " ")
+    .replace(/<tool_call\b[\s\S]*?<\/tool_call>/gi, " ")
+    .replace(/<tool_use\b[\s\S]*?<\/tool_use>/gi, " ")
+    .replace(/<function_calls\b[\s\S]*?<\/function_calls>/gi, " ")
+    .replace(/<invoke\b[^>\n]*>?/gi, " ")
+    .replace(/<tool_call\b[^>\n]*>?/gi, " ");
+  // Stray tags / partial fragments.
+  t = t.replace(/<\/?(?:invoke|parameter|tool_call|tool_use|tool_result|function_calls|antml:[a-z_]+)\b[^>]*>/gi, " ");
+  t = t.replace(/\s{2,}/g, " ");
+  // Drop leading/trailing connective junk left by removals (", , . sementara").
+  t = t.replace(/^[\s,.;:]+/, "").replace(/[\s,]+$/, "").trim();
+  return t;
+}
+
 /** Split long replies into channel-safe chunks on newline boundaries when possible. */
 export function chunkText(text: string, max: number): string[] {
-  const safe = text ?? "";
+  const safe = scrubToolMarkup(text ?? "");
   if (safe.length <= max) return [safe];
   const out: string[] = [];
   let remaining = safe;

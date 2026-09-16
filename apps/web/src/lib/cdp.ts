@@ -111,7 +111,11 @@ export async function cdpEval(tabUrlContains: string, expr: string): Promise<str
   if (!expr.trim()) return "Error: expr wajib.";
   const r = await resolveTarget(tabUrlContains);
   if ("error" in r) return r.error;
-  const out = await evaluate(r.t.webSocketDebuggerUrl!, `(function(){ return (${expr}); })()`);
+  // Pass the source through unwrapped: CDP's Runtime.evaluate returns the
+  // completion value, so BOTH an expression (`1+1`, `Object.keys(localStorage)`)
+  // and a statement list / IIFE work. (A wrapper like `return (expr)` broke the
+  // latter with "Unexpected token ';'".)
+  const out = await evaluate(r.t.webSocketDebuggerUrl!, expr);
   if (out.error) return `Error: eval — ${out.error}`;
   return `🧠 eval @ ${r.t.url.slice(0, 100)}\n${truncate(out.value ?? "(no value)")}`;
 }
@@ -128,10 +132,15 @@ export async function cdpRequest(opts: {
   headers?: Record<string, string>;
   body?: string;
   token_from?: string;
+  /** Fetch credentials mode. `include` (cookies) is rejected by the browser when
+   *  the API answers `Access-Control-Allow-Origin: *` — use `omit` for
+   *  token-in-header cross-origin APIs. Default: include. */
+  credentials?: "include" | "omit" | "same-origin";
 }): Promise<string> {
   const url = (opts.url || "").trim();
   if (!/^https?:\/\//i.test(url)) return "Error: url harus http(s).";
   if (!targetAllowed(url)) return "Error: SCOPE — cdp_request hanya untuk lab / engagement aktif.";
+  const cred = ["include", "omit", "same-origin"].includes(opts.credentials || "") ? opts.credentials : "include";
   const r = await resolveTarget(opts.tab);
   if ("error" in r) return r.error;
   const method = (opts.method || "GET").toUpperCase();
@@ -140,7 +149,7 @@ export async function cdpRequest(opts: {
     const token = ${opts.token_from ? `(function(){ return (${opts.token_from}); })()` : "null"};
     const headers = Object.assign({}, ${JSON.stringify(opts.headers || {})});
     if (token) headers["authorization"] = "Bearer " + token;
-    const init = { method: ${JSON.stringify(method)}, headers: headers, credentials: "include", redirect: "manual" };
+    const init = { method: ${JSON.stringify(method)}, headers: headers, credentials: ${JSON.stringify(cred)}, redirect: "manual" };
     ${opts.body !== undefined ? `init.body = ${JSON.stringify(opts.body)};` : ""}
     const res = await fetch(${JSON.stringify(url)}, init);
     const text = await res.text();

@@ -91,10 +91,12 @@ async function runStep(rawUser: unknown, step: FlowStep, vars: Record<string, st
   }
   const t0 = Date.now();
   try {
+    // Body may arrive as a JSON object (from a model) or a string — accept both.
+    const rawBody = typeof step.body === "string" ? step.body : step.body === undefined ? "" : JSON.stringify(step.body);
     const res = await fetch(url, {
       method,
       headers,
-      body: method === "GET" || method === "HEAD" ? undefined : substitute(step.body || "", vars),
+      body: method === "GET" || method === "HEAD" ? undefined : substitute(rawBody, vars),
       redirect: "manual",
       signal: AbortSignal.timeout(15_000),
     });

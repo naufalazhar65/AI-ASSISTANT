@@ -12,7 +12,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { appRoot } from "./users";
-import { listEngagements } from "./engagement";
+import { getEngagement, newestActiveEngagement } from "./engagement";
 import { campaignRunDetailed } from "./campaign";
 import { rankTargets } from "./roi";
 import { addFinding, generateReport } from "./security";
@@ -46,9 +46,9 @@ export function isHighSignalLead(lead: string): boolean {
 }
 
 function scopeHostsFor(engId?: string): { hosts: string[]; label: string } {
-  const engs = listEngagements().filter((e) => e.status === "active");
-  const eng = engId ? engs.find((e) => e.id === engId) : engs[0];
-  if (!eng) return { hosts: [], label: engId ? `engagement ${engId} tak aktif/ditemukan` : "tak ada engagement aktif" };
+  const eng = engId ? getEngagement(engId) : newestActiveEngagement();
+  if (!eng) return { hosts: [], label: engId ? `engagement ${engId} tak ditemukan` : "tak ada engagement aktif" };
+  if (eng.status !== "active") return { hosts: [], label: `engagement ${eng.id} tidak aktif` };
   const hosts: string[] = [];
   for (const s of eng.scope) {
     const h = s.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");

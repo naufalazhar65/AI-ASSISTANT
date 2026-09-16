@@ -104,6 +104,16 @@ export function getEngagement(id: string): Engagement | null {
   return readAll().find((e) => e.id === id) ?? null;
 }
 
+/**
+ * The most recently created ACTIVE engagement. Used as the default scope for
+ * campaign/bounty runs so a scan never silently spans several programs (the
+ * union of all active engagements once sent a run at the wrong client's hosts).
+ */
+export function newestActiveEngagement(): Engagement | null {
+  const active = listEngagements().filter((e) => e.status === "active");
+  return active.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0] ?? null;
+}
+
 export function closeEngagement(id: string): boolean {
   const rows = readAll();
   const e = rows.find((x) => x.id === id);

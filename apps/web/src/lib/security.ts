@@ -563,6 +563,7 @@ export async function webAudit(url: string): Promise<string> {
   // be able to redirect the probe to localhost/private/metadata — SSRF).
   let res: Response | null = null;
   let finalUrl = raw;
+  let hopError = "";
   for (let hop = 0; hop <= 5; hop++) {
     // Passive audit is public-only (like fetch_url) — never probe internal/
     // link-local/metadata hosts, even via a redirect. Use lab_fetch for a lab.
@@ -571,7 +572,17 @@ export async function webAudit(url: string): Promise<string> {
     } catch (e) {
       return `Error: ${e instanceof Error ? e.message : "URL tidak diizinkan"}`;
     }
-    res = await fetch(finalUrl, { redirect: "manual", headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(12_000) });
+    try {
+      res = await fetch(finalUrl, { redirect: "manual", headers: { "User-Agent": "mia-assistant/1.0" }, signal: AbortSignal.timeout(12_000) });
+    } catch (e) {
+      // A redirect target can be dead (ENOTFOUND) or unreachable — keep the last
+      // good response (usually the 3xx that pointed here) instead of throwing, so
+      // a redirect-heavy/CF host still yields its header/cookie audit.
+      const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
+      hopError = cause?.code || cause?.message || (e instanceof Error ? e.message : String(e));
+      if (!res) return `Error: gagal fetch ${finalUrl} — ${hopError}`;
+      break;
+    }
     const loc = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
     if (!loc) break;
     finalUrl = new URL(loc, finalUrl).toString();
@@ -598,6 +609,7 @@ export async function webAudit(url: string): Promise<string> {
     `• Header HILANG: ${missing.join(", ") || "-"}`,
     cookieIssues.length ? `• Cookie: ${cookieIssues.join("; ")}` : `• Cookie: (tidak ada / aman)`,
     /^https:/i.test(finalUrl) ? "" : "⚠️ Bukan HTTPS — data bisa disadap.",
+    hopError ? `⚠️ Redirect ke ${finalUrl} gagal (${hopError}) — audit di atas untuk respons ${res.status} terakhir.` : "",
     "",
     "Catatan: audit pasif (1x GET). Jadikan temuan via finding_add bila perlu.",
   ].filter(Boolean);

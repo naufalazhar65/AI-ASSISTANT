@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-268-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-270-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![Playbooks](https://img.shields.io/badge/security%20playbooks-78-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
@@ -126,11 +126,11 @@ Full guide, scope rules, and examples: **[SECURITY.md](./SECURITY.md)**.
 | **Posture / hygiene** | `security_scan` · `secret_scan` · `tls_check` · `breach_check` · `dep_audit` · `verify_patch` · `sast_scan` |
 | **Recon (attack surface)** | `recon_subdomains` · `recon_httpx` · `recon_params` · `recon_takeover` · `recon_dnsbrute` · `recon_ports` · `recon_diff` · `recon_screenshot` · `recon_list` · `bucket_enum` |
 | **Autonomous hunt** | `security_hunt` (header/CSP/CORS + discovery + crawl + JS mining + params → **LEADS**) · `suite_hunt` (satu konfirmasi: security + auth + api hunt, auto `hunt_log`) · `auth_hunt` (auth-flow surface) · `api_hunt` (spec-driven unauth probe) |
-| **Web / API** | `web_audit` · `domain_audit` · `cors_audit` · `csp_audit` · `content_discover` · `crawl` · `js_mine` · `api_spec` · `graphql_probe` · `param_discover` · `param_fuzz` |
+| **Web / API** | `web_audit` · `domain_audit` · `cors_audit` · `csp_audit` · `content_discover` · `crawl` · `js_mine` · `api_spec` · `graphql_probe` · `oauth_hunt` · `param_discover` · `param_fuzz` |
 | **Exploit-aid (authorized)** | `http_request` · `cdp_status` · `cdp_request` · `cdp_eval` · `cdp_open` · `bola_diff` · `jwt_attack` · `race` · `ws_probe` · `oast_create/poll` · `oast_dns_create/poll` · `http_session` · `tamper_script` |
 | **Scanners (lab/engagement)** | `pentest_scan` (nmap/nuclei/nikto/ffuf) · `nuclei_custom` · `sqlmap_scan` · `zap_scan` · `trivy_scan` |
 | **Analysis** | `password_strength` · `hash_identify` · `jwt_inspect` · `ioc_extract` · `cvss_score` |
-| **Findings & reports** | `finding_add/list/resolve/export` · `poc_verify` · `hardening_plan/pdf` · `report_generate/save/pdf` · `platform_severity` · `submission_track` |
+| **Findings & reports** | `finding_add/list/resolve/export` · `poc_verify` · `writeup` · `hardening_plan/pdf` · `report_generate/save/pdf` · `platform_severity` · `submission_track` |
 | **Knowledge & agility** | `security_playbook` (78 packs) · `hunt_log` (per-target hunt memory: dead/lead/finding + auto-pivot) · `engagement_targets` (ready worklist from active engagements) |
 | **Cloud & tech** | `cloud_misconfig` (S3/GCS/Azure/Firebase/Supabase, keyless) · `tech_watch` (stack fingerprint + CVE on change) |
 | **Autonomy & workflow** | **`bounty_run`** (one command, draft-only: engagement → ROI worklist → campaign → draft findings + report → handoff) · `program_score` (ROI ranking) · `policy_set`/`policy_show` (scoped auto-approve) · `campaign_run` (bounded hunt loop) · `flow_run`/`flow_list` (multi-step sequences + assertions) · `dup_check` · `bounty_status` |
@@ -162,7 +162,7 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Life** | `mood_log/recent`, `health`, `habit_log/stats`, `spotify_*`, `calendar_*`, `waze_route`, `weather`, `hotel_search`, `cinema_showtimes`, `train_search`, `bus_search` | Keyless travel data, Premium for playback |
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
 
-**268 tools total.** Full list derives from the registry — see
+**270 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---

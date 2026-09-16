@@ -414,6 +414,20 @@ async function main() {
   if (huntStatusFor(fakeEntries, "https://other.example.com") !== undefined) throw new Error("huntStatusFor false match");
   console.log("campaign huntStatusFor normalization: OK");
 
+  // --- campaign/bounty default scope: ONE newest active engagement, never a union ---
+  const { newestActiveEngagement, listEngagements } = await import("./src/lib/engagement");
+  const actives = listEngagements().filter((e) => e.status === "active");
+  const newest = newestActiveEngagement();
+  if (actives.length && !newest) throw new Error("newestActiveEngagement returned null with active engagements");
+  if (newest) {
+    const maxCreated = actives.map((e) => e.createdAt || "").sort().slice(-1)[0] ?? "";
+    if ((newest.createdAt || "") !== maxCreated) throw new Error("newestActiveEngagement picked the wrong one");
+  }
+  const { campaignRun } = await import("./src/lib/campaign");
+  const noEng = await campaignRun("verify_campaign_scope", { engagement: "ENG-does-not-exist" });
+  if (!/Tidak ada target/.test(noEng) || /→ lead/.test(noEng)) throw new Error(`campaignRun should refuse an unknown engagement: ${noEng.slice(0, 120)}`);
+  console.log("campaign/bounty default engagement scope: OK");
+
   // --- bounty_run: lead classifier + no-engagement guard (no network) ---
   const { isHighSignalLead, bountyRun, bountyStatus } = await import("./src/lib/bounty");
   if (!isHighSignalLead("📂 BUCKET TERBUKA — listing publik")) throw new Error("isHighSignalLead missed open bucket");
@@ -438,6 +452,44 @@ async function main() {
   if (r3.merged) throw new Error("different automation should not merge");
   rmSync(join(appRoot(), ".data", "users", autoUser), { recursive: true, force: true });
   console.log("automation dedupe/merge: OK");
+
+  // --- oauth redirect classifier + writeup renderer (pure) ---
+  const { redirectVariants, classifyOauthRedirect } = await import("./src/lib/oauth");
+  const rv = redirectVariants("id.example.com");
+  if (rv.length < 4 || !rv.some((v) => v.value.includes("evil.example"))) throw new Error("redirectVariants bad");
+  if (!classifyOauthRedirect(302, "https://evil.example/cb?code=1", ["id.example.com"]).open) throw new Error("classifyOauthRedirect missed off-host redirect");
+  if (!classifyOauthRedirect(302, "//evil.example/cb", ["id.example.com"]).open) throw new Error("classifyOauthRedirect missed protocol-relative off-host redirect");
+  if (classifyOauthRedirect(302, "https://id.example.com/cb", ["id.example.com"]).open) throw new Error("classifyOauthRedirect false-positive on own host");
+  if (classifyOauthRedirect(200, "https://evil.example/", ["id.example.com"]).open) throw new Error("classifyOauthRedirect should ignore non-3xx");
+  const { renderWriteup } = await import("./src/lib/writeup");
+  const wu = renderWriteup({
+    id: "F-x", title: "[DRAFT, belum diverifikasi] Cookie tanpa HttpOnly", severity: "low", cvss: 3.1, owasp: "A02:2025", cwe: "CWE-1004",
+    target: "app.example.com", evidence: "[auto from http_history] GET https://app.example.com/x → 200", steps: "", impact: "session theft", rootCause: "", remediation: "set HttpOnly", references: "", status: "open", createdAt: new Date().toISOString(),
+  });
+  for (const needle of ["# Cookie tanpa HttpOnly", "Severity:", "Steps to reproduce", "Evidence", "Remediation", "STATUS: DRAFT"]) {
+    if (!wu.includes(needle)) throw new Error(`writeup missing ${needle}`);
+  }
+  console.log("oauth classifier + writeup renderer: OK");
+
+  // --- channel send-boundary scrub (tool-call markup must never reach a user) ---
+  const { chunkText: chunkScrub, scrubToolMarkup } = await import("./src/channels/replyChunk");
+  const leakedReply = `<tool_call>, sementara itu <invoke name="fetch_url">. <parameter name="url">https://bugcrowd, sementara itu com/x. Json</parameter>, sementara itu </invoke> ya beb 🌸`;
+  const scrubbed = scrubToolMarkup(leakedReply);
+  if (/<(?:invoke|tool_call|parameter|tool_use)/i.test(scrubbed)) throw new Error(`scrubToolMarkup left markup: ${scrubbed}`);
+  if (!scrubbed.includes("ya beb")) throw new Error("scrubToolMarkup dropped the real text");
+  const partial = scrubToolMarkup('hasilnya begini <invoke name="browser_open">');
+  if (/<invoke/i.test(partial)) throw new Error(`scrubToolMarkup missed unclosed tag: ${partial}`);
+  if (/<invoke/i.test(chunkScrub(leakedReply, 2000)[0])) throw new Error("chunkText did not scrub markup");
+  if (chunkScrub("```\n<parameter name=\"x\">\n```", 5000)[0].includes("```") === false) throw new Error("chunkText lost code fence");
+  console.log("channel scrub tool-markup: OK");
+
+  // --- tool-arg body coercion (object body must not be silently dropped) ---
+  const { asBodyString } = await import("./src/lib/args");
+  if (asBodyString({ query: "{__typename}" }) !== '{"query":"{__typename}"}') throw new Error("asBodyString should stringify an object body");
+  if (asBodyString('{"a":1}') !== '{"a":1}') throw new Error("asBodyString should pass a string through");
+  if (asBodyString(undefined) !== undefined || asBodyString(null) !== undefined) throw new Error("asBodyString should return undefined for empty");
+  if (asBodyString([1, 2]) !== "[1,2]") throw new Error("asBodyString should stringify arrays");
+  console.log("asBodyString (object/array/string body): OK");
 
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
