@@ -1066,6 +1066,14 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
   const userText = messageText(lastUser.content);
+  // A QUESTION about reminders must not create/move/delete one (nor append a
+  // "(terjadwal)" suffix) — "masih inget ga jadwal bangunin aku?" matched the
+  // set-intent regex and produced a spurious merge + wrong-sounding reply.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { isReminderQuery } = require("./reminderIntent") as typeof import("./reminderIntent");
+    if (isReminderQuery(userText)) return text;
+  } catch { /* best-effort */ }
   let needDeleteSuffix = false;
   let needMoveSuffix = false;
   try {
@@ -1120,6 +1128,13 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
       } catch { /* best-effort */ }
       if (n > 0) needDeleteSuffix = true;
     }
+
+    // Keep persona wake_up_time in sync with the active wake reminder.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { syncWakePersona } = require("./persona") as typeof import("./persona");
+      syncWakePersona(user);
+    } catch { /* best-effort */ }
 
     if (needMoveSuffix || toAdd.length) {
       const parts: string[] = [];

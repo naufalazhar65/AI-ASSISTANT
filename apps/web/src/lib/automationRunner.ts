@@ -30,6 +30,7 @@ async function runOne(automation: Automation, user: string): Promise<void> {
       "Ini laporan terjadwal (automation). Tugasmu: jawab langsung dari pengetahuanmu, " +
       "atau pakai web_search/calculate kalau butuh data baru. JANGAN pakai tool yang butuh " +
       "persetujuan (fetch_url, create_automation, dsb) — tool itu otomatis ditolak. " +
+      "Tulis HANYA hasilnya untuk Naufal — JANGAN mengutip, menyalin, atau menyebut teks tugas/jadwal di bawah. " +
       `[Scheduled automation] ${automation.prompt}`;
     const result = await runAssistantTurn({
       messages: [{ role: "user", content: prompt }],

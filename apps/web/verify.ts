@@ -568,6 +568,33 @@ async function main() {
     if (!/Kuhapus/i.test(forgetRes)) throw new Error(`persona_forget should remove the fact: ${forgetRes}`);
     rmSync(join(appRoot(), ".data", "users", pu), { recursive: true, force: true });
     console.log("persona facts (canonical/secret/conflict/cap/split + tools): OK");
+
+  // --- reminder questions must not be treated as set-intents ---
+  {
+    const { isReminderQuery } = await import("./src/lib/reminderIntent");
+    if (!isReminderQuery("masih inget ga jadwal bangunin aku?")) throw new Error("reminder query not detected");
+    if (!isReminderQuery("reminder-ku apa aja?")) throw new Error("reminder query (apa aja) not detected");
+    if (isReminderQuery("ingetin aku jam 7 pagi")) throw new Error("set-phrase wrongly treated as a query");
+    if (isReminderQuery("bangunin aku jam 6")) throw new Error("set-phrase wrongly treated as a query");
+    console.log("reminder query vs set-intent guard: OK");
+
+  // --- wake-reminder <-> persona wake_up_time sync (single source of truth) ---
+  {
+    const { isWakeIntent } = await import("./src/lib/reminderIntent");
+    if (!isWakeIntent("Bangun tidur Mas Naufal")) throw new Error("isWakeIntent missed wake text");
+    if (isWakeIntent("minum air")) throw new Error("isWakeIntent false-positive");
+    const wu = "verify_wakesync";
+    await executeTool({ id: "t", name: "remind_me", arguments: JSON.stringify({ text: "Bangun tidur Mas Naufal", when: "2026-09-17T05:00:00+07:00" }) }, wu);
+    const wakePath = join(appRoot(), ".data", "users", wu, "persona", "USER.md");
+    const wakeFile = readFileSync(wakePath, "utf8");
+    if (!/wake_up_time: 05:00/.test(wakeFile)) throw new Error(`wake sync should set persona 05:00: ${wakeFile.match(/wake_up_time: \S+/)}`);
+    await executeTool({ id: "t", name: "cancel_reminder", arguments: JSON.stringify({ query: "bangun" }) }, wu);
+    const after = readFileSync(wakePath, "utf8");
+    if (/wake_up_time: 05:00/.test(after)) throw new Error("cancel should drop the stale wake_up_time fact");
+    rmSync(join(appRoot(), ".data", "users", wu), { recursive: true, force: true });
+    console.log("wake reminder <-> persona wake_up_time sync: OK");
+  }
+  }
   }
   }
 

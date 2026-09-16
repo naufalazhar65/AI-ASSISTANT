@@ -252,3 +252,27 @@ export function detectReminderCancels(userText: string): Array<{ anchor: string;
 export function detectReminderIntent(userText: string, now = Date.now()): ReminderIntent | null {
   return detectReminderIntents(userText, now)?.[0] ?? null;
 }
+
+/**
+ * True when the user is ASKING about reminders rather than setting one
+ * ("masih inget ga jadwal bangunin aku?", "reminder-ku apa aja?", "kapan
+ * bangunin aku?"). Without this, the set-intent regex matched the question
+ * ("bangunin") and added/merged a reminder + appended a "(terjadwal)" suffix
+ * instead of answering. Pure — unit-tested.
+ */
+export function isReminderQuery(text: string): boolean {
+  const t = (text || "").toLowerCase().trim();
+  if (!t) return false;
+  // Explicit interrogatives about reminders. None of these is a set-phrase.
+  return (
+    /\b(masih\s+ing[ae]t|ing[ae]t\s*(ga|gak|nggak|tidak|kah)\b)/.test(t) ||
+    /\b(apa\s+a[jl]a|ada\s+apa|reminder\s*(ku|nya)?\s*(apa|aja|saja))/i.test(t) ||
+    /\b(kapan|jadwal(ku)?\s*(apa|nya|nya\?)|daftar\s+(reminder|jadwal)|cek\s+(reminder|jadwal)|lihat\s+(reminder|jadwal))/i.test(t) ||
+    /\breminder\s*(ku|nya)?\b.*\?/.test(t)
+  );
+}
+
+/** True when a reminder text is about waking up (drives persona wake_up_time sync). Pure. */
+export function isWakeIntent(text: string): boolean {
+  return /\b(bangun(in)?|bangun tidur|wake me|wake up|alarm|ngbangunin)\b/i.test(text || "");
+}

@@ -576,13 +576,21 @@ const toolRegistry: ToolPlugin[] = [
       try {
         const repeatArg = args.repeat === "daily" ? "daily" : undefined;
         const notes = typeof args.notes === "string" ? args.notes : undefined;
-        return scheduleReminder(
+        const out = scheduleReminder(
           typeof args.text === "string" ? args.text : "",
           typeof args.when === "string" ? args.when : "",
           ctx.rawUser,
           repeatArg,
           notes
         );
+        // Creating a wake reminder updates the persona wake_up_time (single
+        // source of truth) so Mia never cites a stale hour.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { syncWakePersona } = require("./persona") as typeof import("./persona");
+          syncWakePersona(ctx.rawUser);
+        } catch { /* best-effort */ }
+        return out;
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid reminder"}`;
       }
@@ -862,8 +870,19 @@ const toolRegistry: ToolPlugin[] = [
         const q = typeof args.query === "string" ? args.query : "";
         if (!q.trim()) return "Error: query required";
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { deleteReminders } = require("./reminders") as typeof import("./reminders");
+        const { deleteReminders, readReminders } = require("./reminders") as typeof import("./reminders");
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { isWakeIntent } = require("./reminderIntent") as typeof import("./reminderIntent");
         const n = deleteReminders(ctx.rawUser, q);
+        // If the wake reminder is gone, drop the persona wake_up_time fact rather
+        // than leaving a stale hour behind.
+        try {
+          if (!readReminders(ctx.rawUser).some((r: { text: string }) => isWakeIntent(r.text))) {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { forgetPersonaFact } = require("./persona") as typeof import("./persona");
+            forgetPersonaFact(ctx.rawUser, "wake_up_time");
+          }
+        } catch { /* best-effort */ }
         return n ? `Dihapus ${n} reminder mengandung "${q}" beb 🌸` : `Tidak ada reminder mengandung "${q}"`;
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "cannot delete"}`;

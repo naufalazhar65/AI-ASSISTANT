@@ -451,3 +451,23 @@ export function setPersonaFact(rawUser: unknown, key: string, value: string, tar
   upsertPersonaFact(target, canon, v, rawUser);
   return `✅ Kuingat: ${canon} = ${v}`;
 }
+
+/**
+ * Keep the persona wake-up fact in sync with the ACTIVE wake reminder. Called
+ * wherever a reminder is created/moved/cancelled so Mia never answers "jam 7"
+ * from a stale persona while the store says 06:00. Best-effort; never throws.
+ */
+export function syncWakePersona(rawUser: unknown): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readReminders } = require("./reminders") as typeof import("./reminders");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { isWakeIntent } = require("./reminderIntent") as typeof import("./reminderIntent");
+    const wake = readReminders(rawUser).find((r) => isWakeIntent(r.text));
+    if (!wake) return;
+    const d = new Date(wake.at);
+    upsertPersonaFact("USER", "wake_up_time", `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`, rawUser);
+  } catch {
+    /* best-effort */
+  }
+}
