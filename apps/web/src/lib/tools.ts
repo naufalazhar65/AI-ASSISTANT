@@ -2207,6 +2207,59 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "spotify_queue",
+        description:
+          "Tambahkan lagu ke antrean Spotify (diputar SETELAH lagu yang sekarang) — mis. 'tambahin ke antrean', 'putar ini berikutnya'. Jalankan langsung tanpa konfirmasi.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Judul + artis lagu, mis. 'Perfect Ed Sheeran'. Boleh 'lagu favoritku' (diambil dari persona)." },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { spotifyQueue } = await import("./spotify");
+        return await spotifyQueue(ctx.rawUser, asBodyString(args.query));
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "spotify_mode",
+        description:
+          "Atur shuffle/repeat Spotify: shuffle=true/false, repeat='track'|'context'|'off'. Tanpa argumen = laporkan status sekarang. Mis. 'shuffle dong', 'ulang lagu ini terus', 'matiin repeat'. Jalankan langsung tanpa konfirmasi.",
+        parameters: {
+          type: "object",
+          properties: {
+            shuffle: { type: "boolean", description: "true = nyalakan shuffle, false = matikan" },
+            repeat: { type: "string", description: "'track' (ulang lagu ini), 'context' (ulang album/playlist), 'off' (matikan)" },
+          },
+          required: [],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { spotifyMode } = await import("./spotify");
+        return await spotifyMode(ctx.rawUser, { shuffle: args.shuffle, repeat: args.repeat });
+      } catch (err) {
+        return spotifyToolError(err, ctx.rawUser);
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "mala",
         description:
           "Give a short, playfull daily fortune ('ramalan harian') — mood of the day, lucky color, lucky number, and a Mia-style hint. Same answer all day, changes daily, free/offline. Use when the user asks 'ramal aku', 'ramalan', 'mala', atau minta ramalan harian.",

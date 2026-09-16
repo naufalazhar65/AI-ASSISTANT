@@ -660,6 +660,17 @@ async function main() {
       if (spotifyControlToolName(action) !== tool) throw new Error(`spotifyControlToolName(${action}) should be ${tool}`);
     }
     console.log("spotify control→tool dedupe key: OK");
+
+  // --- spotify queue/mode arg normalization ---
+  {
+    const { normalizeRepeat, truthyFlag } = await import("./src/lib/spotify");
+    if (normalizeRepeat("track") !== "track" || normalizeRepeat("lagu ini") !== "track") throw new Error("normalizeRepeat track failed");
+    if (normalizeRepeat("album") !== "context" || normalizeRepeat("playlist") !== "context") throw new Error("normalizeRepeat context failed");
+    if (normalizeRepeat("matikan") !== "off" || normalizeRepeat("off") !== "off") throw new Error("normalizeRepeat off failed");
+    if (normalizeRepeat("") !== null || normalizeRepeat(undefined) !== null) throw new Error("normalizeRepeat empty should be null");
+    if (truthyFlag("nyala") !== true || truthyFlag(false) !== false || truthyFlag("off") !== false) throw new Error("truthyFlag failed");
+    console.log("spotify queue/mode normalization: OK");
+  }
   }
   }
   }

@@ -363,6 +363,8 @@ interface PlayerSnapshot {
   deviceName?: string;
   trackName?: string;
   artists?: string;
+  shuffle?: boolean;
+  repeat?: string;
 }
 
 async function currentPlayer(rawUser: unknown): Promise<PlayerSnapshot | null> {
@@ -377,6 +379,8 @@ async function currentPlayer(rawUser: unknown): Promise<PlayerSnapshot | null> {
       trackUri: item && typeof item.uri === "string" ? item.uri : undefined,
       contextUri: context && typeof context.uri === "string" ? context.uri : undefined,
       deviceName: device && typeof device.name === "string" ? device.name : undefined,
+      shuffle: typeof player.shuffle_state === "boolean" ? player.shuffle_state : undefined,
+      repeat: typeof player.repeat_state === "string" ? player.repeat_state : undefined,
     };
   } catch {
     return null;
@@ -948,6 +952,98 @@ export function spotifySleepTimerStatus(rawUser: unknown): string {
   if (!cur) return "Tidak ada sleep timer aktif. Sebutkan after_track=true atau minutes=N untuk memasang.";
   const left = Math.max(0, Math.round((cur.stopAt - Date.now()) / 60_000));
   return `⏱️ Sleep timer aktif — berhenti ${cur.label} (≈ ${left} menit lagi).`;
+}
+
+const REPEAT_VALUES = ["track", "context", "off"] as const;
+export type SpotifyRepeat = (typeof REPEAT_VALUES)[number];
+
+/** Indonesian/English repeat phrasing → Spotify repeat state. Pure — tested. */
+export function normalizeRepeat(value: unknown): SpotifyRepeat | null {
+  if (typeof value === "boolean") return value ? "track" : "off";
+  const v = String(value ?? "").trim().toLowerCase();
+  if (!v) return null;
+  if (["off", "stop", "no", "tidak", "nggak", "gak", "jangan", "false", "0", "matiin", "matikan"].includes(v)) return "off";
+  if (["track", "lagu", "lagu ini", "song", "this song", "one", "satu", "ulang lagu", "ulangi lagu", "repeat one", "ulangi lagu ini"].includes(v)) return "track";
+  if (["context", "album", "playlist", "semua", "all", "antrean", "queue", "list", "ulangi semua"].includes(v)) return "context";
+  return null;
+}
+
+/** Lenient boolean for shuffle ("nyala/on/ya/1" → true). Pure — tested. */
+export function truthyFlag(value: unknown, fallback = true): boolean {
+  if (typeof value === "boolean") return value;
+  const s = String(value ?? "").trim().toLowerCase();
+  if (!s) return fallback;
+  return ["true", "1", "on", "ya", "yes", "nyala", "hidup", "aktif", "enable"].includes(s);
+}
+
+const repeatLabel = (r: SpotifyRepeat): string =>
+  r === "track" ? "lagu ini (track)" : r === "context" ? "album/playlist (context)" : "OFF";
+
+/** Add a track to the play queue ("tambahin ke antrean / putar ini berikutnya"). */
+export async function spotifyQueue(rawUser: unknown, query?: string): Promise<string> {
+  let q = (query || "").trim();
+  if (!q) return "Sebutkan lagu yang mau diantre ya — misalnya 'antrekan lagu Perfect-nya Ed Sheeran'.";
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getPersonaFact } = require("./persona") as typeof import("./persona");
+    q = resolveFavoriteQuery(q, getPersonaFact(rawUser, "preference.song"), getPersonaFact(rawUser, "preference.artist"));
+  } catch { /* keep the raw query */ }
+  const track = await searchBestTrack(rawUser, q);
+  if (!track?.uri) return `Lagu "${q}" nggak ketemu di Spotify.`;
+  const uri = String(track.uri);
+  const path = `/me/player/queue?uri=${encodeURIComponent(uri)}`;
+  try {
+    await spotifyRequest<unknown>(rawUser, "POST", path);
+  } catch (err) {
+    if (err instanceof Error && err.message === "spotify_no_active_device") {
+      const transferred = await ensureDevice(rawUser);
+      if (transferred) await spotifyRequest<unknown>(rawUser, "POST", path);
+      else throw err;
+    } else {
+      throw err;
+    }
+  }
+  const artists = ((track.artists as Record<string, string>[]) || []).map((a) => a.name).join(", ");
+  return `Sudah masuk antrean: ${String(track.name)}${artists ? ` — ${artists}` : ""}. Bakal muter setelah lagu yang sekarang.`;
+}
+
+/** Shuffle/repeat control. No args = report the current state honestly. */
+export async function spotifyMode(
+  rawUser: unknown,
+  opts: { shuffle?: unknown; repeat?: unknown },
+): Promise<string> {
+  const wantShuffle = opts.shuffle === undefined || opts.shuffle === null || String(opts.shuffle).trim() === ""
+    ? undefined
+    : truthyFlag(opts.shuffle);
+  const repeat = normalizeRepeat(opts.repeat);
+  if (wantShuffle === undefined && !repeat) {
+    const snap = await currentPlayer(rawUser);
+    if (!snap) return "Tidak ada playback aktif — buka Spotify dulu ya, biar aku bisa cek status shuffle/repeat.";
+    const sh = snap.shuffle === undefined ? "?" : snap.shuffle ? "ON" : "OFF";
+    const rp = snap.repeat ? repeatLabel(normalizeRepeat(snap.repeat) ?? "off") : "OFF";
+    return `Mode sekarang: shuffle ${sh} · repeat ${rp}${snap.trackName ? ` (${snap.trackName})` : ""}.`;
+  }
+  const apply = async () => {
+    const parts: string[] = [];
+    if (wantShuffle !== undefined) {
+      await spotifyRequest<unknown>(rawUser, "PUT", `/me/player/shuffle?state=${wantShuffle}`);
+      parts.push(`shuffle ${wantShuffle ? "ON" : "OFF"}`);
+    }
+    if (repeat) {
+      await spotifyRequest<unknown>(rawUser, "PUT", `/me/player/repeat?state=${repeat}`);
+      parts.push(`repeat ${repeatLabel(repeat)}`);
+    }
+    return parts.join(" · ");
+  };
+  try {
+    return `Oke — ${await apply()}.`;
+  } catch (err) {
+    if (err instanceof Error && err.message === "spotify_no_active_device") {
+      const transferred = await ensureDevice(rawUser);
+      if (transferred) return `Oke — ${await apply()} (di ${transferred}).`;
+    }
+    throw err;
+  }
 }
 
 /** Map "not connected" to the auth link (mirrors tools.ts spotifyToolError). */
