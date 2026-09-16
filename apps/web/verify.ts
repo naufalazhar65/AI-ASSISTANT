@@ -569,6 +569,29 @@ async function main() {
     rmSync(join(appRoot(), ".data", "users", pu), { recursive: true, force: true });
     console.log("persona facts (canonical/secret/conflict/cap/split + tools): OK");
 
+  // --- tool schema sanitizer (strict providers: array needs items) ---
+  {
+    const { sanitizeToolSchema } = await import("./src/lib/agent");
+    const a = sanitizeToolSchema({ type: "object", properties: { hosts: { type: "array" } } }) as { properties: { hosts: { items?: unknown } } };
+    if (!a.properties.hosts.items) throw new Error("sanitizeToolSchema should add items to an array param");
+    const b = sanitizeToolSchema({ type: "object" }) as { properties?: unknown };
+    if (!b.properties) throw new Error("sanitizeToolSchema should add empty properties to an object");
+    const c = sanitizeToolSchema({ type: "array", items: { type: "object", properties: { a: { type: "array" } } } }) as { items: { properties: { a: { items?: unknown } } } };
+    if (!c.items.properties.a.items) throw new Error("sanitizeToolSchema should recurse");
+    console.log("sanitizeToolSchema (items/properties/recursive): OK");
+
+  // --- automation push must not echo the schedule prompt ---
+  {
+    const { stripScheduleEcho } = await import("./src/lib/automationRunner");
+    const prompt = "Cek cuaca terkini di Lake Home, Serpong, Tangerang Selatan pakai tool weather.";
+    const withSuffix = `Malam beb 🌸 25°C, kelembapan 73%.\n\n(ini buat jadwal yang kamu minta: ${prompt})`;
+    const cleaned = stripScheduleEcho(withSuffix, prompt);
+    if (/ini buat jadwal|Cek cuaca terkini/i.test(cleaned)) throw new Error(`stripScheduleEcho left the schedule echo: ${cleaned}`);
+    if (!/25°C/.test(cleaned)) throw new Error("stripScheduleEcho dropped the real answer");
+    console.log("automation schedule-echo strip: OK");
+  }
+  }
+
   // --- reminder questions must not be treated as set-intents ---
   {
     const { isReminderQuery } = await import("./src/lib/reminderIntent");

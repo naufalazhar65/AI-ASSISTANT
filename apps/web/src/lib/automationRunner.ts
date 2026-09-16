@@ -43,7 +43,10 @@ async function runOne(automation: Automation, user: string): Promise<void> {
       autoDenyRisky: true,
     });
     const text = (result.text || "").trim() || "Maaf, aku belum bisa menjawab permintaan ini pada jadwal otomatis. Coba minta langsung ya. 🌸";
-    const delivered = await pushToOwner(`🌸 ${text}\n\n(ini buat jadwal yang kamu minta: ${automation.prompt})`);
+    // Push ONLY the answer: the old hardcoded "(ini buat jadwal yang kamu minta: …)"
+    // suffix leaked the schedule prompt into every automation message. Also strip
+    // any echo the model itself produced.
+    const delivered = await pushToOwner(`🌸 ${stripScheduleEcho(text, automation.prompt)}`);
     if (!delivered) {
       console.warn(`[automation] no active channel to deliver "${automation.prompt}"`);
       // Self-correction: remember that delivery failed so next time we ensure Telegram channel
@@ -64,6 +67,25 @@ async function runOne(automation: Automation, user: string): Promise<void> {
   } finally {
     running.delete(automation.id);
   }
+}
+
+
+/**
+ * Drop a schedule-prompt echo from an automation answer: the model (or an old
+ * hardcoded suffix) may append "(ini buat jadwal yang kamu minta: …)". Pure —
+ * unit-tested.
+ */
+export function stripScheduleEcho(text: string, prompt: string): string {
+  const t = (text || "").trim();
+  if (!t) return t;
+  const probe = (prompt || "").trim().slice(0, 40).toLowerCase();
+  const kept = t.split("\n").filter((line) => {
+    const low = line.toLowerCase();
+    if (/ini buat jadwal|buat jadwal yang kamu minta/.test(low)) return false;
+    if (probe && low.includes(probe)) return false;
+    return true;
+  });
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /** Start the automation runner. Idempotent. */

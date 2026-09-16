@@ -525,6 +525,29 @@ export function buildOpenCodeSystemPrompt(rawUser?: unknown, channel?: Channel):
 }
 
 /** One streamed completion; returns accumulated text + any requested tool calls. */
+
+/**
+ * Sanitise a JSON-schema fragment for strict providers (Gemini via 9router):
+ * an ARRAY property without `items` makes the whole request 400
+ * ("GenerateContentRequest.tools[0].function_declarations[39].parameters..."),
+ * and an OBJECT without `properties` is also rejected. Adds sensible defaults,
+ * recursively. Pure — unit-tested.
+ */
+export function sanitizeToolSchema(node: unknown): unknown {
+  if (!node || typeof node !== "object") return node;
+  if (Array.isArray(node)) return node.map(sanitizeToolSchema);
+  const out: Record<string, unknown> = { ...(node as Record<string, unknown>) };
+  if (out.type === "array" && !out.items) out.items = { type: "string" };
+  if (out.type === "object" && !out.properties) out.properties = {};
+  if (out.properties && typeof out.properties === "object") {
+    const props = { ...(out.properties as Record<string, unknown>) };
+    for (const k of Object.keys(props)) props[k] = sanitizeToolSchema(props[k]);
+    out.properties = props;
+  }
+  if (out.items) out.items = sanitizeToolSchema(out.items);
+  return out;
+}
+
 export async function runOneCompletion(
   messages: ChatMessage[],
   url: string,
@@ -665,7 +688,7 @@ async function runOneCompletionOnce(
             function: {
               name: t.function.name,
               description: t.function.description,
-              parameters: t.function.parameters,
+              parameters: sanitizeToolSchema(t.function.parameters),
             },
           }))
         : undefined,
