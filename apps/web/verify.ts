@@ -368,6 +368,52 @@ async function main() {
   if (!nuc.summarizeNucleiOutput(nucOut).includes("2 temuan")) throw new Error("summarizeNucleiOutput count");
   console.log("nuclei_custom helpers (severity/tags/argv/counts): OK");
 
+  // --- policy / flow / roi / dupes: pure helpers + flow runner E2E ---
+  const { substitute, getPath, flowRun } = await import("./src/lib/flow");
+  if (substitute("a/{{x}}/{{y}}", { x: "1" }) !== "a/1/{{y}}") throw new Error("substitute");
+  if (getPath({ a: { b: [{ c: 2 }] } }, "a.b.0.c") !== "2") throw new Error("getPath nested");
+  const { scoreHost, rankTargets } = await import("./src/lib/roi");
+  if (scoreHost("api.example.com").score <= scoreHost("blog.example.com").score) throw new Error("scoreHost should rank api above blog");
+  const ranked = rankTargets(["blog.example.com", "*.example.com", "api.example.com"]);
+  if (ranked[0].host !== "*.example.com" && ranked[0].host !== "api.example.com") throw new Error("rankTargets order");
+  const { similarity } = await import("./src/lib/dupes");
+  if (similarity("IDOR in profile endpoint", "idor profile endpoint leak") < 0.4) throw new Error("similarity too low");
+  if (similarity("alpha beta", "gamma delta") !== 0) throw new Error("similarity should be 0");
+  const { autoApproveAllowed } = await import("./src/lib/policy");
+  if (autoApproveAllowed("http_request", "write", { url: "https://evil.example.com" }, { hasActiveEngagement: true, urlAllowed: () => false })) throw new Error("policy should deny out-of-scope URL");
+  if (autoApproveAllowed("delete_note", "delete", {}, { hasActiveEngagement: true, urlAllowed: () => true })) throw new Error("policy must never auto-approve delete");
+  {
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      if (req.url === "/a") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"id":"42"}'); return; }
+      if (req.url === "/b/42") { res.writeHead(200); res.end('{"ok":true}'); return; }
+      res.writeHead(404); res.end("no");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    const out = await flowRun("v", {
+      flow: {
+        name: "t",
+        steps: [
+          { url: `http://127.0.0.1:${port}/a`, expect_status: 200, extract: { id: "id" } },
+          { url: `http://127.0.0.1:${port}/b/{{id}}`, expect_status: 200, expect_contains: "ok" },
+        ],
+      },
+    });
+    if (!out.includes("SELESAI")) throw new Error(`flowRun should complete: ${out.split("\n").join(" | ")}`);
+    const bad = await flowRun("v", { flow: { steps: [{ url: `http://127.0.0.1:${port}/a`, expect_status: 500 }] } });
+    if (!bad.includes("GAGAL")) throw new Error("flowRun should fail on assertion");
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+  console.log("policy/flow/roi/dupes + flow runner E2E: OK");
+
+  // --- campaign status lookup must use hunt_log's key normalization ---
+  const { huntStatusFor } = await import("./src/lib/campaign");
+  const fakeEntries = [{ target: "127.0.0.1:4022", status: "lead" }];
+  if (huntStatusFor(fakeEntries, "http://127.0.0.1:4022/") !== "lead") throw new Error("huntStatusFor key mismatch (trailing slash/scheme)");
+  if (huntStatusFor(fakeEntries, "https://other.example.com") !== undefined) throw new Error("huntStatusFor false match");
+  console.log("campaign huntStatusFor normalization: OK");
+
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
   const xmlLeaked = 'Aku cek ya <td>, sementara itu <invoke name="browser_open"><parameter name="url">https://x/y</parameter></invoke> ya beb 🌸';

@@ -3606,6 +3606,71 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { techWatch } = await import("./techWatch"); return await techWatch(ctx.rawUser, String(args.url || ""), { cve: args.cve !== false }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "tech_watch failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "policy_show", description: "Lihat policy auto-approve (tool mana yang boleh jalan tanpa konfirmasi saat engagement aktif). Read/auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => { try { const { policyText } = await import("./policy"); return policyText(); } catch (e) { return `Error: ${e instanceof Error ? e.message : "policy_show failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "policy_set", description: "Atur auto-approve tool berisiko (hanya read/write; delete/transaction/external TIDAK pernah; URL wajib lab/engagement). action=set|add|reset + tools[] . Write, confirm.", parameters: { type: "object", properties: { action: { type: "string", enum: ["set", "add", "reset"] }, tools: { type: "array", description: "nama tool, mis. [\"http_request\",\"poc_verify\"]" }, note: { type: "string" } }, required: ["action"] } } },
+    execute: async (args) => {
+      try {
+        const { setPolicy } = await import("./policy");
+        const tools = Array.isArray(args.tools) ? args.tools.map(String) : [];
+        const p = setPolicy((["set", "add", "reset"].includes(String(args.action)) ? String(args.action) : "set") as "set" | "add" | "reset", tools, typeof args.note === "string" ? args.note : "");
+        return `✅ Policy diperbarui — auto-approve (${p.autoApprove.length}): ${p.autoApprove.join(", ") || "(kosong)"}`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "policy_set failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "flow_run", description: "Jalankan sekuens langkah HTTP (login→ambil id→akses objek→assert) dengan variabel {{var}} + extract + assertion. Untuk IDOR/logic multi-request. `save=<nama>` menyimpan; `name=<nama>` memuat. Scope-gated per langkah. Write, confirm.", parameters: { type: "object", properties: { name: { type: "string", description: "muat flow tersimpan" }, save: { type: "string", description: "simpan flow ini dengan nama" }, vars: { type: "object" }, flow: { type: "object", description: "{steps:[{method,url,headers,body,session,expect_status,expect_contains,extract}]}" }, steps: { type: "array", description: "alternatif inline ke flow.steps" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { flowRun } = await import("./flow");
+        const flow = (args.flow && typeof args.flow === "object" ? (args.flow as Record<string, unknown>) : Array.isArray(args.steps) ? { steps: args.steps } : undefined) as { steps?: unknown[]; vars?: Record<string, string> } | undefined;
+        return await flowRun(ctx.rawUser, {
+          flow: flow ? ({ name: typeof args.save === "string" ? args.save : undefined, vars: flow.vars, steps: Array.isArray(flow.steps) ? flow.steps : [] } as never) : undefined,
+          name: typeof args.name === "string" ? args.name : undefined,
+          save: typeof args.save === "string" ? args.save : undefined,
+          vars: args.vars && typeof args.vars === "object" ? (args.vars as Record<string, string>) : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "flow_run failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "flow_list", description: "Daftar flow tersimpan. Read/auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_a, ctx) => { try { const { flowListText } = await import("./flow"); return flowListText(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "flow_list failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "program_score", description: "Skor ROI sebuah program/scope (heuristik transparan) + urutkan host prioritas. Beri `scope` (teks program) atau `engagement` (id). Read/auto.", parameters: { type: "object", properties: { scope: { type: "string", description: "teks scope program (Targets)" }, engagement: { type: "string", description: "id engagement" } }, required: [] } } },
+    execute: async (args) => { try { const { roiText } = await import("./roi"); return roiText({ scope: typeof args.scope === "string" ? args.scope : undefined, engagement: typeof args.engagement === "string" ? args.engagement : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "program_score failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "campaign_run", description: "Loop hunt ber-guard & resumable: jalankan suite_hunt per host (skip yang dead/lead), batas host + waktu, berhenti saat lead (opsional). Hanya recon→hunt→triage, tanpa eksploitasi. Write, confirm.", parameters: { type: "object", properties: { targets: { type: "array", description: "daftar host (opsional; default scope engagement aktif)" }, deep: { type: "boolean" }, max_hosts: { type: "number", description: "default 5, maks 12" }, max_seconds: { type: "number", description: "budget, default 480s" }, stop_on_lead: { type: "boolean" }, spec: { type: "string" }, session: { type: "string" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { campaignRun } = await import("./campaign");
+        return await campaignRun(ctx.rawUser, {
+          targets: Array.isArray(args.targets) ? args.targets.map(String) : undefined,
+          deep: args.deep === true,
+          max_hosts: typeof args.max_hosts === "number" ? args.max_hosts : undefined,
+          max_seconds: typeof args.max_seconds === "number" ? args.max_seconds : undefined,
+          stop_on_lead: args.stop_on_lead === true,
+          spec: typeof args.spec === "string" ? args.spec : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "campaign_run failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "dup_check", description: "Cek kemungkinan duplikat sebelum submit: bandingkan judul (+target) dengan findings & submissions lokal (kemiripan token). Read/auto.", parameters: { type: "object", properties: { title: { type: "string" }, target: { type: "string" }, cwe: { type: "string" } }, required: ["title"] } } },
+    execute: async (args, ctx) => { try { const { dupCheck } = await import("./dupes"); return dupCheck(ctx.rawUser, { title: String(args.title || ""), target: typeof args.target === "string" ? args.target : undefined, cwe: typeof args.cwe === "string" ? args.cwe : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "dup_check failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "content_discover", description: "Content discovery aktif (scope-gated): robots.txt/sitemap, link halaman, endpoint dari file JS, + probe path umum (mis. /admin,/.env,/swagger.json). Hanya lab/engagement. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. http://127.0.0.1:4010 atau https://app.klien.com" } }, required: ["url"] } } },
     execute: async (args, ctx) => { try { const { contentDiscover } = await import("./recon"); return await contentDiscover(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "content_discover failed"}`; } },
   },
