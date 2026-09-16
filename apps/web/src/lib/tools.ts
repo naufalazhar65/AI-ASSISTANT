@@ -3189,6 +3189,40 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
+      risk: "write",
+      function: {
+        name: "nuclei_custom",
+        description:
+          "Nuclei custom — jalankan nuclei dengan filter severity/tags atau template custom (file/dir .yaml di sandbox). HANYA localhost/lab/RFC1918 atau host di engagement aktif/PENTEST_LAB_TARGETS (scope-gated). Write, confirm. Tanpa templates → auto-scan (-as); dengan templates → -t path. Severity default critical,high,medium.",
+        parameters: {
+          type: "object",
+          properties: {
+            target: { type: "string", description: "Target http(s) atau host:port, mis. http://localhost:4010 atau https://app.example.com" },
+            severity: { type: "string", description: "Filter severity, mis. \"critical,high\" (critical/high/medium/low/info/unknown)" },
+            tags: { type: "string", description: "Filter tags, mis. \"xss,sqli,cve\" (opsional)" },
+            templates: { type: "string", description: "Path sandbox ke file .yaml/.yml atau direktori template custom (opsional)" },
+          },
+          required: ["target"],
+        },
+      },
+    },
+    execute: async (args) => {
+      try {
+        const { nucleiCustom } = await import("./nuclei");
+        return await nucleiCustom({
+          target: String(args.target || ""),
+          severity: typeof args.severity === "string" ? args.severity : undefined,
+          tags: typeof args.tags === "string" ? args.tags : undefined,
+          templates: typeof args.templates === "string" ? args.templates : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "nuclei_custom failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
       risk: "read",
       function: {
         name: "finding_add",
@@ -3562,6 +3596,14 @@ const toolRegistry: ToolPlugin[] = [
         return `Error: ${e instanceof Error ? e.message : "poc_verify failed"}`;
       }
     },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "cloud_misconfig", description: "Cek storage cloud MILIK organisasi dalam scope (keyless): S3/GCS/Azure Blob listing publik + Firebase RTDB terbuka + Supabase. `base_domain` = domain org (dasar otorisasi; harus lab/engagement). `target` untuk nama bucket eksplisit. Write, confirm.", parameters: { type: "object", properties: { base_domain: { type: "string", description: "mis. example.com (harus tercakup engagement)" }, target: { type: "string", description: "nama bucket/project eksplisit (opsional)" }, provider: { type: "string", enum: ["auto", "s3", "gcs", "azure", "firebase", "supabase"] } }, required: ["base_domain"] } } },
+    execute: async (args, ctx) => { try { const { cloudMisconfig } = await import("./cloud"); return await cloudMisconfig(ctx.rawUser, { base_domain: typeof args.base_domain === "string" ? args.base_domain : undefined, target: typeof args.target === "string" ? args.target : undefined, provider: typeof args.provider === "string" ? args.provider : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cloud_misconfig failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "tech_watch", description: "Fingerprint teknologi host (framework/versi dari header+marker), diff vs snapshot terakhir, dan cari CVE untuk yang berubah. Scope-gated, read/auto, bounded (1 GET).", parameters: { type: "object", properties: { url: { type: "string" }, cve: { type: "boolean", description: "cari CVE (default true saat ada perubahan)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { techWatch } = await import("./techWatch"); return await techWatch(ctx.rawUser, String(args.url || ""), { cve: args.cve !== false }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "tech_watch failed"}`; } },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "content_discover", description: "Content discovery aktif (scope-gated): robots.txt/sitemap, link halaman, endpoint dari file JS, + probe path umum (mis. /admin,/.env,/swagger.json). Hanya lab/engagement. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. http://127.0.0.1:4010 atau https://app.klien.com" } }, required: ["url"] } } },

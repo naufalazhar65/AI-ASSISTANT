@@ -334,6 +334,40 @@ async function main() {
   }
   console.log("poc_verify (scope + deterministic PoC + assertion): OK");
 
+  // --- cloud misconfig + tech watch: pure classifiers ---
+  const { cloudCandidates, classifyCloud } = await import("./src/lib/cloud");
+  const cand = cloudCandidates("https://www.example.com/path");
+  if (!cand.includes("example") || !cand.includes("example-com")) throw new Error(`cloudCandidates bad: ${JSON.stringify(cand)}`);
+  if (cloudCandidates("") .length) throw new Error("cloudCandidates should be empty for blank");
+  if (!classifyCloud("s3", { status: 200, body: "<ListBucketResult><Contents>" }).lead) throw new Error("classifyCloud missed open S3 listing");
+  if (classifyCloud("s3", { status: 403, body: "AccessDenied" }).lead) throw new Error("classifyCloud false-positive on 403");
+  if (!classifyCloud("firebase", { status: 200, body: '{"users":{"a":1}}' }).lead) throw new Error("classifyCloud missed open Firebase DB");
+  if (classifyCloud("firebase", { status: 200, body: "null" }).lead) throw new Error("classifyCloud false-positive on Firebase null");
+  const { detectTech } = await import("./src/lib/techWatch");
+  const tech = detectTech({ server: "nginx", "x-powered-by": "PHP/8.1" }, '<meta name="generator" content="WordPress 6.4"> wp-content');
+  if (!tech.some((t) => /nginx/.test(t)) || !tech.includes("wordpress") || !tech.some((t) => /PHP\/8\.1/.test(t)))
+    throw new Error(`detectTech missed markers: ${JSON.stringify(tech)}`);
+  if (detectTech({}, "nothing here").length) throw new Error("detectTech false-positive on plain body");
+  console.log("cloudCandidates/classifyCloud + detectTech: OK");
+
+  // --- nuclei_custom helpers (foreign addition) — audit regressions ---
+  const nuc = await import("./src/lib/nuclei");
+  if (nuc.normalizeSeverity("CRITICAL, high ") !== "critical,high") throw new Error("normalizeSeverity case/space");
+  if (nuc.normalizeSeverity("critical,critical,high") !== "critical,high") throw new Error("normalizeSeverity dedupe");
+  if (nuc.normalizeSeverity("bogus") !== null) throw new Error("normalizeSeverity should reject unknown");
+  if (nuc.normalizeTags("xss sqli") !== "xss,sqli") throw new Error("normalizeTags should split on spaces");
+  if (nuc.normalizeTags("xss;rm -rf /") !== null) throw new Error("normalizeTags should reject shell-ish input");
+  if (!nuc.validateTags("xss,sqli")) throw new Error("validateTags false-negative");
+  const nucArgv = nuc.nucleiArgv({ target: "127.0.0.1:4010" });
+  if (!nucArgv || !nucArgv.includes("http://127.0.0.1:4010")) throw new Error("nucleiArgv target normalize");
+  if (nuc.nucleiArgv({ target: "127.0.0.1", severity: "nope" }) !== null) throw new Error("nucleiArgv should reject bad severity");
+  if (nuc.nucleiArgv({ target: "127.0.0.1", templates: "/etc/passwd" }) !== null) throw new Error("nucleiArgv should reject out-of-sandbox templates");
+  const nucOut = "[tech-detect:nginx] [http] [info] http://x\n[cve-2024-1] [http] [high] http://y";
+  const nucCounts = nuc.parseNucleiSeverityCounts(nucOut);
+  if (nucCounts.info !== 1 || nucCounts.high !== 1) throw new Error(`parseNucleiSeverityCounts: ${JSON.stringify(nucCounts)}`);
+  if (!nuc.summarizeNucleiOutput(nucOut).includes("2 temuan")) throw new Error("summarizeNucleiOutput count");
+  console.log("nuclei_custom helpers (severity/tags/argv/counts): OK");
+
   // --- XML tool-call markup leak (opencodego/deepseek) is stripped ---
   const { stripToolCallProse: stripXmlProse } = await import("./src/lib/agent");
   const xmlLeaked = 'Aku cek ya <td>, sementara itu <invoke name="browser_open"><parameter name="url">https://x/y</parameter></invoke> ya beb 🌸';
