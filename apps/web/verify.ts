@@ -391,9 +391,26 @@ async function main() {
   const { similarity } = await import("./src/lib/dupes");
   if (similarity("IDOR in profile endpoint", "idor profile endpoint leak") < 0.4) throw new Error("similarity too low");
   if (similarity("alpha beta", "gamma delta") !== 0) throw new Error("similarity should be 0");
-  const { autoApproveAllowed } = await import("./src/lib/policy");
-  if (autoApproveAllowed("http_request", "write", { url: "https://evil.example.com" }, { hasActiveEngagement: true, urlAllowed: () => false })) throw new Error("policy should deny out-of-scope URL");
-  if (autoApproveAllowed("delete_note", "delete", {}, { hasActiveEngagement: true, urlAllowed: () => true })) throw new Error("policy must never auto-approve delete");
+  const { autoApproveAllowed, setPolicy, readPolicy } = await import("./src/lib/policy");
+  const prevPolicy = readPolicy();
+  setPolicy("add", ["http_request"]);
+  try {
+    // own lab + scope gate → auto-approved (this is what removes the approval spam)
+    if (!autoApproveAllowed("http_request", "write", { url: "http://127.0.0.1:4010/x" }, { urlAllowed: () => true }))
+      throw new Error("policy must auto-approve a URL call to the owner's own lab");
+    // engagement/third-party host: allowed by scope but NOT the owner's lab → still manual
+    if (autoApproveAllowed("http_request", "write", { url: "https://checkout.webmd.com/x" }, { urlAllowed: () => true }))
+      throw new Error("policy must NOT auto-approve engagement/third-party hosts");
+    // anything outside scope stays denied
+    if (autoApproveAllowed("http_request", "write", { url: "https://evil.example.com" }, { urlAllowed: () => false }))
+      throw new Error("policy should deny out-of-scope URL");
+    // never delete/transaction/external, even on a lab
+    if (autoApproveAllowed("delete_note", "delete", {}, { urlAllowed: () => true })) throw new Error("policy must never auto-approve delete");
+    // a tool not listed in the policy is never auto-approved
+    if (autoApproveAllowed("pentest_scan", "write", {}, { urlAllowed: () => true })) throw new Error("policy must only cover listed tools");
+  } finally {
+    setPolicy(prevPolicy.autoApprove.length ? "set" : "reset", prevPolicy.autoApprove);
+  }
   {
     const http = await import("node:http");
     const server = http.createServer((req, res) => {
@@ -655,6 +672,55 @@ async function main() {
     ]);
     if (onlyPlaceholders !== "") throw new Error("digest must ignore placeholder tool results");
     console.log("empty-answer guard (tool-result digest): OK");
+  }
+
+  // --- ato_prove: credential -> login -> protected page (lab chain) ---
+  {
+    const { atoProve, atoVerdict, parseCredential, buildLoginBody } = await import("./src/lib/ato");
+    if (parseCredential("admin:K0h0na_Sup3rAdmin!")?.password !== "K0h0na_Sup3rAdmin!") throw new Error("parseCredential user:pass");
+    if (parseCredential("nocolon") !== null) throw new Error("parseCredential must reject a missing colon");
+    if (!/"password":"p"/.test(buildLoginBody({ username: "u", password: "p" }))) throw new Error("buildLoginBody json");
+    if (buildLoginBody({ username: "u", password: "p", body_template: "u={{username}}&p={{password}}" }) !== "u=u&p=p") throw new Error("buildLoginBody template");
+    if (!atoVerdict({ loginStatus: 200, sessionGot: true, protectedStatus: 200, protectedLooksProtected: true }).ok) throw new Error("atoVerdict should confirm takeover");
+
+    const http = await import("node:http");
+    const srv = http.createServer((req, res) => {
+      if (req.url === "/login" && req.method === "POST") {
+        let b = "";
+        req.on("data", (c) => (b += c));
+        req.on("end", () => {
+          const ok = b.includes("s3cret");
+          if (ok) res.setHeader("set-cookie", "sid=abc123; Path=/; HttpOnly");
+          res.writeHead(ok ? 200 : 401, { "content-type": "application/json" });
+          res.end(ok ? '{"ok":true}' : '{"ok":false}');
+        });
+        return;
+      }
+      if (req.url === "/admin") {
+        const ok = String(req.headers.cookie || "").includes("sid=abc123");
+        res.writeHead(ok ? 200 : 401, { "content-type": "text/html" });
+        res.end(ok ? "<h1>ADMIN PANEL</h1><p>rahasia</p>" : '<form><input type="password" name="p"></form>');
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+    const port = (srv.address() as { port: number }).port;
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const good = await atoProve("verify_ato_user", { login_url: `${base}/login`, credential: "admin:s3cret", protected_url: `${base}/admin` });
+      if (!/ACCOUNT TAKEOVER TERBUKTI/.test(good)) throw new Error(`ato_prove should prove the chain: ${good.slice(0, 180)}`);
+      if (/s3cret/.test(good)) throw new Error("ato_prove must never echo the raw password");
+      const bad = await atoProve("verify_ato_user", { login_url: `${base}/login`, credential: "admin:wrong", protected_url: `${base}/admin` });
+      if (!/DITOLAK/.test(bad)) throw new Error(`ato_prove should report a rejected credential: ${bad.slice(0, 140)}`);
+      const off = await atoProve("verify_ato_user", { login_url: "https://example.com/login", credential: "a:b" });
+      if (!/SCOPE/.test(off)) throw new Error("ato_prove must enforce scope");
+      console.log("ato_prove (lab ATO chain + rejected creds + scope + no password leak): OK");
+    } finally {
+      srv.close();
+      rmSync(join(appRoot(), ".data", "users", "verify_ato_user"), { recursive: true, force: true });
+    }
   }
 
   // --- tool schema sanitizer (strict providers: array needs items) ---
@@ -1427,7 +1493,7 @@ async function main() {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "security_hunt", "race", "ws_probe", "poc_verify", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "security_hunt", "race", "ws_probe", "poc_verify", "ato_prove", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");

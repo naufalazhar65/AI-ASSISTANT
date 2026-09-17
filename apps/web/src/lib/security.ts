@@ -334,7 +334,13 @@ const SCAN_PERMITTED_HOSTS = new Set<string>([
  * scan-permitted public host, or an exact host in the PENTEST_LAB_TARGETS env.
  * Everything else public is refused.
  */
-export function isLabTarget(raw: string): boolean {
+/**
+ * The OWNER's own lab: localhost/RFC1918/link-local, or a host listed in
+ * PENTEST_LAB_TARGETS (with its subdomains). Deliberately excludes the public
+ * demo hosts in SCAN_PERMITTED_HOSTS — those are third parties we may scan once
+ * politely, but never auto-approve repeatedly.
+ */
+export function isOwnLabTarget(raw: string): boolean {
   const t = (raw || "").trim();
   if (!t) return false;
   const host = normalizeHost(t);
@@ -345,7 +351,6 @@ export function isLabTarget(raw: string): boolean {
   // A listed own domain also authorizes its subdomains (`example.com` covers
   // `app.example.com`) — e.g. so recon can probe the subdomains it found.
   if (envTargets.some((e) => !e.includes(":") && (host === e || host.endsWith("." + e)))) return true;
-  if (SCAN_PERMITTED_HOSTS.has(host)) return true;
   // Cloud instance-metadata endpoints are NEVER "lab" targets (SSRF → stolen
   // credentials). Refuse before the generic link-local allowance below.
   if (host === "169.254.169.254" || host === "100.100.100.200" || host === "fd00:ec2::254") return false;
@@ -354,6 +359,13 @@ export function isLabTarget(raw: string): boolean {
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
   if (/^169\.254\./.test(host)) return true;
   return false;
+}
+
+/** Own lab OR a public host that explicitly permits scanning (single-shot use). */
+export function isLabTarget(raw: string): boolean {
+  if (isOwnLabTarget(raw)) return true;
+  const host = normalizeHost(raw);
+  return !!host && SCAN_PERMITTED_HOSTS.has(host);
 }
 
 /** Lab/permitted host OR a host inside an ACTIVE engagement scope. */

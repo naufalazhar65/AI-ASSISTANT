@@ -1,16 +1,18 @@
-// Per-engagement auto-approval policy — removes confirmation friction for a
-// vetted subset of tools DURING an active engagement, without weakening the
-// trust boundary. Hard rules:
+// Auto-approval policy — removes confirmation friction for a vetted subset of
+// tools while keeping the trust boundary intact. Hard rules:
 //   - only `read`/`write` tools can ever be auto-approved (never delete /
 //     transaction / external);
-//   - any URL in the args must pass targetAllowed (lab or the active engagement);
-//   - the whole approval is inert when no engagement is active.
+//   - a tool call carrying a URL auto-approves ONLY when every URL is the
+//     OWNER's own lab (localhost/RFC1918/PENTEST_LAB_TARGETS) and passes
+//     targetAllowed. Engagement/bug-bounty hosts deliberately stay manual —
+//     program RoE defaults to manual + rate-limited;
 //
 // Owner-level store: .data/policy.json (one personal deploy).
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { appRoot } from "./users";
+import { isOwnLabTarget } from "./security";
 
 export type Policy = { autoApprove: string[]; note: string; updatedAt: string };
 
@@ -73,15 +75,15 @@ export function autoApproveAllowed(
   toolName: string,
   risk: string,
   args: Record<string, unknown>,
-  opts: { hasActiveEngagement: boolean; urlAllowed: (u: string) => boolean }
+  opts: { urlAllowed: (u: string) => boolean }
 ): boolean {
   const p = readPolicy();
   if (!p.autoApprove.includes(toolName)) return false;
   if (!["read", "write"].includes(risk)) return false; // never delete/transaction/external
   const urls = urlsIn(args);
   if (urls.length) {
-    if (!opts.hasActiveEngagement) return false;
-    return urls.every((u) => opts.urlAllowed(u));
+    // Own lab only, and only when the scope gate also allows it.
+    return urls.every((u) => opts.urlAllowed(u) && isOwnLabTarget(u));
   }
   // No network target (e.g. finding_add, report_generate, hunt_log): local write,
   // safe to auto-run when explicitly listed.

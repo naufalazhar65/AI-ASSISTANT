@@ -3682,6 +3682,50 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { cdpOpen } = await import("./cdp"); return await cdpOpen(String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cdp_open failed"}`; } },
   },
   {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "ato_prove",
+        description:
+          "BUKTIKAN rantai account takeover: login dengan kredensial yang bocor (mis. dari SQLi dump / /api/admin-data), simpan cookie sesi, lalu buka halaman terlindungi (opsional) sebagai bukti. HANYA lab milik owner / engagement aktif. Password TIDAK pernah dikembalikan (dimask). Write, confirm.",
+        parameters: {
+          type: "object",
+          properties: {
+            login_url: { type: "string", description: "Endpoint login, mis. https://lab/api/login" },
+            credential: { type: "string", description: 'Shorthand "user:pass" (mis. "admin:K0h0na_Sup3rAdmin!")' },
+            username: { type: "string" },
+            password: { type: "string" },
+            protected_url: { type: "string", description: "Halaman/endpoint yang butuh login (mis. /api/admin-data)" },
+            user_field: { type: "string", description: "Nama field username (default username)" },
+            pass_field: { type: "string", description: "Nama field password (default password)" },
+            body_template: { type: "string", description: "Body mentah dengan {{username}}/{{password}} untuk login form-urlencoded" },
+            session: { type: "string", description: "Nama sesi tersimpan (default ato)" },
+          },
+          required: ["login_url"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { atoProve } = await import("./ato");
+        return await atoProve(ctx.rawUser, {
+          login_url: typeof args.login_url === "string" ? args.login_url : "",
+          credential: typeof args.credential === "string" ? args.credential : undefined,
+          username: typeof args.username === "string" ? args.username : undefined,
+          password: typeof args.password === "string" ? args.password : undefined,
+          protected_url: typeof args.protected_url === "string" ? args.protected_url : undefined,
+          user_field: typeof args.user_field === "string" ? args.user_field : undefined,
+          pass_field: typeof args.pass_field === "string" ? args.pass_field : undefined,
+          body_template: typeof args.body_template === "string" ? args.body_template : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "ato_prove failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "poc_verify", description: "Buktikan lead sebelum lapor: jalankan request N× (default 3), fingerprint tiap respons (status+body+header), cek determinisme, assertion expect_status/expect_contains/expect_header/expect_header_absent/expect_cookie_missing (atribut cookie per-nama), dan opsional banding baseline (kontrol) → verdict layak-lapor. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] }, headers: { type: "object" }, body: { type: "string" }, session: { type: "string", description: "nama http_session (opsional)" }, times: { type: "number", description: "default 3, maks 8" }, expect_status: { type: "number" }, expect_contains: { type: "string" }, expect_header: { type: "string", description: "substring (case-insensitive) yang HARUS ada di header respons" }, expect_header_absent: { type: "string", description: "substring yang TIDAK boleh ada di header respons" }, expect_cookie: { type: "string", description: "bukti temuan cookie: NAMA cookie yang diperiksa (mis. ASP.NET_SessionId_CROSS_DOM_custom)" }, expect_cookie_missing: { type: "string", description: "flag yang hilang pada cookie itu, dipisah koma (mis. HttpOnly, Secure, SameSite)" }, baseline_url: { type: "string", description: "request kontrol (mis. id/identitas lain)" }, baseline_method: { type: "string" }, baseline_body: { type: "string" }, baseline_session: { type: "string" }, save_evidence: { type: "boolean" } }, required: ["url"] } } },
     execute: async (args, ctx) => {
       try {
