@@ -145,6 +145,31 @@ describe("runOneCompletion stream errors", () => {
     );
   });
 
+  it("captures thinking-mode reasoning (needed to echo it back after a tool call)", async () => {
+    // OpenCode Go rejects the follow-up request with 400 unless the assistant's
+    // reasoning is passed back, so it must survive the stream parse.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse([
+          'data: {"choices":[{"delta":{"reasoning_content":"let me think"}}]}\n\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"web_audit","arguments":"{}"}}]}}]}\n\n',
+          "data: [DONE]\n\n",
+        ])
+      )
+    );
+    const out = await runOneCompletion([{ role: "user", content: "hi" }], "https://opencode.ai/zen/go/v1/chat/completions", "k", "sys", "m", true);
+    expect(out.reasoning).toBe("let me think");
+    expect(out.toolCalls[0]?.name).toBe("web_audit");
+  });
+
+  it("also captures the OpenRouter-style `reasoning` field", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(['data: {"choices":[{"delta":{"reasoning":"step 1"}}]}\n\n', "data: [DONE]\n\n"])));
+    const out = await runOneCompletion([{ role: "user", content: "hi" }], "https://openrouter.ai/api/v1/chat/completions", "k", "sys", "m", false);
+    expect(out.reasoning).toBe("step 1");
+    expect(out.text).toBe("");
+  });
+
   it("still returns normal text when no error is present", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => sseResponse(okFrames)));
     const out = await runOneCompletion([{ role: "user", content: "hi" }], "https://openrouter.ai/api/v1/chat/completions", "k", "sys", "m", false);

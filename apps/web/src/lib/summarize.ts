@@ -177,8 +177,19 @@ export async function buildSummarizedMessages(opts: SummarizeOptions): Promise<C
   const trigger = rollingSummaryTriggerChars();
   if (totalChars <= trigger) return messages;
 
-  const keep = messages.slice(-keepRecent);
-  const dropped = messages.slice(0, messages.length - keepRecent);
+  // Never split a tool-call pair. If the cut lands on a `tool` result, walk the
+  // boundary back so its declaring assistant message stays in the kept tail —
+  // strict gateways reject a `tool` message that has no preceding `tool_calls`
+  // ("Messages with role 'tool' must be a response to a preceding message with
+  // 'tool_calls'"). Live bug: a long pentest turn 400'd right after the rolling
+  // summary cut between the assistant tool_calls and its results.
+  let start = messages.length - keepRecent;
+  while (start > 0 && messages[start]?.role === "tool") start--;
+  const keep = messages.slice(start);
+  const dropped = messages.slice(0, start);
+  // Defensive: an input that ALREADY starts with an orphan tool result would
+  // still be invalid — drop those rather than forward them.
+  while (keep.length && keep[0].role === "tool") keep.shift();
   const textLines = dropped
     .map((m) => `${m.role ?? "?"}${m.tool_call_id ? " (tool result)" : ""}: ${messageText(m)}`)
     .filter((l) => !/:\s*$/.test(l));

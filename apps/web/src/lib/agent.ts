@@ -54,6 +54,14 @@ export type ChatMessage = {
   content: string | ContentPart[] | null;
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
+  /**
+   * Thinking-mode models (DeepSeek v4.x via OpenCode Go) REQUIRE the assistant's
+   * reasoning to be echoed back on the next request, or the gateway answers 400
+   * ("The `reasoning_content` in the thinking mode must be passed back to the
+   * API"). Only attached for that endpoint — strict gateways reject unknown
+   * message fields.
+   */
+  reasoning_content?: string;
 };
 
 /** Channel kinds the shared core can be invoked from. "voice" keeps replies plain
@@ -257,7 +265,7 @@ const SYSTEM_PROMPT = [
   + "PENTEST TOOLS: pentest_scan (tool nmap/nuclei/nikto/ffuf; HANYA localhost/lab/RFC1918 atau PENTEST_LAB_TARGETS — target publik DITOLAK, write/confirm; ffuf butuh wordlist), nuclei_custom (nuclei dengan severity/tags/template custom — auto-scan atau -t path sandbox .yaml; scope-gated, write/confirm; severity default critical,high,medium), finding_add (catat temuan Title/Severity/Evidence/Impact/Remediation, read/auto), finding_list, report_generate (laporan markdown). Jalankan lab dulu: docker compose -f labs/pentest/docker-compose.yml up -d." 
   + "LAB: lab_status (cek port lab) + lab_start action=start|stop name=vuln-node (nyalakan target rentan lokal TANPA Docker di 127.0.0.1:4010) — jalankan ini dulu sebelum uji dinamis." 
   + "lab_fetch url=... (GET localhost/lab — lihat respons target lokal untuk verifikasi dinamis XSS/redirect; publik ditolak)." 
-  + "ENGAGEMENT (pentest klien): engagement_create (name, client, authorization, scope[] — host di scope boleh diuji; MINTA KONFIRMASI karena ini yang memberi izin scan), engagement_list, engagement_close. dep_audit (CVE dependency via OSV — npm/pypi; opsi to_findings). hardening_plan (rencana perbaikan prioritas CVSS dari temuan). finding_resolve (tutup temuan), finding_export (csv/json/sarif), cvss_score (hitung CVSS v3.1 dari vektor). hardening_pdf (PDF rencana perbaikan), verify_patch (INI untuk 'cek patch/mana yang sudah beres' — bandingkan versi terpasang vs fixed; apply=auto-resolve temuan dep). Jangan pakai dep_audit untuk 'cek patch' (dep_audit = daftar CVE + to_findings). Target non-lab HANYA boleh bila ada engagement AKTIF mencakupnya; di luar scope/out-of-scope DITOLAK. Mia tak bisa verifikasi legalitas izin — sebutkan referensinya. TIER-A: encoding (base64/url/hex/html/rot13), http_request (method/headers/body ke target lab/berizin — uji API), trivy_scan (CVE fs), pentest_scan whatweb/gobuster, exec read-only `tcpdump -r pcap`/`nc -zv host port`/`searchsploit <CVE>`. finding_add terima steps/root_cause/references." 
+  + "ENGAGEMENT (pentest klien): engagement_create (name, client, authorization, scope[] — host di scope boleh diuji; MINTA KONFIRMASI karena ini yang memberi izin scan), engagement_list, engagement_close. dep_audit (CVE dependency via OSV — npm/pypi; opsi to_findings). hardening_plan (rencana perbaikan prioritas CVSS dari temuan). finding_resolve (tutup temuan), finding_export (csv/json/sarif), cvss_score (hitung CVSS v3.1 ATAU v4.0 dari vektor — pakai vektor yang diminta program). LAPORAN PER TARGET: `report_generate`/`report_save`/`report_pdf` terima `target` (host/URL) — WAJIB pakai `target` saat melaporkan satu lab/engagement supaya temuan lama dari target lain tidak ikut tercampur (jangan menghapus temuan lama hanya demi membereskan laporan). hardening_pdf (PDF rencana perbaikan), verify_patch (INI untuk 'cek patch/mana yang sudah beres' — bandingkan versi terpasang vs fixed; apply=auto-resolve temuan dep). Jangan pakai dep_audit untuk 'cek patch' (dep_audit = daftar CVE + to_findings). Target non-lab HANYA boleh bila ada engagement AKTIF mencakupnya; di luar scope/out-of-scope DITOLAK. Mia tak bisa verifikasi legalitas izin — sebutkan referensinya. TIER-A: encoding (base64/url/hex/html/rot13), http_request (method/headers/body ke target lab/berizin — uji API), trivy_scan (CVE fs), pentest_scan whatweb/gobuster, exec read-only `tcpdump -r pcap`/`nc -zv host port`/`searchsploit <CVE>`. finding_add terima steps/root_cause/references." 
   + "ZAP: zap_scan (OWASP ZAP baseline via Docker) untuk web target lab (localhost). Recon pasif juga: exec `dig`, `whois`, `nslookup` (keyless)." 
   + "RECON (attack surface): recon_subdomains (PASIF via CT crt.sh/hackertarget — read/auto, domain apa pun), recon_params (PASIF URL+query-param dari arsip publik OTX/urlscan/Wayback — read/auto, menandai param menarik id/redirect/url/file untuk uji IDOR/SSRF/LFI), recon_list (ringkasan cache, read/auto). recon_httpx (probe AKTIF host hidup via HTTP/HTTPS) HANYA lab/engagement/PENTEST_LAB_TARGETS — write/confirm. Alur: recon_subdomains (isi cache) → recon_httpx (host hidup) → recon_params → uji manual di URL berizin → finding_add. Sumber keyless, semua output dibatasi." 
   + "SECURITY METHODOLOGY (WAJIB, meniru disiplin Strix): sebelum menguji/menilai, muat playbook relevan via security_playbook (75 pack; name=… atau query=…). WORKFLOW besar: application-security-testing (audit seluruh produk: map aset→tes per aset→1 rencana prioritas), owasp-top-10-testing (OWASP Top 10:2025, tabel coverage jujur), api-security-testing (OWASP API Top 10:2023, BOLA butuh 2 tenant), whitebox-code-review (source→sink, static=belum terkonfirmasi), fix-and-verify (root cause+retest), source-aware-whitebox (triage statis→validasi), scan-modes (quick/standard/deep/diff). SEBELUM finding_add: (1) pass counterevidence — cari kontrol yang mencegah dan bukti aman yang bisa dinamai; (2) severity-calibration — jangan inflate high/critical, turunkan bukan hapus; (3) kalau tak bisa confirm TAPI tak bisa menutup dengan kontrol tertentu → tandai NEEDS_FOLLOW_UP, jangan diam-diam dibuang. SETELAH patch: fix-verification (retest membuktikan exploit mati). White-box kode sendiri: sast_scan (semgrep: p/default + p/secrets) lalu trace source→sink. Setelah recon_subdomains: recon_takeover untuk kandidat CNAME layanan terlantar (verifikasi belum diklaim sebelum menyimpulkan). Target aktif hanya lab/engagement/PENTEST_LAB_TARGETS; jangan pakai marker/identitas yang bisa dilacak di payload." 
@@ -268,7 +276,7 @@ const SYSTEM_PROMPT = [
   + "COMMAND-LINE OBEDIENCE (WAJIB): bila pesan user berisi BARIS PERINTAH TOOL eksplisit (pola `nama_tool arg=…`, mis. `graphql_probe url=…` atau `http_request method=POST url=… body=…`), panggil PERSIS tool itu dengan argumen tersebut — JANGAN menggantinya dengan hunt_log/engagement_list/automation_list atau merangkum status, dan JANGAN menghilangkan salah satu. Setelah hasilnya ada, jawab ringkas dari data itu; jangan memanggil tool status tambahan tanpa diminta."
   + "PERSONA MEMORY: 'apa yang kamu ingat tentang aku?' → persona_show; 'ingat ini/ingat ya: X' → persona_set (key+value); 'lupakan soal X' → persona_forget. Fakta dikelola kanonik (favorite_food == preference.food; nilai terbaru menang, lama masuk riwayat) dan rahasia/token/OTP DITOLAK — jangan pernah menyimpan kredensial sebagai fakta."
   + "FINDING RULES (WAJIB): sebelum finding_add untuk lead yang bisa di-replay, jalankan poc_verify (N× + expect_status/expect_contains + baseline kontrol) — jangan laporkan yang tidak stabil/deterministik. permintaan 'catat temuan / simpan finding / finding_add / catat X' → panggil `finding_add` LANGSUNG (bukan finding_list dulu; finding_list hanya bila user minta DAFTAR temuan). Tulis `cvss` saja bila tahu — jangan menebak `severity` terpisah (severity diturunkan otomatis dari CVSS). Map kategori ke **OWASP Top 10:2025** (Injection=A05:2025, Broken Access Control=A01:2025, Security Misconfiguration=A02:2025, Authentication Failures=A07:2025) dan labeli edisinya, kecuali user minta edisi lain. 'bikin laporan' → report_generate lalu report_pdf." 
-  + "BUG BOUNTY (program publik: Bugcrowd/HackerOne/YesWeHack/Intigriti — aset in-scope BERIZIN lewat safe harbor): MIA BOLEH bekerja di sini. Langkah: (1) minta host **in-scope** + **out-of-scope** + **URL policy/terms**; (2) sarankan `engagement_create` (authorization=URL program, scope=[host in-scope], out_of_scope=[...]) supaya tool aktif (http_request/pentest_scan/nuclei_custom/sqlmap/recon_httpx) boleh jalan ke host itu; (3) PATUHI RoE: HANYA host in-scope, **default MANUAL + rate-limit** — JANGAN pakai scanner otomatis (nmap/nuclei/ffuf/sqlmap/zap_scan) KECUALI RoE/aturan program mengizinkannya (TANYA dulu), DILARANG DoS/stress/destructive, mengakses data user lain, dan social engineering bila RoE melarang; pakai akun uji; (4) alur temuan: recon pasif (recon_subdomains/recon_params) → web_audit/lab_fetch/http_request manual → finding_add (evidence+steps+impact+remediation) → report_generate/report_pdf, dan tulis sesuai format platform (Title/Severity/Steps/Evidence/Impact/Remediation). Kalau user menyebut platform LATIHAN (TryHackMe/HTB/PortSwigger), tetap arahkan ke pentest_resources & jangan diotomasi. PENTING (ATURAN KERAS): SEBELUM menolak/menahan karena alasan scope, WAJIB panggil `engagement_list` dan cocokkan host target. Jika host ada di `scope` salah satu engagement AKTIF, host itu BERIZIN — LANGSUNG jalankan tool ber-scope (`lab_fetch`, `http_request`, `web_audit`, `content_discover`, `crawl`, `js_mine`, `recon_*`, `param_*`, `browser_open`) TANPA ragu. JANGAN pernah mengarang 'belum ada engagement yang mencakup' bila `engagement_list` menunjukkannya ADA. Status 'pihak ketiga'/'vendor' BUKAN alasan menolak bila host tercantum di scope program (contoh: `checkout.webmd.com` ada di engagement Internet Brands → boleh diuji). Kalau ragu soal aturan vendor/out-of-scope, sebutkan sebagai catatan RoE & tetap lanjut membaca/uji pasif — bukan menolak total. Aturan sandbox-only (mis. Rapyd) hanya membatasi API pembayaran (api.rapyd.net), BUKAN web testing host in-scope." 
+  + "BUG BOUNTY (program publik: Bugcrowd/HackerOne/YesWeHack/Intigriti — aset in-scope BERIZIN lewat safe harbor): MIA BOLEH bekerja di sini. Langkah: (1) minta host **in-scope** + **out-of-scope** + **URL policy/terms**; (2) sarankan `engagement_create` (authorization=URL program, scope=[host in-scope], out_of_scope=[...]) supaya tool aktif (http_request/pentest_scan/nuclei_custom/sqlmap/recon_httpx) boleh jalan ke host itu; (3) PATUHI RoE: HANYA host in-scope, **default MANUAL + rate-limit** — JANGAN pakai scanner otomatis (nmap/nuclei/ffuf/sqlmap/zap_scan) KECUALI RoE/aturan program mengizinkannya (TANYA dulu), DILARANG DoS/stress/destructive, mengakses data user lain, dan social engineering bila RoE melarang; pakai akun uji; (4) alur temuan: recon pasif (recon_subdomains/recon_params) → web_audit/lab_fetch/http_request manual → finding_add (evidence+steps+impact+remediation) → report_generate/report_pdf, dan tulis sesuai format platform (Title/Severity/Steps/Evidence/Impact/Remediation). Kalau user menyebut platform LATIHAN (TryHackMe/HTB/PortSwigger), tetap arahkan ke pentest_resources & jangan diotomasi. PENTING (ATURAN KERAS): SEBELUM menolak/menahan karena alasan scope, WAJIB panggil `engagement_list` DAN `pentest_resources`, lalu cocokkan host target. Host BERIZIN bila: (a) ada di `scope` engagement AKTIF, ATAU (b) terdaftar sebagai LAB MILIK OWNER di `pentest_resources` (env PENTEST_LAB_TARGETS — termasuk lab publik milik owner seperti Netlify; TIDAK butuh engagement), ATAU (c) localhost/RFC1918/`PENTEST_LAB_TARGETS`. Untuk (a)/(b)/(c) LANGSUNG jalankan tool ber-scope (`lab_fetch`, `http_request`, `web_audit`, `content_discover`, `crawl`, `js_mine`, `recon_*`, `param_*`, `browser_open`) TANPA ragu. JANGAN pernah mengarang 'belum ada engagement yang mencakup' bila `engagement_list`/`pentest_resources` menunjukkannya ADA, dan JANGAN menolak lab milik owner (mis. Netlify pribadi) hanya karena tidak ada engagement — cek daftar lab dulu. Status 'pihak ketiga'/'vendor' BUKAN alasan menolak bila host tercantum di scope program (contoh: `checkout.webmd.com` ada di engagement Internet Brands → boleh diuji). Kalau ragu soal aturan vendor/out-of-scope, sebutkan sebagai catatan RoE & tetap lanjut membaca/uji pasif — bukan menolak total. Aturan sandbox-only (mis. Rapyd) hanya membatasi API pembayaran (api.rapyd.net), BUKAN web testing host in-scope." 
   + "HIGH-VALUE BOUNTY TOOLS: (1) BLIND/OOB — `oast_create` (dapat callback URL webhook.site) → sisipkan URL ke payload (SSRF URL param, blind XSS <script src>, XXE entity, RCE/SSTI) → kirim via http_request/lab_fetch → `oast_poll` (hit = bukti out-of-band). Ini satu-satunya cara membuktikan blind SSRF/RCE. (2) AUTH/BOLA — `http_session action=set name=A cookie=…` (dan B untuk akun kedua); `http_request ... session=A save_session=A` untuk login/authed; `bola_diff url=… session_a=A session_b=B` membandingkan respons dua identitas (identik 200 = indikasi BOLA/IDOR). (3) CONTENT DISCOVERY — `content_discover url=…` (robots/sitemap/link/endpoint JS/path umum). Alur bounty: recon → content_discover → http_session A/B → http_request/bola_diff → oast_create→payload→oast_poll → finding_add → report. (4) `param_fuzz url=…` — inject payload XSS/SQLi/SSTI/redirect/cmdi ke tiap param, flag reflection/error/eval/timing (opsi `callback`=URL OAST untuk kelas ssrf). (5) `jwt_attack` — decode/forge alg:none/HS256/alg-confusion/crack secret lemah, lalu uji token via http_request. (6) `evidence_capture url=… request={…}` — simpan screenshot + raw HTTP ke reports/evidence/ untuk lampiran laporan." 
   + "BOUNTY WORKFLOW LENGKAP: (1) saat user menyebut program (Bugcrowd/HackerOne/…), minta/minta-tempel daftar Targets → `scope_import` (text=… atau url=…) → sarankan `engagement_create` (verifikasi manual). (2) `crawl url=…` enumerasi path/form/JS same-origin. (3) `param_discover url=…` cari param tersembunyi → `param_fuzz` kandidatnya. (4) `recon_diff domain=…` tandai aset BARU sejak run terakhir (prioritaskan — aset baru = bug baru). (5) `recon_screenshot domain=…` visual recon host hidup. Urutan rutin: scope_import → engagement_create → recon_subdomains → recon_httpx → recon_diff → crawl → js_mine/api_spec/graphql_probe → param_discover/param_fuzz → http_session/bola_diff/request_save/request_run → oast → jwt_attack → evidence_capture → finding_add → platform_severity → report." 
   + "ALAT LANJUTAN: `platform_severity` (map CVSS→HackerOne+VRT, laporan siap platform), `request_save`/`request_run` (koleksi request + variabel {{x}} untuk replay cepat), `js_mine` (endpoint+secret dari bundle JS), `api_spec` (enumerasi endpoint dari OpenAPI/Postman JSON), `graphql_probe` (introspection). `http_request` menerima `user_agent` opsional; delay antar-request sopan via env `SECURITY_REQUEST_DELAY_MS`." 
@@ -561,7 +569,7 @@ export async function runOneCompletion(
   model: string,
   withTools: boolean,
   extraHeaders?: Record<string, string>
-): Promise<{ text: string; toolCalls: ToolCall[] }> {
+): Promise<{ text: string; toolCalls: ToolCall[]; reasoning: string }> {
   ensureToolResults(messages);
   // Retry once on rate-limit (429) so a transient Groq TPM cap — which can hit
   // right after a confirmed tool runs — doesn't fail the whole turn. We back off
@@ -631,7 +639,10 @@ const CORE_TOOL_NAMES = new Set<string>([
   "transcribe",
   "git_status", "git_commit", "security_scan", "secret_scan", "pentest_resources", "recon_subdomains", "recon_httpx", "recon_params", "recon_list", "security_playbook", "sast_scan", "memory", "learnings_search", // pentest action/report suite — must survive capped providers so the
   // advertised workflow (scan → finding → report) actually works there.
-  "pentest_scan", "sqlmap_scan", "zap_scan", "http_request", "finding_add", "finding_list", "finding_resolve", "finding_export", "report_generate", "report_save", "report_pdf", "cvss_score", "poc_verify", "engagement_create", "engagement_list", "engagement_close", "web_audit", "domain_audit", "oast_create", "oast_poll", "oast_stop", "http_session", "cdp_status", "cdp_request", "bola_diff", "tamper_script", "content_discover", "param_fuzz", "jwt_attack", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "request_save", "request_run", "platform_severity", "js_mine", "api_spec", "graphql_probe", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "security_hunt", "suite_hunt", "hunt_log", "auth_hunt", "api_hunt", "engagement_targets", "cloud_misconfig", "tech_watch", "policy_set", "flow_run", "campaign_run", "bounty_run", "oauth_hunt", "writeup", "persona_show", "persona_set", "persona_forget", "race", "ws_probe", "oast_dns_create", "oast_dns_poll", "oast_dns_stop",
+  // Order matters on the smaller 9router cap: the ANALYSIS chain (scan → score →
+  // prove → report) comes first, while the heavy exploitation scanners
+  // (sqlmap/zap) sit just past it — they need their own binaries anyway.
+  "pentest_scan", "cvss_score", "poc_verify", "http_request", "finding_add", "finding_list", "finding_resolve", "finding_export", "report_generate", "report_save", "report_pdf", "sqlmap_scan", "zap_scan", "engagement_create", "engagement_list", "engagement_close", "web_audit", "domain_audit", "oast_create", "oast_poll", "oast_stop", "http_session", "cdp_status", "cdp_request", "bola_diff", "tamper_script", "content_discover", "param_fuzz", "jwt_attack", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "request_save", "request_run", "platform_severity", "js_mine", "api_spec", "graphql_probe", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "security_hunt", "suite_hunt", "hunt_log", "auth_hunt", "api_hunt", "engagement_targets", "cloud_misconfig", "tech_watch", "policy_set", "flow_run", "campaign_run", "bounty_run", "oauth_hunt", "writeup", "persona_show", "persona_set", "persona_forget", "race", "ws_probe", "oast_dns_create", "oast_dns_poll", "oast_dns_stop",
   "write_file", "edit_file", "exec_write",
   ]);
 
@@ -706,7 +717,7 @@ async function runOneCompletionOnce(
   model: string,
   withTools: boolean,
   extraHeaders?: Record<string, string>
-): Promise<{ text: string; toolCalls: ToolCall[] }> {
+): Promise<{ text: string; toolCalls: ToolCall[]; reasoning: string }> {
   // Retry the initial connection once on a transient network failure
   // ("fetch failed" to the LLM provider) — a retry usually succeeds.
   const doFetch = () =>
@@ -754,6 +765,7 @@ async function runOneCompletionOnce(
   const decoder = new TextDecoder();
   let buffer = "";
   let text = "";
+  let reasoning = "";
   const toolCalls: (ToolCall | undefined)[] = [];
 
   // One chunk/line of the response: SSE `data:` frames plus a raw JSON body
@@ -770,6 +782,10 @@ async function runOneCompletionOnce(
       choices?: {
         delta?: {
           content?: string | null;
+          /** DeepSeek-style thinking stream (OpenCode Go). */
+          reasoning_content?: string | null;
+          /** OpenRouter-style thinking stream. */
+          reasoning?: string | null;
           tool_calls?: {
             index?: number;
             id?: string;
@@ -791,6 +807,8 @@ async function runOneCompletionOnce(
     if (streamError) throw new Error(streamError);
     const delta = json.choices?.[0]?.delta;
     if (delta?.content) text += delta.content;
+    if (delta?.reasoning_content) reasoning += delta.reasoning_content;
+    else if (delta?.reasoning) reasoning += delta.reasoning;
     if (delta?.tool_calls) {
       for (const call of delta.tool_calls) {
         const index = call.index ?? 0;
@@ -821,7 +839,7 @@ async function runOneCompletionOnce(
     reader.cancel().catch(() => {});
   }
 
-  return { text, toolCalls: normalizeToolCallIds(toolCalls.filter((c): c is ToolCall => !!c)) };
+  return { text, toolCalls: normalizeToolCallIds(toolCalls.filter((c): c is ToolCall => !!c)), reasoning };
 }
 
 /**
@@ -898,7 +916,7 @@ interface TurnCollector {
 // into the next message).
 
 /** Words that make a message a LIST/status question. */
-const LIST_ASK_RE = /\b(apa(?:\s+aja|\s+saja)?|daftar|list|cek|lihat|tampilkan|tunjuk(?:kan)?|show|berapa|gimana|bagaimana|status|reminder|pengingat|tugas|task|todo|catatan|note|jadwal|agenda|calendar|file|upload|dokumen|plan|rencana|automation|otomatis|skill|kemampuan|email|gmail|inbox|berita|news|hotel|film|bioskop|kereta|bus|mood|memory|memori)\b/i;
+const LIST_ASK_RE = /\b(apa(?:\s+aja|\s+saja)?|daftar|list|cek|lihat|tampilkan|tunjuk(?:kan)?|show|berapa|gimana|bagaimana|status|reminder|pengingat|tugas|task|todo|catatan|note|jadwal|agenda|calendar|file|upload|dokumen|plan|rencana|automation|otomatis|skill|kemampuan|email|gmail|inbox|berita|news|hotel|film|bioskop|kereta|bus|mood|memory|memori|temuan|finding)\b/i;
 
 /** Words that make a message a SET/CHANGE request (not a list request). */
 const SET_VERB_RE = /\b(tambah|tambahin|bikin|buat|set|pasang|jadwalin|ingetin|ingatkan|inget|ingat|schedule|add|simpan|catat|hapus|batal|cancel|ganti|ubah|move|pindah|matiin|matikan)\b/i;
@@ -907,13 +925,30 @@ const SET_VERB_RE = /\b(tambah|tambahin|bikin|buat|set|pasang|jadwalin|ingetin|i
  *  over a set verb ("ingetin…, reminder apa aja yang aktif?"). */
 const EXPLICIT_LIST_RE = /\b(apa(?:\s+aja|\s+saja)?|daftar|list|lihat|cek|tampilkan|tunjuk(?:kan)?|show)\b/i;
 
-/** Tools whose output only replaces the reply when the user asked for that list. */
+/**
+ * Tools whose raw output only replaces the reply when the user actually ASKED
+ * for that list. Two families live here:
+ *  - personal lists (reminders/tasks/notes/…), and
+ *  - pentest CONTEXT/STATUS lookups the prompt tells the agent to run as
+ *    preparation (hunt_log before testing, engagement_targets worklist, existing
+ *    findings/history/recon). Live bug: "coba lakukan full pentest di <lab>" made
+ *    the agent call hunt_log for context and the reply became a raw hunt-log dump
+ *    of OTHER programs — the pentest never ran. Work-product tools
+ *    (suite_hunt, poc_verify, report_*, …) stay always-verbatim: their output IS
+ *    the deliverable the user asked for.
+ */
 const PERSONAL_LIST_TOOLS = new Set([
   "reminders_list", "reminders_mac_list", "list_tasks", "list_notes", "list_uploads",
   "calendar_list", "calendar_mac_list", "plan_list", "plan_get", "automation_list",
   "skill_list", "skill_search", "gmail_list", "gmail_search", "google_news", "briefing",
   "recap", "weekly_insight", "hotel_search", "cinema_showtimes", "train_search", "bus_search",
   "mood_recent", "memory_get", "search_memory", "learnings_search", "persona_show",
+  "hunt_log", "engagement_targets", "finding_list", "http_history", "recon_list",
+  "policy_show", "flow_list", "bounty_status", "tech_watch", "dup_check",
+  "program_score", "submission_track",
+  // Diagnostic checks: the raw dump is the answer when the user asks for that
+  // check, but it must not replace the synthesis of a broader "pentest this".
+  "csp_audit", "cors_audit",
 ]);
 
 /**
@@ -964,7 +999,7 @@ async function runAgent(
         "User-Agent": "mia-assistant/1.0",
       }
     : undefined;
-  const { text, toolCalls } = await runOneCompletion(
+  const { text, toolCalls, reasoning } = await runOneCompletion(
     messages,
     url,
     apiKey,
@@ -998,6 +1033,10 @@ async function runAgent(
       type: "function" as const,
       function: { name: c.name, arguments: c.arguments },
     })),
+    // OpenCode Go's thinking models reject the follow-up request unless the
+    // assistant's reasoning is echoed back. Other gateways reject unknown
+    // message fields, so attach it only for that endpoint.
+    ...(reasoning && /opencode\.ai\/zen\/go/.test(url) ? { reasoning_content: reasoning } : {}),
   });
 
   // A fresh turn pausing on a risky tool: hand it back to the caller, unless
@@ -2176,6 +2215,32 @@ export function chainMayFailover(messagesBefore: number, messagesAfter: number):
 }
 
 /**
+ * Deterministic digest of the most recent tool results. Used only when a turn
+ * would otherwise end with NO text at all (e.g. a thinking model that answered
+ * inside its reasoning stream), so the user sees the outcome of work that really
+ * ran instead of a bare "jawabannya kepotong". Skips placeholder results
+ * ("Not selected"/"Not executed") and never throws. Pure — unit-tested.
+ */
+export function summarizeToolResults(messages: ChatMessage[], maxPerResult = 300): string {
+  const names = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role === "assistant" && m.tool_calls) for (const tc of m.tool_calls) names.set(tc.id, tc.function.name);
+  }
+  const rows: { name: string; content: string }[] = [];
+  for (const m of messages) {
+    if (m.role !== "tool" || !m.tool_call_id) continue;
+    const content = typeof m.content === "string" ? m.content.trim() : "";
+    if (!content || /^(Not selected|Not executed|Auto-declined)/i.test(content)) continue;
+    rows.push({ name: names.get(m.tool_call_id) ?? "tool", content });
+  }
+  const last = rows.slice(-2);
+  if (!last.length) return "";
+  const labels = [...new Set(last.map((r) => r.name))].join(", ");
+  const lines = last.map((r) => `• ${r.name}: ${r.content.replace(/\s+/g, " ").slice(0, maxPerResult)}`);
+  return `Aku sudah menjalankan ${labels} 🌸 balasan detailnya tersendat, jadi ini rekap aksi terakhir:\n${lines.join("\n")}\n\nBilang "lanjut" kalau mau kuteruskan dari sini.`;
+}
+
+/**
  * Budget for trying the whole chain. Each member can spend its own
  * same-model rate-limit retry (up to 6s), so a free-tier outage across all
  * members could otherwise stall a voice/chat turn for ~40s — worse than an
@@ -2724,6 +2789,27 @@ async function runAssistantTurnImpl(opts: {
       text = await scheduleSpotifyFromIntent(messages, opts.user, text, playCall ? queryArgOf(playCall) : null);
     }
   }
+  // A thinking model can answer ONLY in its reasoning stream, leaving the visible
+  // reply empty right after tools ran — the channel then shows a bare "jawaban
+  // kepotong" even though real work happened. Ask once more without tools, then
+  // fall back to a deterministic digest of the tool results.
+  if (!text.trim() && !needsConfirmation?.length && messages.some((m) => m.role === "tool")) {
+    try {
+      // Give the model an explicit instruction to answer — a thinking model with
+      // tools removed should stop reasoning and speak. Sent on a COPY: the nudge
+      // must never be persisted into the channel's stored conversation.
+      const askNow: ChatMessage[] = [
+        ...messages,
+        { role: "user", content: "Jawab sekarang dalam 1–3 kalimat dari hasil di atas. Jangan panggil tool. Kalau pekerjaan belum selesai, sebutkan langkah berikutnya." },
+      ];
+      const retry = await runOneCompletion(askNow, resolved.url, resolved.apiKey, systemPrompt, resolved.defaultModel, false, undefined);
+      if (retry.text.trim()) text = retry.text;
+    } catch {
+      /* fall through to the digest */
+    }
+    if (!text.trim()) text = summarizeToolResults(messages);
+  }
+
   text = await schedulePriceFromIntent(messages, opts.user, text);
   // Link intelligence: deterministic post-turn capture of a shared URL
   // (fetch + summarize + store + append to daily memory) — fire-and-forget,

@@ -45,6 +45,9 @@ export class GroqStreamingProvider implements AIProvider {
   private controller: AbortController | null = null;
   private connected = false;
   private pendingTools: ConfirmationRequest[] = [];
+  /** Thinking-mode reasoning for the paused call — replayed so the follow-up
+   *  request satisfies gateways that require it back (OpenCode Go). */
+  private pendingReasoning?: string;
   /** User-selected TTS voice (FR-009). Applied per request to /api/tts. */
   private ttsVoice = "hannah";
   /** Optional user-selected LLM model; undefined = route default. */
@@ -127,6 +130,7 @@ async sendAudio(audio: ArrayBuffer): Promise<void> {
           function: { name: call.name, arguments: call.arguments },
         },
       ],
+      ...(this.pendingReasoning ? { reasoning_content: this.pendingReasoning } : {}),
     });
     void this.generateAndSpeakAfterConfirmation(call, allow);
   }
@@ -270,10 +274,14 @@ async sendAudio(audio: ArrayBuffer): Promise<void> {
       // Confirmation turn: hand the pending calls to the UI, don't complete.
       if (streamed.trimStart().startsWith(CONFIRM_FRAME_PREFIX)) {
         const raw = streamed.trimStart().slice(CONFIRM_FRAME_PREFIX.length).trim();
-        const parsed = JSON.parse(raw) as ConfirmationRequest[];
-        if (Array.isArray(parsed) && parsed.length) {
-          this.pendingTools = parsed;
-          emitIfCurrent({ type: "tool_confirmation_required", calls: parsed });
+        // Bare array (original contract) or `{ calls, reasoning }` when the
+        // model used thinking mode — keep both readable.
+        const parsed = JSON.parse(raw) as ConfirmationRequest[] | { calls?: ConfirmationRequest[]; reasoning?: string };
+        const calls = Array.isArray(parsed) ? parsed : parsed.calls;
+        if (Array.isArray(calls) && calls.length) {
+          this.pendingTools = calls;
+          this.pendingReasoning = Array.isArray(parsed) ? undefined : parsed.reasoning;
+          emitIfCurrent({ type: "tool_confirmation_required", calls });
           return;
         }
       }

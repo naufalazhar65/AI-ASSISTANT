@@ -3404,8 +3404,8 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "report_generate",
-        description: "Susun laporan pentest markdown dari temuan yang tercatat (Title/Severity/Evidence/Impact/Remediation). Read, auto.",
-        parameters: { type: "object", properties: {}, required: [] },
+        description: "Susun laporan pentest markdown dari temuan yang tercatat (Title/Severity/Evidence/Impact/Remediation). Opsional `target` (host/URL) untuk membatasi laporan ke target itu saja — pakai ini supaya laporan lab tidak bercampur temuan lama dari target lain. Read, auto.",
+        parameters: { type: "object", properties: { target: { type: "string", description: "Host/URL, mis. cozy-kangaroo-42f2e0.netlify.app" } }, required: [] },
       },
     },
     execute: async (_args, ctx) => {
@@ -3424,7 +3424,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "zap_scan",
         description:
-          "OWASP ZAP baseline scan (web) via Docker ke target. HANYA localhost/lab/RFC1918/host berizin (publik DITOLAK). Butuh Docker. Write, confirm.",
+          "OWASP ZAP baseline scan (web) via Docker ke target. HANYA localhost/lab/RFC1918/host berizin (publik DITOLAK). Butuh Docker — kalau Docker tak ada, pakai web_audit + security_hunt + pentest_scan tool=nuclei (padanan native). Write, confirm.",
         parameters: { type: "object", properties: { target: { type: "string", description: "URL target, mis. http://localhost:3001" }, minutes: { type: "number", description: "Batas menit (1-30, default 5)" } }, required: ["target"] },
       },
     },
@@ -3462,16 +3462,16 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { iocExtract } = await import("./security"); return iocExtract(String(args.text || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "ioc_extract failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "read", function: { name: "report_save", description: "Simpan laporan pentest (dari temuan) ke file markdown di .data/users/<user>/reports/. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
-    execute: async (_args, ctx) => { try { const { reportSave } = await import("./security"); return reportSave(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_save failed"}`; } },
+    definition: { type: "function", risk: "read", function: { name: "report_save", description: "Simpan laporan pentest (dari temuan) ke file markdown di .data/users/<user>/reports/. Opsional `target` (host/URL) untuk membatasi ke target itu. Read, auto.", parameters: { type: "object", properties: { target: { type: "string" } }, required: [] } } },
+    execute: async (args, ctx) => { try { const { reportSave } = await import("./security"); return reportSave(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_save failed"}`; } },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "sqlmap_scan", description: "Uji SQL injection dengan sqlmap ke URL (butuh parameter, mis. ?id=1). HANYA localhost/lab/aset berizin (publik DITOLAK). Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dengan parameter, mis. http://localhost:8081/vulnerabilities/sqli/?id=1&Submit=Submit" }, level: { type: "number", description: "1-5 (default 1)" }, risk: { type: "number", description: "1-3 (default 1)" } }, required: ["url"] } } },
     execute: async (args) => { try { const { sqlmapScan } = await import("./security"); return await sqlmapScan(String(args.url || ""), { level: asNumber(args.level), risk: asNumber(args.risk) }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "sqlmap_scan failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "read", function: { name: "report_pdf", description: "Buat PDF laporan pentest (dari temuan) via Playwright → .data/users/<user>/reports/*.pdf. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
-    execute: async (_args, ctx) => { try { const { reportPdf } = await import("./security"); return await reportPdf(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_pdf failed"}`; } },
+    definition: { type: "function", risk: "read", function: { name: "report_pdf", description: "Buat PDF laporan pentest (dari temuan) via Playwright → .data/users/<user>/reports/*.pdf. Opsional `target` (host/URL) untuk membatasi ke target itu — sangat disarankan saat melaporkan satu lab/target. Read, auto.", parameters: { type: "object", properties: { target: { type: "string" } }, required: [] } } },
+    execute: async (args, ctx) => { try { const { reportPdf } = await import("./security"); return await reportPdf(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_pdf failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "lab_status", description: "Status lab pentest lokal (vuln-node :4010 tanpa Docker; juice-shop/dvwa/webgoat bila Docker). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
@@ -3599,8 +3599,8 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { exportFindings } = await import("./security"); return exportFindings(ctx.rawUser, typeof args.format === "string" ? args.format : "csv"); } catch (e) { return `Error: ${e instanceof Error ? e.message : "finding_export failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "read", function: { name: "cvss_score", description: "Hitung skor CVSS v3.1 dari vektor, mis. 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'. Read, auto.", parameters: { type: "object", properties: { vector: { type: "string" } }, required: ["vector"] } } },
-    execute: async (args) => { try { const { cvssScore } = await import("./security"); return cvssScore(String(args.vector || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cvss_score failed"}`; } },
+    definition: { type: "function", risk: "read", function: { name: "cvss_score", description: "Hitung skor base CVSS dari vektor v3.1 atau v4.0 (v4.0 didukung penuh). Contoh: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' atau 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N'. Read, auto.", parameters: { type: "object", properties: { vector: { type: "string" } }, required: ["vector"] } } },
+    execute: async (args) => { try { const { cvssScoreAny } = await import("./security"); return cvssScoreAny(String(args.vector || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cvss_score failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "verify_patch", description: "Cek temuan dependency (A06) vs versi terpasang di package-lock: mana yang sudah >= fixed. Opsi apply=true menandai yang patched sebagai resolved. Read, auto.", parameters: { type: "object", properties: { dir: { type: "string", description: "Direktori repo (opsional)" }, apply: { type: "boolean", description: "Auto-resolve yang sudah patched" } }, required: [] } } },

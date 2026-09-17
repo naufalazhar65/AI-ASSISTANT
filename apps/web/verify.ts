@@ -225,6 +225,18 @@ async function main() {
     const missing = liveTools.filter((n) => !cap.names.includes(n));
     if (missing.length) throw new Error(`${cap.name} cap dropped live tools: ${missing.join(", ")}`);
   }
+  // The pentest workflow (score → finding → report) must survive the Groq cap.
+  // 9router's 64-slot cap is smaller than CORE and intentionally keeps only the
+  // first 64 entries (documented limitation) — assert it there only for the
+  // read-side tools that must always be present.
+  const pentestCore = ["cvss_score", "security_playbook", "pentest_scan", "http_request", "finding_add", "report_generate", "poc_verify", "oast_create"];
+  const groqNames = groqTools.map((t) => t.function.name);
+  const pentestMissing = pentestCore.filter((n) => !groqNames.includes(n));
+  if (pentestMissing.length) throw new Error(`groq cap dropped pentest tools: ${pentestMissing.join(", ")}`);
+  const r9Names = toolsForUrl("http://localhost:20128/v1/chat/completions").map((t) => t.function.name);
+  for (const n of ["cvss_score", "security_playbook", "pentest_scan", "http_request"]) {
+    if (!r9Names.includes(n)) throw new Error(`9router cap dropped read-side pentest tool: ${n}`);
+  }
   if (toolsForUrl("https://opencode.ai/zen/go/v1/chat/completions").length <= 128) {
     throw new Error("tool cap wrongly applied to non-capped provider");
   }
@@ -343,7 +355,7 @@ async function main() {
   if (classifyCloud("s3", { status: 403, body: "AccessDenied" }).lead) throw new Error("classifyCloud false-positive on 403");
   if (!classifyCloud("firebase", { status: 200, body: '{"users":{"a":1}}' }).lead) throw new Error("classifyCloud missed open Firebase DB");
   if (classifyCloud("firebase", { status: 200, body: "null" }).lead) throw new Error("classifyCloud false-positive on Firebase null");
-  const { detectTech } = await import("./src/lib/techWatch");
+  const { detectTech } = await import("./src/lib/techFingerprint");
   const tech = detectTech({ server: "nginx", "x-powered-by": "PHP/8.1" }, '<meta name="generator" content="WordPress 6.4"> wp-content');
   if (!tech.some((t) => /nginx/.test(t)) || !tech.includes("wordpress") || !tech.some((t) => /PHP\/8\.1/.test(t)))
     throw new Error(`detectTech missed markers: ${JSON.stringify(tech)}`);
@@ -627,6 +639,22 @@ async function main() {
         throw new Error(`${name} prompt must forbid an invented last-seen timeline (live bug: "dari jam 14.21 kamu sunyi")`);
     }
     console.log("presence honesty (clock is not a last-seen fact) in both prompts: OK");
+  }
+
+  // --- empty-answer guard: work ran, so never return a dead-end empty reply ---
+  {
+    const { summarizeToolResults } = await import("./src/lib/agent");
+    const digest = summarizeToolResults([
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: '200 OK {"nama":"Bambang"}' },
+    ]);
+    if (!/http_request/.test(digest) || !/Bambang/.test(digest)) throw new Error(`empty-answer digest missing result: ${digest.slice(0, 120)}`);
+    const onlyPlaceholders = summarizeToolResults([
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "Not selected: the user did not approve this action." },
+    ]);
+    if (onlyPlaceholders !== "") throw new Error("digest must ignore placeholder tool results");
+    console.log("empty-answer guard (tool-result digest): OK");
   }
 
   // --- tool schema sanitizer (strict providers: array needs items) ---
@@ -1086,7 +1114,18 @@ async function main() {
     }
     if (!/SCOPE:/.test(pr) || !/melarang otomasi|JANGAN diautomasi/.test(pr)) throw new Error("pentest_resources missing scope/ToS note");
     if (!/BUG BOUNTY/.test(pr) || !/HackerOne|Bugcrowd/.test(pr) || !/scope/i.test(pr)) throw new Error("pentest_resources missing bug-bounty guidance");
-    console.log("pentest_resources (platforms + local lab + scope): OK");
+    // Own-lab hosts must be surfaced, otherwise the prompt's scope rule points at
+    // a list the agent can never see (live bug: Mia refused her own Netlify lab).
+    const prevOwn = process.env.PENTEST_LAB_TARGETS;
+    process.env.PENTEST_LAB_TARGETS = "cozy-kangaroo-42f2e0.netlify.app";
+    try {
+      const withOwn = pentestResources();
+      if (!/LAB MILIK OWNER/.test(withOwn) || !/cozy-kangaroo-42f2e0\.netlify\.app/.test(withOwn)) throw new Error("pentest_resources must list owner lab targets");
+    } finally {
+      if (prevOwn === undefined) delete process.env.PENTEST_LAB_TARGETS;
+      else process.env.PENTEST_LAB_TARGETS = prevOwn;
+    }
+    console.log("pentest_resources (platforms + local lab + scope + owner lab): OK");
   {
     const { isLabTarget, addFinding, listFindingsText, generateReport } = await import("./src/lib/security");
     if (isLabTarget("8.8.8.8") || isLabTarget("google.com") || isLabTarget("http://203.0.113.5")) throw new Error("isLabTarget allowed a public target");
@@ -1099,6 +1138,13 @@ async function main() {
     if (!/Reflected XSS/.test(listFindingsText(u))) throw new Error("finding_list missing entry");
     const rep = generateReport(u);
     if (!/Laporan Pentest/.test(rep) || !/HIGH/.test(rep) || !/CVSS 8\.7/.test(rep) || !/A03:2021/.test(rep)) throw new Error("report_generate malformed");
+    // Per-target scoping: a lab report must not drag in another target's findings.
+    addFinding(u, { title: "Old Pulsepoint finding", severity: "medium", cvss: 5.0, target: "exchange.pulsepoint.com", evidence: "x", impact: "y", remediation: "z" });
+    const scoped = generateReport(u, { target: "localhost:3001" });
+    if (!/Reflected XSS/.test(scoped)) throw new Error("scoped report dropped the requested host");
+    if (/Old Pulsepoint finding/.test(scoped)) throw new Error("scoped report leaked another target's finding");
+    const scopedMiss = generateReport(u, { target: "nope.example" });
+    if (!/Belum ada temuan terbuka untuk target/.test(scopedMiss)) throw new Error("scoped report must say when a target has no findings");
     rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
     console.log("pentest scope guard + findings/report: OK");
   {
@@ -1177,6 +1223,10 @@ async function main() {
     if (!/tidak ditemukan/i.test(missing)) throw new Error("security_playbook missing-name should list catalog");
     if (/tidak ditemukan/.test(securityPlaybook("fix-verification"))) throw new Error("playbook name normalization (hyphen vs underscore)");
     if (/tidak ditemukan/.test(securityPlaybook("source_aware_discovery"))) throw new Error("playbook name normalization (underscore)");
+    for (const name of ["web-cache-poisoning", "websocket-security", "account-takeover", "host-header-injection"]) {
+      const pack = securityPlaybook(name);
+      if (!/PLAYBOOK/.test(pack) || /tidak ditemukan/.test(pack)) throw new Error(`new playbook missing: ${name}`);
+    }
     const { matchTakeover } = await import("./src/lib/recon");
     if (matchTakeover("foo.github.io") !== "GitHub Pages") throw new Error("matchTakeover github");
     if (matchTakeover("d123.cloudfront.net") !== "AWS CloudFront") throw new Error("matchTakeover cloudfront");
@@ -1185,6 +1235,46 @@ async function main() {
     const sast = await sastScan("");
     if (typeof sast !== "string" || !/semgrep|SAST/i.test(sast)) throw new Error(`sastScan: ${sast.slice(0, 80)}`);
     console.log("security_playbook + takeover + sast: OK");
+  }
+
+  // --- CVSS v4.0 (local implementation, no dependency) + native whatweb fallback ---
+  {
+    const { cvssScoreAny, platformSeverity, pentestScan } = await import("./src/lib/security");
+    const { parseV4Vector, cvss4BaseScore } = await import("./src/lib/cvssV4");
+    const v4 = "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N";
+    if (cvss4BaseScore(v4) !== 9.3) throw new Error(`cvss v4 anchor: expected 9.3, got ${cvss4BaseScore(v4)}`);
+    if (cvss4BaseScore("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N") !== 0) throw new Error("cvss v4: no impact must be 0");
+    if (cvss4BaseScore("CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H") !== 10) throw new Error("cvss v4: worst case must be 10");
+    if (cvss4BaseScore("CVSS:4.0/AV:P/AC:H/AT:P/PR:H/UI:A/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N") !== 1) throw new Error("cvss v4: low anchor must be 1.0");
+    if (!/CVSS v4\.0 base score: 9\.3 \(critical\)/.test(cvssScoreAny(v4))) throw new Error("cvssScoreAny must route v4 vectors");
+    if (!/CVSS v3\.1 base score: 9\.8/.test(cvssScoreAny("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"))) throw new Error("cvssScoreAny must keep v3.1 behaviour");
+    if (!/^Error/.test(cvssScoreAny("CVSS:4.0/AV:X"))) throw new Error("an invalid v4 vector must return an Error line, not a score");
+    let rejected = false;
+    try {
+      parseV4Vector("CVSS:4.0/AV:N");
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) throw new Error("parseV4Vector must reject incomplete vectors");
+    if (!/HackerOne "critical"/.test(platformSeverity({ vector: v4 }))) throw new Error("platform_severity must accept a v4 vector");
+
+    // whatweb is not installed here → pentest_scan must fall back to the native fingerprint.
+    const http = await import("node:http");
+    const srv = http.createServer((_req, res) => {
+      res.setHeader("x-powered-by", "PHP/8.1");
+      res.setHeader("content-type", "text/html");
+      res.end('<meta name="generator" content="WordPress 6.4"> wp-content');
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+    const port = (srv.address() as { port: number }).port;
+    try {
+      const out = await pentestScan({ tool: "whatweb", target: `http://127.0.0.1:${port}` });
+      if (!/fingerprint native/.test(out) || !/wordpress/i.test(out) || !/php\/8\.1/i.test(out))
+        throw new Error(`whatweb native fallback: ${out.slice(0, 150)}`);
+    } finally {
+      srv.close();
+    }
+    console.log("cvss v4.0 (anchors) + platform severity + whatweb native fallback: OK");
   }
   {
     const { setSession, listSessions, deleteSession, sessionHeaders, parseCookieString } = await import("./src/lib/httpSession");

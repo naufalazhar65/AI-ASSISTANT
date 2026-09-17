@@ -13,6 +13,8 @@ export interface ConversationMessage {
   role: MessageRole;
   content: string | null;
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
+  /** Thinking-mode models (OpenCode Go) require this echoed back after a tool call. */
+  reasoning_content?: string;
 }
 
 export interface ToolDefinition {

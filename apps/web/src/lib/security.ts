@@ -14,10 +14,12 @@ import { tmpdir } from "node:os";
 import { connect as tlsConnect } from "node:tls";
 import { dirname, extname, join, relative } from "node:path";
 import { appRoot, resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
-import { engagementAllows, listEngagements, normalizeHost } from "./engagement";
+import { activeEngagementFor, engagementAllows, normalizeHost } from "./engagement";
 import { assertPublicUrl } from "./netGuard";
 import { sessionHeaders, captureCookies } from "./httpSession";
 import { recordHttp, readHttpHistory } from "./httpHistory";
+import { fetchFingerprint } from "./techFingerprint";
+import { cvss4BaseScore } from "./cvssV4";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
@@ -253,6 +255,18 @@ export function pentestResources(): string {
     "(Butuh Docker; belum terpasang — lihat labs/pentest/README.md)",
     "• [TANPA Docker] vuln-node  http://127.0.0.1:4010  — `node labs/pentest/vuln-node/server.js` (SQLi/Reflected+Stored XSS/IDOR/Open-redirect/Path-traversal; cmd-injection opsional VULN_ALLOW_CMDI=1)",
     "",
+    ...(() => {
+      const own = (process.env.PENTEST_LAB_TARGETS || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!own.length) return [];
+      return [
+        `LAB MILIK OWNER (BERIZIN — termasuk yang publik, mis. Netlify): ${own.join(", ")}`,
+        "Host di daftar itu BOLEH diuji tanpa engagement — jangan menolak hanya karena engagement_list kosong. Tetap sopan: rate-limit, jangan DoS/destruktif.",
+        "",
+      ];
+    })(),
     "SCOPE: hanya target sendiri / berizin tertulis. Active scan hanya ke localhost/lab ini.",
     "⛔ Demo publik pihak ketiga (mis. itsecgames.com / bWAPP online) BUKAN target — jangan discan; jalankan bWAPP lokal sebagai gantinya.",
     "",
@@ -350,6 +364,17 @@ export function pentestToolsList(): string {
   return Object.keys(PENTEST_TOOLS).join(", ");
 }
 
+/** whatweb's job without the binary: the shared header/marker fingerprint. */
+async function nativeFingerprint(target: string, missingBin: string): Promise<string> {
+  const url = /^https?:\/\//i.test(target) ? target : `http://${target}`;
+  try {
+    const fp = await fetchFingerprint(url);
+    return `🎯 fingerprint native (${missingBin} tak terpasang — tak perlu) ${url}\nstatus ${fp.status}\ntech: ${fp.tech.length ? fp.tech.join(", ") : "(tak terdeteksi)"}`;
+  } catch (e) {
+    return `Error: ${missingBin} tak terpasang dan fingerprint native gagal: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
 /** Run one allowlisted pentest tool against a validated local/lab target. */
 export async function pentestScan(opts: { tool: string; target: string; wordlist?: string }): Promise<string> {
   const spec = PENTEST_TOOLS[opts.tool];
@@ -373,7 +398,12 @@ export async function pentestScan(opts: { tool: string; target: string; wordlist
   }
   const args = spec.args(target, wordlist);
   const { out, enoent, timedOut } = await runCapture(spec.bin, args, spec.timeoutMs ?? 120_000);
-  if (enoent) return `Error: ${spec.bin} belum terpasang — \`brew install ${spec.formula}\``;
+  if (enoent) {
+    // whatweb is the one scanner with a native equivalent: reuse the shared
+    // fingerprint (detectTech) instead of failing on a missing binary.
+    if (opts.tool === "whatweb") return nativeFingerprint(target, spec.bin);
+    return `Error: ${spec.bin} belum terpasang — \`brew install ${spec.formula}\``;
+  }
   const o = out.trim();
   if (timedOut && !o) return `⏱️ ${spec.bin} timeout (${Math.round((spec.timeoutMs ?? 120_000) / 1000)}s) tanpa temuan — coba target lebih spesifik.`;
   if (!o) return `(${spec.bin} selesai, tanpa output)`;
@@ -434,12 +464,12 @@ export function platformSeverity(opts: { cvss?: number; vector?: string; severit
   let score: number | null = null;
   if (typeof opts.cvss === "number") score = Math.round(opts.cvss * 10) / 10;
   else if (opts.vector) {
-    const m = /base score:\s*([0-9]+(?:\.[0-9]+)?)/.exec(cvssScore(opts.vector));
+    const m = /base score:\s*([0-9]+(?:\.[0-9]+)?)/.exec(cvssScoreAny(opts.vector));
     if (m) score = Number(m[1]);
   } else if (opts.severity) {
     score = DEFAULT_CVSS[opts.severity.toLowerCase()] ?? null;
   }
-  if (score === null) return "Error: beri `cvss` (angka), `vector` (CVSS:3.1/...), atau `severity`.";
+  if (score === null) return "Error: beri `cvss` (angka), `vector` (CVSS:3.1/... atau CVSS:4.0/...), atau `severity`.";
   const band = platformFromCvss(score);
   return `📊 Platform severity — CVSS ${score} → HackerOne "${band.h1}" · Bugcrowd VRT ${band.vrt}`;
 }
@@ -509,9 +539,28 @@ export function listFindingsText(rawUser: unknown): string {
   return `${rows.length} temuan:\n${sorted.map((f) => `• [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title}${f.owasp ? ` (${f.owasp})` : ""}${f.target ? ` — ${f.target}` : ""}${f.evidence ? `\n   Evidence: ${f.evidence.slice(0, 160)}` : ""}${f.remediation ? `\n   Fix: ${f.remediation.slice(0, 160)}` : ""}`).join("\n")}`;
 }
 
-export function generateReport(rawUser: unknown): string {
-  const rows = readFindings(rawUser).filter((r) => r.status !== "resolved");
-  if (!rows.length) return "Belum ada temuan terbuka — belum ada yang bisa dilaporkan.";
+/** Does a finding's target refer to `host` (exact host, subdomain, or URL)? */
+function matchesHost(findingTarget: string, host: string): boolean {
+  const raw = String(findingTarget || "").toLowerCase();
+  if (!host) return true;
+  if (raw.includes(host)) return true;
+  const h = normalizeHost(raw);
+  return !!h && (h === host || h.endsWith("." + host) || host.endsWith("." + h));
+}
+
+export function generateReport(rawUser: unknown, opts: { target?: string } = {}): string {
+  const wantHost = opts.target ? normalizeHost(opts.target) : "";
+  const rows = readFindings(rawUser)
+    .filter((r) => r.status !== "resolved")
+    // Optional per-target scoping: without it a lab report would drag in every
+    // other open finding the user ever recorded (live: old pulsepoint/vuln-node
+    // findings showed up in the Kohona lab report).
+    .filter((r) => !wantHost || matchesHost(r.target, wantHost));
+  if (!rows.length) {
+    return wantHost
+      ? `Belum ada temuan terbuka untuk target "${opts.target}" — belum ada yang bisa dilaporkan.`
+      : "Belum ada temuan terbuka — belum ada yang bisa dilaporkan.";
+  }
   const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
   const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0) || (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
   const counts = SEVERITIES.map((s) => `${s}:${rows.filter((r) => r.severity === s).length}`).join("  ");
@@ -522,17 +571,37 @@ export function generateReport(rawUser: unknown): string {
         `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[f.owasp, f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Platform**: ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n- **Steps to Reproduce**: ${f.steps || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
     )
     .join("\n\n");
-  return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts}) — rata-rata CVSS ${avg}\n\n${(() => { const a = listEngagements().find((e) => e.status === "active"); return a ? `> Engagement: ${a.id} — ${a.name} (${a.client})\n> Izin: ${a.authorization}\n> Scope: ${a.scope.join(", ")}${a.windowEnd ? ` (s/d ${a.windowEnd})` : ""}` : "> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif."; })()}\n\n${body}`;
+  return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts}) — rata-rata CVSS ${avg}\n\n${(() => {
+    // Attribute the report to the engagement that ACTUALLY covers these
+    // findings — never to whichever engagement happens to be active (live bug:
+    // a lab report claimed authorization from an unrelated bug-bounty program).
+    const hosts = [...new Set(rows.map((f) => normalizeHost(f.target || "")).filter(Boolean))];
+    const first = hosts.length ? activeEngagementFor(hosts[0]) : null;
+    const eng = first && hosts.every((h) => activeEngagementFor(h)?.id === first.id) ? first : null;
+    if (eng) return `> Engagement: ${eng.id} — ${eng.name} (${eng.client})\n> Izin: ${eng.authorization}\n> Scope: ${eng.scope.join(", ")}${eng.windowEnd ? ` (s/d ${eng.windowEnd})` : ""}`;
+    if (hosts.length && hosts.every((h) => isLabTarget(h))) return "> Scope: LAB MILIK OWNER / aset sendiri (berizin) — laporan untuk perbaikan defensif.";
+    return "> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif.";
+  })()}\n\n${body}`;
 }
 
 /** OWASP ZAP baseline scan via Docker (web app in the owner's own lab only). */
-export function zapScan(target: string, minutes = 5): Promise<string> {
+export async function zapScan(target: string, minutes = 5): Promise<string> {
   const t = (target || "").trim();
   if (!t) return Promise.reject(new Error("target wajib"));
   if (!targetAllowed(t)) {
     return Promise.reject(new Error("SCOPE: ZAP baseline hanya untuk localhost/lab atau host di engagement aktif."));
   }
   const m = Math.min(30, Math.max(1, Number(minutes) || 5));
+  // Docker is a hard prerequisite — say so up front and point at the native path
+  // that covers the same baseline, instead of failing after a long timeout.
+  const { enoent: noDocker } = await runCapture("docker", ["--version"], 5_000);
+  if (noDocker) {
+    return (
+      "Error: Docker belum terpasang, jadi ZAP baseline tidak bisa dijalankan. Padanan native (tanpa Docker): " +
+      "`web_audit` (header/cookie/TLS), `security_hunt` (review berpemandu), `pentest_scan tool=nuclei` (template community), " +
+      "`cors_audit`/`csp_audit`. Kalau tetap mau ZAP: `brew install --cask docker` (atau colima) lalu start Docker."
+    );
+  }
   return new Promise((resolve) => {
     execFile(
       "docker",
@@ -803,10 +872,10 @@ export function iocExtract(text: string): string {
 }
 
 /** Save the current pentest report to .data/users/<user>/reports/<ts>.md. */
-export function reportSave(rawUser: unknown): string {
+export function reportSave(rawUser: unknown, opts: { target?: string } = {}): string {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
-  const md = generateReport(rawUser);
+  const md = generateReport(rawUser, opts);
   const dir = join(userDataRoot(), userKey, "reports");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `report-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
@@ -865,10 +934,10 @@ async function renderMarkdownPdf(userKey: string, md: string, prefix: string): P
   return `📄 PDF disimpan: ${file}`;
 }
 
-export async function reportPdf(rawUser: unknown): Promise<string> {
+export async function reportPdf(rawUser: unknown, opts: { target?: string } = {}): Promise<string> {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
-  return renderMarkdownPdf(userKey, generateReport(rawUser), "report");
+  return renderMarkdownPdf(userKey, generateReport(rawUser, opts), "report");
 }
 
 export async function hardeningPdf(rawUser: unknown): Promise<string> {
@@ -1186,6 +1255,22 @@ export function exportFindings(rawUser: unknown, format = "csv"): string {
 }
 
 /** CVSS v3.1 base score from a vector string. */
+/**
+ * Base score for a CVSS v3.1 OR v4.0 vector — one entry point so callers never
+ * have to know which version they hold. v4.0 is the current FIRST standard and
+ * is scored by the local implementation in `cvssV4.ts` (no dependency).
+ */
+export function cvssScoreAny(vector: string): string {
+  const v = (vector || "").trim();
+  if (!/^CVSS:4\.0\//i.test(v)) return cvssScore(v);
+  try {
+    const score = cvss4BaseScore(v);
+    return `📊 CVSS v4.0 base score: ${score.toFixed(1)} (${severityFromCvss(score)})\nVector: ${v}`;
+  } catch (e) {
+    return `Error: ${e instanceof Error ? e.message : "vektor CVSS v4.0 tak valid"}. Contoh: CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N`;
+  }
+}
+
 export function cvssScore(vector: string): string {
   const v = (vector || "").trim().toUpperCase();
   const get = (m: string) => new RegExp(`(?:^|/)${m}:([A-Z])`).exec(v)?.[1];

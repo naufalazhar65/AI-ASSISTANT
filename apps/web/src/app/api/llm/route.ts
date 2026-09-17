@@ -22,13 +22,16 @@ export const runtime = "nodejs";
  * the shared core, maps errors to HTTP statuses, and streams the buffered
  * result back to the browser.
  *
- * Body: `{ messages, provider?, model?, user?, confirm_call?: { call, allow } }`.
+ * Body: `{ messages, provider?, model?, user?, confirm_call?: { call, allow },
+ * confirm_calls?: { call, allow }[] }`. Both confirmation shapes are accepted:
+ * the web UI approves one call at a time, API callers may approve a batch.
  * Keys stay server-side (invariant 5).
  */
 export async function POST(request: NextRequest) {
   let body: {
     messages?: { role: string; content: string | Array<{ type: string; text?: string; image_url?: unknown }>; tool_calls?: unknown; tool_call_id?: unknown }[];
     confirm_call?: { call: ToolCall; allow: boolean };
+    confirm_calls?: { call: ToolCall; allow: boolean }[];
     model?: string;
     provider?: string;
     user?: unknown;
@@ -53,6 +56,7 @@ export async function POST(request: NextRequest) {
       model: body.model,
       user: body.user,
       confirm_call: body.confirm_call,
+      confirm_calls: body.confirm_calls,
     });
   } catch (err) {
     if (err instanceof RateLimitError) {
@@ -78,7 +82,15 @@ export async function POST(request: NextRequest) {
   const frames: Uint8Array[] = [];
   if (result.text) frames.push(emitter.encode(result.text));
   if (result.needsConfirmation?.length) {
-    frames.push(emitter.encode(`${CONFIRM_FRAME_PREFIX}${JSON.stringify(result.needsConfirmation)}\n`));
+    // Thinking-mode models (OpenCode Go) reject the follow-up unless the
+    // assistant's reasoning is replayed, and that reasoning only ever existed
+    // server-side — so hand it to the client with the paused calls. The frame
+    // stays a bare array when there is no reasoning (back-compat).
+    const lastAssistant = [...(result.messages ?? [])].reverse().find((m) => m.role === "assistant" && m.tool_calls);
+    const payload = lastAssistant?.reasoning_content
+      ? { calls: result.needsConfirmation, reasoning: lastAssistant.reasoning_content }
+      : result.needsConfirmation;
+    frames.push(emitter.encode(`${CONFIRM_FRAME_PREFIX}${JSON.stringify(payload)}\n`));
   }
 
   const stream = new ReadableStream<Uint8Array>({

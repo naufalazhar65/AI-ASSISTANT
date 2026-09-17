@@ -5,7 +5,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
 [![Tools](https://img.shields.io/badge/tools-276-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
-[![Playbooks](https://img.shields.io/badge/security%20playbooks-78-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
+[![Playbooks](https://img.shields.io/badge/security%20playbooks-82-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 Mia (*she/her* 🌸) is a proactive personal assistant **and** an authorized
@@ -37,7 +37,7 @@ Defensive + **authorized** offensive work.
 - Recon / attack-surface mapping (passive + scoped active)
 - Autonomous **`security_hunt`** → LEADS, not raw dumps
 - OWASP Top 10:2025 / API Top 10:2023 / Bugcrowd VRT
-- 78 knowledge packs (adapted from Strix)
+- 82 knowledge packs (adapted from Strix + 4 Mia-authored: web-cache-poisoning, websocket-security, account-takeover, host-header-injection)
 - Findings → CVSS/OWASP/CWE → SARIF/PDF report
 - Bug-bounty toolkit (OAST, BOLA, JWT, fuzz, evidence)
 
@@ -131,7 +131,7 @@ Full guide, scope rules, and examples: **[SECURITY.md](./SECURITY.md)**.
 | **Scanners (lab/engagement)** | `pentest_scan` (nmap/nuclei/nikto/ffuf) · `nuclei_custom` · `sqlmap_scan` · `zap_scan` · `trivy_scan` |
 | **Analysis** | `password_strength` · `hash_identify` · `jwt_inspect` · `ioc_extract` · `cvss_score` |
 | **Findings & reports** | `finding_add/list/resolve/export` · `poc_verify` · `writeup` · `hardening_plan/pdf` · `report_generate/save/pdf` · `platform_severity` · `submission_track` |
-| **Knowledge & agility** | `security_playbook` (78 packs) · `hunt_log` (per-target hunt memory: dead/lead/finding + auto-pivot) · `engagement_targets` (ready worklist from active engagements) |
+| **Knowledge & agility** | `security_playbook` (82 packs) · `hunt_log` (per-target hunt memory: dead/lead/finding + auto-pivot) · `engagement_targets` (ready worklist from active engagements) |
 | **Cloud & tech** | `cloud_misconfig` (S3/GCS/Azure/Firebase/Supabase, keyless) · `tech_watch` (stack fingerprint + CVE on change) |
 | **Autonomy & workflow** | **`bounty_run`** (one command, draft-only: engagement → ROI worklist → campaign → draft findings + report → handoff) · `program_score` (ROI ranking) · `policy_set`/`policy_show` (scoped auto-approve) · `campaign_run` (bounded hunt loop) · `flow_run`/`flow_list` (multi-step sequences + assertions) · `dup_check` · `bounty_status` |
 | **Lab & practice** | `lab_start` → `http://127.0.0.1:4010` (SQLi/XSS/IDOR/SSRF/JWT/CSRF/…, no Docker) · `pentest_resources` |
@@ -204,7 +204,7 @@ apps/web                  Next.js 15 (UI, hooks, audio, persona, /api/*)
   src/ai                  ConversationManager, GroqStreamingProvider, VAD
   src/lib                 tools, agent, providers, persona, autoMemory, hunt, recon, security, tamper, huntLog, …
   src/channels            telegram.ts, discord.ts, pushTarget.ts, replyChunk.ts
-  security-playbooks/     77 knowledge packs (categories: methodology, vulnerabilities, …)
+  security-playbooks/     82 knowledge packs (categories: methodology, vulnerabilities, …)
   persona/                IDENTITY.md, SOUL.md, USER.md, DREAMS.md
   verify.ts               offline proofs (tsx)
 packages/state-machine    Explicit state machine

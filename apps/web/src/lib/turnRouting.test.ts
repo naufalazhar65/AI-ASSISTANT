@@ -12,7 +12,7 @@ import { clockLabel, wibDay, wibDayIndex, wibDailyNext } from "./time";
 import { isSilentAutomationReply } from "./automationRunner";
 import { parseLatLonAnywhere } from "./geo";
 import { resolveFavoriteQuery } from "./spotify";
-import { userAskedForList } from "./agent";
+import { summarizeToolResults, userAskedForList } from "./agent";
 import { reminderMessage, isTerseReminder, hasOwnCloser } from "./reminderMessage";
 
 const t = (iso: string) => new Date(iso).getTime();
@@ -125,9 +125,30 @@ describe("verbatim list fast-path gate (no hijacked replies)", () => {
     expect(userAskedForList("reminders_list", "ingetin aku, reminder apa aja yang aktif?")).toBe(true);
     expect(userAskedForList("list_tasks", "tugas aku apa aja?")).toBe(true);
     expect(userAskedForList("hotel_search", "cari hotel di bandung")).toBe(true);
-    // task/security tools always win — their output IS the deliverable
+    // work-product tools always win — their output IS the deliverable
     expect(userAskedForList("recon_subdomains", "halo")).toBe(true);
-    expect(userAskedForList("finding_list", "scan target ini")).toBe(true);
+    expect(userAskedForList("suite_hunt", "coba lakukan full pentest di https://lab.example/index.html")).toBe(true);
+    expect(userAskedForList("poc_verify", "verifikasi temuan ini")).toBe(true);
+  });
+
+  it("pentest CONTEXT lookups must not hijack a request to actually test", () => {
+    // live bug: "coba lakukan full pentest di <lab>" → the agent called hunt_log
+    // for context and the reply became a raw hunt-log dump of OTHER programs.
+    const pentestAsk = "mia coba lakukan full pentest di https://6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app/index.html";
+    expect(userAskedForList("hunt_log", pentestAsk)).toBe(false);
+    expect(userAskedForList("engagement_targets", pentestAsk)).toBe(false);
+    expect(userAskedForList("finding_list", "scan target ini")).toBe(false);
+    expect(userAskedForList("http_history", "uji endpoint ini")).toBe(false);
+    expect(userAskedForList("recon_list", "lanjut uji host itu ya")).toBe(false);
+    expect(userAskedForList("csp_audit", pentestAsk)).toBe(false);
+    expect(userAskedForList("cors_audit", pentestAsk)).toBe(false);
+    // ...but "cek" IS an explicit list ask, so that still wins
+    expect(userAskedForList("recon_list", "cek host itu")).toBe(true);
+    expect(userAskedForList("csp_audit", "cek CSP situs itu")).toBe(true);
+    // asking for those lists explicitly still yields the raw output
+    expect(userAskedForList("hunt_log", "hunt log-ku apa aja?")).toBe(true);
+    expect(userAskedForList("engagement_targets", "target yang harus kutes apa aja?")).toBe(true);
+    expect(userAskedForList("finding_list", "temuan apa aja yang sudah ada?")).toBe(true);
   });
 });
 
@@ -162,5 +183,26 @@ describe("reminder push formatting (single coherent line)", () => {
       expect(out).not.toContain("makan makan");
       expect(out.split("\n")).toHaveLength(1);
     }
+  });
+});
+
+describe("empty-answer digest (never a dead-end after work ran)", () => {
+  it("digests the last tool results instead of returning nothing", () => {
+    const messages = [
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "200 OK {\"nama\":\"Bambang\"}" },
+    ] as never;
+    const out = summarizeToolResults(messages);
+    expect(out).toContain("http_request");
+    expect(out).toContain("Bambang");
+    expect(out).toMatch(/lanjut/); // tells the user how to continue
+  });
+
+  it("skips placeholder results and returns empty when there is nothing real", () => {
+    const messages = [
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "Not selected: the user did not approve this action in this batch." },
+    ] as never;
+    expect(summarizeToolResults(messages)).toBe("");
   });
 });
