@@ -234,6 +234,21 @@ OPS GOTCHA — "AI tidak merespons" / long hang on opencode (2026-09-03): the `o
 - **Strict gateways** (OpenCode Go) reject non-standard fields anywhere in the request (tools[].risk) — serialize standard OpenAI schema only.
 - **Telegram typing** is best-effort UI: some clients don't render bot typing; keep it (cheap) but don't rely on it as the only waiting signal.
 
+## Session 2026-09-17 (live drill + anti-regresi) — bug dari giliran nyata
+
+Owner menjalankan drill end-to-end (giliran nyata lewat `runAssistantTurn` seperti adapter Discord). Dua bug baru ketemu **dari drill itu**, bukan dari audit statis:
+
+1. **Prompt automation yang memuat "SKIP" benar-benar men-skip lagu.** Prompt automation cuaca berakhiran "balas tepat: SKIP"; `NEXT_RE` di `spotifyIntent.ts` memuat kata `skip`, jadi `detectSpotifyControl` membacanya sebagai perintah next dan jalur deterministik memanggil `spotifyNext` → **lagu owner keskip**. Tiga lapis perbaikan:
+   - `isPlaybackCommand()` (pure, tested): teks hanya dianggap perintah bila mengarahkan kata perintah di AWAL (setelah kata sopan "tolong/coba/dong") atau menyebut objek musik ("lagu/musik/suara/volume") — prosa panjang tidak lagi mengontrol playback.
+   - Giliran **headless** (`autoDenyRisky`, yaitu automation/webhook) tidak menjalankan fallback Spotify deterministik sama sekali.
+   - Giliran headless **menolak tool `read` yang punya efek nyata** (`HEADLESS_SIDE_EFFECT_TOOLS`: 8 tool Spotify + `mac_open` + `send_channel`) seperti tool risky, agar halusinasi model dari konteks tak menyentuh dunia nyata.
+   Hasil drill: balasan automation tepat `SKIP`, tidak ada skip lagu, tidak ada push.
+2. **`poc_verify` hanya menilai BODY**, sehingga temuan cookie (bukti di header `Set-Cookie`) selalu tampak "tidak stabil" walau deterministik. Kini: `expect_header`, `expect_header_absent`, dan `expect_cookie`+`expect_cookie_missing` (helper `cookieMissingFlags` — memeriksa SATU baris cookie, jadi cookie saudara yang punya HttpOnly tidak menutupi temuan), serta verdikt dinilai dari **assertion** (`3/3 PASS`) bukan kesamaan byte — token dinamis (session id/tanggal) membuat byte body/header wajar berbeda. Drill: temuan cookie pulsepoint kini **✅ PoC STABIL & terkonfirmasi 3/3**.
+
+Drill lain yang lolos: `spotify_play` favorit **tepat 1×** (tidak dobel), "stop kalau lagunya selesai" → sleep timer (bukan pause), cuaca "Lake Home" → 32°C/44% (lokasi benar), `mood_recent` normal, dan `suite_hunt` pada `checkout.webmd.com` menghasilkan 3 lead + tercatat ke `hunt_log`.
+
+**Anti-regresi:** `vitest` kini juga menjalankan `apps/web/src/**/*.test.ts` dengan `turnRouting.test.ts` (11 tes) yang mengunci kelas bug ini di level keputusan: routing Spotify turn-level (`planSpotifyTurn` — satu pemilik keputusan, diekstrak dari blok post-processing), dedupe aksi yang sudah dijalankan model, `isPlaybackCommand`, `moodTone`, `isFillerLine`, `isSilentAutomationReply`, `clockLabel`/`wibDay`/`wibDayIndex`/`wibDailyNext`, dan `parseLatLonAnywhere`. Total 21 tes (`npm test`).
+
 ## Session 2026-09-17 (audit teliti #2) — waktu/zona, idempotensi, dan cakupan alias
 
 Audit menyeluruh ketiga menemukan 6 bug lagi (semua sudah diperbaiki + diuji):

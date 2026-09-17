@@ -114,9 +114,35 @@ export function spotifyControlToolName(action: string): string {
     : "spotify_play";
 }
 
+/** Words that name a playback object — a command-like signal. */
+const MUSIC_OBJECT_RE = /\b(?:lagu|lagunya|musik|musiknya|nyanyian|song|track|spotify|suara|volume)\b/i;
+
+/** Imperative first words a playback command starts with. */
+const COMMAND_VERB_RE = /^(?:pause|jeda|jeda(?:in)?|berhenti|berhentiin|stop|matikan|matiin|next|skip|lewati|lanjut|lanjutin|previous|prev|mundur|kembali|volume|kecilin|kecilkan|besarin|besarkan|naikin|turunin|keras|kerasin|pelan|pelanin|putar|mainkan|play)\b/i;
+
+/** Polite/filler prefixes that may precede the imperative ("tolong stop dong"). */
+const LEADING_NOISE_RE = /^(?:tolong|tolongin|coba|bisa|bisakah|please|pls|dong|ya|oke|ok|gas|ayo|yuk|mimi|mia|beb|sayang|hei|halo)\s+/i;
+
+/**
+ * True when the text looks like a PLAYBACK COMMAND rather than prose. A sentence
+ * that merely CONTAINS a control word must not act on playback — live bug: a
+ * weather automation prompt ending in "balas tepat: SKIP" was read as a
+ * next-track command and really skipped the owner's track.
+ * Pure — unit-tested.
+ */
+export function isPlaybackCommand(text: string): boolean {
+  let t = (text || "").trim();
+  if (!t) return false;
+  if (MUSIC_OBJECT_RE.test(t)) return true;
+  while (LEADING_NOISE_RE.test(t)) t = t.replace(LEADING_NOISE_RE, "");
+  return COMMAND_VERB_RE.test(t);
+}
+
 export function detectSpotifyControl(text: string): SpotifyControlIntent | null {
   // "stop kalau lagunya udah selesai" is a SLEEP TIMER, not an immediate pause.
   if (detectSpotifyAfterTrack(text)) return null;
+  // Prose that happens to contain a control word is not a command.
+  if (!isPlaybackCommand(text)) return null;
   if (PAUSE_RE.test(text)) return { action: "pause" };
   if (NEXT_RE.test(text)) return { action: "next" };
   if (PREV_RE.test(text)) return { action: "previous" };
@@ -130,4 +156,21 @@ export function detectSpotifyControl(text: string): SpotifyControlIntent | null 
     return { action: "volume" };
   }
   return null;
+}
+export type SpotifyTurnPlan = "none" | "sleep-timer" | "control" | "play";
+
+/**
+ * What the DETERMINISTIC Spotify fallback may still do this turn.
+ *
+ * Spotify tools are risk `read`, so anything the model already executed must not
+ * be repeated — the live double-play bug was the model's `spotify_play` running
+ * in the tool loop AND the fallback playing again. Pure — unit-tested.
+ */
+export function planSpotifyTurn(userText: string, executed: ReadonlySet<string>): SpotifyTurnPlan {
+  if (detectSpotifyAfterTrack(userText)) {
+    return executed.has("spotify_sleep_timer") ? "none" : "sleep-timer";
+  }
+  const ctrl = detectSpotifyControl(userText);
+  if (ctrl) return executed.has(spotifyControlToolName(ctrl.action)) ? "none" : "control";
+  return executed.has("spotify_play") ? "none" : "play";
 }

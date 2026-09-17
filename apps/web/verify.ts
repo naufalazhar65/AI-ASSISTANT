@@ -733,6 +733,24 @@ async function main() {
     const nextDay = wibDailyNext(7, 0, t("2026-09-17T01:00:00Z"));
     if (clockLabel(nextDay) !== "07:00" || wibDay(nextDay) !== "2026-09-18") throw new Error("wibDailyNext next-day failed");
     console.log("time invariants (WIB day key, rotation, daily schedule): OK");
+
+  // --- PoC header/cookie assertions (cookie findings must be provable) ---
+  {
+    const { cookieMissingFlags } = await import("./src/lib/poc");
+    const jar = [
+      "zacnkoertw=; domain=.pulsepoint.com; path=/; HttpOnly; SameSite=Lax",
+      "ASP.NET_SessionId_CROSS_DOM_custom=abc; domain=.pulsepoint.com; expires=Thu; path=/",
+    ];
+    if (!cookieMissingFlags(jar, "ASP.NET_SessionId_CROSS_DOM_custom", ["HttpOnly", "Secure", "SameSite"]))
+      throw new Error("cookie flags should be detected as missing");
+    if (cookieMissingFlags(jar, "zacnkoertw", ["HttpOnly", "Secure", "SameSite"]))
+      throw new Error("a cookie WITH HttpOnly/SameSite must not be reported missing");
+    if (cookieMissingFlags(jar, "tidak-ada", ["HttpOnly"])) throw new Error("unknown cookie must not match");
+    // a sibling cookie carrying HttpOnly must not mask the finding
+    if (!cookieMissingFlags(jar, "ASP.NET_SessionId_CROSS_DOM_custom", ["HttpOnly"]))
+      throw new Error("sibling cookie flags must not mask the missing flag");
+    console.log("poc cookie-flag assertions: OK");
+  }
   }
   }
   }

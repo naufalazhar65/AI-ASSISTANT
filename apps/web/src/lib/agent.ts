@@ -26,11 +26,11 @@ import { logError, logFeatureRequest, logLearning } from "./learnings";
 import { enrichReminderVariants } from "./reminderVariants";
 import { detectMonitorIntents, detectMonitorIntent, cryptoSubject } from "./monitorIntent";
 import { addMonitor } from "./monitor";
-import { SpotifyControlIntent, detectSpotifyControl, detectSpotifyIntent, detectSpotifyResume, spotifyControlToolName } from "./spotifyIntent";
+import { SpotifyControlIntent, detectSpotifyControl, detectSpotifyIntent, detectSpotifyResume, spotifyControlToolName, planSpotifyTurn } from "./spotifyIntent";
 import { detectPriceIntent } from "./priceIntent";
 import { freerideGetConfig } from "./freeride";
 import { detectPlaceIntent, placeNudge } from "./placeIntent";
-import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume } from "./spotify";
+import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume, spotifySleepTimer } from "./spotify";
 import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
 import { clockLabel } from "./time";
@@ -594,6 +594,22 @@ const TOOL_CAPS: { test: RegExp; max: number }[] = [
   { test: /groq\.com/, max: 128 },
   { test: /127\.0\.0\.1:20128|localhost:20128/, max: 64 },
 ];
+/**
+ * Risk-`read` tools that still change the REAL WORLD (playback, windows, remote
+ * messages). On a headless turn (automation/webhook, no human watching) the model
+ * may hallucinate them from context — live bug: a weather automation skipped the
+ * owner's track — so they are auto-denied exactly like risky tools.
+ * Pure — unit-tested.
+ */
+const HEADLESS_SIDE_EFFECT_TOOLS = new Set([
+  "spotify_play", "spotify_pause", "spotify_next", "spotify_previous",
+  "spotify_volume", "spotify_mode", "spotify_queue", "spotify_sleep_timer",
+  "mac_open", "send_channel",
+]);
+export function isHeadlessSideEffect(name: string): boolean {
+  return HEADLESS_SIDE_EFFECT_TOOLS.has(name);
+}
+
 const CORE_TOOL_NAMES = new Set<string>([
   // daily essentials first
   "web_search", "calculate",
@@ -927,7 +943,7 @@ async function runAgent(
     return autoApproveAllowed(call.name, def.risk, args, { hasActiveEngagement, urlAllowed: (u) => targetAllowed(u) });
   };
   const risky = toolCalls2.filter(
-    (c) => requiresConfirmation(getTOOLS().find((t) => t.function.name === c.name)) && !isAutoApproved(c)
+    (c) => (requiresConfirmation(getTOOLS().find((t) => t.function.name === c.name)) || isHeadlessSideEffect(c.name)) && !isAutoApproved(c)
   );
   if (risky.length > 0) {
     if (!autoDenyRisky) {
@@ -1558,17 +1574,8 @@ async function scheduleSpotifyControlFromIntent(messages: ChatMessage[], user: u
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
   const userText = messageText(lastUser.content);
-  // "stop aja kalau lagunya udah selesai" → sleep timer (a pause now would cut
-  // the song). Checked BEFORE the control parser.
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { detectSpotifyAfterTrack } = require("./spotifyIntent") as typeof import("./spotifyIntent");
-    if (detectSpotifyAfterTrack(userText)) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { spotifySleepTimer } = require("./spotify") as typeof import("./spotify");
-      return await spotifySleepTimer(user, { after_track: true });
-    }
-  } catch { /* fall through to the normal control path */ }
+  // (After-track phrasing is owned by planSpotifyTurn — a plain pause here would
+  // cut the song, so it never reaches this function.)
   const ctrl = detectSpotifyControl(userText);
   if (!ctrl) return text;
   let result: string;
@@ -2547,11 +2554,15 @@ async function runAssistantTurnImpl(opts: {
   const spotifyConfirmRan = confirmDecisions(opts).some(
     (d) => d.call?.name?.startsWith("spotify_") && d.allow === true
   );
+  // A HEADLESS turn (scheduled automation / webhook with no human) must never act
+  // on playback: its prompt text is not a user command (a weather automation
+  // saying "balas tepat: SKIP" was matched as a next-track command and really
+  // skipped the track).
   const pendingSpotify = (needsConfirmation ?? []).filter((c) => c.name.startsWith("spotify_"));
   if (needsConfirmation) {
     needsConfirmation = needsConfirmation.filter((c) => !c.name.startsWith("spotify_"));
   }
-  if (!spotifyConfirmRan) {
+  if (!spotifyConfirmRan && !opts.autoDenyRisky) {
     const playCall = pendingSpotify.find((c) => c.name === "spotify_play");
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content;
     const ctrl = lastUserMsg ? detectSpotifyControl(messageText(lastUserMsg)) : null;
@@ -2560,10 +2571,14 @@ async function runAssistantTurnImpl(opts: {
     // action (observed live: the song restarted right after Mia's reply) — the
     // fallback may only fill in what this turn did NOT already do.
     const already = collector.spotifyCallsExecuted ?? new Set<string>();
-    const ctrlTool = ctrl ? spotifyControlToolName(ctrl.action) : null;
-    if (ctrl && ctrlTool && already.has(ctrlTool)) {
-      /* no-op: the model's identical control call already ran this turn */
-    } else if (ctrl) {
+    // ONE owner for "what may the fallback still do": planSpotifyTurn (pure,
+    // tested). Spotify tools are risk `read`, so a second execution would double
+    // the action (live: the song restarted right after Mia's reply).
+    const plan = planSpotifyTurn(lastUserMsg ? messageText(lastUserMsg) : "", already);
+    if (plan === "sleep-timer") {
+      // "stop aja kalau lagunya udah selesai" → arm the sleep timer, never pause now.
+      text = await spotifySleepTimer(opts.user, { after_track: true });
+    } else if (plan === "control") {
       // Deterministic single action from the user's own words — this is the
       // source of truth. Native spotify_* calls are ignored here so a
       // duplicated/broken 9router emission can NEVER cause a double next/pause.
@@ -2591,7 +2606,7 @@ async function runAssistantTurnImpl(opts: {
         }
       }
     }
-    if (!already.has("spotify_play")) {
+    if (plan === "play") {
       text = await scheduleSpotifyFromIntent(messages, opts.user, text, playCall ? queryArgOf(playCall) : null);
     }
   }
