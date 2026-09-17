@@ -382,6 +382,15 @@ Perbaikan: `redactSecrets` dapat aturan **assignment** yang mempertahankan kunci
 
 Hasil audit lainnya (semua lolos): `isOwnLabTarget` 17 kasus batas — localhost/127/::1/10.x/192.168.x/172.16-31/env+subdomain = own lab; **172.32, example.com, host engagement, demo publik (scanme/testphp), `127.0.0.1.nip.io`, dan metadata cloud `169.254.169.254`/`100.100.100.200` = BUKAN** (guard SSRF utuh); `autoApproveAllowed` → lab `true`, demo & metadata `false`. `ato_prove` live di lab: login 200 tanpa cookie → verdict jujur "TANPA SESI" (bukan klaim takeover). Catatan: policy bersifat **owner-level** (berlaku untuk semua kanal/user bot ini) dan `suite_hunt`/`security_hunt` sengaja TIDAK di daftar auto-approve (tetap konfirmasi).
 
+### Lanjutan — full pentest kini jalan dalam SATU turn (tanpa prompt, tanpa hijack)
+
+Owner melaporkan `security_hunt` **masih** minta konfirmasi (memang sengaja tidak ikut daftar pertama). Setelah dinaikkan, ketemu dua penyebab lain yang membuat alur tetap berhenti:
+
+1. **Verbatim hijack pada tool kerja.** `VERBATIM_LIST` memuat ~78 tool security, jadi tool PERTAMA yang jalan (hunt/poc_verify/…) langsung menggantikan balasan dan **mengakhiri turn** — alur full pentest tak mungkin berantai. Kini `VERBATIM_LIST = PERSONAL_LIST_TOOLS + {hardening_plan, writeup}`: output mentah hanya menimpa balasan bila user MEMINTA daftar itu (ask-gated) atau itu dokumen jadi. Seluruh tool kerja (recon_*, suite_hunt, poc_verify, param_fuzz, js_mine, …) jadi konteks → agent bisa lanjut scan → probe → prove → report.
+2. **Markup DSML bocor + scrap `<`.** Model OpenCode Go kadang menulis pemanggilan tool sebagai teks bergaya DeepSeek (`｜｜DSML｜｜ invoke …`) yang hanya terpotong sebagian: `stripToolCallProse` kini menghapus blok DSML dan **sisa scrap** (`^[\s<>|｜/]+`), dan ada `isEffectivelyEmpty()` (tanpa alfanumerik = kosong) supaya sisa `<` tidak lagi mematikan guard jawaban-kosong (gejala: balasan cuma `"< (Link-nya udah masuk daftar bacaan…)"`).
+
+Policy auto-approve juga diperluas ke rantai kerja (hunt/discovery/probe/proof/record + `policy_show`); scanner berat tetap manual. **Bukti live (prompt Discord persis)**: 5 ronde tool (pentest_resources/hunt_log → finding_list → web_audit/csp_audit/content_discover/poc_verify/cors_audit → poc_verify×3 → **report_pdf**) dengan **0 prompt, 0 bocor markup**, balasan berupa daftar temuan rapi + PDF. Gates: typecheck, vitest **84/84** (+2 tes scrap/DSML), `verify.ts` EXIT=0, lint baseline 39.
+
 ## Session 2026-09-17 (lanjutan) — A: auto-approve khusus lab milik owner + B: prover rantai ATO
 
 Dua perbaikan "power" yang dipilih owner:

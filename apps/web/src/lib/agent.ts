@@ -962,6 +962,17 @@ const PERSONAL_LIST_TOOLS = new Set([
   // Diagnostic checks: the raw dump is the answer when the user asks for that
   // check, but it must not replace the synthesis of a broader "pentest this".
   "csp_audit", "cors_audit",
+  // Security WORK tools: their output is an intermediate step, not the answer.
+  // Hijacking the reply with it ended the turn right after the first scan, so a
+  // "full pentest" could never chain scan -> probe -> prove -> report in one
+  // turn. They now only replace the reply when the user asked for that list.
+  "security_hunt", "suite_hunt", "auth_hunt", "api_hunt", "pentest_scan", "nuclei_custom", "sqlmap_scan",
+  "poc_verify", "param_fuzz", "js_mine", "api_spec", "graphql_probe", "cve_intel", "dep_audit", "sast_scan",
+  "content_discover", "crawl", "param_discover", "jwt_attack", "cloud_misconfig", "race", "ws_probe",
+  "oast_poll", "oast_dns_poll", "bola_diff", "cdp_status", "cdp_request", "cdp_eval", "tamper_script",
+  "request_run", "bucket_enum", "scope_import", "flow_run", "campaign_run", "bounty_run", "oauth_hunt",
+  "recon_subdomains", "recon_httpx", "recon_params", "recon_diff", "recon_dnsbrute", "recon_ports",
+  "recon_screenshot", "recon_takeover", "evidence_capture", "writeup",
 ]);
 
 /**
@@ -1139,7 +1150,14 @@ async function runAgent(
   // Note: NOT wrapped in `if (round < MAX_TOOL_ROUNDS)` — the accumulated tool
   // results must always land in `messages` so the forced final completion below
   // can answer from them (never throw a raw "too many tool rounds" 502).
-  const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news","hotel_search","cinema_showtimes","train_search","bus_search","hardening_plan","finding_list","dep_audit","recon_subdomains","recon_httpx","recon_params","recon_list","recon_takeover","sast_scan","content_discover","crawl","param_discover","recon_diff","recon_screenshot","recon_dnsbrute","recon_ports","bucket_enum","scope_import","js_mine","api_spec","cve_intel","request_run","submission_track","cors_audit","csp_audit","http_history","rapyd_request","security_hunt","suite_hunt","hunt_log","auth_hunt","api_hunt","engagement_targets","race","ws_probe","oast_poll","oast_dns_poll","bola_diff","cdp_status","cdp_request","tamper_script","poc_verify","cloud_misconfig","tech_watch","flow_run","flow_list","campaign_run","program_score","dup_check","policy_show","policy_set","persona_show","bounty_run","bounty_status","oauth_hunt","writeup","param_fuzz","jwt_attack"]);
+  // Raw tool output may replace the reply only when the raw output IS what the
+// user asked for: a list/status they explicitly requested (PERSONAL_LIST_TOOLS,
+// ask-gated below) or a finished document (report/hardening/writeup).
+// Security WORK tools (recon_*, suite_hunt, poc_verify, param_fuzz, …) are
+// deliberately NOT here: hijacking the reply with their output ended the turn
+// right after the first scan, so a "full pentest" could never chain
+// scan -> probe -> prove -> report inside one turn.
+const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan", "writeup"]);
   const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
   // A confirmation continuation is answering an ACTION, not a list request —
   // never take the verbatim fast-path there, or a follow-up list_* would mask
@@ -1915,7 +1933,15 @@ export function stripToolCallProse(text: string): string {
     .replace(/<function_calls\b[\s\S]*?<\/function_calls>/gi, " ")
     .replace(/<\/?(?:invoke|parameter|tool_call|tool_use|tool_result|function_calls|antml:[a-z_]+)\b[^>]*>/gi, " ")
     // Unclosed/malformed opening tags (cut off mid-tag): drop just the tag.
-    .replace(/<(?:invoke|tool_call|tool_use|function_calls)\b[^>\n]*>?/gi, " ");
+    .replace(/<(?:invoke|tool_call|tool_use|function_calls)\b[^>\n]*>?/gi, " ")
+    // DeepSeek-style fullwidth markup: "｜｜DSML｜｜ calls> … ｜｜DSML｜｜ invoke name=…".
+    .replace(/[|｜]{2}\s*DSML\s*[|｜]{2}[\s\S]*?(?=\n\s*\n|$)/gi, " ")
+    .replace(/[|｜]{2}\s*DSML\s*[|｜]{2}[^\n]*/gi, " ")
+    .replace(/<\/?(?:[|｜]{2}\s*DSML\s*[|｜]{2})\s*(?:invoke|parameter|calls?)\b[^>]*>?/gi, " ");
+  // A stripped block can leave a lone "<" / ">" or stray separator behind — drop
+  // those scraps so "empty" is really empty (they used to defeat the
+  // empty-answer guard and the user got a bare "(link tersimpan)" note).
+  text = text.replace(/^[\s<>|｜/]+/, "").replace(/[\s<>|｜/]+$/, "");
   const names = getTOOLS().map((t) => t.function.name).join("|");
   // A whole line that IS a tool call: "remind_me(text='...', when='...')" → drop.
   const lineRe = new RegExp(`^\\s*(?:${names})\\s*\\(`, "i");
@@ -2832,7 +2858,7 @@ async function runAssistantTurnImpl(opts: {
   // reply empty right after tools ran — the channel then shows a bare "jawaban
   // kepotong" even though real work happened. Ask once more without tools, then
   // fall back to a deterministic digest of the tool results.
-  if (!text.trim() && !needsConfirmation?.length && messages.some((m) => m.role === "tool")) {
+  if (isEffectivelyEmpty(text) && !needsConfirmation?.length && messages.some((m) => m.role === "tool")) {
     try {
       // Give the model an explicit instruction to answer — a thinking model with
       // tools removed should stop reasoning and speak. Sent on a COPY: the nudge
@@ -2847,7 +2873,7 @@ async function runAssistantTurnImpl(opts: {
     } catch (e) {
       console.warn("[agent] empty-answer retry failed:", e instanceof Error ? e.message.slice(0, 200) : String(e));
     }
-    if (!text.trim()) text = summarizeToolResults(messages);
+    if (isEffectivelyEmpty(text)) text = summarizeToolResults(messages);
   }
 
   text = await schedulePriceFromIntent(messages, opts.user, text);
@@ -2934,6 +2960,11 @@ async function runAssistantTurnImpl(opts: {
  * it reaches the channel. Removes the char (keeps words around it intact,
  * e.g. "Buruan摄入能量" → "Buruan能量").
  */
+/** True when a reply carries no real content (empty, or markup/punctuation scraps). */
+export function isEffectivelyEmpty(text: string): boolean {
+  return !/[A-Za-z0-9]/.test(text || "");
+}
+
 export function stripNonLatinChars(text: string): string {
   return text.replace(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g, "");
 }

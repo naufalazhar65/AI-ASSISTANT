@@ -12,7 +12,7 @@ import { clockLabel, wibDay, wibDayIndex, wibDailyNext } from "./time";
 import { isSilentAutomationReply } from "./automationRunner";
 import { parseLatLonAnywhere } from "./geo";
 import { resolveFavoriteQuery } from "./spotify";
-import { looksLikeMarkdownList, summarizeToolResults, userAskedForList } from "./agent";
+import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList } from "./agent";
 import { reminderMessage, isTerseReminder, hasOwnCloser } from "./reminderMessage";
 import { scrubToolMarkup } from "../channels/replyChunk";
 
@@ -126,10 +126,14 @@ describe("verbatim list fast-path gate (no hijacked replies)", () => {
     expect(userAskedForList("reminders_list", "ingetin aku, reminder apa aja yang aktif?")).toBe(true);
     expect(userAskedForList("list_tasks", "tugas aku apa aja?")).toBe(true);
     expect(userAskedForList("hotel_search", "cari hotel di bandung")).toBe(true);
-    // work-product tools always win — their output IS the deliverable
-    expect(userAskedForList("recon_subdomains", "halo")).toBe(true);
-    expect(userAskedForList("suite_hunt", "coba lakukan full pentest di https://lab.example/index.html")).toBe(true);
-    expect(userAskedForList("poc_verify", "verifikasi temuan ini")).toBe(true);
+    // security WORK tools are ask-gated too: mid-flow their output is context,
+    // not the answer (so a full pentest can chain inside one turn).
+    expect(userAskedForList("recon_subdomains", "halo")).toBe(false);
+    expect(userAskedForList("suite_hunt", "coba lakukan full pentest di https://lab.example/index.html")).toBe(false);
+    expect(userAskedForList("poc_verify", "verifikasi temuan ini")).toBe(false);
+    // ...but an explicit ask still shows the raw result
+    expect(userAskedForList("recon_subdomains", "cek subdomain target ini")).toBe(true);
+    expect(userAskedForList("poc_verify", "lihat hasil poc_verify-nya")).toBe(true);
   });
 
   it("pentest CONTEXT lookups must not hijack a request to actually test", () => {
@@ -231,5 +235,21 @@ describe("outbound scrub keeps list structure", () => {
   it("still tidies double spaces and tag-removal gaps", () => {
     expect(scrubToolMarkup("a  b")).toBe("a b");
     expect(scrubToolMarkup("x <invoke name=\"t\"></invoke> y")).toBe("x y");
+  });
+});
+
+describe("markup scraps never reach the chat", () => {
+  it("strips the DSML leak and the leftover scraps it leaves behind", () => {
+    const leaked = ["<" + '｜｜DSML｜｜' + " calls>", "<" + '｜｜DSML｜｜' + ' invoke name="http_request">', "<" + '｜｜DSML｜｜' + ' parameter name="url">https://x', "</" + '｜｜DSML｜｜' + " invoke>", "</" + '｜｜DSML｜｜' + " calls>"].join("\n");
+    const out = stripToolCallProse(leaked);
+    expect(out).not.toMatch(/DSML/);
+    expect(out.trimStart().startsWith("<")).toBe(false);
+    expect(isEffectivelyEmpty(out)).toBe(true);
+  });
+
+  it("keeps real prose that merely sits next to markup", () => {
+    const text = "Halo beb 🌸 " + "<" + '｜｜DSML｜｜' + " calls>";
+    const out = stripToolCallProse(text);
+    expect(out).toContain("Halo beb");
   });
 });
