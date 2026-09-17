@@ -40,7 +40,12 @@ export function scrubToolMarkup(text: string): string {
     .replace(/<tool_call\b[^>\n]*>?/gi, " ");
   // Stray tags / partial fragments.
   t = t.replace(/<\/?(?:invoke|parameter|tool_call|tool_use|tool_result|function_calls|antml:[a-z_]+)\b[^>]*>/gi, " ");
-  t = t.replace(/\s{2,}/g, " ");
+  // Collapse runs of SPACES/TABS only — never newlines. The old `\s{2,}` also
+  // ate a blank line between list items, so a numbered reply ("1. …\n\n2. …")
+  // reached Discord as ONE paragraph with inline numbers.
+  t = t.replace(/[ \t]{2,}/g, " ");
+  t = t.replace(/[ \t]+\n/g, "\n");
+  t = t.replace(/\n{3,}/g, "\n\n");
   // Drop leading/trailing connective junk left by removals (", , . sementara").
   t = t.replace(/^[\s,.;:]+/, "").replace(/[\s,]+$/, "").trim();
   return t;

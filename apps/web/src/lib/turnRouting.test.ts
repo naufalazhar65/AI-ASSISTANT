@@ -14,6 +14,7 @@ import { parseLatLonAnywhere } from "./geo";
 import { resolveFavoriteQuery } from "./spotify";
 import { looksLikeMarkdownList, summarizeToolResults, userAskedForList } from "./agent";
 import { reminderMessage, isTerseReminder, hasOwnCloser } from "./reminderMessage";
+import { scrubToolMarkup } from "../channels/replyChunk";
 
 const t = (iso: string) => new Date(iso).getTime();
 
@@ -216,5 +217,19 @@ describe("markdown lists survive the mood reflow", () => {
     expect(looksLikeMarkdownList("- item satu\n- item dua")).toBe(true);
     expect(looksLikeMarkdownList("Nih ringkasannya: dua temuan penting, yang pertama SQLi dan yang kedua XSS.")).toBe(false);
     expect(looksLikeMarkdownList("Satu temuan saja: SQLi di /api/cari-berita.")).toBe(false);
+  });
+});
+
+describe("outbound scrub keeps list structure", () => {
+  it("does not flatten blank-line-separated list items into one paragraph", () => {
+    const reply = "Temuan portal Kohona:\n\n1. CRITICAL 9.8 /api/cari-berita — SQLi\n\n2. HIGH 7.5 /api/dokumen — BAC";
+    const out = scrubToolMarkup(reply);
+    expect(out.split("\n").filter(Boolean).length).toBeGreaterThanOrEqual(3);
+    expect(out).toContain("\n2.");
+  });
+
+  it("still tidies double spaces and tag-removal gaps", () => {
+    expect(scrubToolMarkup("a  b")).toBe("a b");
+    expect(scrubToolMarkup("x <invoke name=\"t\"></invoke> y")).toBe("x y");
   });
 });

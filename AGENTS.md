@@ -374,6 +374,12 @@ Audit kedua menemukan 5 hal lagi:
 
 Bukti tambahan: `llmStream.test.ts` 19 tes (tambah: error frame terakhir tanpa newline, tanpa-error tetap sukses, `chainMayFailover`, `shouldProbeNow`); `verify.ts` blok baru "freeride (in-band error failover + probe honesty + probe throttle): OK" (termasuk stream tiruan yang membuktikan error in-band melempar + 7 tool terdaftar); live: watcher → `"skip — diprobe 0m lalu (interval 60m)"` dengan `lastProbeAt` tidak berubah. Gates: typecheck, lint (0 temuan baru), vitest 46/46, `verify.ts` EXIT=0.
 
+## Session 2026-09-17 (lanjutan) — list Discord tetap jadi satu paragraf: scrubber menelan newline
+
+Setelah prompt/hint diperbaiki, balasan Mia **sudah bernomor tapi tetap satu paragraf**. Penyebab sebenarnya ada di **outbound scrubber**, bukan di model: `replyChunk.ts` `scrubToolMarkup` memakai `t.replace(/\s{2,}/g, " ")` — `\s` termasuk newline, jadi **setiap baris kosong antar item list diubah menjadi spasi** ("1. …\n\n2. …" → "1. … 2. …"). Setiap balasan Discord/Telegram lewat `chunkText` → kena. Bukti: `scrubToolMarkup("…\n\n1. …\n\n2. …")` → satu baris.
+
+Perbaikan: hanya spasi/tab yang dirapatkan (`[ \t]{2,}` → " "), newline dipertahankan, baris kosong dibatasi maksimal dua (`\n{3,}` → `\n\n`). Tag-removal gap tetap dirapikan. Test baru: list ber-baris-kosong tidak diratakan + double space/tag gap tetap bersih (`turnRouting.test.ts`, total **65 tes**). Bukti live: balasan model 9 baris → lewat `chunkText` (jalur Discord) tetap **9 baris** (satu temuan per baris), bukan satu paragraf.
+
 ## Session 2026-09-17 (lanjutan) — Mia bilang batch yang sudah di-approve "belum jalan"
 
 Owner mem-paste balasan Mia: setelah approve 4 `http_request`, Mia menulis *"Lima request tadi belum jalan — semuanya butuh persetujuan kamu dulu… setujui ulang batch itu"*. Bukti dari `http-history.json` user `naufalazhar652952`: 4 request yang di-approve **BENAR-BENAR jalan** (10:16:08–09Z: `/api/dokumen`, `/api/dokumen?id=3`, `/api/cek-nik?id=1`, `/api/cari-berita?q=layanan`) — jadi klaim "belum jalan" itu salah. Tiga reproduksi alur (teks Discord persis, approve tiap batch) berakhir normal: PROMPT → approve → TEXT ringkasan; gejala itu **tidak berhasil direproduksi** (indikasi model menarasikan batch berikutnya sebagai "menunggu approval").
