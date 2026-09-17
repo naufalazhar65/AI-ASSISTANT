@@ -2090,6 +2090,14 @@ async function main() {
   if (/terjadwal \(automation\)|laporan terjadwal/i.test(cleanRecap)) throw new Error("recap leaked automation/system text");
   if (!/Malam Mas Naufal|selamat malam/.test(cleanRecap)) throw new Error(`recap lost the real conversation: ${cleanRecap.slice(0, 120)}`);
   if (!/Refleksi/.test(cleanRecap)) throw new Error("recap missing its title");
+  // Internal carriers + paraphrased duplicates must not reach the reflection.
+  appendDailyMemory(recapUser, "User: [Percakapan sebelumnya — singkatan yang harus kamu pahami, JANGAN balas ini, lanjutkan konteksnya saja]");
+  appendDailyMemory(recapUser, "User: ringkas 6 temuan lab Kohona buat kukirim ke Discord");
+  appendDailyMemory(recapUser, "User: tulis ringkasan 6 temuan lab Kohona untuk Discord");
+  const cleanRecap2 = buildEveningRecap(recapUser);
+  if (/Percakapan sebelumnya/i.test(cleanRecap2)) throw new Error("recap leaked the rolling-summary carrier as the user's words");
+  const labAsks = (cleanRecap2.match(/temuan lab Kohona/gi) || []).length;
+  if (labAsks !== 1) throw new Error(`recap should collapse paraphrased asks, got ${labAsks}`);
   console.log("recap hygiene: OK");
 
   // --- recap day dedup survives restart (persisted state) ---

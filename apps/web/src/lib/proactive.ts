@@ -6,9 +6,9 @@
 // Deterministic local data only (no LLM call): works offline and never spams.
 
 import { wibDay, wibDayBefore } from "./time";
-import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { userDataRoot, isTestUserKey, canonicalUserKey } from "./users";
+import { userDataRoot, canonicalUserKey } from "./users";
 import { readMoods, moodTone } from "./mood";
 import { isFillerLine, isNoiseLine } from "./memoryNoise";
 import { readDailyMemory, todayStr } from "./dailyMemory";
@@ -139,36 +139,19 @@ function signatureOf(rawUser: unknown): string {
   return hash(yday + "|" + JSON.stringify(moods.map((m) => m.mood + ":" + (m.note ?? ""))) + "|" + mem.slice(0, 200));
 }
 
-function allUserKeys(): string[] {
-  const root = userDataRoot();
-  if (!existsSync(root)) return [];
-  try {
-    const raw = readdirSync(root, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const k of raw) {
-      const c = canonicalUserKey(k) || k;
-      if (!seen.has(c)) { seen.add(c); out.push(c); }
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
 
 /** Run the proactive nudge pass for all users; returns how many messages were pushed. */
 export async function runProactiveNudge(): Promise<number> {
   const day = todayStr();
   let pushed = 0;
-  for (const user of allUserKeys()) {
+  // Owner only (anti-spam): one nudge per slot, not one per profile on the box.
+  {
+    const owner = canonicalUserKey("naufalazhar652952") || "naufalazhar652952";
     try {
-      const wroteByUser = await proactivePushForUser(user, day);
-      if (wroteByUser) pushed++;
+      const wrote = await proactivePushForUser(owner, day);
+      if (wrote) pushed++;
     } catch (e) {
-      logError("proactive", `failed for ${user}: ${e instanceof Error ? e.message : String(e)}`);
+      logError("proactive", `failed for ${owner}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
   return pushed;

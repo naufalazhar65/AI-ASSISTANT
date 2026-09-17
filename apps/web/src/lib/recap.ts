@@ -7,15 +7,16 @@
 // in-process interval, silent when no data for the day (no spam).
 
 import { wibDay } from "./time";
-import { readdirSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { userDataRoot, appRoot, isTestUserKey, canonicalUserKey } from "./users";
+import { appRoot, canonicalUserKey } from "./users";
 import { readDailyMemory } from "./dailyMemory";
 import { readMoods, moodTone, NEGATIVE_MOODS, POSITIVE_MOODS } from "./mood";
 import { pushToOwner } from "../channels/pushTarget";
 import { recapHour } from "./config";
 import { logInfo, logError } from "./appLogger";
 import { isFillerLine, isNoiseLine, redactSecrets } from "./memoryNoise";
+import { contentTokens, similarity } from "./dupes";
 import { alreadyStarted, resetStarted } from "./once";
 
 let timer: NodeJS.Timeout | null = null;
@@ -82,11 +83,25 @@ function isJunkLine(line: string): boolean {
   if (/^\[persona\]/i.test(line)) return true; // persona capture log
   // Automation/system injection inside a "User:" turn — not real conversation.
   if (/terjadwal \(automation\)|\[Scheduled automation\]|laporan terjadwal/i.test(line)) return true;
+  // Internal bookkeeping that must never be read back as the user's words: the
+  // rolling-summary carrier, self-correction logs, superseded persona notes.
+  if (/^\[(?:Percakapan sebelumnya|self-correct|superseded|automation|system)\b/i.test(line)) return true;
   // Tool calls / payloads / shell flags / auth ids — never human conversation.
   if (isNoiseLine(line)) return true;
   // Pure small-talk ("alooo beb") is not a "highlight of the day".
   if (isFillerLine(line)) return true;
   return false;
+}
+
+/** Drop URLs/punctuation before comparing asks (so the same request with and
+ *  without its link is recognised). Pure. */
+function stripUrl(s: string): string {
+  return s.replace(/https?:\/\/\S+/gi, " ").replace(/[^\p{L}\p{N}\s]/gu, " ").toLowerCase();
+}
+
+/** Drop the "Mas Naufal: " speaker label so it cannot act as a topic token. */
+function stripLabel(s: string): string {
+  return s.replace(/^[^:]{1,30}:\s*/, "");
 }
 
 /** Clean the daily-memory text into human conversation snippets for the recap. */
@@ -103,14 +118,24 @@ function cleanSnippets(mem: string): string[] {
     if (!body || isJunkLine(body)) continue;
     out.push(`Mas Naufal: ${body}`);
   }
-  // Collapse near-duplicates & keep at most 4, most recent at the end.
-  const seen = new Set<string>();
+  // Collapse asks about the SAME topic, then keep at most 4 (most recent last).
+  // A prefix key missed paraphrases; Jaccard alone is too weak on long sentences
+  // (four variants of one pentest ask all survived the reflection).
   const uniq: string[] = [];
-  for (const s of out) {
-    const key = s.toLowerCase().slice(0, 60);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    uniq.push(s);
+  const all = out.map((s) => contentTokens(stripLabel(stripUrl(s))));
+  // A "topic token" is distinctive: shared by some asks but NOT by all of them
+  // (the speaker label/salutation appears everywhere and would collapse all).
+  const topicCount = new Map<string, number>();
+  for (const toks of all) for (const t of toks) if (t.length >= 5) topicCount.set(t, (topicCount.get(t) ?? 0) + 1);
+  const isTopic = (t: string) => t.length >= 5 && (topicCount.get(t) ?? 0) > 1 && (topicCount.get(t) ?? 0) < all.length;
+  for (let i = 0; i < out.length; i++) {
+    const keep = uniq.map((u) => contentTokens(stripLabel(stripUrl(u))));
+    const mine = all[i];
+    const sameTopic =
+      keep.some((k) => similarity([...k].join(" "), [...mine].join(" ")) >= 0.4) ||
+      keep.some((k) => [...mine].some((t) => isTopic(t) && k.has(t)));
+    if (sameTopic) continue;
+    uniq.push(out[i]);
   }
   return uniq.slice(-4);
 }
@@ -187,25 +212,6 @@ export function buildEveningRecap(rawUser?: unknown, now = new Date()): string {
   return lines.join("\n");
 }
 
-function allUserKeys(): string[] {
-  const root = userDataRoot();
-  if (!existsSync(root)) return [];
-  try {
-    const raw = readdirSync(root, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const k of raw) {
-      const c = canonicalUserKey(k) || k;
-      if (!seen.has(c)) { seen.add(c); out.push(c); }
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
 
 async function tick(): Promise<void> {
   const now = new Date();
@@ -219,16 +225,17 @@ async function tick(): Promise<void> {
   if (Number.isNaN(hour) || !target || hour !== target || lastRecapDay === day) return;
   lastRecapDay = day;
   saveLastRecapDay(day);
-  for (const user of allUserKeys()) {
-    try {
-      const msg = buildEveningRecap(user, now);
-      if (!msg) continue; // nothing happened today → stay silent
-      const delivered = await pushToOwner(msg);
-      if (delivered) logInfo("recap", `pushed for ${user}`);
-      else logInfo("recap", `no channel for ${user}, skipped`);
-    } catch (e) {
-      logError("recap", `failed for ${user}: ${e instanceof Error ? e.message : String(e)}`);
-    }
+  // ONE reflection for the owner, like the briefing: looping every profile on
+  // this machine (aliases + leftovers) pushed the same evening several times.
+  const owner = canonicalUserKey("naufalazhar652952") || "naufalazhar652952";
+  try {
+    const msg = buildEveningRecap(owner, now);
+    if (!msg) return; // nothing happened today → stay silent
+    const delivered = await pushToOwner(msg);
+    if (delivered) logInfo("recap", `pushed for ${owner} (single)`);
+    else logInfo("recap", `no channel for ${owner}, skipped`);
+  } catch (e) {
+    logError("recap", `failed for ${owner}: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 

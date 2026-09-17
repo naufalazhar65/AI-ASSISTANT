@@ -11,16 +11,19 @@ import { readSubmissions } from "./submissions";
 const STOP = new Set(["the", "a", "an", "in", "on", "of", "to", "and", "for", "via", "with", "di", "ke", "yang", "dan", "pada", "dengan"]);
 
 /** Token-set Jaccard similarity over normalized words. Pure — unit-tested. */
+/** Meaningful tokens of a text (lowercase, >2 chars, stopwords dropped). Pure. */
+export function contentTokens(s: string): Set<string> {
+  return new Set(
+    (s || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length > 2 && !STOP.has(t))
+  );
+}
+
 export function similarity(a: string, b: string): number {
-  const toks = (s: string) =>
-    new Set(
-      (s || "")
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((t) => t.length > 2 && !STOP.has(t))
-    );
-  const A = toks(a);
-  const B = toks(b);
+  const A = contentTokens(a);
+  const B = contentTokens(b);
   if (!A.size || !B.size) return 0;
   let inter = 0;
   for (const t of A) if (B.has(t)) inter++;

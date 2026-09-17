@@ -429,6 +429,15 @@ Gejala: setelah approve batch `http_request`, Mia balas **rekap digest** ("balas
 
 Perbaikan: header per-endpoint diekstrak jadi **satu pemilik** `endpointHeaders(url, user)` (dipakai agent loop + retry; sebelumnya inline di `runAgent`), jadi jalur mana pun mustahil lupa. Test: `endpointHeaders` (opencode-go → session+UA, gateway lain → undefined, user key disanitasi). Gates: typecheck, vitest **63/63**, `verify.ts` EXIT=0, lint baseline 39.
 
+## Session 2026-09-17 (lanjutan) — "Refleksi Malam" dobel + pesan internal bocor
+
+Owner mem-paste refleksi malam dari Mia; ketemu tiga cacat:
+1. **Dobel push.** `recap` mengirim satu refleksi **per profil** di mesin ini (`for (const user of allUserKeys()) … pushToOwner`), jadi owner menerima beberapa pesan dengan isi berbeda (profil alias + sisa user uji). `briefing.ts` sudah lebih dulu dibetulkan ("Opsi A: 1 briefing owner"); sekarang `recap`, `weeklyInsight`, dan `proactive` memakai pola yang sama — push **satu** untuk identitas owner (`canonicalUserKey("naufalazhar652952")`).
+2. **Pesan internal bocor sebagai ucapan user.** Baris pembawa rolling summary `[Percakapan sebelumnya — …]` tampil sebagai "Mas Naufal: …" di recap. `isJunkLine` kini juga menolak `^\[(?:Percakapan sebelumnya|self-correct|superseded|automation|system)\b`.
+3. **Parafrase tidak digabung.** Dedupe lama memakai 60 karakter pertama, sehingga 4 variasi satu permintaan (pentest lab) muncul semua. Kini perbandingan **tanpa URL/tanda baca** (`stripUrl`) + aturan **topic token** (token ≥5 huruf yang dipakai beberapa permintaan TAPI tidak semua — "kohona"/"pentest" menyatukan parafrase, sedangkan label "Mas Naufal:" tidak) + Jaccard konten ≥0.4. `contentTokens` diekspor dari `dupes.ts` supaya tokenizer-nya satu definisi.
+
+Bukti: recap terkontrol — 4 variasi permintaan pentest + carrier internal → **2 baris bermakna, tanpa carrier** (sebelumnya 4 + carrier); recap nyata owner bersih dari marker internal; `verify.ts` blok "recap hygiene" ditambah assertion carrier + parafrase (`labAsks === 1`). Gates: typecheck, vitest **84/84**, `verify.ts` EXIT=0, lint baseline 39. Residual: dua parafrase yang tidak berbagi token khas masih bisa muncul sebagai dua baris.
+
 ## Session 2026-09-17 (lanjutan) — output Discord jadi satu paragraf ("kurang enak dibaca")
 
 Owner mengeluh ringkasan pentest di Discord datang sebagai satu paragraf padat. Tiga akar:

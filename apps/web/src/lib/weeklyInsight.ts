@@ -15,9 +15,9 @@
 
 import { wibDay } from "./time";
 import { isFillerLine, isNoiseLine } from "./memoryNoise";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { appRoot, userDataRoot, isTestUserKey, canonicalUserKey } from "./users";
+import { appRoot, canonicalUserKey } from "./users";
 import { readMoods, moodTone, NEGATIVE_MOODS, MoodEntry } from "./mood";
 import { readTasks } from "./tasks";
 import { readDailyMemory } from "./dailyMemory";
@@ -290,25 +290,6 @@ export function buildWeeklyInsight(rawUser: unknown, now = new Date()): string {
   return lines.filter((l) => l.trim().length > 0).join("\n\n");
 }
 
-function allUserKeys(): string[] {
-  const root = userDataRoot();
-  if (!existsSync(root)) return [];
-  try {
-    const raw = readdirSync(root, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const k of raw) {
-      const c = canonicalUserKey(k) || k;
-      if (!seen.has(c)) { seen.add(c); out.push(c); }
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
 
 let lastFiredDate = readLastFiredDate();
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -323,16 +304,17 @@ async function tick(): Promise<void> {
   if (jakartaWeekday(day) !== targetDay || lastFiredDate === day) return;
   lastFiredDate = day;
   saveLastFiredDate(day);
-  for (const user of allUserKeys()) {
-    try {
-      const msg = buildWeeklyInsight(user, now);
-      if (!msg) continue;
-      const delivered = await pushToOwner(msg);
-      if (delivered) logInfo("weekly", `insight pushed for ${user}`);
-      else logInfo("weekly", `no channel for ${user}, skipped`);
-    } catch (e) {
-      logError("weekly", `failed for ${user}: ${e instanceof Error ? e.message : String(e)}`);
-    }
+  // ONE insight for the owner (same anti-spam rule as briefing/recap): looping
+  // every profile on this machine pushed the same digest several times.
+  const owner = canonicalUserKey("naufalazhar652952") || "naufalazhar652952";
+  try {
+    const msg = buildWeeklyInsight(owner, now);
+    if (!msg) return;
+    const delivered = await pushToOwner(msg);
+    if (delivered) logInfo("weekly", `insight pushed for ${owner} (single)`);
+    else logInfo("weekly", `no channel for ${owner}, skipped`);
+  } catch (e) {
+    logError("weekly", `failed for ${owner}: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
