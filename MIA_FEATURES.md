@@ -127,8 +127,8 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 ## 17. FreeRide — Free Model Fallback (2026-09-13, maksimal mandiri)
 
 - **Lib** `freeride.ts` — fetch `openrouter.ai/api/v1/models` free `pricing 0`, ranking `qwen/nemotron/deepseek/context_length`, cache 6h `.data/freeride/cache.json`, config `.data/freeride/config.json` `primary + 5 fallbacks` (`openrouter/free` first), atomic, `15s` timeout
-- **Agent** — `runAgent` loop `freerideChain` on `429/rate_limit/quota` (`300ms` backoff, warn), `freerideGetConfig` — `9router` tetap weekly-unlimited, OpenRouter key dari `.env.local` (`sk-or-v1-...`)
-- **Watcher** `freerideWatcher.ts` — `30s warmup + 60s` `freerideWatcherOnce` probe `openrouter` `8s`, auto `rotate` — wired `instrumentation-node.ts` bareng `heartbeat`
+- **Agent** — `runAgent` loop `freerideChain` on `isProviderRetryable` (429 + upstream 5xx + model pensiun/404) (`300ms` backoff, warn), `parseStreamError` menangkap error in-band (`200 + {"error":…}` / frame `data: {"error":…}`), failover hanya bila attempt itu belum menjalankan tool (`chainMayFailover`) dan belum lewat `30s` (`CHAIN_DEADLINE_MS`) — `9router` tetap weekly-unlimited, OpenRouter key dari `.env.local` (`sk-or-v1-...`)
+- **Watcher** `freerideWatcher.ts` — `30s warmup + 60s` tick, tapi probe asli di-throttle `1×/jam` (`shouldProbeNow`) karena probe memakai kuota free-model yang sama dengan turn nyata; `freerideWatcherOnce` memprobe id apa adanya via `probeOpenRouterModel` + `isProbeAliveResponse` (200 + `error` = mati), auto `rotate` — wired `instrumentation-node.ts` bareng `heartbeat`
 - **Tools 7** — `freeride_status/list` (read), `freeride_auto/switch/refresh/rotate/watcher` (write/read) — total `199` tools, no collision
 
 ## 18. Auto-Update Mia (2026-09-14, mandiri daily self-update)

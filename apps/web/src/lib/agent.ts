@@ -43,6 +43,7 @@ import { recordTurn } from "./turnStats";
 import { auditLog } from "./auditLog";
 import { fixAddressComma } from "./textStyle";
 import { dayRotated } from "./dayRotated";
+import { isProviderRetryable } from "./assistantError";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -416,7 +417,10 @@ function currentTimeLine(): string {
   return (
     `Current date and time (user's local zone): ` +
     `${dateStr} ${timeStr} (${tz}). ` +
-    `When asked the time, answer in a clear 24-hour format, e.g. "it's ${h}:${m}".`
+    `When asked the time, answer in a clear 24-hour format, e.g. "it's ${h}:${m}". ` +
+    `This is the CURRENT time only — you keep NO record of when the user last messaged you, ` +
+    `so never claim they had been gone or silent, never state how long it has been, ` +
+    `and never present this clock as their last-chat time. Missing someone warmly is fine; inventing a timeline is not.`
   );
 }
 
@@ -675,6 +679,25 @@ export function ensureToolResults(messages: ChatMessage[]): void {
   }
 }
 
+/**
+ * Extract an in-band provider error from one parsed SSE chunk / JSON body.
+ * OpenAI-compatible gateways report upstream and rate-limit failures inside a
+ * 200 response (`{"error":{"code":503,"message":"Upstream error from Nvidia…"}}`)
+ * rather than as an HTTP error status, so this must be checked explicitly.
+ * Returns a message shaped for `isProviderRetryable`/`classifyAssistantError`,
+ * or null when the payload carries no error.
+ */
+export function parseStreamError(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const err = (payload as { error?: unknown }).error;
+  if (!err) return null;
+  if (typeof err === "string") return `Provider error: ${err}`;
+  const e = err as { message?: unknown; code?: unknown };
+  const message = typeof e.message === "string" && e.message ? e.message : JSON.stringify(err);
+  const code = typeof e.code === "number" || (typeof e.code === "string" && e.code) ? ` (${String(e.code)})` : "";
+  return `Provider error${code}: ${message}`;
+}
+
 async function runOneCompletionOnce(
   messages: ChatMessage[],
   url: string,
@@ -733,6 +756,52 @@ async function runOneCompletionOnce(
   let text = "";
   const toolCalls: (ToolCall | undefined)[] = [];
 
+  // One chunk/line of the response: SSE `data:` frames plus a raw JSON body
+  // (some gateways report a FAILED request as plain JSON instead of an HTTP
+  // error status). Ignores `event:`/`:` comments and blank keep-alives.
+  const handleLine = (raw: string) => {
+    const line = raw.trim();
+    let payload = line;
+    if (line.startsWith("data:")) payload = line.slice(5).trim();
+    else if (!line.startsWith("{")) return;
+    if (payload === "[DONE]") return;
+    let json: {
+      error?: unknown;
+      choices?: {
+        delta?: {
+          content?: string | null;
+          tool_calls?: {
+            index?: number;
+            id?: string;
+            function?: { name?: string; arguments?: string };
+          }[];
+        };
+      }[];
+    };
+    try {
+      json = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    // OpenRouter/Groq report upstream and rate-limit failures as an in-band
+    // error (HTTP 200 with an `error` field, or a `data: {"error":…}` frame).
+    // Ignoring it looked like a successful EMPTY reply, so the freeride chain
+    // never failed over. Throw so retry + the chain can handle it.
+    const streamError = parseStreamError(json);
+    if (streamError) throw new Error(streamError);
+    const delta = json.choices?.[0]?.delta;
+    if (delta?.content) text += delta.content;
+    if (delta?.tool_calls) {
+      for (const call of delta.tool_calls) {
+        const index = call.index ?? 0;
+        if (!toolCalls[index]) toolCalls[index] = { id: "", name: "", arguments: "" };
+        if (call.id) toolCalls[index]!.id = call.id;
+        if (call.function?.name) toolCalls[index]!.name += call.function.name;
+        if (call.function?.arguments) toolCalls[index]!.arguments += call.function.arguments;
+      }
+    }
+  };
+
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -740,41 +809,14 @@ async function runOneCompletionOnce(
       buffer += decoder.decode(value, { stream: true });
       let lineEnd;
       while ((lineEnd = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, lineEnd).trim();
+        handleLine(buffer.slice(0, lineEnd));
         buffer = buffer.slice(lineEnd + 1);
-        if (!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if (payload === "[DONE]") continue;
-        let json: {
-          choices?: {
-            delta?: {
-              content?: string | null;
-              tool_calls?: {
-                index?: number;
-                id?: string;
-                function?: { name?: string; arguments?: string };
-              }[];
-            };
-          }[];
-        };
-        try {
-          json = JSON.parse(payload);
-        } catch {
-          continue;
-        }
-        const delta = json.choices?.[0]?.delta;
-        if (delta?.content) text += delta.content;
-        if (delta?.tool_calls) {
-          for (const call of delta.tool_calls) {
-            const index = call.index ?? 0;
-            if (!toolCalls[index]) toolCalls[index] = { id: "", name: "", arguments: "" };
-            if (call.id) toolCalls[index]!.id = call.id;
-            if (call.function?.name) toolCalls[index]!.name += call.function.name;
-            if (call.function?.arguments) toolCalls[index]!.arguments += call.function.arguments;
-          }
-        }
       }
     }
+    // The last frame may arrive WITHOUT a trailing newline (a raw JSON error
+    // body, or a final SSE frame) — without this, an error there was dropped
+    // and looked like a successful empty reply.
+    handleLine(buffer);
   } finally {
     reader.cancel().catch(() => {});
   }
@@ -2123,6 +2165,25 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
 }
 
 /**
+ * May a failed freeride attempt be handed to the NEXT model? Only when it had
+ * no observable effect: every executed tool appends to `messages`, so a grown
+ * conversation means the failure happened AFTER a tool ran. Re-running the turn
+ * on another model would then repeat real side effects (play the song again,
+ * re-send the message) and stack a second model's tool history on the first.
+ */
+export function chainMayFailover(messagesBefore: number, messagesAfter: number): boolean {
+  return messagesAfter === messagesBefore;
+}
+
+/**
+ * Budget for trying the whole chain. Each member can spend its own
+ * same-model rate-limit retry (up to 6s), so a free-tier outage across all
+ * members could otherwise stall a voice/chat turn for ~40s — worse than an
+ * honest "jatah habis" reply.
+ */
+const CHAIN_DEADLINE_MS = 30_000;
+
+/**
  * Run one full assistant turn for a user across any provider (mock / opencode /
  * groq / 9router), including server-side read-only tools, risky-tool pausing,
  * automatic persona memory capture, and reminder scheduling on the opencode
@@ -2396,7 +2457,9 @@ async function runAssistantTurnImpl(opts: {
     })();
     let lastErr: unknown = null;
     let _freerideOk = false;
+    const chainStartedAt = Date.now();
     for (let fi = 0; fi < freerideChain.length; fi++) {
+      const messagesBefore = messages.length;
       try {
         result = await runAgent(
           messages,
@@ -2415,10 +2478,15 @@ async function runAssistantTurnImpl(opts: {
         break;
       } catch (e) {
         lastErr = e;
-        const msg = e instanceof Error ? e.message : String(e);
-        const isRate = /429|rate.?limit|quota|too many requests|tokens per minute/i.test(msg);
-        if (!isRate || fi === freerideChain.length - 1) throw e;
-        console.warn(`[freeride] ${String(freerideChain[fi] || "primary")} rate-limited, trying ${String(freerideChain[fi + 1])}`);
+        // A free model can fail three ways: a thrown HTTP status, an in-band
+        // provider error, or a retired model id. All three mean "try the next
+        // model in the chain" (see isProviderRetryable) — but only while the
+        // attempt has not already executed a tool (chainMayFailover).
+        const outOfTime = Date.now() - chainStartedAt > CHAIN_DEADLINE_MS;
+        if (!isProviderRetryable(e) || !chainMayFailover(messagesBefore, messages.length) || outOfTime || fi === freerideChain.length - 1) throw e;
+        console.warn(
+          `[freeride] ${String(freerideChain[fi] || "primary")} failed (${e instanceof Error ? e.message : String(e)}), trying ${String(freerideChain[fi + 1])}`
+        );
         await new Promise((r) => setTimeout(r, 300 * (fi + 1)));
       }
     }

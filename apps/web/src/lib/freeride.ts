@@ -13,10 +13,17 @@ const CACHE_FILE = join(DIR, "cache.json");
 const WATCHER_FILE = join(DIR, "watcher-state.json");
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6h
 const FETCH_TIMEOUT = 15000;
+const PROBE_TIMEOUT = 20000;
+// A probe costs one free-model request — the same quota real turns draw from
+// (OpenRouter free tier: ~20/min, low daily cap). The watcher ticks every 60s,
+// so throttle the actual probe instead of probing 1440×/day.
+const PROBE_MIN_INTERVAL_MS = 1000 * 60 * 60; // 1h
 
 type CacheEntry = { fetchedAt: string; models: FreerideModel[] };
+type WatcherState = { lastCheck?: string; lastProbeAt?: string; status?: string; model?: string };
 type FreerideModel = { id: string; name: string; context_length: number; pricing: { prompt: string; completion: string }; top_provider?: { max_completion_tokens?: number } };
 type Config = { primary: string | null; fallbacks: string[]; updatedAt: string; source: string };
 
@@ -64,6 +71,43 @@ function rankModels(models: FreerideModel[]): FreerideModel[] {
   });
 }
 
+/**
+ * What counts as a LIVE model, given a probe response. OpenRouter answers a
+ * failing model with HTTP 200 plus an `error` body ("Upstream error from
+ * Nvidia…", "Rate limit exceeded: free-models-per-min"), so `res.ok` alone
+ * keeps dead models in the chain — the whole point of the watcher/rotate.
+ */
+export function isProbeAliveResponse(status: number, body: unknown): boolean {
+  if (status < 200 || status >= 300) return false;
+  if (!body || typeof body !== "object") return false;
+  const b = body as { error?: unknown; choices?: unknown };
+  if (b.error) return false;
+  return Array.isArray(b.choices);
+}
+
+/** Is a real probe due? Probes spend the shared free-model quota, so the 60s
+ *  watcher must not probe every tick. */
+export function shouldProbeNow(lastProbeAt: string | undefined, now = Date.now()): boolean {
+  const last = lastProbeAt ? Date.parse(lastProbeAt) : NaN;
+  if (!Number.isFinite(last)) return true;
+  return now - last >= PROBE_MIN_INTERVAL_MS;
+}
+
+/** Probe one OpenRouter model with a tiny completion. `openrouter/free` is a
+ *  real model id (the free auto-router) — use ids exactly as stored. */
+async function probeOpenRouterModel(id: string): Promise<boolean> {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) return false;
+  const res = await fetch(OPENROUTER_CHAT_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: id, messages: [{ role: "user", content: "hi" }], max_tokens: 5 }),
+    signal: AbortSignal.timeout(PROBE_TIMEOUT),
+  });
+  const body = await res.json().catch(() => null);
+  return isProbeAliveResponse(res.status, body);
+}
+
 async function getCachedOrFetch(): Promise<{ models: FreerideModel[]; cached: boolean }> {
   const cached = readJson<CacheEntry | null>(CACHE_FILE, null);
   if (cached && Date.now() - new Date(cached.fetchedAt).getTime() < CACHE_TTL_MS && cached.models.length > 0) {
@@ -100,7 +144,14 @@ export async function freerideStatus(): Promise<string> {
   const age = cache ? `${Math.round((Date.now() - new Date(cache.fetchedAt).getTime()) / 60000)}m ago` : "never";
   const primary = cfg.primary ?? "—";
   const fallbacks = cfg.fallbacks.length ? cfg.fallbacks.join(", ") : "—";
-  return `📊 FREERIDE STATUS\n━━━━━━━━━━━━━━━━━━\n\nPrimary: ${primary}\nFallbacks (${cfg.fallbacks.length}): ${fallbacks}\nUpdated: ${cfg.updatedAt} via ${cfg.source}\nCache: ${count} free models (${age})\nWatcher: ${readJson<{ lastCheck?: string }>(WATCHER_FILE, {} as never).lastCheck ? "alive" : "not running"}\n\nOPENROUTER_API_KEY: ${process.env.OPENROUTER_API_KEY ? "set" : "not set"} (free at openrouter.ai/keys)`;
+  // Report the watcher's real last outcome — a failed probe must not read as "alive".
+  const w = readJson<WatcherState>(WATCHER_FILE, {});
+  const watcher = !w.lastCheck
+    ? "not running"
+    : w.status === "ok"
+      ? `alive (probe ${w.lastProbeAt ?? w.lastCheck})`
+      : `${w.status ?? "unknown"} — probe ${w.lastProbeAt ?? w.lastCheck}`;
+  return `📊 FREERIDE STATUS\n━━━━━━━━━━━━━━━━━━\n\nPrimary: ${primary}\nFallbacks (${cfg.fallbacks.length}): ${fallbacks}\nUpdated: ${cfg.updatedAt} via ${cfg.source}\nCache: ${count} free models (${age})\nWatcher: ${watcher}\n\nOPENROUTER_API_KEY: ${process.env.OPENROUTER_API_KEY ? "set" : "not set"} (free at openrouter.ai/keys)`;
 }
 
 export async function freerideAuto(opts?: { keepPrimary?: boolean; count?: number }): Promise<string> {
@@ -109,10 +160,7 @@ export async function freerideAuto(opts?: { keepPrimary?: boolean; count?: numbe
   const { models, cached } = await getCachedOrFetch();
   if (!models.length) return "Error: no free models found (cache empty + fetch failed)";
   const cfg = loadConfig();
-  // Always first fallback is openrouter/free smart router (as per spec)
-  const rankedIds = models.map((m) => `openrouter/${m.id}:free`);
-  // But OpenRouter already serves :free suffix; the list already has :free? Check: models id like "qwen/qwen3-coder:free" already includes :free
-  // For Mia, we normalize to as-is id
+  // Catalog ids are already OpenRouter ids (`nvidia/…:free`) — use them as-is.
   const freeIds = models.map((m) => m.id);
   const primary = keep && cfg.primary ? cfg.primary : freeIds[0];
   const fallbacks: string[] = [];
@@ -164,18 +212,11 @@ export async function freerideRotate(): Promise<string> {
   const cfg = loadConfig();
   const models = cfg.fallbacks.length ? cfg.fallbacks : (await getCachedOrFetch()).models.map((m) => m.id);
   const alive: string[] = [];
+  // No key → cannot verify, so keep the chain as-is rather than emptying it.
+  if (!process.env.OPENROUTER_API_KEY) return "Rotate: OPENROUTER_API_KEY kosong — chain dipertahankan";
   for (const id of models.slice(0, 5)) {
     try {
-      // Probe via OpenRouter chat with tiny prompt, 5s timeout
-      const key = process.env.OPENROUTER_API_KEY;
-      if (!key) { alive.push(id); continue; }
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: id, messages: [{ role: "user", content: "hi" }], max_tokens: 5 }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (res.ok) alive.push(id);
+      if (await probeOpenRouterModel(id)) alive.push(id);
     } catch {}
   }
   if (alive.length === 0) return "Rotate: no alive models probed — keeping existing chain";
@@ -193,32 +234,42 @@ export function freerideGetConfig(): Config {
 export async function freerideWatcherOnce(): Promise<string> {
   const cfg = loadConfig();
   if (!cfg.primary) return "Watcher: no primary — run freeride_auto first";
-  // Probe primary via OpenRouter (or 9router if primary is 9router)
   const probeModel = cfg.primary;
+  const now = new Date().toISOString();
+  const state = readJson<WatcherState>(WATCHER_FILE, {});
+
+  // Throttle: a probe spends the account's free-model quota, shared with real
+  // turns, and the watcher ticks every 60s.
+  if (!shouldProbeNow(state.lastProbeAt)) {
+    const sinceMin = Math.round((Date.now() - Date.parse(state.lastProbeAt as string)) / 60000);
+    atomicWrite(WATCHER_FILE, { ...state, lastCheck: now });
+    return `Watcher: skip — diprobe ${sinceMin}m lalu (interval ${PROBE_MIN_INTERVAL_MS / 60000}m)`;
+  }
+
+  // Every chain id comes from the OpenRouter catalog (e.g. nvidia/*:free,
+  // openrouter/free) — so probe it there. A non-OpenRouter primary (a 9router
+  // name without "/") can't be probed this way; just record the check.
+  if (!probeModel.includes("/")) {
+    atomicWrite(WATCHER_FILE, { lastCheck: now, status: "ok", model: probeModel });
+    return `Watcher OK (bukan model OpenRouter) — primary ${probeModel}`;
+  }
+  if (!process.env.OPENROUTER_API_KEY) {
+    atomicWrite(WATCHER_FILE, { lastCheck: now, status: "unprobed", model: probeModel });
+    return `Watcher: primary ${probeModel} tak diprobe (OPENROUTER_API_KEY kosong)`;
+  }
   try {
-    const key = process.env.OPENROUTER_API_KEY;
-    // For Mia, primary may be openrouter/... — probe via OpenRouter
-    if (probeModel.startsWith("openrouter/") && key) {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: probeModel.replace("openrouter/", ""), messages: [{ role: "user", content: "hi" }], max_tokens: 5 }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) throw new Error(`probe ${res.status}`);
-      atomicWrite(WATCHER_FILE, { lastCheck: new Date().toISOString(), status: "ok", model: probeModel });
-      return `Watcher OK — primary ${probeModel} alive`;
-    }
-    // For 9router / non-openrouter, just check cache age
-    atomicWrite(WATCHER_FILE, { lastCheck: new Date().toISOString(), status: "ok", model: probeModel });
-    return `Watcher OK (no probe needed) — primary ${probeModel}`;
+    if (!(await probeOpenRouterModel(probeModel))) throw new Error("probe gagal / provider error");
+    atomicWrite(WATCHER_FILE, { lastCheck: now, lastProbeAt: now, status: "ok", model: probeModel });
+    return `Watcher OK — primary ${probeModel} alive`;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     // auto-rotate on failure
     try {
       await freerideRotate();
     } catch {}
-    atomicWrite(WATCHER_FILE, { lastCheck: new Date().toISOString(), status: `failed: ${msg}`, model: probeModel });
+    // lastProbeAt is recorded even on failure, so a persistently dead primary
+    // is re-checked once per interval (not every 60s).
+    atomicWrite(WATCHER_FILE, { lastCheck: now, lastProbeAt: now, status: `failed: ${msg}`, model: probeModel });
     return `Watcher failed for ${probeModel}: ${msg} — rotated fallbacks`;
   }
 }

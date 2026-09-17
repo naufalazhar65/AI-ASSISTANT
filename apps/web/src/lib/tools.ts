@@ -4728,7 +4728,7 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
-    definition: { type: "function", risk: "write", function: { name: "freeride_switch", description: "Switch primary model or add fallback. Butuh confirm.", parameters: { type: "object", properties: { model: { type: "string", description: "Model id, ex. openrouter/qwen/qwen3-coder:free" }, fallback_only: { type: "string", description: "true to add as fallback only" } }, required: ["model"] } } },
+    definition: { type: "function", risk: "write", function: { name: "freeride_switch", description: "Switch primary model or add fallback. Butuh confirm.", parameters: { type: "object", properties: { model: { type: "string", description: "OpenRouter model id exactly as freeride_list reports it (ex. nvidia/nemotron-3-ultra-550b-a55b:free)" }, fallback_only: { type: "string", description: "true to add as fallback only" } }, required: ["model"] } } },
     execute: async (args) => {
       const { freerideSwitch } = await import("./freeride");
       return freerideSwitch(typeof args.model === "string" ? args.model : "", typeof args.fallback_only === "string" ? args.fallback_only === "true" : undefined);

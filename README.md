@@ -189,7 +189,7 @@ Global `.data/` is gitignored + backed up (`POST /backup`, keeps 5).
 - `reminders.ts` — one-shot + `daily` (merge + `+24h` reschedule, variant rotation)
 - `automations.ts` — `create_automation` (`setiap pagi jam 8`)
 - `heartbeat.ts` `30m` — overdue/due-soon + monitor `battery ≤ / storage ≥`
-- `freerideWatcher.ts` `60s` — probe primary, auto `rotate` on `429`
+- `freerideWatcher.ts` `60s` tick — real probe of the primary + auto `rotate` on failure, throttled to `1×/jam` (probes share the free-model quota with real turns)
 - `autoUpdater.ts` daily `04:00` WIB — self-update `git pull` + `npm install` + gates + push + restart
 - `webhook` `POST /api/webhook` (`WEBHOOK_SECRET`)
 

@@ -18,6 +18,22 @@ const RATE_LIMIT_RE =
 const QUOTA_RE =
   /(quota|out of (tokens|credits)|insufficient.*credits|payment required|402|exceeded.*(quota|usage|limit)|billing|topped? up)/i;
 
+/**
+ * Failures where another attempt — or another model in the free chain — can
+ * plausibly succeed: rate limits, provider/upstream 5xx, overload, a retired or
+ * invalid model id, connection resets, timeouts. Deliberately NOT a catch-all:
+ * a tool-argument or code error must not spend the fallback chain retrying.
+ */
+const RETRYABLE_PROVIDER_RE =
+  /(rate ?limit|too many requests|tokens per minute|tokens_per_minute|\btpm\b|\brpm\b|\b429\b|provider error|upstream error|overloaded|service unavailable|bad gateway|gateway timeout|\b5\d\d\b|not a valid model|no allowed providers|model not found|\b404\b|econnreset|econnrefused|etimedout|enotfound|socket hang up|fetch failed|timed? out)/i;
+
+/** True when re-sending the request (same model or the next free fallback) is
+ *  worth it. Used by the freeride chain to move on to the next model. */
+export function isProviderRetryable(err: unknown): boolean {
+  const detail = err instanceof Error ? err.message : String(err ?? "");
+  return RETRYABLE_PROVIDER_RE.test(detail);
+}
+
 /** Classify a thrown error or its message string into a user-facing kind. */
 export function classifyAssistantError(err: unknown): ClassifiedError {
   const detail = err instanceof Error ? err.message : String(err ?? "");

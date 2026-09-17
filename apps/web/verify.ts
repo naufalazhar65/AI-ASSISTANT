@@ -569,6 +569,66 @@ async function main() {
     rmSync(join(appRoot(), ".data", "users", pu), { recursive: true, force: true });
     console.log("persona facts (canonical/secret/conflict/cap/split + tools): OK");
 
+  // --- freeride: in-band provider errors must fail over; probes must be honest ---
+  {
+    const { parseStreamError, chainMayFailover, runOneCompletion } = await import("./src/lib/agent");
+    const { isProviderRetryable } = await import("./src/lib/assistantError");
+    const { isProbeAliveResponse, shouldProbeNow } = await import("./src/lib/freeride");
+    const { getTOOLS } = await import("./src/lib/tools");
+
+    if (parseStreamError({ choices: [{ delta: { content: "hi" } }] }) !== null) throw new Error("parseStreamError false positive");
+    if (parseStreamError({ error: null }) !== null) throw new Error("parseStreamError should ignore a null error");
+    const sErr = parseStreamError({ error: { code: 503, message: "Upstream error from Nvidia" } });
+    if (!sErr || !/503/.test(sErr) || !isProviderRetryable(new Error(sErr))) throw new Error(`parseStreamError/retryable failed: ${sErr}`);
+    if (!isProviderRetryable(new Error("nvidia/x:free is not a valid model ID"))) throw new Error("a retired model id must be retryable");
+    if (isProviderRetryable(new Error("invalid tool arguments: missing field"))) throw new Error("a tool error must NOT trigger failover");
+    if (!chainMayFailover(3, 3) || chainMayFailover(3, 5)) throw new Error("chainMayFailover must allow a no-effect retry only");
+    if (!isProbeAliveResponse(200, { choices: [{}] })) throw new Error("a 200 with choices is alive");
+    if (isProbeAliveResponse(200, { error: { code: 503 } }) || isProbeAliveResponse(429, { choices: [{}] })) throw new Error("200+error / non-2xx must read as dead");
+    const t0 = Date.parse("2026-09-17T06:00:00Z");
+    if (!shouldProbeNow(undefined, t0) || shouldProbeNow("2026-09-17T05:59:00Z", t0) || !shouldProbeNow("2026-09-17T04:00:00Z", t0))
+      throw new Error("probe throttle must be 1×/interval (never 60s)");
+    for (const n of ["freeride_status", "freeride_list", "freeride_auto", "freeride_switch", "freeride_refresh", "freeride_rotate", "freeride_watcher"])
+      if (!getTOOLS().some((t) => t.function.name === n)) throw new Error(`freeride tool missing: ${n}`);
+
+    // Stubbed stream: an in-band error must throw instead of looking like an empty reply.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(new TextEncoder().encode('data: {"error":{"code":502,"message":"Upstream error from Nvidia: ResourceExhausted"}}\n\n'));
+            c.close();
+          },
+        }),
+        { status: 200 }
+      )) as typeof fetch;
+    let threw = "";
+    try {
+      await runOneCompletion([{ role: "user", content: "hi" }], "https://openrouter.ai/api/v1/chat/completions", "k", "sys", "m", false);
+    } catch (e) {
+      threw = e instanceof Error ? e.message : String(e);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    if (!/Provider error \(502\)/.test(threw)) throw new Error(`in-band stream error not detected: ${threw || "(no throw)"}`);
+    console.log("freeride (in-band error failover + probe honesty + probe throttle): OK");
+  }
+
+  // --- the clock must never be read as "when the user last messaged" ---
+  {
+    const { buildSystemPrompt, buildOpenCodeSystemPrompt } = await import("./src/lib/agent");
+    const prompts: [string, string][] = [
+      ["groq/9router/opencodego", buildSystemPrompt()],
+      ["opencode", buildOpenCodeSystemPrompt()],
+    ];
+    for (const [name, p] of prompts) {
+      if (!/CURRENT time only/.test(p) || !/NO record of when the user last messaged/.test(p))
+        throw new Error(`${name} prompt must forbid an invented last-seen timeline (live bug: "dari jam 14.21 kamu sunyi")`);
+    }
+    console.log("presence honesty (clock is not a last-seen fact) in both prompts: OK");
+  }
+
   // --- tool schema sanitizer (strict providers: array needs items) ---
   {
     const { sanitizeToolSchema } = await import("./src/lib/agent");
