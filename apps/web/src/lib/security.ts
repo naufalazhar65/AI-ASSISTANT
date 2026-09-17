@@ -529,10 +529,12 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
   return row;
 }
 
-export function listFindingsText(rawUser: unknown): string {
-  const all = readFindings(rawUser);
+export function listFindingsText(rawUser: unknown, opts: { target?: string } = {}): string {
+  const wantHost = opts.target ? normalizeHost(opts.target) : "";
+  const readAll = readFindings(rawUser);
+  const all = wantHost ? readAll.filter((r) => matchesHost(r.target, wantHost)) : readAll;
   const rows = all.filter((r) => r.status !== "resolved");
-  if (!all.length) return "Belum ada temuan tercatat.";
+  if (!all.length) return wantHost ? `Belum ada temuan untuk target "${opts.target}".` : "Belum ada temuan tercatat.";
   if (!rows.length) return `Semua ${all.length} temuan sudah resolved ✅`;
   const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
   const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0) || (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));

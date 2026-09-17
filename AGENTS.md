@@ -374,6 +374,33 @@ Audit kedua menemukan 5 hal lagi:
 
 Bukti tambahan: `llmStream.test.ts` 19 tes (tambah: error frame terakhir tanpa newline, tanpa-error tetap sukses, `chainMayFailover`, `shouldProbeNow`); `verify.ts` blok baru "freeride (in-band error failover + probe honesty + probe throttle): OK" (termasuk stream tiruan yang membuktikan error in-band melempar + 7 tool terdaftar); live: watcher → `"skip — diprobe 0m lalu (interval 60m)"` dengan `lastProbeAt` tidak berubah. Gates: typecheck, lint (0 temuan baru), vitest 46/46, `verify.ts` EXIT=0.
 
+## Session 2026-09-17 (lanjutan) — Mia bilang batch yang sudah di-approve "belum jalan"
+
+Owner mem-paste balasan Mia: setelah approve 4 `http_request`, Mia menulis *"Lima request tadi belum jalan — semuanya butuh persetujuan kamu dulu… setujui ulang batch itu"*. Bukti dari `http-history.json` user `naufalazhar652952`: 4 request yang di-approve **BENAR-BENAR jalan** (10:16:08–09Z: `/api/dokumen`, `/api/dokumen?id=3`, `/api/cek-nik?id=1`, `/api/cari-berita?q=layanan`) — jadi klaim "belum jalan" itu salah. Tiga reproduksi alur (teks Discord persis, approve tiap batch) berakhir normal: PROMPT → approve → TEXT ringkasan; gejala itu **tidak berhasil direproduksi** (indikasi model menarasikan batch berikutnya sebagai "menunggu approval").
+
+Hardening yang tetap dikerjakan (kelas bug: approved batch dituduh "not selected"):
+1. Hasil tool kini **di-anchor ke pesan assistant yang MENDEKLARASIKAN id yang di-approve**, bukan ke pesan assistant terakhir (dulu `[...messages].reverse().find(...tool_calls)`) — kalau keduanya berbeda, batch yang baru di-approve bisa ditandai "Not selected" dan model lalu menyuruh user approve ulang. Bila mismatch terjadi, ada `console.warn` diagnostik.
+2. Placeholder-nya diperjelas: *"Not selected: … other approved calls in the same batch DID run — read their results above. Do not run it; if it is still needed, propose it again."*
+
+Gates: typecheck, vitest **63/63**, `verify.ts` EXIT=0, lint baseline 39.
+
+## Session 2026-09-17 (lanjutan) — retry "jawaban kosong" selalu 400 (MissingSessionID)
+
+Gejala: setelah approve batch `http_request`, Mia balas **rekap digest** ("balasan detailnya tersendat… Bilang 'lanjut'") alih-alih melanjutkan — padahal retry+nudge sudah ada. Ternyata **bug di perbaikan sendiri**: retry memanggil `runOneCompletion(..., undefined)` sehingga **tanpa header `x-opencode-session`** → OpenCode Go menolak `400 {"type":"error","error":{"type":"MissingSessionID"}}` → catch → digest. Probe membuktikannya: `runOneCompletion` tanpa header → 400 MissingSessionID; dengan `endpointHeaders()` → teks balik (270 char).
+
+Perbaikan: header per-endpoint diekstrak jadi **satu pemilik** `endpointHeaders(url, user)` (dipakai agent loop + retry; sebelumnya inline di `runAgent`), jadi jalur mana pun mustahil lupa. Test: `endpointHeaders` (opencode-go → session+UA, gateway lain → undefined, user key disanitasi). Gates: typecheck, vitest **63/63**, `verify.ts` EXIT=0, lint baseline 39.
+
+## Session 2026-09-17 (lanjutan) — output Discord jadi satu paragraf ("kurang enak dibaca")
+
+Owner mengeluh ringkasan pentest di Discord datang sebagai satu paragraf padat. Tiga akar:
+1. **Prompt bentrok.** `SYSTEM_PROMPT` bilang "never use ... bullet lists in your final answer" (aturan voice) sementara hint Discord cuma mengizinkan bold tipis → model memilih prosa. Kini aturan itu di-scope ke VOICE, dan hint Discord/Telegram eksplisit: jawaban berbentuk daftar (temuan/langkah/opsi) WAJIB satu item per baris, plus **contoh bentuk** yang boleh ditiru (pelajaran lama hanya melarang mengutip contoh BURUK).
+2. **`reflowStructuredReply` menghapus struktur.** `ensureMoodReplyQuality` hanya melindungi list ber-`\n- `, sehingga **daftar bernomor (1. 2. 3.) di-refund jadi prosa** ("Content preserved, labels dropped"). Kini deteksi list diperluas (`looksLikeMarkdownList`: ≥2 baris bullet/dash/angka) dan list apa pun tidak disentuh.
+3. **`temuan|finding` di `LIST_ASK_RE` terlalu luas** (ditambahkan di fix hijack sebelumnya): sekadar menyebut kata "temuan" membuat `finding_list` mentah menggantikan balasan. Dihapus — permintaan daftar tetap menang lewat "apa aja/daftar/lihat/cek".
+
+Plus: `finding_list` kini menerima `target` (host/URL) seperti `report_*`, jadi "ringkas temuan lab X" benar-benar 6 temuan (bukan 10 campur). Prompt menyebut `target=<host>` wajib saat user menyebut satu lab/target.
+
+Bukti live (channel discord, user `naufalazhar652952`): balasan jadi ringkas + **daftar bernomor satu temuan per baris** (11 baris, bukan 1 paragraf), target lab, total **6 temuan**. Gates: typecheck, vitest **60/60** (+test `looksLikeMarkdownList` + hijack "3 temuan paling penting"), `verify.ts` EXIT=0 (+assert `finding_list` ter-scope), lint baseline 39.
+
 ## Session 2026-09-17 (lanjutan) — laporan bercampur temuan target lain → report per-target
 
 Live: report lab Kohona milik user Discord (`naufalazhar652952`) menarik **4 temuan lama** (pulsepoint, vuln-node 127.0.0.1:4010) ke dalam daftar — karena `report_generate`/`report_save`/`report_pdf` selalu melaporkan SEMUA temuan terbuka milik user, dan Mia sempat menawarkan *menghapus* temuan lama demi membereskan laporan (salah: itu menghilangkan riwayat). Perbaikan: ketiganya menerima `target` (host/URL) opsional → `generateReport(rawUser, { target })` memfilter lewat `matchesHost` (host exact, subdomain, atau substring URL). Deskripsi tool + prompt kini menyuruh memakai `target` saat melaporkan satu lab/engagement dan melarang menghapus temuan lama. Terverifikasi: user `naufalazhar652952` — ALL 10 temuan → SCOPED ke lab **6 temuan** (critical 2, high 2, medium 2; rata-rata CVSS 7.5), header `LAB MILIK OWNER`, nol kebocoran pulsepoint; PDF scoped 63 KB. Assertion baru di `verify.ts` (scoped report tidak membocorkan target lain + pesan jujur saat target kosong). Gates: typecheck, vitest **59/59**, `verify.ts` EXIT=0, lint baseline 39.

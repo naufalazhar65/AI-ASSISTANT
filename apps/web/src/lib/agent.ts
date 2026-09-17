@@ -265,7 +265,7 @@ const SYSTEM_PROMPT = [
   + "PENTEST TOOLS: pentest_scan (tool nmap/nuclei/nikto/ffuf; HANYA localhost/lab/RFC1918 atau PENTEST_LAB_TARGETS — target publik DITOLAK, write/confirm; ffuf butuh wordlist), nuclei_custom (nuclei dengan severity/tags/template custom — auto-scan atau -t path sandbox .yaml; scope-gated, write/confirm; severity default critical,high,medium), finding_add (catat temuan Title/Severity/Evidence/Impact/Remediation, read/auto), finding_list, report_generate (laporan markdown). Jalankan lab dulu: docker compose -f labs/pentest/docker-compose.yml up -d." 
   + "LAB: lab_status (cek port lab) + lab_start action=start|stop name=vuln-node (nyalakan target rentan lokal TANPA Docker di 127.0.0.1:4010) — jalankan ini dulu sebelum uji dinamis." 
   + "lab_fetch url=... (GET localhost/lab — lihat respons target lokal untuk verifikasi dinamis XSS/redirect; publik ditolak)." 
-  + "ENGAGEMENT (pentest klien): engagement_create (name, client, authorization, scope[] — host di scope boleh diuji; MINTA KONFIRMASI karena ini yang memberi izin scan), engagement_list, engagement_close. dep_audit (CVE dependency via OSV — npm/pypi; opsi to_findings). hardening_plan (rencana perbaikan prioritas CVSS dari temuan). finding_resolve (tutup temuan), finding_export (csv/json/sarif), cvss_score (hitung CVSS v3.1 ATAU v4.0 dari vektor — pakai vektor yang diminta program). LAPORAN PER TARGET: `report_generate`/`report_save`/`report_pdf` terima `target` (host/URL) — WAJIB pakai `target` saat melaporkan satu lab/engagement supaya temuan lama dari target lain tidak ikut tercampur (jangan menghapus temuan lama hanya demi membereskan laporan). hardening_pdf (PDF rencana perbaikan), verify_patch (INI untuk 'cek patch/mana yang sudah beres' — bandingkan versi terpasang vs fixed; apply=auto-resolve temuan dep). Jangan pakai dep_audit untuk 'cek patch' (dep_audit = daftar CVE + to_findings). Target non-lab HANYA boleh bila ada engagement AKTIF mencakupnya; di luar scope/out-of-scope DITOLAK. Mia tak bisa verifikasi legalitas izin — sebutkan referensinya. TIER-A: encoding (base64/url/hex/html/rot13), http_request (method/headers/body ke target lab/berizin — uji API), trivy_scan (CVE fs), pentest_scan whatweb/gobuster, exec read-only `tcpdump -r pcap`/`nc -zv host port`/`searchsploit <CVE>`. finding_add terima steps/root_cause/references." 
+  + "ENGAGEMENT (pentest klien): engagement_create (name, client, authorization, scope[] — host di scope boleh diuji; MINTA KONFIRMASI karena ini yang memberi izin scan), engagement_list, engagement_close. dep_audit (CVE dependency via OSV — npm/pypi; opsi to_findings). hardening_plan (rencana perbaikan prioritas CVSS dari temuan). finding_resolve (tutup temuan), finding_export (csv/json/sarif), cvss_score (hitung CVSS v3.1 ATAU v4.0 dari vektor — pakai vektor yang diminta program). LAPORAN PER TARGET: `report_generate`/`report_save`/`report_pdf` terima `target` (host/URL) — WAJIB pakai `target=<host>` SETIAP KALI user menyebut satu lab/target tertentu (mis. 'lab Kohona', atau URL-nya); tanpa itu laporan menarik temuan semua target supaya temuan lama dari target lain tidak ikut tercampur (jangan menghapus temuan lama hanya demi membereskan laporan). hardening_pdf (PDF rencana perbaikan), verify_patch (INI untuk 'cek patch/mana yang sudah beres' — bandingkan versi terpasang vs fixed; apply=auto-resolve temuan dep). Jangan pakai dep_audit untuk 'cek patch' (dep_audit = daftar CVE + to_findings). Target non-lab HANYA boleh bila ada engagement AKTIF mencakupnya; di luar scope/out-of-scope DITOLAK. Mia tak bisa verifikasi legalitas izin — sebutkan referensinya. TIER-A: encoding (base64/url/hex/html/rot13), http_request (method/headers/body ke target lab/berizin — uji API), trivy_scan (CVE fs), pentest_scan whatweb/gobuster, exec read-only `tcpdump -r pcap`/`nc -zv host port`/`searchsploit <CVE>`. finding_add terima steps/root_cause/references." 
   + "ZAP: zap_scan (OWASP ZAP baseline via Docker) untuk web target lab (localhost). Recon pasif juga: exec `dig`, `whois`, `nslookup` (keyless)." 
   + "RECON (attack surface): recon_subdomains (PASIF via CT crt.sh/hackertarget — read/auto, domain apa pun), recon_params (PASIF URL+query-param dari arsip publik OTX/urlscan/Wayback — read/auto, menandai param menarik id/redirect/url/file untuk uji IDOR/SSRF/LFI), recon_list (ringkasan cache, read/auto). recon_httpx (probe AKTIF host hidup via HTTP/HTTPS) HANYA lab/engagement/PENTEST_LAB_TARGETS — write/confirm. Alur: recon_subdomains (isi cache) → recon_httpx (host hidup) → recon_params → uji manual di URL berizin → finding_add. Sumber keyless, semua output dibatasi." 
   + "SECURITY METHODOLOGY (WAJIB, meniru disiplin Strix): sebelum menguji/menilai, muat playbook relevan via security_playbook (75 pack; name=… atau query=…). WORKFLOW besar: application-security-testing (audit seluruh produk: map aset→tes per aset→1 rencana prioritas), owasp-top-10-testing (OWASP Top 10:2025, tabel coverage jujur), api-security-testing (OWASP API Top 10:2023, BOLA butuh 2 tenant), whitebox-code-review (source→sink, static=belum terkonfirmasi), fix-and-verify (root cause+retest), source-aware-whitebox (triage statis→validasi), scan-modes (quick/standard/deep/diff). SEBELUM finding_add: (1) pass counterevidence — cari kontrol yang mencegah dan bukti aman yang bisa dinamai; (2) severity-calibration — jangan inflate high/critical, turunkan bukan hapus; (3) kalau tak bisa confirm TAPI tak bisa menutup dengan kontrol tertentu → tandai NEEDS_FOLLOW_UP, jangan diam-diam dibuang. SETELAH patch: fix-verification (retest membuktikan exploit mati). White-box kode sendiri: sast_scan (semgrep: p/default + p/secrets) lalu trace source→sink. Setelah recon_subdomains: recon_takeover untuk kandidat CNAME layanan terlantar (verifikasi belum diklaim sebelum menyimpulkan). Target aktif hanya lab/engagement/PENTEST_LAB_TARGETS; jangan pakai marker/identitas yang bisa dilacak di payload." 
@@ -360,7 +360,11 @@ function textFormatInstruction(): string {
     "paths, provider/model names, or steps. Keep every reply short and natural; ",
     "do NOT wrap whole paragraphs in bold, do NOT invent heading levels, and do ",
     "not use markdown characters in normal prose (they would show literally). If ",
-    "there is nothing worth stressing, just answer in plain text.",
+    "there is nothing worth stressing, just answer in plain text. ",
+    "LIST-SHAPED ANSWERS (findings, steps, options): one item per line — a ",
+    "numbered list (1. 2. 3.) or a dash list (- ) — never one run-on paragraph; ",
+    "bold only the label (*CRITICAL · 9.8*) and keep each line one idea. Shape ",
+    "to imitate:\n1. *CRITICAL 9.8* `GET /api/cari-berita?q=` — SQLi: dump tabel users\n2. *HIGH 7.5* `GET /api/dokumen` — dokumen internal via header x-user-role",
   ].join(" ");
 }
 
@@ -380,7 +384,16 @@ function discordFormatInstruction(): string {
     "steps. Keep every reply short and natural; do NOT wrap whole paragraphs in ",
     "bold, do NOT invent heading levels, and do not use markdown characters in ",
     "normal prose (they would show literally). If there is nothing worth ",
-    "stressing, just answer in plain text.",
+    "stressing, just answer in plain text. ",
+    "LIST-SHAPED ANSWERS (findings, steps, options, multiple results): do NOT ",
+    "write them as one paragraph. Put ONE item per line — a numbered list ",
+    "(1. 2. 3.) or a dash list (- ) — with a blank line between groups, and ",
+    "bold only the label (e.g. **CRITICAL · 9.8** `path` — one-line impact). ",
+    "For a pentest summary start with one short sentence, then the item lines, ",
+    "then the PDF path on its own line. Shape to imitate:\n",
+    "1. **CRITICAL 9.8** `GET /api/cari-berita?q=` — SQLi: dump tabel users + password plaintext\n",
+    "2. **HIGH 7.5** `GET /api/dokumen` — dokumen internal terbuka via header x-user-role\n",
+    "3. **MEDIUM 6.1** `POST /api/pengaduan` — stored XSS (payload tersimpan mentah)",
   ].join(" ");
 }
 
@@ -441,7 +454,7 @@ function openCodeSystemPromptParts(): string {
     "Your signature emoji is 🌸 (bunga sakura), use and answer it when asked. ",
     "You reach the user across web, voice, Telegram, and Discord, but you are the ",
     "same woman everywhere. Answer concisely and naturally as a woman. ",
-    "Never use markdown, headings, or bullet lists in your final answer. ",
+    "In VOICE replies never use markdown, headings, or bullet lists; on text channels (Discord/Telegram) follow that channel's formatting hint instead — a list-shaped answer (findings, steps, options) must be laid out as short separate lines, never one run-on paragraph. ",
     "When addressing the user with a call name ('beb', 'mas', 'bang', 'kak', 'pak'), NEVER put a comma before it ",
     "— write 'Mau dengar apa beb?' / 'Selalu ada buat kamu beb 🌸', never 'kamu, beb'. ",
     "'beb' is YOUR affectionate nickname for the USER (Naufal) only — use it when ",
@@ -916,7 +929,7 @@ interface TurnCollector {
 // into the next message).
 
 /** Words that make a message a LIST/status question. */
-const LIST_ASK_RE = /\b(apa(?:\s+aja|\s+saja)?|daftar|list|cek|lihat|tampilkan|tunjuk(?:kan)?|show|berapa|gimana|bagaimana|status|reminder|pengingat|tugas|task|todo|catatan|note|jadwal|agenda|calendar|file|upload|dokumen|plan|rencana|automation|otomatis|skill|kemampuan|email|gmail|inbox|berita|news|hotel|film|bioskop|kereta|bus|mood|memory|memori|temuan|finding)\b/i;
+const LIST_ASK_RE = /\b(apa(?:\s+aja|\s+saja)?|daftar|list|cek|lihat|tampilkan|tunjuk(?:kan)?|show|berapa|gimana|bagaimana|status|reminder|pengingat|tugas|task|todo|catatan|note|jadwal|agenda|calendar|file|upload|dokumen|plan|rencana|automation|otomatis|skill|kemampuan|email|gmail|inbox|berita|news|hotel|film|bioskop|kereta|bus|mood|memory|memori)\b/i;
 
 /** Words that make a message a SET/CHANGE request (not a list request). */
 const SET_VERB_RE = /\b(tambah|tambahin|bikin|buat|set|pasang|jadwalin|ingetin|ingatkan|inget|ingat|schedule|add|simpan|catat|hapus|batal|cancel|ganti|ubah|move|pindah|matiin|matikan)\b/i;
@@ -965,6 +978,21 @@ export function userAskedForList(toolName: string, userText: string): boolean {
   return true;
 }
 
+/**
+ * Headers EVERY request to this endpoint must carry. OpenCode Go rejects a
+ * request without a stable `x-opencode-session` (400 MissingSessionID) and
+ * prefers a client user agent. Single owner: the agent loop, the freeride chain
+ * and the empty-answer retry all send exactly these.
+ */
+export function endpointHeaders(url: string, user?: unknown): Record<string, string> | undefined {
+  return /opencode\.ai\/zen\/go/.test(url)
+    ? {
+        "x-opencode-session": `mia-${String(user ?? "anon").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) || "anon"}`,
+        "User-Agent": "mia-assistant/1.0",
+      }
+    : undefined;
+}
+
 async function runAgent(
   messages: ChatMessage[],
   url: string,
@@ -993,12 +1021,7 @@ async function runAgent(
     effectiveModel = "deepseek-v4-flash-vision-exp";
   }
   // 9router `ngoding` (gemini-3-flash-preview) already vision-capable — no switch needed; forcing another model hits 403
-  const extraHeaders: Record<string, string> | undefined = /opencode\.ai\/zen\/go/.test(url)
-    ? {
-        "x-opencode-session": `mia-${String(user ?? "anon").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) || "anon"}`,
-        "User-Agent": "mia-assistant/1.0",
-      }
-    : undefined;
+  const extraHeaders = endpointHeaders(url, user);
   const { text, toolCalls, reasoning } = await runOneCompletion(
     messages,
     url,
@@ -1118,7 +1141,7 @@ async function runAgent(
   // Note: NOT wrapped in `if (round < MAX_TOOL_ROUNDS)` — the accumulated tool
   // results must always land in `messages` so the forced final completion below
   // can answer from them (never throw a raw "too many tool rounds" 502).
-  const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news","hotel_search","cinema_showtimes","train_search","bus_search","hardening_plan","finding_list","dep_audit","report_generate","report_save","recon_subdomains","recon_httpx","recon_params","recon_list","recon_takeover","sast_scan","content_discover","crawl","param_discover","recon_diff","recon_screenshot","recon_dnsbrute","recon_ports","bucket_enum","scope_import","js_mine","api_spec","cve_intel","request_run","submission_track","cors_audit","csp_audit","http_history","rapyd_request","security_hunt","suite_hunt","hunt_log","auth_hunt","api_hunt","engagement_targets","race","ws_probe","oast_poll","oast_dns_poll","bola_diff","cdp_status","cdp_request","tamper_script","poc_verify","cloud_misconfig","tech_watch","flow_run","flow_list","campaign_run","program_score","dup_check","policy_show","policy_set","persona_show","bounty_run","bounty_status","oauth_hunt","writeup","param_fuzz","jwt_attack"]);
+  const VERBATIM_LIST = new Set(["reminders_list","list_tasks","automation_list","plan_list","plan_get","calendar_list","calendar_mac_list","reminders_mac_list","skill_list","skill_search","list_notes","list_uploads","briefing","recap","weekly_insight","gmail_list","gmail_search","google_news","hotel_search","cinema_showtimes","train_search","bus_search","hardening_plan","finding_list","dep_audit","recon_subdomains","recon_httpx","recon_params","recon_list","recon_takeover","sast_scan","content_discover","crawl","param_discover","recon_diff","recon_screenshot","recon_dnsbrute","recon_ports","bucket_enum","scope_import","js_mine","api_spec","cve_intel","request_run","submission_track","cors_audit","csp_audit","http_history","rapyd_request","security_hunt","suite_hunt","hunt_log","auth_hunt","api_hunt","engagement_targets","race","ws_probe","oast_poll","oast_dns_poll","bola_diff","cdp_status","cdp_request","tamper_script","poc_verify","cloud_misconfig","tech_watch","flow_run","flow_list","campaign_run","program_score","dup_check","policy_show","policy_set","persona_show","bounty_run","bounty_status","oauth_hunt","writeup","param_fuzz","jwt_attack"]);
   const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
   // A confirmation continuation is answering an ACTION, not a list request —
   // never take the verbatim fast-path there, or a follow-up list_* would mask
@@ -2159,9 +2182,18 @@ function isColdGreetingReply(text: string): boolean {
 /** If the reply is telegraphic (every sentence ≤4 words), replace it with a
  *  warm line. Mood/greeting get curated variants; other turns get a generic
  *  de-telegraphing rewrite so 9router's fragment style never reaches the user. */
+/** A real chat list: >=2 lines that start with a bullet, dash, or number. */
+export function looksLikeMarkdownList(text: string): boolean {
+  const LIST_LINE_RE = /^\s*(?:[-*•]|\d+[.)])\s+/;
+  return text.split(/\n/).filter((l) => LIST_LINE_RE.test(l)).length >= 2;
+}
+
 export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, isVerbatimList = false): string {
-  // Never touch lists — they must be warm and formatted precisely.
-  if (text.includes("\n- ") || text.includes("\n* ")) return text;
+  // Never touch lists — they must be warm and formatted precisely. This used to
+  // only protect `- `/`* ` bullets, so a numbered list (1. 2. 3.) was reflowed
+  // into one run-on paragraph — exactly what made a pentest summary unreadable
+  // on Discord/Telegram.
+  if (looksLikeMarkdownList(text)) return text;
   // Pure greeting MUST never be answered with a reminder list — 9router called
   // reminders_list on "halo mia" (because the DM's recent turns were reminder
   // asks), producing a stale "Daftar reminder" instead of a warm hello.
@@ -2481,7 +2513,16 @@ async function runAssistantTurnImpl(opts: {
     // "not selected" result so the follow-up completion never sends an assistant
     // message whose tool_calls have missing tool results (strict gateways 400,
     // and the model otherwise re-tries the same lost call).
-    const lastCallMsg = [...messages].reverse().find((m) => m.role === "assistant" && m.tool_calls?.length);
+    // Anchor on the assistant message that DECLARES an approved id — not on
+    // whichever assistant message happens to be last. If the two differ, the
+    // approved batch would be marked "not selected" and the model then tells the
+    // user their just-approved actions never ran (live bug).
+    const approvedIds = new Set(confirmations.map((d) => d.call?.id).filter(Boolean) as string[]);
+    const declaring = [...messages].reverse().find((m) => m.role === "assistant" && m.tool_calls?.some((tc) => approvedIds.has(tc.id)));
+    const lastCallMsg = declaring ?? [...messages].reverse().find((m) => m.role === "assistant" && m.tool_calls?.length);
+    if (declaring && !declaring.tool_calls?.some((tc) => tc.id === lastCallMsg?.tool_calls?.[0]?.id)) {
+      console.warn("[agent] confirm batch does not match the last assistant tool_calls message — anchoring on the declaring one");
+    }
     if (lastCallMsg?.tool_calls) {
       const answered = new Set(messages.filter((m) => m.role === "tool" && m.tool_call_id).map((m) => m.tool_call_id));
       for (const tc of lastCallMsg.tool_calls) {
@@ -2490,7 +2531,7 @@ async function runAssistantTurnImpl(opts: {
           role: "tool",
           tool_call_id: tc.id,
           content:
-            "Not selected: the user did not approve this action in this batch, so it was NOT executed. Do not run it; if it is still needed, propose it again.",
+            "Not selected: the user did not approve this action in this batch, so it was NOT executed (other approved calls in the same batch DID run — read their results above). Do not run it; if it is still needed, propose it again.",
         });
       }
     }
@@ -2802,10 +2843,11 @@ async function runAssistantTurnImpl(opts: {
         ...messages,
         { role: "user", content: "Jawab sekarang dalam 1–3 kalimat dari hasil di atas. Jangan panggil tool. Kalau pekerjaan belum selesai, sebutkan langkah berikutnya." },
       ];
-      const retry = await runOneCompletion(askNow, resolved.url, resolved.apiKey, systemPrompt, resolved.defaultModel, false, undefined);
+      const retry = await runOneCompletion(askNow, resolved.url, resolved.apiKey, systemPrompt, resolved.defaultModel, false, endpointHeaders(resolved.url, opts.user));
       if (retry.text.trim()) text = retry.text;
-    } catch {
-      /* fall through to the digest */
+      else console.warn(`[agent] empty-answer retry returned no text (reasoning ${retry.reasoning.length} chars, model ${resolved.defaultModel})`);
+    } catch (e) {
+      console.warn("[agent] empty-answer retry failed:", e instanceof Error ? e.message.slice(0, 200) : String(e));
     }
     if (!text.trim()) text = summarizeToolResults(messages);
   }

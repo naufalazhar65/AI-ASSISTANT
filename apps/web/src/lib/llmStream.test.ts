@@ -5,7 +5,7 @@
 // got nothing.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { chainMayFailover, parseStreamError, runOneCompletion } from "./agent";
+import { chainMayFailover, endpointHeaders, parseStreamError, runOneCompletion } from "./agent";
 import { isProviderRetryable } from "./assistantError";
 import { isProbeAliveResponse, shouldProbeNow } from "./freeride";
 
@@ -187,5 +187,20 @@ describe("runOneCompletion stream errors", () => {
     const out = await runOneCompletion([{ role: "user", content: "hi" }], "https://openrouter.ai/api/v1/chat/completions", "k", "sys", "m", false);
     expect(out.text).toBe("ok");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("endpointHeaders", () => {
+  it("sends the OpenCode Go session + UA every request needs", () => {
+    const h = endpointHeaders("https://opencode.ai/zen/go/v1/chat/completions", "naufal");
+    expect(h?.["x-opencode-session"]).toBe("mia-naufal");
+    expect(h?.["User-Agent"]).toBe("mia-assistant/1.0");
+  });
+  it("stays undefined for other endpoints (they reject unknown headers)", () => {
+    expect(endpointHeaders("https://api.groq.com/openai/v1/chat/completions", "n")).toBeUndefined();
+    expect(endpointHeaders("https://openrouter.ai/api/v1/chat/completions", "n")).toBeUndefined();
+  });
+  it("sanitises the user key in the session id", () => {
+    expect(endpointHeaders("https://opencode.ai/zen/go/v1/chat/completions", "a b/c")?.["x-opencode-session"]).toBe("mia-abc");
   });
 });

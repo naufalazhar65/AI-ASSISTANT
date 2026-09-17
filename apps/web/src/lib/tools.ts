@@ -3385,14 +3385,14 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "finding_list",
-        description: "Daftar temuan pentest yang tercatat (urut severity). Read, auto.",
-        parameters: { type: "object", properties: {}, required: [] },
+        description: "Daftar temuan pentest yang tercatat (urut severity). Opsional `target` (host/URL) untuk membatasi ke target itu — pakai saat membahas satu lab/target. Read, auto.",
+        parameters: { type: "object", properties: { target: { type: "string" } }, required: [] },
       },
     },
-    execute: async (_args, ctx) => {
+    execute: async (args, ctx) => {
       try {
         const { listFindingsText } = await import("./security");
-        return listFindingsText(ctx.rawUser);
+        return listFindingsText(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined });
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : "finding_list failed"}`;
       }

@@ -1143,6 +1143,8 @@ async function main() {
     const scoped = generateReport(u, { target: "localhost:3001" });
     if (!/Reflected XSS/.test(scoped)) throw new Error("scoped report dropped the requested host");
     if (/Old Pulsepoint finding/.test(scoped)) throw new Error("scoped report leaked another target's finding");
+    if (!/Reflected XSS/.test(listFindingsText(u, { target: "localhost:3001" }))) throw new Error("scoped finding_list dropped the host");
+    if (/Old Pulsepoint finding/.test(listFindingsText(u, { target: "localhost:3001" }))) throw new Error("scoped finding_list leaked another target");
     const scopedMiss = generateReport(u, { target: "nope.example" });
     if (!/Belum ada temuan terbuka untuk target/.test(scopedMiss)) throw new Error("scoped report must say when a target has no findings");
     rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });

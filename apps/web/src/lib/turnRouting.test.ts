@@ -12,7 +12,7 @@ import { clockLabel, wibDay, wibDayIndex, wibDailyNext } from "./time";
 import { isSilentAutomationReply } from "./automationRunner";
 import { parseLatLonAnywhere } from "./geo";
 import { resolveFavoriteQuery } from "./spotify";
-import { summarizeToolResults, userAskedForList } from "./agent";
+import { looksLikeMarkdownList, summarizeToolResults, userAskedForList } from "./agent";
 import { reminderMessage, isTerseReminder, hasOwnCloser } from "./reminderMessage";
 
 const t = (iso: string) => new Date(iso).getTime();
@@ -148,7 +148,10 @@ describe("verbatim list fast-path gate (no hijacked replies)", () => {
     // asking for those lists explicitly still yields the raw output
     expect(userAskedForList("hunt_log", "hunt log-ku apa aja?")).toBe(true);
     expect(userAskedForList("engagement_targets", "target yang harus kutes apa aja?")).toBe(true);
-    expect(userAskedForList("finding_list", "temuan apa aja yang sudah ada?")).toBe(true);
+    expect(userAskedForList("finding_list", "temuan apa aja yang sudah ada?")).toBe(true); // via "apa aja"
+    // ...but merely MENTIONING findings is not a list ask (live bug: "3 temuan
+    // paling penting + ajakan baca PDF" got hijacked by the raw finding list).
+    expect(userAskedForList("finding_list", "tulis pesan Discord-nya: 3 temuan paling penting + ajakan baca PDF")).toBe(false);
   });
 });
 
@@ -204,5 +207,14 @@ describe("empty-answer digest (never a dead-end after work ran)", () => {
       { role: "tool", tool_call_id: "c1", content: "Not selected: the user did not approve this action in this batch." },
     ] as never;
     expect(summarizeToolResults(messages)).toBe("");
+  });
+});
+
+describe("markdown lists survive the mood reflow", () => {
+  it("detects real bullet and numbered lists", () => {
+    expect(looksLikeMarkdownList("1. **CRITICAL 9.8** `GET /x`\n2. **HIGH 7.5** `GET /y`")).toBe(true);
+    expect(looksLikeMarkdownList("- item satu\n- item dua")).toBe(true);
+    expect(looksLikeMarkdownList("Nih ringkasannya: dua temuan penting, yang pertama SQLi dan yang kedua XSS.")).toBe(false);
+    expect(looksLikeMarkdownList("Satu temuan saja: SQLi di /api/cari-berita.")).toBe(false);
   });
 });
