@@ -19,6 +19,7 @@ import { assertPublicUrl } from "./netGuard";
 import { sessionHeaders, captureCookies } from "./httpSession";
 import { recordHttp, readHttpHistory } from "./httpHistory";
 import { fetchFingerprint } from "./techFingerprint";
+import { renderReportHtml, reportFooterTemplate } from "./reportHtml";
 import { cvss4BaseScore } from "./cvssV4";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
@@ -913,14 +914,7 @@ export function sqlmapScan(url: string, opts?: { level?: number; risk?: number }
 
 // ── PDF report (markdown -> HTML -> PDF via Playwright, no new deps) ─────────
 async function renderMarkdownPdf(userKey: string, md: string, prefix: string): Promise<string> {
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const body = esc(md)
-    .replace(/^### (.*)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.*)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.*)$/gm, "<h1>$1</h1>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\n/g, "<br/>");
-  const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;max-width:820px;margin:32px auto;padding:0 20px;color:#111}h1{font-size:24px}h2{font-size:18px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:15px}strong{color:#000}</style></head><body>${body}</body></html>`;
+  const html = renderReportHtml(md, { footer: `Mia — laporan ${prefix} · ${new Date().toISOString().slice(0, 10)}` });
   const dir = join(userDataRoot(), userKey, "reports");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${prefix}-${new Date().toISOString().replace(/[:.]/g, "-")}.pdf`);
@@ -929,7 +923,15 @@ async function renderMarkdownPdf(userKey: string, md: string, prefix: string): P
   try {
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "load" });
-    await page.pdf({ path: file, format: "A4", margin: { top: "18mm", bottom: "18mm", left: "16mm", right: "16mm" } });
+    await page.pdf({
+      path: file,
+      format: "A4",
+      printBackground: true,
+      margin: { top: "16mm", bottom: "18mm", left: "15mm", right: "15mm" },
+      displayHeaderFooter: true,
+      headerTemplate: "<div></div>",
+      footerTemplate: reportFooterTemplate(md.match(/^#\s+(.*)$/m)?.[1] || "Laporan"),
+    });
   } finally {
     await browser.close().catch(() => {});
   }
