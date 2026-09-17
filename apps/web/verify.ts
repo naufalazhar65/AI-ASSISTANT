@@ -576,6 +576,7 @@ async function main() {
     if (pf.canonicalFactKey("preference.food") !== "preference.food") throw new Error("canonical preference.food");
     if (pf.canonicalFactKey("name") !== "name") throw new Error("canonical name must stay");
     if (pf.canonicalFactKey("cat_name") !== "pet" || pf.canonicalFactKey("pet_name") !== "pet") throw new Error("canonical pet aliases");
+    if (pf.canonicalFactKey("weather") !== "preference.weather") throw new Error("canonical weather preference");
     if (pf.canonicalFactKey("preference.crypto_monitor") !== "preference.crypto_monitor") throw new Error("non-preference key must stay");
     if (!pf.looksLikeSecret("auth0|6aaa6aa27123f6e684d7e009") || !pf.looksLikeSecret("eyJhbGciOiJIUzI1NiJ9.abc.def")) throw new Error("looksLikeSecret missed a token");
     if (pf.looksLikeSecret("nasi goreng")) throw new Error("looksLikeSecret false-positive");

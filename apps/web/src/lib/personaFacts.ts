@@ -15,7 +15,7 @@ const PREF_TOPICS = new Set([
   "food", "drink", "coffee", "tea", "song", "music", "artist", "band", "movie", "film",
   "book", "color", "colour", "hobby", "game", "sport", "place", "travel", "tool",
   "editor", "os", "phone", "cafe", "restaurant", "snack", "dessert", "genre",
-  "weather_complaint", "reminder_tone", "work_music", "accommodation",
+  "weather", "weather_complaint", "reminder_tone", "work_music", "accommodation",
 ]);
 
 const PREF_PREFIX = /^(?:preference|pref|preferensi|favorit|favourite|favorite|fav|kesukaan|suka)[._](.+)$/i;
