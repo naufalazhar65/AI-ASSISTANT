@@ -2100,6 +2100,19 @@ async function main() {
   if (labAsks !== 1) throw new Error(`recap should collapse paraphrased asks, got ${labAsks}`);
   console.log("recap hygiene: OK");
 
+  // --- internal turns never become the user's words or new facts ---
+  {
+    const { isInternalTurn } = await import("./src/lib/memoryNoise");
+    if (!isInternalTurn("[Percakapan sebelumnya — singkatan, JANGAN balas ini]")) throw new Error("carrier must be internal");
+    if (!isInternalTurn("[self-correct] x failed")) throw new Error("self-correct log must be internal");
+    if (isInternalTurn("halo mia, aku capek")) throw new Error("real user text must NOT be internal");
+    const { memoryWhere } = await import("./src/lib/memoryWhere");
+    const map = memoryWhere("naufalazhar652952");
+    if (!/\.data\/users\/naufalazhar652952\//.test(map) || !/persona/.test(map) || !/memory\//.test(map))
+      throw new Error(`memory_where should map the real stores: ${map.slice(0, 140)}`);
+    console.log("internal-turn gate + memory_where map: OK");
+  }
+
   // --- recap day dedup survives restart (persisted state) ---
   const prevRecapDay = readLastRecapDay();
   const probeDay = "2099-12-31";

@@ -110,3 +110,18 @@ export function redactSecrets(text: string): string {
 export function cleanLines(lines: string[]): string[] {
   return lines.map((l) => redactSecrets(l.trim())).filter((l) => !isNoiseLine(l));
 }
+
+/**
+ * Internal/synthetic turns that are NOT the human speaking: the rolling-summary
+ * carrier, self-correction logs, superseded persona notes, scheduled-automation
+ * prompts. They must never be quoted as the user's words, re-captured as facts,
+ * or counted as conversation. One definition, used by recap, capture and the
+ * agent's daily-memory writer. Pure — unit-tested.
+ */
+export function isInternalTurn(text: string): boolean {
+  const t = (text || "").trim();
+  if (!t) return false;
+  if (/^\[(?:Percakapan sebelumnya|self-correct|superseded|automation|system)\b/i.test(t)) return true;
+  if (/terjadwal \(automation\)|\[Scheduled automation\]|laporan terjadwal/i.test(t)) return true;
+  return false;
+}

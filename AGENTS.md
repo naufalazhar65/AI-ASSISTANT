@@ -429,6 +429,17 @@ Gejala: setelah approve batch `http_request`, Mia balas **rekap digest** ("balas
 
 Perbaikan: header per-endpoint diekstrak jadi **satu pemilik** `endpointHeaders(url, user)` (dipakai agent loop + retry; sebelumnya inline di `runAgent`), jadi jalur mana pun mustahil lupa. Test: `endpointHeaders` (opencode-go → session+UA, gateway lain → undefined, user key disanitasi). Gates: typecheck, vitest **63/63**, `verify.ts` EXIT=0, lint baseline 39.
 
+## Session 2026-09-17 (lanjutan) — fakta palsu masuk persona (loop self-capture) + tool `memory_where`
+
+Owner tanya *"dimana kamu nyimpen memori?"* lalu *"coba cek"*; jawabannya memuat **`plan: free`** — padahal owner tidak pernah mengatakannya (grep seluruh daily memory: tidak ada satu pun baris `User:` yang menyebut "plan"; `plan` hanya pernah dibahas sebagai "plan riset kopi"). Akar masalahnya **loop self-capture**: auto-memory hanya membaca pesan role `user`, TAPI **carrier rolling-summary** (`[Percakapan sebelumnya — …]`) juga role `user` dan isinya meringkas percakapan — termasuk jawaban `persona_show` milik Mia sendiri (daftar fakta). Jadi daftar fakta itu dibaca ulang oleh extractor dan disimpan sebagai fakta baru (`plan: free`, duplikat `cat_name`).
+
+Perbaikan:
+1. **Satu gerbang `isInternalTurn(text)`** (`memoryNoise.ts`) untuk carrier rolling-summary, `[self-correct]`, `[superseded]`, dan prompt automation — dipakai **tiga** tempat: `autoMemory` (eksklusi dari probe & transcript capture; helper `realUserTurns`), `recap.isJunkLine`, dan `agent.isInternalUserTurn` (penulis daily memory) — jadi definisinya tidak bisa drift.
+2. **Tool baru `memory_where`** (`memoryWhere.ts`): menjawab "di mana memori disimpan" dari **fakta** — path relatif + jumlah per store (persona/fakta, memory harian, notes, tasks, reminders, moods, corrections, automations, hunt log, sesi HTTP, sleep, findings, uploads). Live: Mia menyebut `.data/users/naufalazhar652952/persona/` (27 fakta), `memory/` (15 hari, terakhir 2026-09-17), dll — bukan lagi tebakan. (Di luar CORE agar tetap 128; tersedia di opencodego/9router.)
+3. Data: fakta palsu `plan: free` dihapus lewat jalur persona (auditable → riwayat Superseded) — 28 → 27 fakta.
+
+Gates: typecheck, vitest **86/86** (+`memoryNoise.test.ts`), `verify.ts` EXIT=0 (+assert gerbang internal & peta `memory_where`), lint baseline 39. Residual: `cat_name: Moly` masih berdampingan dengan `pet: kucing bernama Moly` (kunci beda, keduanya benar) — belum digabung karena bisa mengubah makna.
+
 ## Session 2026-09-17 (lanjutan) — "Refleksi Malam" dobel + pesan internal bocor
 
 Owner mem-paste refleksi malam dari Mia; ketemu tiga cacat:

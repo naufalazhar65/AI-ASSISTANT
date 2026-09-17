@@ -15,7 +15,7 @@ import { readMoods, moodTone, NEGATIVE_MOODS, POSITIVE_MOODS } from "./mood";
 import { pushToOwner } from "../channels/pushTarget";
 import { recapHour } from "./config";
 import { logInfo, logError } from "./appLogger";
-import { isFillerLine, isNoiseLine, redactSecrets } from "./memoryNoise";
+import { isFillerLine, isInternalTurn, isNoiseLine, redactSecrets } from "./memoryNoise";
 import { contentTokens, similarity } from "./dupes";
 import { alreadyStarted, resetStarted } from "./once";
 
@@ -81,11 +81,9 @@ function isJunkLine(line: string): boolean {
   if (!line || /^\s*$/.test(line)) return true;
   if (/^##\s/.test(line)) return true; // "## 2026-09-06T11:41:29.555Z"
   if (/^\[persona\]/i.test(line)) return true; // persona capture log
-  // Automation/system injection inside a "User:" turn — not real conversation.
-  if (/terjadwal \(automation\)|\[Scheduled automation\]|laporan terjadwal/i.test(line)) return true;
-  // Internal bookkeeping that must never be read back as the user's words: the
-  // rolling-summary carrier, self-correction logs, superseded persona notes.
-  if (/^\[(?:Percakapan sebelumnya|self-correct|superseded|automation|system)\b/i.test(line)) return true;
+  // Automation/system injection + internal carriers (rolling summary, self-correct,
+  // superseded) — never real conversation, never the user's words.
+  if (isInternalTurn(line)) return true;
   // Tool calls / payloads / shell flags / auth ids — never human conversation.
   if (isNoiseLine(line)) return true;
   // Pure small-talk ("alooo beb") is not a "highlight of the day".

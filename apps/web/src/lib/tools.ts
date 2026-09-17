@@ -1077,6 +1077,10 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "memory_where", description: "Tunjukkan DI MANA memori user disimpan (path + jumlah entri) — jawab pertanyaan 'kamu nyimpen memori di mana' dari fakta, bukan tebakan. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async (_args, ctx) => { try { const { memoryWhere } = await import("./memoryWhere"); return memoryWhere(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "memory_where failed"}`; } },
+  },
+  {
     definition: {
       type: "function",
       risk: "read",

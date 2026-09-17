@@ -17,6 +17,7 @@
  */
 
 import { upsertPersonaFact } from "./persona";
+import { isInternalTurn } from "./memoryNoise";
 import { appendDailyMemory } from "./dailyMemory";
 import { providerHeaders } from "./providers";
 import { runOpenCodeTurn, OpenCodeChatMessage } from "./opencode";
@@ -75,9 +76,18 @@ const EXTRACT_PROMPT = [
 const FACT_SIGNAL_RE =
   /(nama|panggil|usia|umur|tinggal|kota|bahasa|language|suka|favorit|favorite|hobi|hobby|kucing|cat|anjing|dog|makanan|food|minuman|drink|kopi|lokasi|kerja|kuliah|sekolah|pacar|keluarga|istri|suami|anak|tone|gaya bicara|formal|kasual|santai|rumah|alamat|home|kost|kos|kontrakan|apartemen|apartment|cluster|patokan|koordinat|share ?loc)/i;
 
+/**
+ * Real user turns only: the rolling-summary carrier and other internal/synthetic
+ * messages also arrive with role "user", and feeding them to the extractor made
+ * the assistant's own fact list get re-captured as new facts (live bug: a bogus
+ * "plan: free" appeared in USER.md though the user never said it).
+ */
+function realUserTurns(messages: CaptureArgs["messages"]): CaptureArgs["messages"] {
+  return messages.filter((m) => m.role === "user" && m.content && !isInternalTurn(contentToText(m.content)));
+}
+
 function shouldAttemptCapture(messages: CaptureArgs["messages"]): boolean {
-  const probe = messages
-    .filter((m) => m.role === "user" && m.content)
+  const probe = realUserTurns(messages)
     .slice(-2)
     .map((m) => contentToText(m.content))
     .join(" ")
@@ -102,7 +112,7 @@ async function extractFactsOpenAi(opts: ExtractionOpts): Promise<FactEntry[]> {
   const { url, apiKey, defaultModel, persona, messages } = opts;
   const promptParts = [EXTRACT_PROMPT, `Current persona:\n${persona}`];
   const probe = messages
-    .filter((m) => m.role === "user" && m.content)
+    .filter((m) => realUserTurns([m]).length > 0)
     .slice(-4)
     .map((m) => contentToText(m.content))
     .join("\n");
@@ -133,7 +143,7 @@ async function extractFactsOpenCode(opts: Omit<ExtractionOpts, "url" | "apiKey" 
   const { persona, messages } = opts;
   const promptParts = [EXTRACT_PROMPT, `Current persona:\n${persona}`];
   const probe = messages
-    .filter((m) => m.role === "user" && m.content)
+    .filter((m) => realUserTurns([m]).length > 0)
     .slice(-4)
     .map((m) => contentToText(m.content))
     .join("\n");
