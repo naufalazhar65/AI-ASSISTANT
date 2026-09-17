@@ -8,6 +8,7 @@ import { readMoods } from "./mood";
 import { readCorrections } from "./corrections";
 import { embedTexts, cosine, embedModel } from "./embed";
 import { cfgStr } from "./config";
+import { wibDay } from "./time";
 
 export interface DocChunk {
   id: string;
@@ -70,7 +71,7 @@ function collectDocs(rawUser?: unknown): DocChunk[] {
   try {
     const moods = readMoods(rawUser);
     for (let i = 0; i < moods.length; i++) {
-      const when = new Date(moods[i].at).toISOString().slice(0, 10);
+      const when = wibDay(moods[i].at);
       docs.push({ id: `mood:${i}`, source: "moods", text: `${moods[i].mood} ${moods[i].note ?? ""} (${when})` });
     }
   } catch { /* ignore */ }

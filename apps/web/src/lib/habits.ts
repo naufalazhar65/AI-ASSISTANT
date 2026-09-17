@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
+import { wibDay } from "./time";
 
 export interface HabitLog { date: string; at: number; }
 export interface Habit { id: string; name: string; createdAt: number; logs: HabitLog[]; }
@@ -31,7 +32,7 @@ function writeHabits(habits: Habit[], userKey: string): void {
 }
 
 function todayStr(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  return wibDay();
 }
 
 export function logHabit(name: string, rawUser?: unknown): string {

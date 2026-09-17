@@ -214,7 +214,7 @@ async function main() {
 
   // --- provider tool cap: Groq rejects >128 tools per request ---
   const { toolsForUrl } = await import("./src/lib/agent");
-  const liveTools = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "transcribe"];
+  const liveTools = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "transcribe", "spotify_play", "spotify_mode", "spotify_queue", "spotify_sleep_timer"];
   const groqTools = toolsForUrl("https://api.groq.com/openai/v1/chat/completions");
   if (groqTools.length > 128) throw new Error(`Groq tool cap not applied: ${groqTools.length}`);
   for (const cap of [
@@ -228,7 +228,7 @@ async function main() {
   if (toolsForUrl("https://opencode.ai/zen/go/v1/chat/completions").length <= 128) {
     throw new Error("tool cap wrongly applied to non-capped provider");
   }
-  console.log("provider tool cap (groq<=128, 9router<=64, live tools kept): OK");
+  console.log("provider tool cap (groq<=128, 9router<=64, live + spotify tools kept): OK");
 
   // --- tool-call id normalization: blank/duplicate ids 400 strict gateways ---
   const { normalizeToolCallIds } = await import("./src/lib/agent");
@@ -670,6 +670,71 @@ async function main() {
     if (normalizeRepeat("") !== null || normalizeRepeat(undefined) !== null) throw new Error("normalizeRepeat empty should be null");
     if (truthyFlag("nyala") !== true || truthyFlag(false) !== false || truthyFlag("off") !== false) throw new Error("truthyFlag failed");
     console.log("spotify queue/mode normalization: OK");
+
+  // --- live-data/notification integrity fixes (2026-09-17) ---
+  {
+    const { parseLatLonAnywhere } = await import("./src/lib/geo");
+    const prose = parseLatLonAnywhere("Lake Home, Serpong, Tangerang Selatan (koordinat -6.378806,106.712563)");
+    if (!prose || Math.abs(prose.lat + 6.378806) > 1e-6 || Math.abs(prose.lon - 106.712563) > 1e-6)
+      throw new Error("parseLatLonAnywhere should extract coords from prose");
+    if (parseLatLonAnywhere("Jakarta") !== null) throw new Error("parseLatLonAnywhere must not invent coords");
+    if (parseLatLonAnywhere("2026, 17") !== null) throw new Error("parseLatLonAnywhere must reject out-of-range pairs");
+
+    const { homeCoordsFor, resolveExplicitCoords } = await import("./src/lib/geo");
+    const proseCoords = resolveExplicitCoords("Lake Home (koordinat -6.378806,106.712563)");
+    if (!proseCoords || Math.abs(proseCoords.lat + 6.378806) > 1e-6) throw new Error("resolveExplicitCoords must parse coords from prose");
+    if (resolveExplicitCoords("Lake Home", "verify_geo") !== null) throw new Error("unknown user must not resolve a home alias");
+    const { setPersonaFact } = await import("./src/lib/persona");
+    setPersonaFact("verify_geo", "home", "Lake Home, Serpong, Tangerang Selatan");
+    setPersonaFact("verify_geo", "home_coords", "-6.378806,106.712563");
+    const home = homeCoordsFor("Lake Home", "verify_geo");
+    if (!home || Math.abs(home.lat + 6.378806) > 1e-6) throw new Error("homeCoordsFor must resolve the persona home alias");
+    if (homeCoordsFor("Home Depot Jakarta", "verify_geo")) throw new Error("generic word 'home' must not hijack unrelated queries");
+    rmSync(join(appRoot(), ".data", "users", "verify_geo"), { recursive: true, force: true });
+
+    const { moodTone } = await import("./src/lib/mood");
+    if (moodTone([{ mood: "good" }, { mood: "tired" }]) !== "neutral") throw new Error("mood tie must be neutral");
+    if (moodTone([{ mood: "tired" }, { mood: "tired" }, { mood: "good" }]) !== "negative") throw new Error("moodTone negative failed");
+    if (moodTone([{ mood: "good" }, { mood: "great" }]) !== "positive") throw new Error("moodTone positive failed");
+    if (moodTone([]) !== "neutral") throw new Error("moodTone empty must be neutral");
+
+    const { isFillerLine } = await import("./src/lib/memoryNoise");
+    for (const f of ["alooo beb", "halo beb 🌸", "wkwk", "pagi beb"]) {
+      if (!isFillerLine(f)) throw new Error(`filler not detected: ${f}`);
+    }
+    if (isFillerLine("justru kalo turun hujan malah seneng")) throw new Error("real sentence flagged as filler");
+
+    const { clockLabel } = await import("./src/channels/replyChunk");
+    const six = clockLabel(new Date("2026-09-17T23:00:00Z")); // 06:00 WIB
+    if (six !== "06:00") throw new Error(`clockLabel should be 24h WIB, got ${six}`);
+
+    const { reminderMessage } = await import("./src/lib/reminderMessage");
+    const msg = reminderMessage("🌸 Selamat pagi, saatnya melek ya Mas Naufal ☀️", "06:00");
+    if (/saatnya\s+selamat/i.test(msg)) throw new Error(`reminder must not say "saatnya Selamat": ${msg}`);
+    if (msg.includes("🌸")) throw new Error(`reminder body must leave the single signature flower to the wrapper: ${msg}`);
+    if (!msg.includes("06:00")) throw new Error("reminder must keep the 24h time label");
+
+    const { isSilentAutomationReply } = await import("./src/lib/automationRunner");
+    if (!isSilentAutomationReply("SKIP") || !isSilentAutomationReply("skip.")) throw new Error("SKIP sentinel not honored");
+    if (isSilentAutomationReply("Hujan jam 3 sore, bawa payung ya")) throw new Error("real report flagged silent");
+    console.log("live-data + notification integrity (coords/mood/filler/clock/reminder/skip): OK");
+
+  // --- time invariants: WIB day keys, daily rotation + daily schedule ---
+  {
+    const { wibDay, wibDayIndex, wibDailyNext, clockLabel } = await import("./src/lib/time");
+    const t = (iso: string) => new Date(iso).getTime();
+    if (wibDay(t("2026-09-17T16:00:00Z")) !== "2026-09-17") throw new Error("wibDay must use Asia/Jakarta (23:00 WIB is still the 17th)");
+    if (wibDay(t("2026-09-17T17:00:00Z")) !== "2026-09-18") throw new Error("wibDay must roll at WIB midnight");
+    if (wibDayIndex(t("2026-09-17T16:59:59Z")) === wibDayIndex(t("2026-09-17T17:00:00Z"))) throw new Error("daily rotation must flip at WIB midnight");
+    if (wibDayIndex(t("2026-09-17T17:00:00Z")) !== wibDayIndex(t("2026-09-17T23:00:00Z"))) throw new Error("daily rotation must be stable within a WIB day");
+    // 01:00 WIB → the next 07:00 WIB is the SAME WIB day; 08:00 WIB → the next day
+    const sameDay = wibDailyNext(7, 0, t("2026-09-17T18:00:00Z"));
+    if (clockLabel(sameDay) !== "07:00" || wibDay(sameDay) !== "2026-09-18") throw new Error("wibDailyNext same-day failed");
+    const nextDay = wibDailyNext(7, 0, t("2026-09-17T01:00:00Z"));
+    if (clockLabel(nextDay) !== "07:00" || wibDay(nextDay) !== "2026-09-18") throw new Error("wibDailyNext next-day failed");
+    console.log("time invariants (WIB day key, rotation, daily schedule): OK");
+  }
+  }
   }
   }
   }

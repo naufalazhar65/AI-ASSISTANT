@@ -2525,13 +2525,13 @@ const toolRegistry: ToolPlugin[] = [
         },
       },
     },
-    execute: async (args) => {
+    execute: async (args, ctx) => {
       const from = typeof args.from === "string" ? args.from : "";
       const to = typeof args.to === "string" ? args.to : "";
       if (!from || !to) return "Error: from dan to wajib diisi";
       try {
         const { getWazeRoute } = await import("./waze");
-        const r = await getWazeRoute(from, to);
+        const r = await getWazeRoute(from, to, ctx.rawUser);
         const routesTxt = r.routes.map((x, i) => `${i === 0 ? "★" : " "} ${x.duration_min} menit (${x.distance_km} km) via ${x.name}`).join("\n");
         return `${r.human}\n\n${routesTxt}\n\nJSON:\n${JSON.stringify({ from: r.from, to: r.to, routes: r.routes, fastest: r.fastest }, null, 2)}`;
       } catch (e) {
@@ -2593,12 +2593,12 @@ const toolRegistry: ToolPlugin[] = [
         },
       },
     },
-    execute: async (args) => {
+    execute: async (args, ctx) => {
       const loc = typeof args.location === "string" ? args.location : "";
       if (!loc) return "Error: location wajib diisi";
       try {
         const { getWeather } = await import("./weather");
-        const r = await getWeather(loc);
+        const r = await getWeather(loc, ctx.rawUser);
         return `${r.human}\n\nJSON:\n${JSON.stringify({ location: r.location, temp_c: r.temp_c, desc: r.desc, humidity: r.humidity, wind_kmh: r.wind_kmh, time: r.time, source: r.source }, null, 2)}`;
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : String(e)}`;

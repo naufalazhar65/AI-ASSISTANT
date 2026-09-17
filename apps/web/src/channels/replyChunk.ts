@@ -25,6 +25,9 @@ export function interimWaitText(): string {
  * that bypasses that strip must still never show tags to the user — so every
  * chunk sent to a channel is scrubbed here too.
  */
+// Single definition lives in lib/time (shared with the agent's lib-side code).
+export { clockLabel } from "../lib/time";
+
 export function scrubToolMarkup(text: string): string {
   let t = text ?? "";
   // Closed blocks first (multiline), then any unclosed fragment to end-of-line.

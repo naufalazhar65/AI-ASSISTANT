@@ -1,5 +1,5 @@
 import { broadcastMiaState } from "@/lib/miaState";
-import { chunkText, DISCORD_MAX, parseConfirmReply, pendingConfirmPrompt, EMPTY_REPLY_FALLBACK, COMMAND_EMPTY_FALLBACK } from "./replyChunk";
+import { COMMAND_EMPTY_FALLBACK, DISCORD_MAX, EMPTY_REPLY_FALLBACK, chunkText, clockLabel, parseConfirmReply, pendingConfirmPrompt } from "./replyChunk";
 
 /**
  * Discord channel adapter (PRD v2.0 §8.1 FR-101 / ROADMAP Fase 2.3).
@@ -416,7 +416,7 @@ export async function startDiscordBot(): Promise<void> {
       const target = await resolvePushTarget();
       if (target == null) return;
       const at = new Date(reminder.at);
-      const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const timeLabel = clockLabel(at);
       target.send(`🌸 **Mia** — ${reminderMessage(reminder.text, timeLabel)}`).catch((e: unknown) => {
         console.warn("[discord] reminder push failed:", e instanceof Error ? e.message : String(e));
       });

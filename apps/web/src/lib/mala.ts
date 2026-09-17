@@ -8,6 +8,7 @@
 // Everything is Mia-flavored Indonesian riddle/horoscope-style templates drawn
 // from local pools. Zero external calls.
 
+import { wibDay } from "./time";
 export interface MalaReading {
   date: string;
   mood: string;        // suasana hati hari ini
@@ -76,7 +77,7 @@ function pick<T>(rng: () => number, arr: readonly T[]): T {
 /** Build the seeded reading for a user on a given local date (default today). */
 export function buildMala(rawUser?: unknown, date = new Date()): MalaReading {
   const userKey = String(rawUser ?? "shared").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) || "shared";
-  const day = date.toISOString().slice(0, 10);
+  const day = wibDay(date);
   const rng = mulberry32(hashSeed(`${day}|${userKey}`));
   return {
     date: day,

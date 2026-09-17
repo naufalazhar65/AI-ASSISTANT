@@ -16,6 +16,7 @@
 // Single-instance note: same as reminders — the interval lives in the one Next
 // process; multi-instance deploys would need an external queue (out of MVP).
 
+import { wibDailyNext } from "./time";
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
@@ -134,13 +135,9 @@ export function nextRunAt(schedule: AutomationSchedule, after: number): number {
     const step = Math.max(1, Math.floor(schedule.everyHours)) * 3600_000;
     return after + step;
   }
-  // daily
-  const d = new Date(after);
-  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate(), schedule.hour, schedule.minute, 0, 0);
-  // Start looking from the day AFTER `after` (we already passed now).
-  let t = target.getTime();
-  if (t <= after) t = new Date(target.getFullYear(), target.getMonth(), target.getDate() + 1, schedule.hour, schedule.minute, 0, 0).getTime();
-  return t;
+  // daily — pinned to Asia/Jakarta (a server in another zone must not run the
+  // user's "setiap hari jam 7" at 07:00 local time).
+  return wibDailyNext(schedule.hour, schedule.minute, after);
 }
 
 /**

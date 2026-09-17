@@ -44,7 +44,12 @@ function dropYa(text: string): string {
  * `timeLabel` is a short "HH:MM" string shown to reinforce the schedule.
  */
 export function reminderMessage(text: string, timeLabel?: string): string {
-  let body = pick(BODIES);
+  // "saatnya {text}" read as "saatnya Selamat pagi, saatnya melek ya" when the
+  // reminder text is itself a greeting — use a body that does not prepend it.
+  const raw = (text || "").trim();
+  const greetingish = /^(selamat|pagi|siang|sore|malam)\b/i.test(raw) || /\bsaatnya\b/i.test(raw);
+  const greetingPool = BODIES.filter((b) => !/^saatnya /i.test(b));
+  let body = pick(greetingish && greetingPool.length ? greetingPool : BODIES);
   // Bodies whose own suffix carries a "ya" would read stuttery when the text
   // already ends in one ("…Semangat ya 🌸" → "…Semangat ya 🌸, ya!"), so strip it.
   const yaSuffix = /,\s*ya[.!]?\s*$|ya\.\s*$/i.test(body.replace("{text}", ""));
@@ -63,6 +68,12 @@ export function reminderMessage(text: string, timeLabel?: string): string {
   body = body.replace("{text}", content);
   const tail = pick(TAILS);
   const time = timeLabel ? ` · pukul ${timeLabel}` : "";
-  if (!tail) return `${body}${time}`;
-  return `${body}${time}\n${tail}`;
+  const composed = tail ? `${body}${time}\n${tail}` : `${body}${time}`;
+  // The channel wrapper already prefixes "🌸 Mia — "; a second flower read as a
+  // duplicate (live: "🌸 Mia — saatnya Selamat pagi … 🌸"). Keep exactly one.
+  return composed
+    .replace(/\s*🌸\s*/gu, " ")
+    .replace(/\s+([,.!?])/g, "$1")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
 }

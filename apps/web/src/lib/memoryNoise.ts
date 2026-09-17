@@ -60,6 +60,35 @@ export function isNoiseLine(line: string): boolean {
   return false;
 }
 
+// Pure small-talk words that carry no topic — a line made only of these is not a
+// "conversation theme" (live: the briefing announced 'Kemarin kita ngobrol soal
+// "alooo beb"' as the day's topic).
+const FILLER_WORDS = new Set([
+  "halo", "hai", "hi", "hello", "aloo", "alooo", "alow", "alloo", "hallo",
+  "pagi", "siang", "sore", "malam", "subuh", "beb", "baby", "sayang", "mas",
+  "kak", "bang", "bos", "tes", "test", "testing", "oke", "ok", "okay", "ya",
+  "iya", "iyaa", "iyasih", "dong", "sih", "deh", "nih", "tuh", "wkwk",
+  "wkwkwk", "haha", "hahaha", "hehe", "hmm", "lol", "yuk", "ayo", "udah",
+  "udh", "belum", "kok", "apa", "gimana", "kamu", "aku", "ku", "mu", "mim",
+  "yaps", "yep", "nah", "eh", "wah", "aduh", "huhu",
+]);
+
+/**
+ * True when a line is pure small-talk with no topic in it (greetings, pet names,
+ * "alooo beb", "wkwk"). Used to keep filler out of the briefing snippet and the
+ * weekly theme counter. Pure — unit-tested.
+ */
+export function isFillerLine(line: string): boolean {
+  const t = (line || "")
+    .toLowerCase()
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{P}\p{S}\d]/gu, " ")
+    .trim();
+  if (!t) return true;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  return words.filter((w) => w.length >= 4 && !FILLER_WORDS.has(w)).length === 0;
+}
+
 /** Mask secret-looking tokens so nothing sensitive is ever surfaced/stored. */
 export function redactSecrets(text: string): string {
   let t = text || "";

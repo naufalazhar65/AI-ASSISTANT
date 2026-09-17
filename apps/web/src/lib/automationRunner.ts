@@ -31,6 +31,7 @@ async function runOne(automation: Automation, user: string): Promise<void> {
       "atau pakai web_search/calculate kalau butuh data baru. JANGAN pakai tool yang butuh " +
       "persetujuan (fetch_url, create_automation, dsb) — tool itu otomatis ditolak. " +
       "Tulis HANYA hasilnya untuk Naufal — JANGAN mengutip, menyalin, atau menyebut teks tugas/jadwal di bawah. " +
+      "Kalau tugasnya sebuah PEMERIKSAAN (mis. \"lapor cuaca KALAU ada hujan\") dan memang tidak ada yang perlu dilaporkan, balas tepat: SKIP — jangan mengarang laporan. " +
       `[Scheduled automation] ${automation.prompt}`;
     const result = await runAssistantTurn({
       messages: [{ role: "user", content: prompt }],
@@ -42,7 +43,12 @@ async function runOne(automation: Automation, user: string): Promise<void> {
       // confirmation nobody can answer — which previously produced empty replies.
       autoDenyRisky: true,
     });
-    const text = (result.text || "").trim() || "Maaf, aku belum bisa menjawab permintaan ini pada jadwal otomatis. Coba minta langsung ya. 🌸";
+    const raw = (result.text || "").trim();
+    if (raw && isSilentAutomationReply(raw)) {
+      console.log(`[automation] "${automation.prompt}" → SKIP (nothing worth reporting)`);
+      return;
+    }
+    const text = raw || "Maaf, aku belum bisa menjawab permintaan ini pada jadwal otomatis. Coba minta langsung ya. 🌸";
     // Push ONLY the answer: the old hardcoded "(ini buat jadwal yang kamu minta: …)"
     // suffix leaked the schedule prompt into every automation message. Also strip
     // any echo the model itself produced.
@@ -69,6 +75,17 @@ async function runOne(automation: Automation, user: string): Promise<void> {
   }
 }
 
+
+/**
+ * A scheduled CHECK ("lapor cuaca kalau ada hujan") must be able to say nothing:
+ * without this, the runner pushed "tidak ada tanda hujan" at 01:57 and 03:57.
+ * The automation prompt asks for exactly `SKIP` when there is nothing to report.
+ * Pure — unit-tested.
+ */
+export function isSilentAutomationReply(text: string): boolean {
+  const t = (text || "").trim().toLowerCase().replace(/[\s*_`.!]+$/g, "");
+  return t === "skip" || t === "skip." || /^skip\b/.test(t) || t === "tidak ada yang perlu dilaporkan";
+}
 
 /**
  * Drop a schedule-prompt echo from an automation answer: the model (or an old

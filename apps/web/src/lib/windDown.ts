@@ -1,3 +1,4 @@
+import { wibDay } from "./time";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { appRoot, isTestUserKey, userDataRoot } from "./users";
@@ -10,9 +11,6 @@ function windDownHour(): number {
   return Number.isFinite(v) ? Math.max(0, Math.min(23, Math.round(v))) : 22;
 }
 
-function jakartaDay(d: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
-}
 function jakartaHour(d: Date): number {
   try { return Number(new Intl.DateTimeFormat("en-US", { hour12: false, hour: "2-digit", timeZone: "Asia/Jakarta" }).format(d)); } catch { return NaN; }
 }
@@ -27,7 +25,7 @@ export function logSleep(rawUser: unknown, at = Date.now()): void {
   try {
     mkdirSync(dirname(file), { recursive: true });
     const arr: Array<{ date: string; at: number }> = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : [];
-    const day = jakartaDay(new Date(at));
+    const day = wibDay(new Date(at));
     if (arr.some((e) => e.date === day)) return;
     arr.push({ date: day, at });
     while (arr.length > 90) arr.shift();
@@ -63,7 +61,7 @@ async function tick(): Promise<void> {
   const now = new Date();
   if (windDownHour() === 0) return;
   if (jakartaHour(now) !== windDownHour()) return;
-  const day = jakartaDay(now);
+  const day = wibDay(now);
   if (lastFired === day) return;
   lastFired = day;
   saveLast(day);

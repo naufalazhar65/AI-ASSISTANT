@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync, existsSync, writeFileSync, renameSync } from "
 import { join, dirname } from "node:path";
 import { appRoot } from "./users";
 import { summarizeText } from "./summarize";
+import { wibDay } from "./time";
 
 const PRO_DIR = join(appRoot(), ".data", "summarize-pro");
 const SETTINGS_FILE = join(PRO_DIR, "settings.json");
@@ -146,7 +147,7 @@ function splitSentences(text: string): string[] {
 
 function updateStats(format: string, originalWords: number, summaryWords: number, language?: string): void {
   const s = loadSettings();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = wibDay();
   const lastDay = s.last_used ? s.last_used.slice(0, 10) : null;
   if (lastDay === today) {
     // same day streak stays

@@ -11,6 +11,7 @@
 //
 // PLAYBACK CONTROL ENDPOINTS REQUIRE A SPOTIFY PREMIUM ACCOUNT.
 
+import { clockLabel } from "./time";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
@@ -885,7 +886,7 @@ export function sleepTimerPlan(
   player: { is_playing?: boolean; progress_ms?: number; item?: { duration_ms?: number; name?: string } } | null
 ): { ms: number; label: string } | { error: string } {
   const now = Date.now();
-  const hhmm = (at: number) => new Date(at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  const hhmm = (at: number) => clockLabel(at);
   if (typeof opts.minutes === "number" && opts.minutes > 0) {
     const mins = Math.min(Math.round(opts.minutes), 360);
     return { ms: mins * 60_000, label: `${mins} menit lagi (≈ ${hhmm(now + mins * 60_000)})` };

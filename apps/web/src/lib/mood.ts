@@ -29,6 +29,30 @@ export const MOOD_VALUES = [
 
 export type Mood = (typeof MOOD_VALUES)[number];
 
+/** Moods that pull the day's tone down / up — ONE definition, shared by the
+ *  briefing and the proactive nudge so the two can never disagree. */
+export const NEGATIVE_MOODS = ["stressed", "anxious", "sad", "angry", "tired"] as const;
+export const POSITIVE_MOODS = ["great", "good", "okay"] as const;
+
+export type MoodTone = "negative" | "positive" | "neutral";
+
+/**
+ * The tone of a day's mood log. A TIE is neutral — treating "1 good + 1 tired" as
+ * negative made Mia say "kemarin kerasa capek dan berat" while the briefing said
+ * "kemarin lumayan cerah, seneng" for the SAME day. Pure — unit-tested.
+ */
+export function moodTone(moods: { mood: string }[]): MoodTone {
+  let neg = 0;
+  let pos = 0;
+  for (const m of moods) {
+    if ((NEGATIVE_MOODS as readonly string[]).includes(m.mood)) neg += 1;
+    else if ((POSITIVE_MOODS as readonly string[]).includes(m.mood)) pos += 1;
+  }
+  if (neg > pos) return "negative";
+  if (pos > neg) return "positive";
+  return "neutral";
+}
+
 export interface MoodEntry {
   id: string;
   mood: Mood;

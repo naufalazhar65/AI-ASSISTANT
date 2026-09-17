@@ -7,9 +7,12 @@
 // patching Date.now — and so a restarted server doesn't reshuffle a line the
 // user already saw today.
 
-/** Pick the variant for "today"; `salt` lets two pools diverge on the same day. */
+import { wibDayIndex } from "./time";
+
+/** Pick the variant for "today" (rotates at WIB midnight, not 07:00); `salt`
+ *  lets two pools diverge on the same day. */
 export function dayRotated<T>(arr: readonly T[], salt = 0): T {
   const len = arr.length;
-  const day = Math.floor(Date.now() / 86400000) + salt;
+  const day = wibDayIndex() + salt;
   return arr[((day % len) + len) % len];
 }

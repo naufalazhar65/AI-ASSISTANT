@@ -1,5 +1,7 @@
 // Weather Jakarta — free wttr.in + Open-Meteo (no key), Nominatim geocode.
 
+import { resolveExplicitCoords } from "./geo";
+
 const UA = "mia-assistant/1.0 (https://github.com/naufalazhar65/AI-ASSISTANT)";
 
 export type WeatherResult = {
@@ -16,18 +18,9 @@ export type WeatherResult = {
   human: string;
 };
 
-function parseLatLon(s: string): { lat: number; lon: number } | null {
-  const m = s.trim().match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
-  if (!m) return null;
-  const lat = Number(m[1]), lon = Number(m[2]);
-  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-  return { lat, lon };
-}
-
-async function geocode(query: string): Promise<{ lat: number; lon: number; display: string }> {
-  const direct = parseLatLon(query);
-  if (direct) return { ...direct, display: query };
+async function geocode(query: string, rawUser?: unknown): Promise<{ lat: number; lon: number; display: string }> {
+  const explicit = resolveExplicitCoords(query, rawUser);
+  if (explicit) return { ...explicit, display: query };
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
   const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`geocode ${res.status} for "${query}"`);
@@ -102,13 +95,18 @@ function humanize(r: WeatherResult): string {
   return [line, [meta, code].filter(Boolean).join(" | ")].filter(Boolean).join("\n");
 }
 
-export async function getWeather(locationQuery: string): Promise<WeatherResult> {
-  const geo = await geocode(locationQuery);
-  // Prefer wttr.in by name (fast, no geocode needed) — then Open-Meteo with coords
-  const wttr = await fetchWttr(locationQuery);
+export async function getWeather(locationQuery: string, rawUser?: unknown): Promise<WeatherResult> {
+  const geo = await geocode(locationQuery, rawUser);
+  // Prefer wttr.in (fast) — then Open-Meteo with coords. When we know explicit
+  // coordinates (from the query or the persona home alias) fetch wttr BY COORDS:
+  // fetching by the raw NAME let wttr resolve its own different place while we
+  // labelled the result with the user's nickname (the wrong-location report).
+  const explicit = resolveExplicitCoords(locationQuery, rawUser);
+  const wttr = await fetchWttr(explicit ? `${explicit.lat},${explicit.lon}` : locationQuery);
   if (wttr) {
+    // Keep the user's own label ("Lake Home") — the DATA is now the saved place.
+    wttr.location = locationQuery;
     wttr.lat = geo.lat; wttr.lon = geo.lon;
-    // Use geo display for accuracy but keep queried label for human
     wttr.human = humanize(wttr);
     return wttr;
   }

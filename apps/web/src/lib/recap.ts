@@ -6,15 +6,16 @@
 // no LLM call, works offline/mock. The runner mirrors `heartbeat.ts`: one
 // in-process interval, silent when no data for the day (no spam).
 
+import { wibDay } from "./time";
 import { readdirSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { userDataRoot, appRoot, isTestUserKey, canonicalUserKey } from "./users";
 import { readDailyMemory } from "./dailyMemory";
-import { readMoods } from "./mood";
+import { readMoods, moodTone, NEGATIVE_MOODS, POSITIVE_MOODS } from "./mood";
 import { pushToOwner } from "../channels/pushTarget";
 import { recapHour } from "./config";
 import { logInfo, logError } from "./appLogger";
-import { isNoiseLine, redactSecrets } from "./memoryNoise";
+import { isFillerLine, isNoiseLine, redactSecrets } from "./memoryNoise";
 
 let timer: NodeJS.Timeout | null = null;
 let started = false;
@@ -53,16 +54,8 @@ export function readLastRecapDay(): string {
   }
 }
 
-function localDay(date: Date): string {
-  try {
-    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
-  } catch {
-    return date.toISOString().slice(0, 10);
-  }
-}
-
 function todayMoods(rawUser?: unknown): { mood: string; note?: string }[] {
-  const today = localDay(new Date());
+  const today = wibDay(new Date());
   return readMoods(rawUser)
     .filter((m) => {
       try {
@@ -91,6 +84,8 @@ function isJunkLine(line: string): boolean {
   if (/terjadwal \(automation\)|\[Scheduled automation\]|laporan terjadwal/i.test(line)) return true;
   // Tool calls / payloads / shell flags / auth ids — never human conversation.
   if (isNoiseLine(line)) return true;
+  // Pure small-talk ("alooo beb") is not a "highlight of the day".
+  if (isFillerLine(line)) return true;
   return false;
 }
 
@@ -128,31 +123,38 @@ export function buildEveningRecap(rawUser?: unknown, now = new Date()): string {
 
   if (!hasMemory && !moods.length) return "";
 
-  const positive = moods.filter((m) => ["great", "good", "okay"].includes(m.mood)).length;
-  const negative = moods.filter((m) => ["stressed", "anxious", "sad", "angry", "tired"].includes(m.mood)).length;
+  // ONE tone rule shared with the briefing / proactive nudge / weekly insight.
+  const tone = moodTone(moods);
+  const positive = moods.filter((m) => (POSITIVE_MOODS as readonly string[]).includes(m.mood)).length;
+  const negative = moods.filter((m) => (NEGATIVE_MOODS as readonly string[]).includes(m.mood)).length;
 
   const snippets = hasMemory ? cleanSnippets(mem) : [];
 
   // Nothing meaningful to reflect on — stay silent rather than push filler.
   if (!snippets.length && !moods.length) return "";
 
-  const seed = `${String(rawUser ?? "shared")}|${localDay(now)}`;
+  const seed = `${String(rawUser ?? "shared")}|${wibDay(now)}`;
   const moodLine =
     moods.length === 0
       ? null
-      : negative > positive
+      : tone === "negative"
         ? pickFrom([
             `Hari ini agak menguras ya (${positive}x baik, ${negative}x berat) — terima kasih sudah bertahan, aku di sini kalau mau cerita 🌸`,
             `Beberapa momen hari ini kerasa berat (${negative}x berat), tapi kamu tetap jalanin — keren beb`,
             `Hari ini ada naik-turun, yang berat ${negative}x nongol. Istirahat yang enak ya malam ini.`,
           ], seed + ":mood")
-        : positive > 0
+        : tone === "positive"
           ? pickFrom([
               `Mood-mu hari ini lumayan baik (${positive}x positif${negative ? `, ${negative}x agak berat` : ""}) — seneng lihatnya! ✨`,
               `Hari ini vibes kamu oke (${positive}x positif) — pertahankan ya beb 🌸`,
               `Hari ini banyak momen baik (${positive}x) — aku simpan sebagai energi buat besok!`,
             ], seed + ":pos")
-          : `Hari ini kamu story-telling banyak, tapi mood belum ke-log — gapapa, aku dengerin terus.`;
+          : moods.length > 0
+            ? pickFrom([
+                `Hari ini moodmu naik-turun (${positive}x positif, ${negative}x berat) — wajar kok, istirahat yang enak ya malam ini.`,
+                `Hari ini campur aduk ya beb (${negative}x berat, ${positive}x baik). Nggak apa-apa, besok fresh start 🌸`,
+              ], seed + ":moodNeutral")
+            : `Hari ini kamu story-telling banyak, tapi mood belum ke-log — gapapa, aku dengerin terus.`;
   const openers = [
     "Tadi kita sempat ngobrol seru soal:",
     "Sebentar-sebentar aku inget kita tadi ngobrol soal:",
@@ -207,7 +209,7 @@ function allUserKeys(): string[] {
 
 async function tick(): Promise<void> {
   const now = new Date();
-  const day = localDay(now);
+  const day = wibDay(now);
   let hour = NaN;
   try {
     const fmt = new Intl.DateTimeFormat("en-US", { hour12: false, hour: "2-digit", timeZone: "Asia/Jakarta" });

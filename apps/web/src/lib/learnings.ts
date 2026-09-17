@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { repoRoot } from "./users";
+import { wibDay } from "./time";
 
 function learningsDir(): string {
   return join(repoRoot(), ".learnings");
@@ -19,7 +20,7 @@ function writeAtomic(file: string, content: string): void {
 
 function nextId(prefix: "LRN" | "ERR" | "FEAT"): string {
   const dir = learningsDir();
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const date = wibDay().replace(/-/g, "");
   const files: Record<string, string> = {
     LRN: join(dir, "LEARNINGS.md"),
     ERR: join(dir, "ERRORS.md"),

@@ -12,6 +12,7 @@ import { readTasks } from "./tasks";
 import { pushToOwner } from "../channels/pushTarget";
 import { heartbeatMinutes } from "./config";
 import { logInfo, logError } from "./appLogger";
+import { wibDay } from "./time";
 
 let timer: NodeJS.Timeout | null = null;
 let started = false;
@@ -123,7 +124,7 @@ async function tick(): Promise<void> {
     const hasHb = existsSync(hbPath) || existsSync(join(appRoot(), "HEARTBEAT.md")) || existsSync(localHb) || existsSync(globalHb);
     if (!hasHb) throw new Error("no HEARTBEAT.md");
     const now = new Date();
-    const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+    const todayStr = wibDay(now);
     // debounce: only once per 30m per process (in-memory)
     const lastKey = (globalThis as unknown as Record<string, number>).__hbCheckpointAt ?? 0;
     if (Date.now() - lastKey < 30 * 60 * 1000) throw new Error("debounced");

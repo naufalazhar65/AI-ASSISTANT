@@ -5,16 +5,17 @@
 // hours, deduped by day+signature, and silent when there's nothing to say.
 // Deterministic local data only (no LLM call): works offline and never spams.
 
+import { wibDay, wibDayBefore } from "./time";
 import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { userDataRoot, isTestUserKey, canonicalUserKey } from "./users";
-import { readMoods } from "./mood";
+import { readMoods, moodTone } from "./mood";
+import { isFillerLine, isNoiseLine } from "./memoryNoise";
 import { readDailyMemory, todayStr } from "./dailyMemory";
 import { pushToOwner } from "../channels/pushTarget";
 import { proactiveEnabled, proactiveHourStart, proactiveHourEnd } from "./config";
 import { logInfo, logError } from "./appLogger";
 
-const NEGATIVE = ["stressed", "anxious", "sad", "angry", "tired"];
 
 function statePath(user: string): string {
   return join(userDataRoot(), user, "context", "proactive.json");
@@ -41,18 +42,10 @@ function writeState(user: string, st: { lastPushDay: string; lastSignature: stri
   } catch { /* best-effort */ }
 }
 
-function localDayStr(date: Date): string {
-  try {
-    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
-  } catch {
-    return date.toISOString().slice(0, 10);
-  }
-}
-
 function yesterdayDayStr(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  return localDayStr(d);
+  return wibDay(d);
 }
 
 function localHourJkt(now: Date): number {
@@ -89,13 +82,16 @@ export function buildProactiveMessage(rawUser?: unknown, now = new Date()): stri
   const yday = yesterdayDayStr();
   const yMoods = readMoods(rawUser).filter((m) => {
     try {
-      return localDayStr(new Date(m.at)) === yday;
+      return wibDay(new Date(m.at)) === yday;
     } catch {
       return false;
     }
   });
-  const negative = yMoods.filter((m) => NEGATIVE.includes(m.mood));
-  if (!negative.length) return "";
+  // Tone comes from the shared rule (tie = neutral). A "neutral" day still gets a
+  // check-in, but NEVER the heavy "kemarin kerasa capek dan berat" claim, which
+  // was fabricated whenever ANY negative mood existed.
+  const tone = moodTone(yMoods);
+  if (!yMoods.length || tone === "positive") return "";
 
   const mem = readDailyMemory(rawUser, "yesterday");
   // First MEANINGFUL line — skip timestamp headers, [persona] captures, Mia's
@@ -104,14 +100,19 @@ export function buildProactiveMessage(rawUser?: unknown, now = new Date()): stri
   const snippet = /^(No memory|\(empty memory)/.test(mem) ? "" :
     mem.split("\n").map((l) => l.trim()).filter(Boolean)
       .filter((l) => !/^##\s/.test(l) && !/^\[persona\]/i.test(l) && !/^Mia:/i.test(l) && !/\(automation\)/.test(l) && !/laporan terjadwal/i.test(l))
-      .map((l) => l.replace(/^User:\s*/, ""))[0] ?? "";
+      .map((l) => l.replace(/^User:\s*/, ""))
+      .filter((l) => !isFillerLine(l))
+      .filter((l) => !isNoiseLine(l))[0] ?? "";
 
   const seed = `${String(rawUser ?? "shared")}|${yday}`;
-  const opener = pickFrom([
+  const opener = pickFrom(tone === "negative" ? [
     "💙 *Inisiatif Mia* — kemarin mood-mu sempat kerasa berat (aku catat sendiri dari yang kamu ceritakan).",
     "💙 *Hai beb* — kemarin aku notice kamu agak berat, mau aku temenin sebentar? 🌸",
     "💙 *Check-in pagi* — kemarin ada yang ngganjel dan agak berat ya, aku di sini kalau mau cerita.",
     "💙 *Mia di sini* — kemarin kerasa capek dan berat, aku simpen sebagai pengingat buat lebih gentle hari ini.",
+  ] : [
+    "💙 *Mia di sini* — pagi beb. Kemarin moodmu naik-turun (ada cerah, ada berat) — aku simpen catatannya.",
+    "💙 *Check-in pagi* — kemarin campur aduk ya beb, ada yang bikin seneng ada yang bikin capek. Gimana pagi ini?",
   ], seed + ":o");
   const closer = pickFrom([
     "Kamu nggak usah buru-buru balas. Kalau ada yang mau diceritain atau mau aku bantu kecil-kecilin bebannya, aku di sini. 🌸",
@@ -129,7 +130,7 @@ function signatureOf(rawUser: unknown): string {
   const yday = yesterdayDayStr();
   const moods = readMoods(rawUser).filter((m) => {
     try {
-      return localDayStr(new Date(m.at)) === yday;
+      return wibDay(new Date(m.at)) === yday;
     } catch {
       return false;
     }

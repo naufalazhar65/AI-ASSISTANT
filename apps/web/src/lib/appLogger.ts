@@ -11,13 +11,14 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from "
 import { join } from "node:path";
 import { appRoot } from "./users";
 import { appLogEnabled, appLogKeepDays } from "./config";
+import { wibDay } from "./time";
 
 const LOG_DIR = () => join(appRoot(), ".data", "logs");
 
 let lastPruneDay = "";
 
 function day(now = new Date()): string {
-  return now.toISOString().slice(0, 10);
+  return wibDay(now);
 }
 
 function prune(now: Date, keepDays: number): void {

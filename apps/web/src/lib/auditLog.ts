@@ -12,13 +12,14 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from "
 import { join } from "node:path";
 import { appRoot, sanitizeUser } from "./users";
 import { auditEnabled, auditKeepDays } from "./config";
+import { wibDay } from "./time";
 
 const AUDIT_DIR = () => join(appRoot(), ".data", "audit");
 
 let lastPruneDay = "";
 
 function day(now = new Date()): string {
-  return now.toISOString().slice(0, 10);
+  return wibDay(now);
 }
 
 /** Idempotent daily prune: remove audit files older than `keepDays`. */

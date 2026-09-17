@@ -1,6 +1,8 @@
 // Waze Direct — free live traffic (no API key, no fetcher).
 // Geocode via Nominatim OSM → Waze routing-livemap-row → OSRM fallback.
 
+import { parseLatLonAnywhere, resolveExplicitCoords } from "./geo";
+
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 const WAZE_ROUTING = "https://routing-livemap-row.waze.com/RoutingManager/routingRequest";
 const OSRM_ROUTING = "https://router.project-osrm.org/route/v1/driving";
@@ -19,18 +21,10 @@ export type WazeResult = {
   human: string;
 };
 
-function parseLatLon(s: string): Coords | null {
-  const m = s.trim().match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
-  if (!m) return null;
-  const lat = Number(m[1]);
-  const lon = Number(m[2]);
-  if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-  return { lat, lon };
-}
-
-async function geocode(query: string): Promise<Coords> {
-  const direct = parseLatLon(query);
+async function geocode(query: string, rawUser?: unknown): Promise<Coords> {
+  // Explicit coords (in the label, or the saved home alias) beat Nominatim —
+  // otherwise "Lake Home" resolves to a different place and the route is nonsense.
+  const direct = resolveExplicitCoords(query, rawUser);
   if (direct) return direct;
   const url = `${NOMINATIM}?q=${encodeURIComponent(query)}&format=json&limit=1&addressdetails=0`;
   const res = await fetch(url, {
@@ -169,11 +163,11 @@ async function fetchOsrm(from: Coords, to: Coords): Promise<WazeRoute[]> {
   }));
 }
 
-export async function getWazeRoute(fromQ: string, toQ: string): Promise<WazeResult> {
-  const from = await geocode(fromQ);
+export async function getWazeRoute(fromQ: string, toQ: string, rawUser?: unknown): Promise<WazeResult> {
+  const from = await geocode(fromQ, rawUser);
   // Small throttle for Nominatim (1 req/s) when both are addresses
-  if (!parseLatLon(fromQ) && !parseLatLon(toQ)) await new Promise((r) => setTimeout(r, 1100));
-  const to = await geocode(toQ);
+  if (!parseLatLonAnywhere(fromQ) && !parseLatLonAnywhere(toQ)) await new Promise((r) => setTimeout(r, 1100));
+  const to = await geocode(toQ, rawUser);
 
   let routes: WazeRoute[] | null = null;
   let source = "waze";

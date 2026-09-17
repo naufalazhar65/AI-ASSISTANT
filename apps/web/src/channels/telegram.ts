@@ -1,5 +1,5 @@
 import { broadcastMiaState } from "@/lib/miaState";
-import { chunkText, TELEGRAM_MAX, parseConfirmReply, pendingConfirmPrompt, EMPTY_REPLY_FALLBACK, COMMAND_EMPTY_FALLBACK } from "./replyChunk";
+import { COMMAND_EMPTY_FALLBACK, EMPTY_REPLY_FALLBACK, TELEGRAM_MAX, chunkText, clockLabel, parseConfirmReply, pendingConfirmPrompt } from "./replyChunk";
 
 /**
  * Telegram channel adapter (PRD v2.0 §8.1 FR-101).
@@ -339,7 +339,7 @@ export async function startTelegramBot(): Promise<void> {
     const target = pushTarget();
     if (target == null) return false;
     const at = new Date(reminder.at);
-    const timeLabel = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const timeLabel = clockLabel(at);
     bot.api
       .sendMessage(target, toTelegramMarkdown(`🌸 *Mia* — ${reminderMessage(reminder.text, timeLabel)}`), { parse_mode: "Markdown" })
       .catch((e) => {

@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { repoRoot } from "./users";
+import { wibDay } from "./time";
 
 function memRoot(): string { return join(repoRoot(), ".memory"); }
 function cfgPath(): string { return join(memRoot(), "config.yaml"); }
@@ -15,7 +16,7 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "entry";
 }
 
-function today(): string { return new Date().toISOString().slice(0, 10); }
+function today(): string { return wibDay(); }
 
 function isSecret(text: string): boolean {
   return /(api[_-]?key|password|token|secret|sk-|bearer)/i.test(text);

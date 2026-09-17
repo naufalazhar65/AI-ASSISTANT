@@ -33,6 +33,7 @@ import { detectPlaceIntent, placeNudge } from "./placeIntent";
 import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume } from "./spotify";
 import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
+import { clockLabel } from "./time";
 import { readReminders } from "./reminders";
 import { appendDailyMemory } from "./dailyMemory";
 import { recallContext } from "./rag";
@@ -245,7 +246,7 @@ const SYSTEM_PROMPT = [
   "Use briefing to serve the morning/day digest when the user asks 'briefing', 'ringkasan pagi', 'apa agenda hari ini', 'rencana hari ini', or greets in the morning wanting their schedule — it assembles due/overdue tasks, today's reminders, yesterday's mood+memory, and any civil holiday today. It runs immediately, without confirmation." ,
   "Fun features, all immediate without confirmation: mala gives a daily fortune ('ramalan harian', stable all day) when the user asks to be told their luck/fortune; game_start starts a song-guess round (Mia secretly picks a song from the user's recently played Spotify history), game_guess checks the user's guess (correct → celebrate + score; wrong → next clue, max 3), game_quit reveals and stops; hari_libur answers Indonesian public holidays ('tanggal merah/libur nasional'), noting that moveable Islamic dates follow the official SKB — web_search them when the user needs exact current-year dates; recap wraps up the user's day from memory + moods when asked ('rekap hariku'); weekly_insight gives the 7-day digest (moods, tasks, recurring themes) when asked ('insight minggu ini', 'rekap mingguan').",
   "Use waze_route with from+to (address or lat,lon) for live traffic/duration/distance — e.g. 'ke BSD macet ga', 'berapa menit ke PIK' — it hits Waze (free) with OSRM fallback. It runs immediately without confirmation. "
-  + "Use weather with location (address or lat,lon) for real-time weather — e.g. 'BSD hujan ga', 'cuaca Jakarta' — it hits wttr.in + Open-Meteo (free, no key). It runs immediately without confirmation. "
+  + "Use weather with location (address or lat,lon) for real-time weather — e.g. 'BSD hujan ga', 'cuaca Jakarta' — it hits wttr.in + Open-Meteo (free, no key). It runs immediately without confirmation. If it answers \"Cannot get coords\" for a place, NEVER report another location's weather instead — ask the user for a clearer place name (or a lat,lon); the user's own home nickname (persona home + home_coords) resolves automatically. "
   + "Use hotel_search with location (+ optional budget per-night, checkin/checkout YYYY-MM-DD, adults, rooms, sort, minRating, stars) for live hotel prices via Booking.com (Playwright, no key) — WAJIB untuk semua pertanyaan hotel/lodging, jangan jawab dari memori; convert 'minggu depan/tanggal 20' to a concrete YYYY-MM-DD. It runs immediately without confirmation. "
   + "FORMAT: when a tool returns a list (hotels, showtimes, search results, tasks), present it AS A LIST — one item per line — never merge the items into one paragraph. "
   + "Use cinema_showtimes with city (+ optional cinema/film/genre) for live movie schedules & ticket prices (jadwalnonton.com) — WAJIB untuk 'film apa yang tayang', 'jam tayang', 'harga tiket', 'bioskop dekat X'; NEVER answer film/showtime questions from memory. Pass city first; add cinema for one theater, film to see every cinema showing it, or genre (e.g. 'horror') to list films. It runs immediately without confirmation. NEVER offer to book/buy/reserve tickets — Mia has no booking tool; just give the schedule and point the user to the cinema app (M-Tix/CGV/21Cineplex) to buy. "
@@ -599,16 +600,18 @@ const CORE_TOOL_NAMES = new Set<string>([
   "save_note", "list_notes", "delete_note",
   "remind_me", "reminders_list", "cancel_reminder",
   "add_task", "list_tasks", "complete_task", "cancel_task", "reschedule_task",
+  "spotify_status", "spotify_play", "spotify_pause", "spotify_next",
+  "spotify_previous", "spotify_volume", "spotify_mode", "spotify_queue",
+  "spotify_sleep_timer", "spotify_search", "spotify_devices", "spotify_link",
   "hotel_search", "cinema_showtimes", "train_search", "bus_search", "weather", "waze_route",
   "fetch_url", "search_memory", "memory_get",
   "file_read", "exec", "codebase_search",
   "calendar_list", "calendar_add",
-  "plan_create", "plan_add_step", "plan_update_step",
   "browser_open",
   "transcribe",
-  "git_status", "git_commit", "security_scan", "secret_scan", "breach_check", "pentest_resources", "recon_subdomains", "recon_httpx", "recon_params", "recon_list", "recon_takeover", "security_playbook", "sast_scan", "memory", "learnings_search", // pentest action/report suite — must survive capped providers so the
+  "git_status", "git_commit", "security_scan", "secret_scan", "pentest_resources", "recon_subdomains", "recon_httpx", "recon_params", "recon_list", "security_playbook", "sast_scan", "memory", "learnings_search", // pentest action/report suite — must survive capped providers so the
   // advertised workflow (scan → finding → report) actually works there.
-  "pentest_scan", "sqlmap_scan", "zap_scan", "http_request", "finding_add", "finding_list", "finding_resolve", "finding_export", "report_generate", "report_save", "report_pdf", "hardening_plan", "hardening_pdf", "cvss_score", "poc_verify", "verify_patch", "engagement_create", "engagement_list", "engagement_close", "lab_status", "lab_start", "lab_fetch", "web_audit", "domain_audit", "oast_create", "oast_poll", "oast_stop", "http_session", "cdp_status", "cdp_request", "bola_diff", "tamper_script", "content_discover", "param_fuzz", "jwt_attack", "evidence_capture", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "request_save", "request_run", "platform_severity", "js_mine", "api_spec", "graphql_probe", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "security_hunt", "suite_hunt", "hunt_log", "auth_hunt", "api_hunt", "engagement_targets", "cloud_misconfig", "tech_watch", "policy_set", "flow_run", "campaign_run", "bounty_run", "oauth_hunt", "writeup", "persona_show", "persona_set", "persona_forget", "race", "ws_probe", "oast_dns_create", "oast_dns_poll", "oast_dns_stop",
+  "pentest_scan", "sqlmap_scan", "zap_scan", "http_request", "finding_add", "finding_list", "finding_resolve", "finding_export", "report_generate", "report_save", "report_pdf", "cvss_score", "poc_verify", "engagement_create", "engagement_list", "engagement_close", "web_audit", "domain_audit", "oast_create", "oast_poll", "oast_stop", "http_session", "cdp_status", "cdp_request", "bola_diff", "tamper_script", "content_discover", "param_fuzz", "jwt_attack", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "request_save", "request_run", "platform_severity", "js_mine", "api_spec", "graphql_probe", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "security_hunt", "suite_hunt", "hunt_log", "auth_hunt", "api_hunt", "engagement_targets", "cloud_misconfig", "tech_watch", "policy_set", "flow_run", "campaign_run", "bounty_run", "oauth_hunt", "writeup", "persona_show", "persona_set", "persona_forget", "race", "ws_probe", "oast_dns_create", "oast_dns_poll", "oast_dns_stop",
   "write_file", "edit_file", "exec_write",
   ]);
 
@@ -1176,13 +1179,13 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
       const parts: string[] = [];
       if (needMoveSuffix) {
         const labels = intents.filter((i) => i.repoint).map((i) =>
-          new Date(i.atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+          clockLabel(i.atMs)
         );
         if (labels.length) parts.push(reminderMoveSuffix(labels.join(" & ")));
       }
       if (toAdd.length) {
         const labels = toAdd.map((i) =>
-          new Date(i.atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+          clockLabel(i.atMs)
         );
         const recurring = toAdd[0].repeat === "daily" ? "setiap hari " : "";
         parts.push(reminderAddSuffix(labels.join(" & "), recurring));
@@ -1195,7 +1198,7 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
         // ("• 16.00 — kopi ☕", the pre-move hour) cannot silence the
         // confirmation and the user reads the old time (2026-09-11 live).
         const dstLabels = intents.filter((i) => i.repoint).map((i) =>
-          new Date(i.atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+          clockLabel(i.atMs)
         );
         const mentionsDst = dstLabels.some((l) => text.includes(l));
         if (mentionsDst) return text;

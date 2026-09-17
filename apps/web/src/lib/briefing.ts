@@ -7,11 +7,12 @@
 // offline/mock, silent when there is nothing worth reporting (no spam). The
 // runner mirrors recap.ts: exact-hour match, module-level once-per-day guard.
 
+import { wibDay } from "./time";
 import { readTasks } from "./tasks";
 import { readReminders } from "./reminders";
-import { readMoods } from "./mood";
+import { readMoods, moodTone } from "./mood";
 import { readDailyMemory } from "./dailyMemory";
-import { isNoiseLine, redactSecrets } from "./memoryNoise";
+import { isFillerLine, isNoiseLine, redactSecrets } from "./memoryNoise";
 import { holidayInfo } from "./holiday";
 import { pushToOwner } from "../channels/pushTarget";
 import { briefingEnabled, briefingHour } from "./config";
@@ -43,14 +44,6 @@ function saveBriefingDay(day: string): void {
     writeFileSync(tmp, JSON.stringify({ lastFiredDate: day }, null, 2));
     renameSync(tmp, f);
   } catch { /* best-effort */ }
-}
-
-export function localDayJkt(date: Date): string {
-  try {
-    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
-  } catch {
-    return date.toISOString().slice(0, 10);
-  }
 }
 
 function localHourJkt(date: Date): number {
@@ -104,10 +97,10 @@ function holidayToday(rawUser: unknown, today: string): string {
  * worth reporting (no agenda, no yesterday traces, no holiday) — stay silent.
  */
 export function buildMorningBriefing(rawUser?: unknown, now = new Date()): string {
-  const today = localDayJkt(now);
+  const today = wibDay(now);
   const todayStart = startOfJktDay(today);
   const tomorrowStart = todayStart + 86400000;
-  const yesterdayDay = localDayJkt(new Date(todayStart - 1));
+  const yesterdayDay = wibDay(new Date(todayStart - 1));
 
   const tasks = readTasks(rawUser).filter((t) => t.status === "active");
   const dueToday = tasks.filter((t) => typeof t.dueAt === "number" && t.dueAt >= todayStart && t.dueAt < tomorrowStart);
@@ -127,10 +120,8 @@ export function buildMorningBriefing(rawUser?: unknown, now = new Date()): strin
       } catch {
         return false;
       }
-    })
-    .map((m) => m.mood);
-  const neg = yMoods.filter((m) => ["stressed", "anxious", "sad", "angry", "tired"].includes(m)).length;
-  const pos = yMoods.filter((m) => ["great", "good", "okay"].includes(m)).length;
+    });
+  const tone = moodTone(yMoods);
 
   const holiday = holidayToday(rawUser, today);
 
@@ -167,22 +158,26 @@ export function buildMorningBriefing(rawUser?: unknown, now = new Date()): strin
 
   if (hasMemory || yMoods.length) {
     lines.push("");
-    if (neg > pos) lines.push(pickFrom([
+    if (tone === "negative") lines.push(pickFrom([
       "Kemarin agak berat ya beb, aku notice. Hari ini kita bikin lebih ringan pelan-pelan 🌸",
       "Kemarin moodmu naik-turun agak berat, gapapa — hari ini fresh start, aku temenin.",
       "Kemarin kerasa capek dan berat, aku catat. Semoga tidurmu cukup, hari ini kita atur santai.",
     ], seed + ":mood"));
-    else if (yMoods.length) lines.push(pickFrom([
+    else if (tone === "positive") lines.push(pickFrom([
       "Kemarin moodmu oke — pertahankan vibes ini ya beb 🌸",
       "Kemarin lumayan cerah, seneng lihatnya. Semoga hari ini lanjut cerah!",
       "Kemarin kamu oke, aku simpan sebagai energi buat hari ini.",
     ], seed + ":moodPos"));
+    else if (yMoods.length) lines.push(pickFrom([
+      "Kemarin moodmu campur aduk — ada cerah, ada berat. Wajar kok, hari ini kita jalanin pelan-pelan 🌸",
+      "Kemarin naik-turun ya beb. Nggak apa-apa, aku temenin hari ini.",
+    ], seed + ":moodNeutral"));
     if (hasMemory) {
       const snippets = yesterday.split("\n").map((l) => l.trim()).filter(Boolean)
         .filter((l) => !/^#/.test(l) && !/\(automation\)/.test(l) && !/laporan terjadwal/i.test(l))
         .filter((l) => !/^\[persona\]/i.test(l) && !/^Mia:/i.test(l))
         .map((l) => redactSecrets(l.replace(/^(User|Assistant):\s*/, "")))
-        .filter((l) => l && !isNoiseLine(l))
+        .filter((l) => l && !isNoiseLine(l) && !isFillerLine(l))
         .slice(0, 2);
       if (snippets.length) lines.push(`Kemarin kita ngobrol soal "${snippets[0].slice(0, 120)}" — aku inget, mau lanjutin hari ini? ✨`);
     }
@@ -228,7 +223,7 @@ function allUserKeys(): string[] {
 
 async function tick(): Promise<void> {
   const now = new Date();
-  const day = localDayJkt(now);
+  const day = wibDay(now);
   const hour = localHourJkt(now);
   const target = briefingHour();
   if (!briefingEnabled() || Number.isNaN(hour) || !target || hour !== target || lastBriefingDay === day) return;

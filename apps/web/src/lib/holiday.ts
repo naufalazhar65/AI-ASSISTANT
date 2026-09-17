@@ -6,6 +6,7 @@
 // `hari_libur` melempar daftar tetap + catatan untuk konfirmasi via web_search
 // (Mia punya web_search, jadi akurasi tahun berjalan tetap terjaga).
 
+import { wibDay } from "./time";
 export interface Holiday {
   /** ISO date "YYYY-MM-DD" (Asia/Jakarta local). */
   date: string;
@@ -42,7 +43,7 @@ export function holidayInfo(rawUser?: unknown, month?: number, now = new Date())
     list = list.filter((h) => Number(h.date.slice(5, 7)) === month);
   } else {
     // Only show dates from today onward when no month is requested
-    const today = now.toISOString().slice(0, 10);
+    const today = wibDay(now);
     list = list.filter((h) => h.date >= today);
   }
   if (!list.length) return "Belum ada tanggal merah yang tercatat dari hari ini ke depan.";

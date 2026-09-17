@@ -29,6 +29,7 @@ function writeAtomic(path: string, data: string): void {
 }
 
 import { loadDailyMemoryPrompt } from "./dailyMemory";
+import { wibDay } from "./time";
 
 /**
  * Loads the assistant's persona files (IDENTITY/DREAMS/SOUL/USER) at request
@@ -184,7 +185,7 @@ export function upsertPersonaFact(
   const merged = mergeFact(facts, canon, valueTrim);
   const sup = [...superseded];
   if (merged.superseded) {
-    sup.push(`- [superseded] ${canon}: ${merged.superseded.from} → ${merged.superseded.to} (${new Date().toISOString().slice(0, 10)})`);
+    sup.push(`- [superseded] ${canon}: ${merged.superseded.from} → ${merged.superseded.to} (${wibDay()})`);
   }
   const capped = capFacts(merged.facts, MAX_FACTS);
   writeAtomic(path, `${head}${renderFactsBlock(capped.facts, sup)}`);
@@ -298,7 +299,7 @@ function hygienizeUserFile(path: string): HygieneResult {
   result.removed += capped.dropped;
   result.conflicts = [...conflicts.values()];
   const supLines = [...superseded];
-  for (const c of result.conflicts) supLines.push(`- [superseded] ${c.key}: ${c.superseded} → ${c.kept} (${new Date().toISOString().slice(0, 10)})`);
+  for (const c of result.conflicts) supLines.push(`- [superseded] ${c.key}: ${c.superseded} → ${c.kept} (${wibDay()})`);
 
   const headText = collapseBlanks(nonFact).replace(/\s*$/, "");
   const rebuilt = `${headText ? `${headText}\n\n` : ""}${renderFactsBlock(capped.facts, supLines)}`;

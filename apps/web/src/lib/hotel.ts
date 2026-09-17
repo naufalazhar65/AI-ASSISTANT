@@ -1,6 +1,7 @@
 // Hotel Finder — live via Playwright + Booking.com (no API key)
 // Spec: ./hotel.sh "Bandung" "400rb"  -> Booking search, filter, output.
 
+import { wibDay } from "./time";
 import { chromium } from "playwright";
 
 export type Hotel = {
@@ -64,7 +65,7 @@ function isValidISO(s: string): boolean {
 
 /** Resolve check-in/check-out (default: today → tomorrow). Throws on bad dates. */
 export function resolveStay(checkin?: string, checkout?: string): Stay {
-  const today = localISO(new Date());
+  const today = wibDay();
   if (checkin && !isValidISO(checkin)) throw new Error(`tanggal check-in tidak valid: "${checkin}" — pakai format YYYY-MM-DD`);
   if (checkout && !isValidISO(checkout)) throw new Error(`tanggal check-out tidak valid: "${checkout}" — pakai format YYYY-MM-DD`);
   const ci = checkin || today;

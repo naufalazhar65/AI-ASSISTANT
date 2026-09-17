@@ -13,11 +13,12 @@
 //  - Env: WEEKLY_INSIGHT_HOUR (default 20, 0=off), WEEKLY_INSIGHT_DAY
 //    (0=Sunday..6=Saturday, default 0). Times are Asia/Jakarta like recap.
 
-import { isNoiseLine } from "./memoryNoise";
+import { wibDay } from "./time";
+import { isFillerLine, isNoiseLine } from "./memoryNoise";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { appRoot, userDataRoot, isTestUserKey, canonicalUserKey } from "./users";
-import { readMoods, MoodEntry } from "./mood";
+import { readMoods, moodTone, NEGATIVE_MOODS, MoodEntry } from "./mood";
 import { readTasks } from "./tasks";
 import { readDailyMemory } from "./dailyMemory";
 import { readHabits } from "./habits";
@@ -36,8 +37,6 @@ const MOOD_LABEL_ID: Record<string, string> = {
   tired: "capek",
   angry: "kesal",
 };
-
-const NEGATIVE_MOODS = new Set(["stressed", "anxious", "sad", "angry", "tired"]);
 
 // Generic words that never say anything about the week's themes. Keeps the
 // highlight list honest (identifiers like "flowtest" or "badminton" survive).
@@ -65,11 +64,6 @@ const STOPWORDS = new Set([
 
 const JUNK_RE = /terjadwal \(automation\)|\[Scheduled automation\]|laporan terjadwal|\[persona\]/i;
 
-/** Local (Asia/Jakarta) date string for a moment, e.g. "2026-09-07". */
-function jakartaDay(now: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-}
-
 function jakartaHour(now: Date): number {
   try {
     const fmt = new Intl.DateTimeFormat("en-US", { hour12: false, hour: "2-digit", timeZone: "Asia/Jakarta" });
@@ -87,12 +81,12 @@ function jakartaWeekday(ymd: string): number {
 
 /** Last N local dates ending at `now` (inclusive), oldest first. */
 function lastNDays(now: Date, n: number): string[] {
-  const today = jakartaDay(now);
+  const today = wibDay(now);
   const [y, m, d] = today.split("-").map(Number);
   const out: string[] = [];
   for (let i = n - 1; i >= 0; i--) {
     const dt = new Date(Date.UTC(y, (m || 1) - 1, (d || 1) - i));
-    out.push(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(dt));
+    out.push(wibDay(dt));
   }
   return out;
 }
@@ -156,24 +150,33 @@ function userLinesFromMemory(rawUser: unknown, date: string): string[] {
 function moodLine(moods: MoodEntry[]): string {
   const counts = new Map<string, number>();
   for (const m of moods) counts.set(m.mood, (counts.get(m.mood) ?? 0) + 1);
-  const neg = moods.filter((m) => NEGATIVE_MOODS.has(m.mood)).length;
-  const pos = moods.length - neg;
+  const neg = moods.filter((m) => (NEGATIVE_MOODS as readonly string[]).includes(m.mood)).length;
   const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
   const named = top.map(([m, n]) => `${MOOD_LABEL_ID[m] ?? m} ${n}x`).join(", ");
   const seed = named;
-  if (neg > pos) {
+  // ONE tone rule (shared with the briefing + proactive nudge): a tie is neutral.
+  // The old `pos = moods.length - neg` counted "meh" as positive and treated a
+  // tie as positive, so the weekly digest said "vibes kamu oke" for a mixed week.
+  const tone = moodTone(moods);
+  if (tone === "negative") {
     return pickFrom([
       `Mood-mu minggu ini agak berat ya — ${named}. Semoga minggu depan lebih lega; cerita aja kalau berat 🌸`,
       `Minggu ini lumayan menguras — ${named}. Kamu udah kuat jalanin, istirahat yang cukup ya beb`,
       `Ada naik-turun minggu ini, yang berat ${neg}x nongol (${named}). Aku di sini kalau mau cerita.`,
     ], seed);
   }
-  if (pos >= neg) {
+  if (tone === "positive") {
     return pickFrom([
       `Mood-mu minggu ini lumayan terjaga — ${named}. Pertahankan ya beb ✨`,
       `Minggu ini vibes kamu oke — ${named}. Seneng lihatnya, lanjutkan!`,
       `Energi minggu ini stabil — ${named}. Aku simpan sebagai bekal buat minggu depan 🌸`,
     ], seed + ":pos");
+  }
+  if (moods.length) {
+    return pickFrom([
+      `Minggu ini naik-turun ya beb — ${named}. Ada yang bikin seneng, ada yang bikin capek; wajar.`,
+      `Mood-mu campur aduk minggu ini (${named}). Nggak apa-apa, pelan-pelan aja 🌸`,
+    ], seed + ":neutral");
   }
   return pickFrom([
     "Kamu nggak banyak cerita soal perasaan minggu ini — gapapa, kalau mau cerita, aku standby 🌸",
@@ -190,6 +193,7 @@ function weeklyThemes(days: string[][]): Array<{ word: string; dayCount: number 
   for (let d = 0; d < days.length; d++) {
     const seen = new Set<string>();
     for (const text of days[d]) {
+      if (isFillerLine(text)) continue;
       for (const t of tokenize(text)) {
         if (t.length < 4 || STOPWORDS.has(t) || /^\d+$/.test(t)) continue;
         seen.add(t);
@@ -311,7 +315,7 @@ let started = false;
 
 async function tick(): Promise<void> {
   const now = new Date();
-  const day = jakartaDay(now);
+  const day = wibDay(now);
   const hour = jakartaHour(now);
   const targetHour = weeklyInsightHour();
   const targetDay = weeklyInsightDay();
