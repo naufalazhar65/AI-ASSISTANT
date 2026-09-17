@@ -30,6 +30,9 @@ export function canonicalFactKey(raw: string): string {
   // Only merge when the topic really is a preference — otherwise keep the key
   // untouched (e.g. `preference.crypto_monitor` stays as-is).
   if (PREF_TOPICS.has(bare)) return `preference.${bare}`;
+  // A pet's name and "my cat" are the same fact — without this they were stored
+  // twice (`pet: kucing bernama Moly` + `cat_name: Moly`).
+  if (bare === "cat_name" || bare === "pet_name" || bare === "kucing") return "pet";
   return k;
 }
 
