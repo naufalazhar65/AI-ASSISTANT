@@ -93,6 +93,11 @@ export function isFillerLine(line: string): boolean {
 export function redactSecrets(text: string): string {
   let t = text || "";
   for (const re of SECRET_REDACT) t = t.replace(re, "[redacted]");
+  // Credential ASSIGNMENTS in free text / request bodies: keep the key (and the
+  // separator) so the result stays readable, mask only the value. Without this a
+  // password inside an ato_prove body_template or a pasted login form landed in
+  // memory and the audit log intact.
+  t = t.replace(/\b((?:pass(?:word|wd)?|pwd|secret|credential)s?[\s\\"']*[=:][\s\\"']*)[^"'\s,;]+/gi, "$1[redacted]");
   // JSON-ish "secretKey": "value" → mask the value (any key naming a credential).
   t = t.replace(
     /("(?:[a-z0-9_]*(?:secret|token|password|passwd|api[_-]?key|access[_-]?key|authorization|cookie|bearer|credential|signature)[a-z0-9_]*)"\s*:\s*)"[^"]*"/gi,

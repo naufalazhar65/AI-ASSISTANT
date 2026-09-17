@@ -67,6 +67,8 @@ export function redactArgsForDisplay(json: string): string {
     return v;
   };
   try {
+    // redactSecrets also masks credential ASSIGNMENTS inside values, so a login
+    // body under a harmless key (`body_template`) cannot leak the password.
     return redactSecrets(JSON.stringify(walk(obj)));
   } catch {
     return redactSecrets(json);

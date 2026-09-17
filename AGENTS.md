@@ -374,6 +374,14 @@ Audit kedua menemukan 5 hal lagi:
 
 Bukti tambahan: `llmStream.test.ts` 19 tes (tambah: error frame terakhir tanpa newline, tanpa-error tetap sukses, `chainMayFailover`, `shouldProbeNow`); `verify.ts` blok baru "freeride (in-band error failover + probe honesty + probe throttle): OK" (termasuk stream tiruan yang membuktikan error in-band melempar + 7 tool terdaftar); live: watcher → `"skip — diprobe 0m lalu (interval 60m)"` dengan `lastProbeAt` tidak berubah. Gates: typecheck, lint (0 temuan baru), vitest 46/46, `verify.ts` EXIT=0.
 
+### Lanjutan — audit A+B: satu celah kredensial nyata ditemukan & ditutup
+
+Audit "sudah maksimal?" atas A+B menemukan **kebocoran di perbaikan sendiri**: `ato_prove` menerima `body_template`, dan bila model menaruh password mentah di situ (atau menempel body login), nilainya **tidak dimask** — `redactArgsForDisplay` hanya memask berdasarkan NAMA KUNCI (`body_template` bukan kunci sensitif), dan `redactSecrets` tidak punya aturan untuk `pass=`/`password:`/`user:pass`. Akibatnya password bisa masuk **prompt konfirmasi kanal, audit log, dan daily memory**. Bukti: `redactArgsForDisplay({"body_template":"user=admin&pass=K0h0na…"})` → password utuh; `redactSecrets("user=admin&pass=K0h0na…")` → utuh.
+
+Perbaikan: `redactSecrets` dapat aturan **assignment** yang mempertahankan kunci+separator dan hanya memask nilainya — `\b((?:pass(?:word|wd)?|pwd|secret|credential)s?[\s\\"']*[=:][\s\\"']*)[^"'\s,;]+` → `$1[redacted]` — sehingga prosa biasa tidak rusak ("Password minimal 8 karakter" tetap utuh), JSON tetap valid (`{"password":"[redacted]","note":"ok"}`), dan prompt konfirmasi bersih. Diuji di blok `verify.ts` "secret redaction (… + credentials)" untuk `credential`, `password`, `body_template` (form & JSON), plus anti-false-positive prosa.
+
+Hasil audit lainnya (semua lolos): `isOwnLabTarget` 17 kasus batas — localhost/127/::1/10.x/192.168.x/172.16-31/env+subdomain = own lab; **172.32, example.com, host engagement, demo publik (scanme/testphp), `127.0.0.1.nip.io`, dan metadata cloud `169.254.169.254`/`100.100.100.200` = BUKAN** (guard SSRF utuh); `autoApproveAllowed` → lab `true`, demo & metadata `false`. `ato_prove` live di lab: login 200 tanpa cookie → verdict jujur "TANPA SESI" (bukan klaim takeover). Catatan: policy bersifat **owner-level** (berlaku untuk semua kanal/user bot ini) dan `suite_hunt`/`security_hunt` sengaja TIDAK di daftar auto-approve (tetap konfirmasi).
+
 ## Session 2026-09-17 (lanjutan) — A: auto-approve khusus lab milik owner + B: prover rantai ATO
 
 Dua perbaikan "power" yang dipilih owner:

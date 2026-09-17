@@ -754,7 +754,18 @@ async function main() {
     const b = redactSecrets('{"password":"hunter2","note":"ok"} auth0|6aaa6aa27123f6e684d7e009');
     if (b.includes("hunter2") || b.includes("auth0|")) throw new Error(`redactSecrets leaked: ${b}`);
     if (!b.includes("ok")) throw new Error("redactSecrets dropped non-secret text");
-    console.log("secret redaction (args display + logs/json): OK");
+    // Credential ASSIGNMENTS (ato_prove bodies / pasted login forms) must not slip
+    // through under a harmless key, in memory, or in the audit log.
+    const PW = "K0h0na_Sup3rAdmin!";
+    for (const arg of [{ credential: `admin:${PW}` }, { password: PW }, { body_template: `user=admin&pass=${PW}` }, { body_template: `{"password":"${PW}"}` }]) {
+      const out = redactArgsForDisplay(JSON.stringify(arg));
+      if (out.includes(PW)) throw new Error(`credential leaked in args display: ${out}`);
+    }
+    for (const text of [`login pakai user=admin&pass=${PW}`, `credential=admin:${PW}`, `{"password": "${PW}"}`]) {
+      if (redactSecrets(text).includes(PW)) throw new Error(`credential leaked in memory/logs: ${text}`);
+    }
+    if (redactSecrets("Password minimal 8 karakter").includes("[redacted]")) throw new Error("redaction must not mangle ordinary prose");
+    console.log("secret redaction (args display + logs/json + credentials): OK");
 
     // home-path masking at the channel send boundary
     const { scrubHomePath, chunkText: chunkHome } = await import("./src/channels/replyChunk");
