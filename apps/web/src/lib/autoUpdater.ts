@@ -35,6 +35,7 @@ import {
   autoUpdateDeliver,
   autoUpdateTimeoutMs,
 } from "./config";
+import { alreadyStarted, resetStarted } from "./once";
 
 const DIR = join(appRoot(), ".data", "auto-updater");
 const STATE_FILE = join(DIR, "state.json");
@@ -358,7 +359,6 @@ export function autoUpdateStatus(): string {
 
 // ── Scheduler ──
 let timer: NodeJS.Timeout | null = null;
-let started = false;
 
 function dueNow(): boolean {
   if (todayJakarta() === loadState().lastRunDate) return false;
@@ -383,13 +383,14 @@ async function checkAndRun(): Promise<void> {
 
 /** Start the daily self-update scheduler. Idempotent (Next may call twice). */
 export function startAutoUpdater(): void {
-  if (started) return;
+  // globalThis guard (see lib/once.ts): HMR must not add a second timer.
+  if (alreadyStarted("auto-updater")) return;
   const tickMin = autoUpdateTickMinutes();
   if (tickMin <= 0) {
     logInfo("auto-update", "scheduler off (AUTO_UPDATE_TICK_MIN=0)");
     return;
   }
-  started = true;
+
   logInfo("auto-update", `starting — daily @ ${String(autoUpdateHour()).padStart(2, "0")}:00 (Asia/Jakarta), tick ${tickMin}m`);
   // Give bots a moment to register push targets, then check once (handles a
   // server that boots inside the grace window), then on interval.
@@ -406,5 +407,5 @@ export async function runAutoUpdaterTick(): Promise<void> {
 export function stopAutoUpdater(): void {
   if (timer) clearInterval(timer);
   timer = null;
-  started = false;
+  resetStarted("auto-updater");
 }

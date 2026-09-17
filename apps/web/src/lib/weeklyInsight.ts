@@ -25,6 +25,7 @@ import { readHabits } from "./habits";
 import { tokenize } from "./rag";
 import { pushToOwner } from "../channels/pushTarget";
 import { logInfo, logError } from "./appLogger";
+import { alreadyStarted, resetStarted } from "./once";
 
 const MOOD_LABEL_ID: Record<string, string> = {
   great: "luar biasa",
@@ -311,7 +312,6 @@ function allUserKeys(): string[] {
 
 let lastFiredDate = readLastFiredDate();
 let timer: ReturnType<typeof setInterval> | null = null;
-let started = false;
 
 async function tick(): Promise<void> {
   const now = new Date();
@@ -338,8 +338,8 @@ async function tick(): Promise<void> {
 
 /** Start the weekly insight runner. Idempotent. */
 export function startWeeklyInsightRunner(): void {
-  if (started) return;
-  started = true;
+  // globalThis guard (see lib/once.ts): HMR must not add a second timer.
+  if (alreadyStarted("weekly")) return;
   if (!weeklyInsightHour()) {
     logInfo("weekly", "disabled (WEEKLY_INSIGHT_HOUR=0)");
     return;
@@ -358,7 +358,7 @@ export async function runWeeklyInsightTick(): Promise<void> {
 export function stopWeeklyInsightRunner(): void {
   if (timer) clearInterval(timer);
   timer = null;
-  started = false;
+  resetStarted("weekly");
 }
 
 // Re-exported for tests.

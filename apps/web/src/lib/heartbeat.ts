@@ -13,9 +13,9 @@ import { pushToOwner } from "../channels/pushTarget";
 import { heartbeatMinutes } from "./config";
 import { logInfo, logError } from "./appLogger";
 import { wibDay } from "./time";
+import { alreadyStarted, resetStarted } from "./once";
 
 let timer: NodeJS.Timeout | null = null;
-let started = false;
 
 function heartbeatIntervalMs(): number {
   const n = heartbeatMinutes();
@@ -150,8 +150,8 @@ async function tick(): Promise<void> {
 
 /** Start the heartbeat loop. Idempotent — safe to call twice (Next may invoke twice). */
 export function startHeartbeat(): void {
-  if (started) return;
-  started = true;
+  // globalThis guard (see lib/once.ts): HMR must not add a second timer.
+  if (alreadyStarted("heartbeat")) return;
   const interval = heartbeatIntervalMs();
   if (!interval) {
     logInfo("heartbeat", "disabled (HEARTBEAT_INTERVAL_MINUTES=0)");
@@ -178,5 +178,5 @@ export async function runHeartbeatTick(): Promise<void> {
 export function stopHeartbeat(): void {
   if (timer) clearInterval(timer);
   timer = null;
-  started = false;
+  resetStarted("heartbeat");
 }

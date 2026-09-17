@@ -13,6 +13,7 @@ import { join, dirname } from "node:path";
 import { appRoot } from "./users";
 import { contextSampleSeconds } from "./config";
 import { logInfo } from "./appLogger";
+import { alreadyStarted, resetStarted } from "./once";
 
 export interface ActiveContext {
   app: string;
@@ -22,7 +23,6 @@ export interface ActiveContext {
 }
 
 let timer: NodeJS.Timeout | null = null;
-let started = false;
 let lastWrite: ActiveContext | null = null;
 
 function lastFile(): string {
@@ -119,8 +119,8 @@ export async function currentContextTextFresh(): Promise<string> {
 
 /** Start the periodic sampler. Idempotent; macOS-only, unref'd (never keeps process alive). */
 export function startContextSampler(): void {
-  if (started) return;
-  started = true;
+  // globalThis guard (see lib/once.ts): HMR must not add a second timer.
+  if (alreadyStarted("context")) return;
   const seconds = contextSampleSeconds();
   if (!seconds) {
     logInfo("context", "disabled (CONTEXT_SAMPLE_SECONDS=0) — context_active akan sample saat dipanggil");
@@ -140,5 +140,5 @@ export function startContextSampler(): void {
 export function stopContextSampler(): void {
   if (timer) clearInterval(timer);
   timer = null;
-  started = false;
+  resetStarted("context");
 }

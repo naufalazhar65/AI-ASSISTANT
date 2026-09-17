@@ -38,6 +38,7 @@ import { classifyAssistantError } from "@/lib/assistantError";
 import { defaultProviderId } from "@/lib/providers";
 import { buildStatusReport } from "@/lib/status";
 import { handleUnifiedCommand, ChatSessionState } from "@/lib/channelMessage";
+import { alreadyProcessed, alreadyStarted } from "../lib/once";
 
 /**
  * Escape helper for Telegram legacy Markdown (parse_mode="Markdown"), which only
@@ -173,11 +174,11 @@ export function isValidTelegramConfig(): boolean {
 
 /** Singleton guard: only one bot instance per process (Next invokes register
  *  more than once in dev; two getUpdates long-pollers would 409 each other). */
-let startAttempted = false;
 
 export async function startTelegramBot(): Promise<void> {
-  if (startAttempted) return;
-  startAttempted = true;
+  // globalThis guard: a re-evaluated module (HMR) must not start a SECOND poller
+  // (that also caused `409 Conflict ... other getUpdates`).
+  if (alreadyStarted("telegram-bot")) return;
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
     console.log("[telegram] TELEGRAM_BOT_TOKEN not set — bot not started");
@@ -189,6 +190,15 @@ export async function startTelegramBot(): Promise<void> {
   }
 
   const bot = new Bot(token);
+  // One update = one turn, even if Telegram redelivers it (long-poll retry after
+  // a 409/network error). Keyed by update_id, before any handler runs.
+  bot.use(async (ctx, next) => {
+    if (alreadyProcessed("telegram", ctx.update.update_id)) {
+      console.warn(`[telegram] duplicate update ignored (${ctx.update.update_id})`);
+      return;
+    }
+    await next();
+  });
   const sessions = new Map<number, ChatState>();
 
   const getState = (chatId: number): ChatState => {

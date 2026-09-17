@@ -16,9 +16,9 @@ import { pushToOwner } from "../channels/pushTarget";
 import { recapHour } from "./config";
 import { logInfo, logError } from "./appLogger";
 import { isFillerLine, isNoiseLine, redactSecrets } from "./memoryNoise";
+import { alreadyStarted, resetStarted } from "./once";
 
 let timer: NodeJS.Timeout | null = null;
-let started = false;
 let lastRecapDay = readLastRecapDay();
 
 // Persist the last recap day to disk (`.data/recap-state.json`) so a server
@@ -234,8 +234,8 @@ async function tick(): Promise<void> {
 
 /** Start the recap runner. Idempotent. */
 export function startRecapRunner(): void {
-  if (started) return;
-  started = true;
+  // globalThis guard (see lib/once.ts): HMR must not add a second timer.
+  if (alreadyStarted("recap")) return;
   if (!recapHour()) {
     logInfo("recap", "disabled (RECAP_HOUR=0)");
     return;
@@ -254,5 +254,5 @@ export async function runRecapTick(): Promise<void> {
 export function stopRecapRunner(): void {
   if (timer) clearInterval(timer);
   timer = null;
-  started = false;
+  resetStarted("recap");
 }

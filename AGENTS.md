@@ -39,7 +39,7 @@ Discord gotcha (2026-09-03): a first-ever **DM** arrives as a bare packet that d
   - `npx tsx packages/state-machine/verify.ts`
   - `npx tsx apps/web/verify.ts`
 
-**HABIT (wajib):** setelah selesai mengerjakan fitur/perubahan apa pun, ALWAYS restart server sebelum report: `pkill -f "next dev"; rm -rf apps/web/.next; nohup npm run dev -w @voice/web > /tmp/mia-dev.log 2>&1 &` lalu cek `curl -s -m 10 http://localhost:3000/api/health` (harus `{"ok":true}`) — kode baru baru aktif setelah restart (server-side module cache).
+**HABIT (wajib):** setelah selesai mengerjakan fitur/perubahan apa pun, ALWAYS restart server sebelum report. Kill **per port** dan TUNGGU port bebas (jangan `pkill -f "next dev"` saja + `sleep 3`): `lsof -ti tcp:3000 | xargs -r kill; pkill -f "next dev"; for i in $(seq 1 20); do lsof -ti tcp:3000 >/dev/null 2>&1 || break; sleep 1; done; rm -rf apps/web/.next; nohup npm run dev -w @voice/web > /tmp/mia-dev.log 2>&1 &` lalu cek `curl -s -m 10 http://localhost:3000/api/health` (harus `{"ok":true}`). **Kenapa:** prosedur lama sempat meninggalkan proses lama hidup berdampingan → DUA instance memproses pesan yang sama (owner dapat 2 prompt `remind_me`) dan Telegram mencatat `409 Conflict ... other getUpdates`. Setelah start, verifikasi `grep -c "logged in as" /tmp/mia-dev.log` = 1 dan tidak ada 409.
 
 ## Provider
 
@@ -233,6 +233,41 @@ OPS GOTCHA — "AI tidak merespons" / long hang on opencode (2026-09-03): the `o
 - **macOS storage**: `df /` = sealed system snapshot (~40% always); the honest number is `/System/Volumes/Data`.
 - **Strict gateways** (OpenCode Go) reject non-standard fields anywhere in the request (tools[].risk) — serialize standard OpenAI schema only.
 - **Telegram typing** is best-effort UI: some clients don't render bot typing; keep it (cheap) but don't rely on it as the only waiting signal.
+
+## Session 2026-09-17 (format push reminder) — kalimat penutup nyempil
+
+Owner melaporkan push reminder terasa aneh:
+`🌸 Mia — Mas Naufal, udah makan siang belum? Jangan skip ya 😄 · pukul 12:12` lalu baris kedua `Pelan-pelan aja, aku di sini`.
+
+Akar masalahnya bukan satu kalimat, tapi **desain templating**: `reminderMessage` membungkus SEMUA teks reminder dengan template (`{text}`, `Beb, {text} 🌸`, `saatnya {text} 🌸`, `{text}, yuk.`), menambahkan TAILS acak, lalu membuang 🌸. Untuk kalimat utuh hasil model ini menghasilkan omong kosong (tercetak saat audit): `"saatnya Bangun tidur Mas Naufal!"`, `"…belum? Jangan skip ya 😄, yuk."`, `"Beb, Mas Naufal, udah makan siang belum?…"`, `"Beb, Isi perut dulu ya…"`.
+
+Perbaikan (menyederhanakan, bukan menambah aturan):
+- **Kalimat utuh dipakai APA ADANYA** (tanpa template, tanpa TAILS — satu baris).
+- Template hanya untuk **teks pendek** (`isTerseReminder`: ≤2 kata tanpa tanda baca/emoji, mis. "makan"/"minum air"), dan selalu memilih varian yang menutup sendiri (`hasOwnCloser`).
+- TAILS dihapus seluruhnya; 🌸 tetap satu (dari wrapper channel), jam tetap 24-jam WIB.
+- Helper murni `hasOwnCloser`/`isTerseReminder` + tes (total `vitest` 27 tes) yang mengunci: keluaran satu baris, tanpa template untuk kalimat utuh, tanpa "Pelan-pelan/Semangat".
+
+## Session 2026-09-17 (verbatim hijack) — balasan tertimpa daftar reminder
+
+Owner mengirim "halo" tapi menerima balasan daftar reminder. Reproduksi menunjukan rantai sebenarnya: pada **"ingetin aku makan siang ya nanti jam 12"** model memanggil `reminders_list` (untuk konteks), dan **verbatim fast-path** (`VERBATIM_LIST`) mengganti SELURUH balasan Mia dengan output tool mentah → user tidak pernah dapat konfirmasi, dan intent `remind_me` yang belum tuntas "bocor" ke pesan berikutnya (muncul prompt konfirmasi lain di giliran "halo"). Penjadwalan deterministik sebenarnya tetap berjalan (suffix `(terjadwal)`), tapi balasannya menyesatkan.
+
+Perbaikan: gate di `agent.ts` — fast-path hanya menimpa balasan bila **user memang meminta daftar itu**:
+- `userAskedForList(tool, userText)` (pure, tested): tool daftar **personal** (`reminders_list`, `list_tasks`, `list_notes`, `calendar_list`, `plan_list`, `gmail_*`, `hotel_search`, `persona_show`, …) hanya menimpa bila pesan user memuat kata daftar/status (`LIST_ASK_RE`) dan bukan permintaan SET (`SET_VERB_RE`), kecuali ada permintaan eksplisit "apa aja/daftar/lihat/cek" ("ingetin aku, reminder apa aja yang aktif?" → tetap daftar).
+- Tool task/security (recon, finding, poc, suite_hunt, …) tetap selalu menimpa — outputnya memang deliverable-nya, dan sapaan tidak mungkin memicunya.
+Verifikasi: "ingetin aku makan siang jam 12" → balasan konfirmasi normal (tidak ada daftar), "halo" → sapaan, "reminder kamu apa aja?" → daftar verbatim (masih benar).
+
+## Session 2026-09-17 (double-turn) — satu pesan diproses DUA kali
+
+Owner menerima **dua prompt konfirmasi `remind_me`** untuk satu pesan "ingetin aku makan siang jam 12". Log menunjukkan pesan Discord yang sama di-handle dua kali (`msg … / turn start / turn done` dua kali) dan Telegram mencatat `409 Conflict: terminated by other getUpdates request` = **ada instance kedua hidup** saat itu (prosedur restart lama `pkill -f "next dev"` + `sleep 3` tidak menjamin anak `next-server` mati sebelum instance baru start).
+
+Perbaikan (kelas bug: inbound message / start runner harus "sekali per PROSES"):
+- **`lib/once.ts`** — primitif process-wide di `globalThis` (module-level `let` di-reset oleh HMR sehingga guard/start bisa lahir dua kali): `alreadyProcessed(kind, id)` (dedupe pesan masuk, ring 500 id) + `alreadyStarted(key)`/`resetStarted(key)`.
+- **Discord**: `alreadyProcessed("discord", msg.id)` di awal handler (duplikat di-log `duplicate message ignored`, bukan diproses) + dedupe `interaction.id`.
+- **Telegram**: satu middleware `bot.use(...)` mendedupe via `ctx.update.update_id` (menutup semua tipe pesan: text/voice/document/photo).
+- **Guard start** bot + seluruh runner (heartbeat, briefing, weekly, recap, winddown, context, auto-updater, automation-runner) kini `alreadyStarted(...)` — HMR tidak bisa menambah timer/client kedua (dulu bisa → push dobel).
+- **Prosedur restart** di AGENTS diperbaiki: kill **per port** + tunggu port bebas (lihat HABIT di atas), lalu verifikasi `grep -c "logged in as"` = 1 dan tidak ada 409.
+
+Verifikasi setelah perbaikan: start log berisi tepat satu `logged in as`, satu `[telegram] starting`, **0** 409, dan setiap runner log `starting —` sekali. `vitest` +`once.test.ts` (dedupe window/cap + guard idempotence) → 24 tes.
 
 ## Session 2026-09-17 (live drill + anti-regresi) — bug dari giliran nyata
 

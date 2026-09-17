@@ -40,6 +40,7 @@ import { classifyAssistantError } from "@/lib/assistantError";
 import { defaultProviderId } from "@/lib/providers";
 import { buildStatusReport } from "@/lib/status";
 import { handleUnifiedCommand, ChatSessionState } from "@/lib/channelMessage";
+import { alreadyProcessed, alreadyStarted } from "../lib/once";
 
 /** Minimal sendable text surface we rely on (any discord.js text channel). */
 type SendableChannel = { send: (content: string) => Promise<Message> };
@@ -138,11 +139,10 @@ export function isValidDiscordConfig(): boolean {
 }
 
 /** Singleton guard: only one client per process (Next invokes register twice). */
-let startAttempted = false;
 
 export async function startDiscordBot(): Promise<void> {
-  if (startAttempted) return;
-  startAttempted = true;
+  // globalThis guard: a re-evaluated module (HMR) must not start a SECOND client.
+  if (alreadyStarted("discord-bot")) return;
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
     console.log("[discord] DISCORD_BOT_TOKEN not set — bot not started");
@@ -235,6 +235,7 @@ export async function startDiscordBot(): Promise<void> {
   // directly instead of guiding to prefix. Keep prefix "/" messages working too.
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
+      if (alreadyProcessed("discord-interaction", interaction.id)) return;
       console.log(`[discord] interaction type=${interaction.type} id=${interaction.id} ${interaction.isChatInputCommand() ? `cmd=${interaction.commandName}` : interaction.isAutocomplete() ? "autocomplete" : "other"}`);
       if (interaction.isChatInputCommand()) {
         const cmd = interaction.commandName;
@@ -305,6 +306,13 @@ export async function startDiscordBot(): Promise<void> {
       }
       // Ignore the bot's own messages and (optionally) non-allow-listed channels.
       if (!msg.author || msg.author.bot) return;
+      // One inbound message = one turn, even if Discord redelivers it (gateway
+      // resume/replay) — live bug: the same message ran two full turns and sent
+      // two `remind_me` confirmation prompts.
+      if (alreadyProcessed("discord", msg.id)) {
+        console.warn(`[discord] duplicate message ignored (${msg.id})`);
+        return;
+      }
       console.log(`[discord] msg author=${msg.author.id} channel=${msg.channelId} allowedUser=${isAllowedUser(msg)} allowedChannel=${isAllowedChannel(msg)}`);
       if (!isAllowedMessage(msg)) return;
       const user = userKeyFor(msg);

@@ -13,6 +13,7 @@ import { defaultProviderId } from "./providers";
 import { pushToOwner } from "../channels/pushTarget";
 import { addCorrection } from "./corrections";
 import { appendDailyMemory } from "./dailyMemory";
+import { alreadyStarted } from "./once";
 
 const running = new Set<string>();
 

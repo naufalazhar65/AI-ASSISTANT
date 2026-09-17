@@ -12,6 +12,8 @@ import { clockLabel, wibDay, wibDayIndex, wibDailyNext } from "./time";
 import { isSilentAutomationReply } from "./automationRunner";
 import { parseLatLonAnywhere } from "./geo";
 import { resolveFavoriteQuery } from "./spotify";
+import { userAskedForList } from "./agent";
+import { reminderMessage, isTerseReminder, hasOwnCloser } from "./reminderMessage";
 
 const t = (iso: string) => new Date(iso).getTime();
 
@@ -106,5 +108,59 @@ describe("place coordinates", () => {
       .toEqual({ lat: -6.378806, lon: 106.712563 });
     expect(parseLatLonAnywhere("2026, 17")).toBeNull();
     expect(parseLatLonAnywhere("Jakarta")).toBeNull();
+  });
+});
+
+describe("verbatim list fast-path gate (no hijacked replies)", () => {
+  it("only lets a personal list REPLACE the reply when the user asked for it", () => {
+    // live bug: "ingetin aku makan siang jam 12" made the model call reminders_list
+    // for context and the user got a reminder LIST instead of a confirmation
+    expect(userAskedForList("reminders_list", "ingetin aku makan siang ya nanti jam 12")).toBe(false);
+    expect(userAskedForList("reminders_list", "bikin reminder jam 7 pagi")).toBe(false);
+    expect(userAskedForList("reminders_list", "halo")).toBe(false);
+    expect(userAskedForList("list_tasks", "tambah tugas beli susu")).toBe(false);
+    expect(userAskedForList("list_notes", "hapus catatan lama")).toBe(false);
+    // a real list ask still takes the fast-path
+    expect(userAskedForList("reminders_list", "reminder kamu apa aja?")).toBe(true);
+    expect(userAskedForList("reminders_list", "ingetin aku, reminder apa aja yang aktif?")).toBe(true);
+    expect(userAskedForList("list_tasks", "tugas aku apa aja?")).toBe(true);
+    expect(userAskedForList("hotel_search", "cari hotel di bandung")).toBe(true);
+    // task/security tools always win — their output IS the deliverable
+    expect(userAskedForList("recon_subdomains", "halo")).toBe(true);
+    expect(userAskedForList("finding_list", "scan target ini")).toBe(true);
+  });
+});
+
+describe("reminder push formatting (single coherent line)", () => {
+  it("uses a complete sentence as-is — no template, no extra supportive sentence", () => {
+    // live oddity: "…Jangan skip ya 😄 · pukul 12:12" followed by
+    // "Pelan-pelan aja, aku di sini" read like a non-sequitur.
+    const out = reminderMessage("Mas Naufal, udah makan siang belum? Jangan skip ya 😄", "12:12");
+    expect(out).toBe("Mas Naufal, udah makan siang belum? Jangan skip ya 😄 · pukul 12:12");
+    expect(out.split("\n")).toHaveLength(1);
+    expect(out).not.toMatch(/Pelan-pelan|Semangat|Jangan sampai kelewat/);
+    expect(out).not.toContain("🌸"); // the channel wrapper carries the single flower
+    for (const full of [
+      "Bangun tidur Mas Naufal! ☀️🌸",
+      "Selamat pagi, saatnya melek ya Mas Naufal ☀️",
+      "Isi perut dulu ya, nanti aku temenin makan 😄",
+      "jangan lupa minum air",
+    ]) {
+      expect(reminderMessage(full, "06:00").startsWith(full.replace(/🌸\s*$/, "").trim().slice(0, 12))).toBe(true);
+      expect(reminderMessage(full, "06:00")).not.toMatch(/saatnya (Bangun|jangan)/);
+    }
+  });
+
+  it("templates only a terse nudge, always with a closer", () => {
+    expect(isTerseReminder("makan")).toBe(true);
+    expect(isTerseReminder("minum air")).toBe(true);
+    expect(isTerseReminder("Mas Naufal, udah makan siang belum?")).toBe(false);
+    expect(hasOwnCloser("makan")).toBe(false);
+    expect(hasOwnCloser("Beb, makan 🌸")).toBe(true);
+    for (let i = 0; i < 20; i++) {
+      const out = reminderMessage("makan", "12:00");
+      expect(out).not.toContain("makan makan");
+      expect(out.split("\n")).toHaveLength(1);
+    }
   });
 });

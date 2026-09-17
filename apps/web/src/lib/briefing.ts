@@ -20,9 +20,9 @@ import { logInfo, logError } from "./appLogger";
 import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { userDataRoot, isTestUserKey, appRoot, canonicalUserKey } from "./users";
+import { alreadyStarted, resetStarted } from "./once";
 
 let timer: NodeJS.Timeout | null = null;
-let started = false;
 let lastBriefingDay = (() => {
   // Persisted dedup: a restart during the briefing hour must not double-push
   // (same lesson as recap.ts / weeklyInsight.ts).
@@ -244,8 +244,8 @@ async function tick(): Promise<void> {
 
 /** Start the briefing runner. Idempotent. */
 export function startBriefingRunner(): void {
-  if (started) return;
-  started = true;
+  // globalThis guard (see lib/once.ts): HMR must not add a second timer.
+  if (alreadyStarted("briefing")) return;
   if (!briefingHour() || !briefingEnabled()) {
     logInfo("briefing", "disabled (BRIEFING_HOUR=0 or BRIEFING_ENABLED=0)");
     return;
@@ -264,5 +264,5 @@ export async function runBriefingTick(): Promise<void> {
 export function stopBriefingRunner(): void {
   if (timer) clearInterval(timer);
   timer = null;
-  started = false;
+  resetStarted("briefing");
 }

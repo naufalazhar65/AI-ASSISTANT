@@ -847,6 +847,47 @@ interface TurnCollector {
   spotifyCallsExecuted?: Set<string>;
 }
 
+// ── Verbatim list fast-path gate ──────────────────────────────────────────────
+// The fast-path replaces Mia's whole reply with the raw tool output. That is what
+// we want when the user ASKED for the list (models collapse bullets into prose),
+// but it must not hijack an unrelated turn: live bug, "ingetin aku makan siang
+// jam 12" made the model call `reminders_list` for context and the user got a
+// reminder LIST instead of a confirmation (and the real `remind_me` intent leaked
+// into the next message).
+
+/** Words that make a message a LIST/status question. */
+const LIST_ASK_RE = /\b(apa(?:\s+aja|\s+saja)?|daftar|list|cek|lihat|tampilkan|tunjuk(?:kan)?|show|berapa|gimana|bagaimana|status|reminder|pengingat|tugas|task|todo|catatan|note|jadwal|agenda|calendar|file|upload|dokumen|plan|rencana|automation|otomatis|skill|kemampuan|email|gmail|inbox|berita|news|hotel|film|bioskop|kereta|bus|mood|memory|memori)\b/i;
+
+/** Words that make a message a SET/CHANGE request (not a list request). */
+const SET_VERB_RE = /\b(tambah|tambahin|bikin|buat|set|pasang|jadwalin|ingetin|ingatkan|inget|ingat|schedule|add|simpan|catat|hapus|batal|cancel|ganti|ubah|move|pindah|matiin|matikan)\b/i;
+
+/** "apa aja / daftar / lihat / cek" — an explicit ask to SEE the list, which wins
+ *  over a set verb ("ingetin…, reminder apa aja yang aktif?"). */
+const EXPLICIT_LIST_RE = /\b(apa(?:\s+aja|\s+saja)?|daftar|list|lihat|cek|tampilkan|tunjuk(?:kan)?|show)\b/i;
+
+/** Tools whose output only replaces the reply when the user asked for that list. */
+const PERSONAL_LIST_TOOLS = new Set([
+  "reminders_list", "reminders_mac_list", "list_tasks", "list_notes", "list_uploads",
+  "calendar_list", "calendar_mac_list", "plan_list", "plan_get", "automation_list",
+  "skill_list", "skill_search", "gmail_list", "gmail_search", "google_news", "briefing",
+  "recap", "weekly_insight", "hotel_search", "cinema_showtimes", "train_search", "bus_search",
+  "mood_recent", "memory_get", "search_memory", "learnings_search", "persona_show",
+]);
+
+/**
+ * True when the raw tool output may REPLACE the reply: the user must actually be
+ * asking for a list/status (or the tool is a task/security tool whose output IS
+ * the deliverable). Pure — unit-tested.
+ */
+export function userAskedForList(toolName: string, userText: string): boolean {
+  if (!PERSONAL_LIST_TOOLS.has(toolName)) return true;
+  const text = (userText || "").trim();
+  if (!text) return false;
+  if (!LIST_ASK_RE.test(text)) return false;
+  if (SET_VERB_RE.test(text) && !EXPLICIT_LIST_RE.test(text)) return false;
+  return true;
+}
+
 async function runAgent(
   messages: ChatMessage[],
   url: string,
@@ -1002,12 +1043,17 @@ async function runAgent(
   // never take the verbatim fast-path there, or a follow-up list_* would mask
   // the real outcome (e.g. complete_task failed → "Belum ada tugas" instead of
   // the failure).
-  if (!collector.suppressVerbatim && verbatimCalls.length >= 1) {
+  // Only hijack the reply when the user actually asked for this list (or the tool
+  // is a task/security tool) — otherwise the model's own answer wins and the tool
+  // output stays as context in `messages`.
+  const lastUserText = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content;
+  const askedVerbatim = verbatimCalls.filter((c) => userAskedForList(c.name, lastUserText ? messageText(lastUserText) : ""));
+  if (!collector.suppressVerbatim && askedVerbatim.length >= 1) {
     // The model sometimes requests the same tool twice in one turn (e.g. two
     // google_news calls) — execute+collect each tool name only once, otherwise
     // the verbatim output would double.
     const done = new Set<string>();
-    for (const vcall of verbatimCalls) {
+    for (const vcall of askedVerbatim) {
       if (done.has(vcall.name)) continue;
       done.add(vcall.name);
       const content = await executeTool(vcall, user);

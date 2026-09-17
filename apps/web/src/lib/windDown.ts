@@ -5,6 +5,7 @@ import { appRoot, isTestUserKey, userDataRoot } from "./users";
 import { pushToOwner } from "../channels/pushTarget";
 import { logInfo, logError } from "./appLogger";
 import { dayRotated } from "./dayRotated";
+import { alreadyStarted, resetStarted } from "./once";
 
 function windDownHour(): number {
   const v = Number(process.env.WIND_DOWN_HOUR);
@@ -50,7 +51,6 @@ const WIND_DOWN_LINES = [
 
 let lastFired = readLast();
 let timer: ReturnType<typeof setInterval> | null = null;
-let started = false;
 
 /** Day-rotated wind-down nudge line (exported for verify variety test). */
 export function windDownMessage(): string {
@@ -74,13 +74,13 @@ async function tick(): Promise<void> {
 }
 
 export function startWindDownRunner(): void {
-  if (started) return;
-  started = true;
+  // globalThis guard (see lib/once.ts): HMR must not add a second timer.
+  if (alreadyStarted("winddown")) return;
   if (!windDownHour()) { logInfo("winddown", "disabled"); return; }
   logInfo("winddown", `starting — daily at ${String(windDownHour()).padStart(2, "0")}:00`);
   setTimeout(() => void tick(), 45000);
   timer = setInterval(() => void tick(), 60 * 1000);
   if (timer && typeof timer.unref === "function") timer.unref();
 }
-export function stopWindDownRunner(): void { if (timer) clearInterval(timer); timer = null; started = false; }
+export function stopWindDownRunner(): void { if (timer) clearInterval(timer); timer = null; resetStarted("winddown"); }
 export async function runWindDownTick(): Promise<void> { await tick(); }

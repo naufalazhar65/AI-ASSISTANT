@@ -1,10 +1,17 @@
 // Mia-style reminder push messages (Fase 3).
 //
 // A proactive reminder push should sound like Mia talking, not a raw
-// "Reminder:" template — but it must stay fast and cheap: no LLM turn, just a
-// small randomized template that matches Mia's casual Indonesian persona (🌸,
-// informal tone). Prompt-driven voice/tone lives in the persona; this helper
-// only formats the push line.
+// "Reminder:" template — but it must stay fast and cheap: no LLM turn, just
+// formatting (🌸, informal Indonesian tone, a 24-hour WIB clock).
+//
+// DESIGN: the reminder TEXT is used AS-IS. It is already a complete sentence
+// (the model/users write "Mas Naufal, udah makan siang belum? Jangan skip ya 😄"),
+// and wrapping it in a template produced nonsense in production:
+//   "saatnya Bangun tidur Mas Naufal!"      (template + greeting)
+//   "…belum? Jangan skip ya 😄, yuk."        (question + ", yuk.")
+//   "Beb, Mas Naufal, udah makan siang…"     (double vocative)
+// A template is only applied to a TERSE nudge ("makan", "minum air"), which has
+// no sentence of its own to keep.
 
 const BODIES = [
   "{text}",
@@ -15,28 +22,27 @@ const BODIES = [
   "{text}, yuk.",
 ];
 
-const TAILS = [
-  "",
-  "",
-  "Semangat ya beb 🌸",
-  "Pelan-pelan aja, aku di sini 🌸",
-  "Jangan sampai kelewat ya 😄",
-];
-
-function pick<T>(arr: T[]): T {
+function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-/** True when `text` ends with a "ya" final particle (ignoring trailing emoji/punct). */
-function hasFinalYa(text: string): boolean {
-  const core = text.replace(/[\p{S}\p{P}\s]+$/u, "").trim();
-  return /\bya\b$/iu.test(core);
+/**
+ * True when a body already closes itself (emoji, "!", "?", or a final particle
+ * like "ya/yuk/dong/beb"). Pure — unit-tested.
+ */
+export function hasOwnCloser(body: string): boolean {
+  const b = (body || "").trim();
+  if (!b) return false;
+  if (/[\p{S}!?]\s*$/u.test(b)) return true;
+  const core = b.replace(/[\p{S}\p{P}\s]+$/u, "").trim();
+  return /\b(ya|yuk|dong|nih|deh|beb|sayang)\b$/iu.test(core);
 }
 
-/** Drop a trailing "ya" before a final emoji so a template's own "…, ya!" doesn't
- *  collide with it: "Semangat ya 🌸" → "Semangat 🌸". */
-function dropYa(text: string): string {
-  return text.replace(/\bya\b\s*(?=\s*[\p{S}\p{P}]*$)/iu, "").replace(/[\s,]+$/u, "").trim();
+/** A bare noun-ish nudge ("makan", "minum air") — the only case that gets a template. */
+export function isTerseReminder(text: string): boolean {
+  const raw = (text || "").trim();
+  if (!raw) return false;
+  return raw.split(/\s+/).length <= 2 && !/[\p{S}\p{P}]/u.test(raw);
 }
 
 /**
@@ -44,36 +50,19 @@ function dropYa(text: string): string {
  * `timeLabel` is a short "HH:MM" string shown to reinforce the schedule.
  */
 export function reminderMessage(text: string, timeLabel?: string): string {
-  // "saatnya {text}" read as "saatnya Selamat pagi, saatnya melek ya" when the
-  // reminder text is itself a greeting — use a body that does not prepend it.
   const raw = (text || "").trim();
-  const greetingish = /^(selamat|pagi|siang|sore|malam)\b/i.test(raw) || /\bsaatnya\b/i.test(raw);
-  const greetingPool = BODIES.filter((b) => !/^saatnya /i.test(b));
-  let body = pick(greetingish && greetingPool.length ? greetingPool : BODIES);
-  // Bodies whose own suffix carries a "ya" would read stuttery when the text
-  // already ends in one ("…Semangat ya 🌸" → "…Semangat ya 🌸, ya!"), so strip it.
-  const yaSuffix = /,\s*ya[.!]?\s*$|ya\.\s*$/i.test(body.replace("{text}", ""));
-  // A body starting "jangan lupa …" doubled up when the stored reminder text
-  // already begins with the same imperative ("jangan lupa Jangan lupa makan
-  // siang …"), so drop any leading repeated "jangan lupa" from the text.
-  const isRemindBody = /^jangan\s*lupa/i.test(body);
-  let content = (isRemindBody ? text.trim().replace(/^(?:jangan\s+lupa\s*)+/iu, "") : text.trim());
-  if (yaSuffix && hasFinalYa(content)) content = dropYa(content);
-  // Avoid a trailing-emoji collision when the body already ends in one
-  // ("saatnya … 🌸" + text ending "🌸" → one 🌸, not two).
-  const bodyTrail = body.replace("{text}", "").trimEnd();
-  if (/[\p{S}]$/u.test(bodyTrail)) {
-    content = content.replace(/[\p{S}\p{P}]+$/u, "").trimEnd();
-  }
-  body = body.replace("{text}", content);
-  const tail = pick(TAILS);
   const time = timeLabel ? ` · pukul ${timeLabel}` : "";
-  const composed = tail ? `${body}${time}\n${tail}` : `${body}${time}`;
+  if (!raw) return time.replace(/^\s*·\s*/, "");
+  let body = raw;
+  if (isTerseReminder(raw)) {
+    // Prefer a wording that closes itself so no extra sentence is needed.
+    const closing = BODIES.map((b) => b.replace("{text}", raw)).filter((b) => hasOwnCloser(b));
+    body = pick(closing.length ? closing : BODIES).replace("{text}", raw);
+  }
   // The channel wrapper already prefixes "🌸 Mia — "; a second flower read as a
   // duplicate (live: "🌸 Mia — saatnya Selamat pagi … 🌸"). Keep exactly one.
-  return composed
+  return `${body}${time}`
     .replace(/\s*🌸\s*/gu, " ")
     .replace(/\s+([,.!?])/g, "$1")
-    .replace(/[ \t]+\n/g, "\n")
     .trim();
 }
