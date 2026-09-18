@@ -4,10 +4,10 @@
 // own periodic awareness: every N minutes it checks for overdue/due-soon tasks
 // and nudges the owner if something needs attention. Silent when nothing is pending.
 
-import { readdirSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { userDataRoot, isTestUserKey, canonicalUserKey, appRoot, repoRoot } from "./users";
+import { canonicalUserKey, appRoot, repoRoot } from "./users";
 import { readTasks } from "./tasks";
 import { pushToOwner } from "../channels/pushTarget";
 import { heartbeatMinutes } from "./config";
@@ -23,30 +23,13 @@ function heartbeatIntervalMs(): number {
   return 0; // disabled
 }
 
-function allUserKeys(): string[] {
-  const root = userDataRoot();
-  if (!existsSync(root)) return [];
-  try {
-    const raw = readdirSync(root, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const k of raw) {
-      const c = canonicalUserKey(k) || k;
-      if (!seen.has(c)) { seen.add(c); out.push(c); }
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
 
 async function tick(): Promise<void> {
   const now = Date.now();
   const soonThreshold = now + 60 * 60 * 1000; // due within next hour
-  for (const user of allUserKeys()) {
+  // ONE alert per slot for the owner (same anti-spam rule as briefing/recap):
+  // looping every profile on this machine pushed the same nudge several times.
+  for (const user of [canonicalUserKey("naufalazhar652952") || "naufalazhar652952"]) {
     try {
       // Task alerts (existing heartbeat duty).
       const tasks = readTasks(user);
@@ -130,7 +113,7 @@ async function tick(): Promise<void> {
     if (Date.now() - lastKey < 30 * 60 * 1000) throw new Error("debounced");
     // heuristic: if today's memory >80 lines or >4KB, write checkpoint
     const { readDailyMemory } = await import("./dailyMemory");
-    for (const user of allUserKeys().slice(0, 3)) { // cap 3 users to avoid spam
+    for (const user of [canonicalUserKey("naufalazhar652952") || "naufalazhar652952"]) { // owner only (anti-spam)
       const mem = readDailyMemory(user, todayStr);
       if (!mem || mem.length < 3000) continue;
       const lines = mem.split("\n").length;

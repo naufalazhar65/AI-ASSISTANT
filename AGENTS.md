@@ -448,6 +448,16 @@ Perbaikan:
 
 Gates: typecheck, vitest **86/86** (+`memoryNoise.test.ts`), `verify.ts` EXIT=0 (+assert gerbang internal & peta `memory_where`), lint baseline 39. Residual: `cat_name: Moly` masih berdampingan dengan `pet: kucing bernama Moly` (kunci beda, keduanya benar) — belum digabung karena bisa mengubah makna.
 
+### Lanjutan — sapuan slop menyeluruh (template, push ganda, klaim angka & aksi)
+
+Audit lanjutan atas pertanyaan "masih ada AI slop?":
+1. **Push per-profil yang tersisa**: `heartbeat.ts` masih `for (const user of allUserKeys())` (+ checkpoint `.slice(0,3)`), jadi alert tugas/monitor bisa dobel untuk owner. Sekarang satu push untuk identitas owner, sama seperti briefing/recap/weekly/proactive. Sekalian `allUserKeys` mati + import tak terpakai dibersihkan (lint 38).
+2. **Template statis**: disapu semua pool pesan (briefing/recap/proactive/windDown/weeklyInsight/reminderMessage/heartbeat) untuk kata Inggris, kalimat janggal, dan jam hardcode → tinggal satu: "besok fresh start" di recap → diganti "besok kita mulai lagi dari awal". Tidak ada lagi pool yang meng-hardcode pagi/siang/malam di konteks waktu-agnostik.
+3. **Klaim angka**: recap mood diuji dengan data nyata (user uji): 3 entri (stressed, good, tired) → teks recap menyebut "1x baik, 2x berat" — **cocok dengan store**; tanpa entri, recap tidak menyebut angka sama sekali.
+4. **Klaim aksi**: dibuat detektor (memory harian `Mia:` ber-claim-verb vs audit log `tool:` ±3 menit) dijalankan untuk 2 hari (19 klaim). 13 laporan "mencurigakan" semuanya **false positive setelah dibaca**: klaim status yang memang dibaca via `reminders_list` (penjadwalan terjadi di turn sebelumnya) dan suffix deterministik "(Tersimpan rapi di daftar bacaan…)" yang berasal dari `scheduleLinkCapture`, bukan tool call. Tidak ada fabrikasi aksi yang ditemukan.
+
+Gates: typecheck, vitest 86/86, `verify.ts` EXIT=0, lint 38 (baseline turun dari 39).
+
 ### Lanjutan — penutup template briefing dihapus total
 
 Owner: "Oke, muka baru day-nya… hapus saja kalimat itu, sangat aneh sekali." Kalimat itu sebenarnya sudah hilang dari kode di commit `8925ffa`, tapi permintaan ini dieksekusi lebih tegas: **seluruh blok penutup template briefing dihapus** (`lines.push("", pickFrom([...8 kalimat...], seed))`) sehingga briefing kini hanya: header + agenda/"tanpa plan" + baris mood (kalau ada) + kutipan topik kemarin. Kalimat kutipannya juga diperhalus dari "mau lanjutin hari ini?" (mengandaikan ada pekerjaan tertunda) menjadi "kalau mau lanjut bahas, tinggal bilang ya". Sekalian: `allUserKeys` yang sudah mati di `briefing.ts` dihapus + import tak terpakai dibersihkan (lint 39 → 38). Gates: typecheck, vitest 86/86, `verify.ts` EXIT=0.

@@ -175,7 +175,7 @@ export function buildEveningRecap(rawUser?: unknown, now = new Date()): string {
           : moods.length > 0
             ? pickFrom([
                 `Hari ini moodmu naik-turun (${positive}x positif, ${negative}x berat) — wajar kok, istirahat yang enak ya malam ini.`,
-                `Hari ini campur aduk ya beb (${negative}x berat, ${positive}x baik). Nggak apa-apa, besok fresh start 🌸`,
+                `Hari ini campur aduk ya beb (${negative}x berat, ${positive}x baik). Nggak apa-apa, besok kita mulai lagi dari awal 🌸`,
               ], seed + ":moodNeutral")
             : `Hari ini kamu story-telling banyak, tapi mood belum ke-log — gapapa, aku dengerin terus.`;
   const openers = [
