@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
+import { detectMoodIntent } from "./moodIntent";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
 import { asBodyString, asNumber, asStringArray, redactArgsForDisplay } from "./args";
 import { addReminder, readReminders, type Reminder } from "./reminders";
@@ -130,6 +131,9 @@ export interface ToolDefinition {
  * value the caller supplied, for stores that sanitize themselves.
  */
 export interface ToolContext {
+  /** The user's most recent message this turn. Tools that must only record
+   *  USER-sourced data (e.g. mood_log) verify against it. */
+  lastUserText?: string;
   userKey: string | null;
   rawUser?: unknown;
 }
@@ -1935,6 +1939,13 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (args, ctx) => {
       try {
+        // Mood entries must come from the USER. The model used to log its own
+        // apology phrasing as the user's mood ("maap ya kalo sering bikin kamu
+        // marah" -> angry), which then drove the next morning's "kemarin agak
+        // berat" briefing. Verify against the user's own last message.
+        if (ctx.lastUserText !== undefined && !detectMoodIntent(ctx.lastUserText)) {
+          return 'Mood TIDAK dicatat: pesan terakhir user tidak memuat ungkapan perasaannya sendiri. Hanya catat mood kalau user benar-benar menyebutnya (mis. "aku lagi stres").';
+        }
         const entry = addMood(args.mood, ctx.rawUser, args.note);
         return `Mood tercatat: ${entry.mood}${entry.note ? ` (${entry.note})` : ""}. Kalau kamu butuh pelarian atau pengalihan asik, bilang aja ya 🌸`;
       } catch (err) {
@@ -4846,7 +4857,7 @@ export function registerTool(plugin: ToolPlugin): void {
  * the JSON arguments and routes to the plugin's `execute` (which owns its own
  * per-tool error handling).
  */
-export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<string> {
+export async function executeTool(call: ToolCall, rawUser?: unknown, extra?: { lastUserText?: string }): Promise<string> {
   let args: Record<string, unknown>;
   try {
     args = JSON.parse(call.arguments || "{}");
@@ -4876,7 +4887,7 @@ export async function executeTool(call: ToolCall, rawUser?: unknown): Promise<st
   // Defensive: a plugin that throws must surface as an Error string, never
   // bubble up and 500 the whole turn.
   try {
-    const out = await plugin.execute(args, { userKey, rawUser });
+    const out = await plugin.execute(args, { userKey, rawUser, lastUserText: extra?.lastUserText });
     return out ?? "";
   } catch (err) {
     try { logError({ skill: call.name, summary: `${call.name} threw`, error: err instanceof Error ? err.message.slice(0, 400) : String(err), context: JSON.stringify(args).slice(0, 200), relatedFiles: ["apps/web/src/lib/tools.ts"] }); } catch { /* best-effort */ }

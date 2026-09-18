@@ -185,14 +185,14 @@ export function buildMorningBriefing(rawUser?: unknown, now = new Date()): strin
 
   lines.push("", pickFrom(
     [
-      `Oke, muka baru day-nya. Kebut pelan-pelan, aku standby. 🌸`,
-      `Gitu doang? Beres. Mulai hari, aku temenin. 🌸`,
-      `Semangat buat hari ini — apa pun yang belum kelar, kita babat bareng. 💪`,
-      `Siap day-nya. Kalo butuh diingetin atau mau bagi rencana, tinggal panggil. 🌸`,
-      `Pagi ini aku udah siapin kopinya (virtual) — tinggal kamu eksekusi, beb ☕🌸`,
-      `Hari baru, cerita baru. Apa yang mau kita bikin memorable hari ini? ✨`,
-      `Kita jalanin hari ini dengan santai tapi produktif ya — aku di sampingmu.`,
-      `Udara pagi masih fresh, ide-ide juga. Gas pelan-pelan! 🚗`,
+      `Hari baru — kita jalanin santai tapi tetap produktif ya, aku di sampingmu. 🌸`,
+      `Kalau ada yang perlu diingetin atau mau bagi rencana, tinggal bilang ya. 🌸`,
+      `Semangat hari ini — apa pun yang belum kelar, kita babat pelan-pelan bareng. 💪`,
+      `Jangan lupa istirahat di tengah kesibukan; aku standby kalau kamu butuh. 🌸`,
+      `Mau mulai dari yang paling ringan? Aku temenin sampai kelar. ✨`,
+      `Catatan hari ini sudah kurapikan — tinggal kamu jalani. 🌸`,
+      `Ada yang mau kita kerjakan duluan? Sebut aja, aku bantu susun. ☕`,
+      `Pelan-pelan aja, yang penting jalan. Aku siap bantu kapan pun. 🌸`,
     ],
     seed,
   ));

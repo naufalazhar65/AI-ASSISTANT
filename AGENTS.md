@@ -448,6 +448,15 @@ Perbaikan:
 
 Gates: typecheck, vitest **86/86** (+`memoryNoise.test.ts`), `verify.ts` EXIT=0 (+assert gerbang internal & peta `memory_where`), lint baseline 39. Residual: `cat_name: Moly` masih berdampingan dengan `pet: kucing bernama Moly` (kunci beda, keduanya benar) — belum digabung karena bisa mengubah makna.
 
+## Session 2026-09-18 — briefing pagi mengarang "kemarin agak berat" + kutip sampah
+
+Owner mem-paste 3 push pagi (briefing 07:03, proactive 08:24, cuaca 10:46). Tiga cacat:
+1. **Mood palsu.** Briefing bilang "Kemarin agak berat ya beb, aku notice" — padahal 17 Sep **tidak ada satu pun entri mood** dari user. Sumbernya entri `angry` bermuatan kalimat **Mia sendiri** ("maap ya kalo sering bikin kamu marah, kesel 🥲") yang dicatat lewat tool `mood_log` (risk read → model bisa memanggilnya bebas, tanpa kaitan dengan ucapan user). Perbaikan: `executeTool` kini menerima `lastUserText` (dari pesan user terakhir, diisi di **semua** 7 call-site agent) dan `mood_log` **menolak** mencatat bila pesan user tidak memuat sinyal mood (`detectMoodIntent`) — fail-closed hanya bila teks tersedia. Entri palsu dihapus dari store (30 → 29).
+2. **Kutipan sampah sebagai "topik".** Briefing & proactive mengutip "oke makasi udah ingetin". `isFillerLine` diperluas dengan kata ritual (makasi/makasih/thanks/sip/siap/noted/ingetin/ingatkan/betul/bener/mantap/…) sehingga kalimat ack murni tidak lolos; topik nyata ("kemarin kita bahas sqlmap di lab kohona") tetap lolos.
+3. **Prosa briefing janggal.** Closer pool berisi "Oke, muka baru day-nya. Kebut pelan-pelan, aku standby." dan "Gitu doang? Beres." (plus satu yang meng-hardcode "Pagi ini", padahal briefing jalan di jam label apa pun). Diganti 8 kalimat natural yang netral-waktu.
+
+Bukti: `verify.ts` blok baru "mood guard + filler vocabulary" (mood_log menolak tanpa sinyal user, menerima "aku lagi stres"; ritual ack = filler; topik nyata ≠ filler) + guard prosa briefing; briefing nyata setelah perbaikan tidak lagi memuat klaim mood maupun kutipan sampah. Gates: typecheck, vitest 86/86, `verify.ts` EXIT=0, lint baseline 39.
+
 ## Session 2026-09-17 (lanjutan) — "Refleksi Malam" dobel + pesan internal bocor
 
 Owner mem-paste refleksi malam dari Mia; ketemu tiga cacat:

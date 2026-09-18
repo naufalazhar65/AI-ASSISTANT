@@ -876,6 +876,13 @@ export function normalizeToolCallIds(calls: ToolCall[]): ToolCall[] {
 }
 
 /** Last non-empty user content from the conversation (used for title inference). */
+/** The user's most recent message text (for tools that must verify user-sourced
+ *  data). Returns undefined when there is no user turn. */
+function lastUserTextFrom(messages: ChatMessage[]): string | undefined {
+  const last = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  return last ? messageText(last.content) : undefined;
+}
+
 function lastUserContent(messages: ChatMessage[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]?.role === "user" && typeof messages[i]!.content === "string" && messages[i]!.content) {
@@ -1052,6 +1059,7 @@ async function runAgent(
   console.error(`[agent] round ${round} tool calls: ${toolCalls.map((c) => c.name).join(", ")}`);
 
   const lastUser = lastUserContent(messages);
+  const toolCtx = { lastUserText: lastUser ? messageText(lastUser) : undefined };
   const toolCalls2 = normalizeCalendarCalls(lastUser, toolCalls);
   if (toolCalls2.length === 0 && toolCalls.length > 0) {
     // The model emitted a calendar call only because the user confirmed
@@ -1108,7 +1116,7 @@ async function runAgent(
       // never sees their result.
       const safeCalls = toolCalls2.filter((c) => !risky.includes(c));
       for (const call of safeCalls) {
-        const content = await executeTool(call, user);
+        const content = await executeTool(call, user, toolCtx);
         messages.push({ role: "tool", tool_call_id: call.id, content });
         if (/^error:/i.test(content.trim())) {
           try {
@@ -1133,7 +1141,7 @@ async function runAgent(
     }
     const autoDenied = toolCalls2.filter((c) => !risky.includes(c));
     for (const call of autoDenied) {
-      const content = await executeTool(call, user);
+      const content = await executeTool(call, user, toolCtx);
       messages.push({ role: "tool", tool_call_id: call.id, content });
       if (/^error:/i.test(content.trim())) {
         try { addCorrection(`${call.name} ${call.arguments.slice(0,120)}`, `Error: ${content.slice(0,200)} → use correct tool/args with delivery`, user); appendDailyMemory(user, `[self-correct] ${call.name} failed: ${content.slice(0,200)}`); logError({ skill: call.name, summary: `${call.name} failed in autoDenyRisky`, error: content.slice(0, 800), context: `args ${call.arguments.slice(0,200)}`, relatedFiles: ["apps/web/src/lib/agent.ts"] }); } catch { /* best-effort */ }
@@ -1177,7 +1185,7 @@ const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan",
     for (const vcall of askedVerbatim) {
       if (done.has(vcall.name)) continue;
       done.add(vcall.name);
-      const content = await executeTool(vcall, user);
+      const content = await executeTool(vcall, user, toolCtx);
       if (!/^error:/i.test(content.trim())) {
         collector.verbatimHit = true;
         collector.collect(
@@ -1186,7 +1194,7 @@ const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan",
             : content
         );
         for (const other of toolCalls2.filter((c) => !VERBATIM_LIST.has(c.name))) {
-          const oc = await executeTool(other, user);
+          const oc = await executeTool(other, user, toolCtx);
           messages.push({ role: "tool", tool_call_id: other.id, content: oc });
           // Surface sibling output too — a list + another read tool (e.g.
           // list_uploads + read_upload) must not silently drop the read result.
@@ -1202,7 +1210,7 @@ const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan",
     }
   }
   for (const call of toolCalls2) {
-    let content = await executeTool(call, user);
+    let content = await executeTool(call, user, toolCtx);
     // When web_search returns "No results found." for a search query, add
     // guidance so the model stops retrying the same tool — otherwise it
     // keeps calling web_search until MAX_TOOL_ROUNDS exhaustion.
@@ -2510,7 +2518,7 @@ async function runAssistantTurnImpl(opts: {
       }
       let toolResult: string;
       if (allow) {
-        toolResult = isDedup ? cached!.content : await executeTool(call, opts.user);
+        toolResult = isDedup ? cached!.content : await executeTool(call, opts.user, { lastUserText: lastUserTextFrom(messages) });
         confirmExecuted.set(cacheKey, { at: Date.now(), content: toolResult });
       } else {
         toolResult = "The user declined this action. Do NOT execute it; briefly tell the user you skipped it.";
@@ -2844,7 +2852,7 @@ async function runAssistantTurnImpl(opts: {
           c.arguments = "{}"; // 9router hallucinated raw junk (e.g. a bare id) — drop it
         }
         try {
-          const r = await executeTool(c, opts.user);
+          const r = await executeTool(c, opts.user, { lastUserText: lastUserTextFrom(messages) });
           text = appendTurnResult(text, r);
         } catch {
           /* tool plugins surface errors in their own result text */

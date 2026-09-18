@@ -767,6 +767,25 @@ async function main() {
       if (redactSecrets(text).includes(PW)) throw new Error(`credential leaked in memory/logs: ${text}`);
     }
     if (redactSecrets("Password minimal 8 karakter").includes("[redacted]")) throw new Error("redaction must not mangle ordinary prose");
+    // mood_log must be USER-sourced: a model apology ("maap ya kalo sering bikin
+    // kamu marah") was logged as the user's mood and drove a wrong briefing.
+    const moodRefused = await executeTool({ id: "t", name: "mood_log", arguments: JSON.stringify({ mood: "angry", note: "maap ya" }) }, "verify_mood_guard", { lastUserText: "dimana kamu nyimpen memori" });
+    if (!/TIDAK dicatat/.test(moodRefused)) throw new Error(`mood_log must refuse a non-user mood: ${moodRefused.slice(0, 120)}`);
+    const moodOk = await executeTool({ id: "t", name: "mood_log", arguments: JSON.stringify({ mood: "stressed" }) }, "verify_mood_guard", { lastUserText: "aku lagi stres banget kerjaan numpuk" });
+    if (!/Mood tercatat/.test(moodOk)) throw new Error(`mood_log must accept a real user mood: ${moodOk.slice(0, 120)}`);
+    const { isFillerLine } = await import("./src/lib/memoryNoise");
+    if (!isFillerLine("oke makasi udah ingetin")) throw new Error("ritual acknowledgement must count as filler");
+    if (isFillerLine("kemarin kita bahas sqlmap di lab kohona")) throw new Error("a real topic must NOT be filler");
+    // Briefing prose must be hour-neutral and free of the old garbled closers
+    // ("Oke, muka baru day-nya", "Gitu doang?").
+    const { buildMorningBriefing } = await import("./src/lib/briefing");
+    const brief = buildMorningBriefing("naufalazhar652952", new Date());
+    if (brief) {
+      if (/day-nya|Gitu doang/i.test(brief)) throw new Error("briefing still uses a garbled closer");
+      if (/\bPagi ini\b/i.test(brief)) throw new Error("briefing closer must not hardcode the time of day");
+    }
+    rmSync(join(appRoot(), ".data", "users", "verify_mood_guard"), { recursive: true, force: true });
+    console.log("mood guard + filler vocabulary: OK");
     console.log("secret redaction (args display + logs/json + credentials): OK");
 
     // home-path masking at the channel send boundary

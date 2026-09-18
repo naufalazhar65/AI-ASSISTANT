@@ -70,7 +70,11 @@ const FILLER_WORDS = new Set([
   "iya", "iyaa", "iyasih", "dong", "sih", "deh", "nih", "tuh", "wkwk",
   "wkwkwk", "haha", "hahaha", "hehe", "hmm", "lol", "yuk", "ayo", "udah",
   "udh", "belum", "kok", "apa", "gimana", "kamu", "aku", "ku", "mu", "mim",
-  "yaps", "yep", "nah", "eh", "wah", "aduh", "huhu",
+  "yaps", "yep", "nah", "eh", "wah", "aduh", "huhu", "noted", "okey", "okee",
+  // Ritual acknowledgements/thanks — not conversation topics (a briefing quoted
+  // "oke makasi udah ingetin" as something we discussed).
+  "makasi", "makasih", "mksh", "thanks", "thank", "thankyou", "thx", "tq",
+  "sip", "siap", "mantap", "betul", "bener", "ingetin", "ingatkan", "inget",
 ]);
 
 /**
