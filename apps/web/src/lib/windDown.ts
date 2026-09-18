@@ -44,7 +44,7 @@ function saveLast(d: string): void { try { mkdirSync(dirname(stateFile()), { rec
 // be wallpaper after week one. All variants still carry the same instruction.
 const WIND_DOWN_LINES = [
   `🌙 Waktunya wind-down, beb — siapin tidur yuk. Matikan layar, tarik napas pelan. Bilang "mau tidur" kalau sudah rebahan, nanti aku catat jam tidurmu 🌸`,
-  `🌙 Malam mulai turun, beb — lampu diredupkan, layar dimatikan. Bilang "mau tidur" kalau sudah clear, agar jam bobo-mu tercatat 🌸`,
+  `🌙 Malam mulai turun, beb — lampu diredupkan, layar dimatikan. Bilang "mau tidur" kalau sudah siap, agar jam bobo-mu tercatat 🌸`,
   `🌙 Wind-down time, beb — gepian berhenti, napas pelan-pelan. Pas sudah rebahan, tinggal bilang "mau tidur" — nanti kucatat ya 😴`,
   `🌙 Udah waktunya slow-down sebelum bobo, beb. Matikan layar dulu ya — kalau sudah nyaman, bilang "mau tidur" biar tercatat jamnya 🌸`,
 ];

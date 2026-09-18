@@ -448,6 +448,18 @@ Perbaikan:
 
 Gates: typecheck, vitest **86/86** (+`memoryNoise.test.ts`), `verify.ts` EXIT=0 (+assert gerbang internal & peta `memory_where`), lint baseline 39. Residual: `cat_name: Moly` masih berdampingan dengan `pet: kucing bernama Moly` (kunci beda, keduanya benar) — belum digabung karena bisa mengubah makna.
 
+### Lanjutan — sapuan menyeluruh #2 (template, log, scheduler, higiene data)
+
+Audit "cek lagi secara menyeluruh", hasilnya:
+1. **Template user-facing disapu semua** (briefing/recap/proactive/windDown/weekly/reminderMessage/heartbeat + prompt). Tiga cacat nyata diperbaiki: (a) `proactive.ts` meng-hardcode "Check-in **pagi**" padahal jendela proactive bisa siang/sore/malam → label kini mengikuti jam (`greetingFor(now)` dari briefing, satu definisi); (b) briefing "Hari ini tanpa plan — **full free day**" → "belum ada plan — bebas, santai aja kalau bisa"; (c) windDown "kalau sudah **clear**" → "kalau sudah siap". Sisanya bersih (recap "Malam ini" benar karena slot-nya 21:00; teks prompt berbahasa Inggris memang untuk model, bukan user).
+2. **Log**: tidak ada error/warning berulang sejak boot (nol `LLM failed`, nol 409, nol ECONNREFUSED).
+3. **Scheduler**: ke-7 runner (heartbeat/briefing/recap/weekly/winddown/auto-update/context) start **tepat sekali**; state file (briefing/recap/winddown/weekly) konsisten.
+4. **Rahasia**: scan `.data` hanya menemukan string aturan deteksi (`BEGIN RSA PRIVATE KEY` di kode scanner), bukan kunci nyata; `.env.local` ter-ignore git (0 file terlacak); retensi audit berjalan (7 file, AUDIT_KEEP_DAYS=7).
+5. **Backup boros (temuan terbesar)**: tiap snapshot menyalin SELURUH `.data` — index codebase 11 MB + screenshot CUA 8 MB + log + upload foto user multi-MB → 5 snapshot = **430 MB**. Kini `backupNow` melewati artefak turunan/transien (`codebase-index.json`, `cua/`, `logs/`, `tool-output/`) dan file >4 MB (`shouldSkipInBackup`, pure + diuji), sehingga satu snapshot 86 MB → **8.7 MB**; 4 snapshot lama dihapus → `.data` **516 MB → 94 MB**.
+6. **User uji** sudah dikecualikan dari push oleh `isTestUserKey`; folder uji yang tersisa dibersihkan (verify_*, probe_smoke, recapprobe, t_summary, test, v) → tinggal `naufalazhar652952`, `naufalazhar65`, `Zigen`, `naufal`, `shared`.
+
+Gates: typecheck, vitest 86/86, `verify.ts` EXIT=0, lint 38.
+
 ### Lanjutan — sapuan slop menyeluruh (template, push ganda, klaim angka & aksi)
 
 Audit lanjutan atas pertanyaan "masih ada AI slop?":

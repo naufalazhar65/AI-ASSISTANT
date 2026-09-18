@@ -151,7 +151,7 @@ export function buildMorningBriefing(rawUser?: unknown, now = new Date()): strin
     lines.push("", "*Masih ada yang minta dituntaskan:*");
     overdue.forEach((t) => lines.push(`  • ⚠ ${t.text.slice(0, 160)}`));
   } else {
-    lines.push("", "Hari ini tanpa plan — full free day, santai aja kalau bisa. 😌");
+    lines.push("", "Hari ini belum ada plan — bebas, santai aja kalau bisa. 😌");
   }
 
   if (holiday) lines.push("", `Hari ini juga tanggal merah: **${holiday}** 🎉`);

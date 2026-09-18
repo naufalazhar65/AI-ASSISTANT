@@ -14,6 +14,7 @@ import { isFillerLine, isNoiseLine } from "./memoryNoise";
 import { readDailyMemory, todayStr } from "./dailyMemory";
 import { pushToOwner } from "../channels/pushTarget";
 import { proactiveEnabled, proactiveHourStart, proactiveHourEnd } from "./config";
+import { greetingFor } from "./briefing";
 import { logInfo, logError } from "./appLogger";
 
 
@@ -105,14 +106,17 @@ export function buildProactiveMessage(rawUser?: unknown, now = new Date()): stri
       .filter((l) => !isNoiseLine(l))[0] ?? "";
 
   const seed = `${String(rawUser ?? "shared")}|${yday}`;
+  // The nudging window is configurable (morning..evening), so the label must
+  // follow the clock — "Check-in pagi" at 4 PM read as a bug.
+  const part = greetingFor(now).toLowerCase();
   const opener = pickFrom(tone === "negative" ? [
     "💙 *Inisiatif Mia* — kemarin mood-mu sempat kerasa berat (aku catat sendiri dari yang kamu ceritakan).",
     "💙 *Hai beb* — kemarin aku notice kamu agak berat, mau aku temenin sebentar? 🌸",
-    "💙 *Check-in pagi* — kemarin ada yang ngganjel dan agak berat ya, aku di sini kalau mau cerita.",
+    `💙 *Check-in ${part}* — kemarin ada yang ngganjel dan agak berat ya, aku di sini kalau mau cerita.`,
     "💙 *Mia di sini* — kemarin kerasa capek dan berat, aku simpen sebagai pengingat buat lebih gentle hari ini.",
   ] : [
-    "💙 *Mia di sini* — pagi beb. Kemarin moodmu naik-turun (ada cerah, ada berat) — aku simpen catatannya.",
-    "💙 *Check-in pagi* — kemarin campur aduk ya beb, ada yang bikin seneng ada yang bikin capek. Gimana pagi ini?",
+    `💙 *Mia di sini* — ${part} beb. Kemarin moodmu naik-turun (ada cerah, ada berat) — aku simpen catatannya.`,
+    `💙 *Check-in ${part}* — kemarin campur aduk ya beb, ada yang bikin seneng ada yang bikin capek. Gimana ${part} ini?`,
   ], seed + ":o");
   const closer = pickFrom([
     "Kamu nggak usah buru-buru balas. Kalau ada yang mau diceritain atau mau aku bantu kecil-kecilin bebannya, aku di sini. 🌸",
