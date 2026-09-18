@@ -448,6 +448,10 @@ Perbaikan:
 
 Gates: typecheck, vitest **86/86** (+`memoryNoise.test.ts`), `verify.ts` EXIT=0 (+assert gerbang internal & peta `memory_where`), lint baseline 39. Residual: `cat_name: Moly` masih berdampingan dengan `pet: kucing bernama Moly` (kunci beda, keduanya benar) — belum digabung karena bisa mengubah makna.
 
+### Lanjutan — penutup template briefing dihapus total
+
+Owner: "Oke, muka baru day-nya… hapus saja kalimat itu, sangat aneh sekali." Kalimat itu sebenarnya sudah hilang dari kode di commit `8925ffa`, tapi permintaan ini dieksekusi lebih tegas: **seluruh blok penutup template briefing dihapus** (`lines.push("", pickFrom([...8 kalimat...], seed))`) sehingga briefing kini hanya: header + agenda/"tanpa plan" + baris mood (kalau ada) + kutipan topik kemarin. Kalimat kutipannya juga diperhalus dari "mau lanjutin hari ini?" (mengandaikan ada pekerjaan tertunda) menjadi "kalau mau lanjut bahas, tinggal bilang ya". Sekalian: `allUserKeys` yang sudah mati di `briefing.ts` dihapus + import tak terpakai dibersihkan (lint 39 → 38). Gates: typecheck, vitest 86/86, `verify.ts` EXIT=0.
+
 ## Session 2026-09-18 — briefing pagi mengarang "kemarin agak berat" + kutip sampah
 
 Owner mem-paste 3 push pagi (briefing 07:03, proactive 08:24, cuaca 10:46). Tiga cacat:
