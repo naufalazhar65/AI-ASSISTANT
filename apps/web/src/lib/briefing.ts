@@ -17,9 +17,9 @@ import { holidayInfo } from "./holiday";
 import { pushToOwner } from "../channels/pushTarget";
 import { briefingEnabled, briefingHour } from "./config";
 import { logInfo, logError } from "./appLogger";
-import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { userDataRoot, isTestUserKey, appRoot, canonicalUserKey } from "./users";
+import { appRoot, canonicalUserKey } from "./users";
 import { alreadyStarted, resetStarted } from "./once";
 
 let timer: NodeJS.Timeout | null = null;
@@ -179,46 +179,11 @@ export function buildMorningBriefing(rawUser?: unknown, now = new Date()): strin
         .map((l) => redactSecrets(l.replace(/^(User|Assistant):\s*/, "")))
         .filter((l) => l && !isNoiseLine(l) && !isFillerLine(l))
         .slice(0, 2);
-      if (snippets.length) lines.push(`Kemarin kita ngobrol soal "${snippets[0].slice(0, 120)}" — aku inget, mau lanjutin hari ini? ✨`);
+      if (snippets.length) lines.push(`Kemarin kita ngobrol soal "${snippets[0].slice(0, 120)}" — kalau mau lanjut bahas, tinggal bilang ya ✨`);
     }
   }
-
-  lines.push("", pickFrom(
-    [
-      `Hari baru — kita jalanin santai tapi tetap produktif ya, aku di sampingmu. 🌸`,
-      `Kalau ada yang perlu diingetin atau mau bagi rencana, tinggal bilang ya. 🌸`,
-      `Semangat hari ini — apa pun yang belum kelar, kita babat pelan-pelan bareng. 💪`,
-      `Jangan lupa istirahat di tengah kesibukan; aku standby kalau kamu butuh. 🌸`,
-      `Mau mulai dari yang paling ringan? Aku temenin sampai kelar. ✨`,
-      `Catatan hari ini sudah kurapikan — tinggal kamu jalani. 🌸`,
-      `Ada yang mau kita kerjakan duluan? Sebut aja, aku bantu susun. ☕`,
-      `Pelan-pelan aja, yang penting jalan. Aku siap bantu kapan pun. 🌸`,
-    ],
-    seed,
-  ));
 
   return lines.join("\n");
-}
-
-function allUserKeys(): string[] {
-  const root = userDataRoot();
-  if (!existsSync(root)) return [];
-  try {
-    const raw = readdirSync(root, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name)
-      .filter((n) => /^[A-Za-z0-9._-]+$/.test(n) && !isTestUserKey(n));
-    // alias Zigen/naufalazhar65 -> same owner, dedupe via canonical key
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const k of raw) {
-      const c = canonicalUserKey(k) || k;
-      if (!seen.has(c)) { seen.add(c); out.push(c); }
-    }
-    return out;
-  } catch {
-    return [];
-  }
 }
 
 async function tick(): Promise<void> {
