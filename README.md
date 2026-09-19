@@ -4,8 +4,8 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-276-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
-[![Playbooks](https://img.shields.io/badge/security%20playbooks-82-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
+[![Tools](https://img.shields.io/badge/tools-287-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Playbooks](https://img.shields.io/badge/security%20playbooks-84-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 Mia (*she/her* 🌸) is a proactive personal assistant **and** an authorized
@@ -131,9 +131,9 @@ Full guide, scope rules, and examples: **[SECURITY.md](./SECURITY.md)**.
 | **Scanners (lab/engagement)** | `pentest_scan` (nmap/nuclei/nikto/ffuf) · `nuclei_custom` · `sqlmap_scan` · `zap_scan` · `trivy_scan` |
 | **Analysis** | `password_strength` · `hash_identify` · `jwt_inspect` · `ioc_extract` · `cvss_score` |
 | **Findings & reports** | `finding_add/list/resolve/export` · `poc_verify` · `writeup` · `hardening_plan/pdf` · `report_generate/save/pdf` · `platform_severity` · `submission_track` |
-| **Knowledge & agility** | `security_playbook` (82 packs) · `hunt_log` (per-target hunt memory: dead/lead/finding + auto-pivot) · `engagement_targets` (ready worklist from active engagements) |
+| **Knowledge & agility** | `security_playbook` (84 packs) · `hunt_log` (per-target hunt memory: dead/lead/finding + auto-pivot) · `engagement_targets` (ready worklist from active engagements) · **`target_brain`** (persistent per-target memory: endpoints, tech, auth, proofs, safe-tested) · **`retest_*`** (regression suite: save → run → verdict) · **`auth_matrix`** (N-role authorization matrix) · **`dom_taint`** (DOM XSS taint analysis) · **`learning_*`** (disclosed report patterns) |
 | **Cloud & tech** | `cloud_misconfig` (S3/GCS/Azure/Firebase/Supabase, keyless) · `tech_watch` (stack fingerprint + CVE on change) |
-| **Autonomy & workflow** | **`bounty_run`** (one command, draft-only: engagement → ROI worklist → campaign → draft findings + report → handoff) · `program_score` (ROI ranking) · `policy_set`/`policy_show` (scoped auto-approve) · `campaign_run` (bounded hunt loop) · `flow_run`/`flow_list` (multi-step sequences + assertions) · `dup_check` · `bounty_status` |
+| **Autonomy & workflow** | **`bounty_run`** (one command, draft-only: engagement → ROI worklist → campaign → **auto exploit_chain** → **auto browser evidence** → draft findings + **PDF** → handoff) · `program_score` (ROI ranking) · `policy_set`/`policy_show` (scoped auto-approve) · `campaign_run` (bounded hunt loop) · `flow_run`/`flow_list` (multi-step sequences + assertions) · `dup_check` · `bounty_status` |
 | **Lab & practice** | `lab_start` → `http://127.0.0.1:4010` (SQLi/XSS/IDOR/SSRF/JWT/CSRF/…, no Docker) · `pentest_resources` |
 
 **Methodology built in:** `counterevidence` → `severity-calibration` →
@@ -161,8 +161,9 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Productivity** | `add_task/list/complete/cancel/reschedule`, `remind_me`, `reminders_list`, `create_automation`, `plan_*` | Daily/heartbeat, internal planning board |
 | **Life** | `mood_log/recent`, `health`, `habit_log/stats`, `spotify_*`, `calendar_*`, `waze_route`, `weather`, `hotel_search`, `cinema_showtimes`, `train_search`, `bus_search` | Keyless travel data, Premium for playback |
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
+| **Superpower** | `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query` | Per-target memory, regression suite, N-role matrix, DOM XSS taint, disclosed patterns |
 
-**277 tools total.** Full list derives from the registry — see
+**287 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---

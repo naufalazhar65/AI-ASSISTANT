@@ -303,6 +303,60 @@ engagement_close id=ENG-…
 
 ---
 
+## 8. Superpower Suite (2026-09-20)
+
+Lima modul pentest canggih yang terintegrasi ke `bounty_run` untuk alur one-command penuh.
+
+### 8.1 `target_brain` — Persistent Target Brain
+| Tool | What |
+|---|---|
+| `target_brain` (read/auto) | Per-target KB: endpoints/params, tech fingerprint, auth model, **TERBUKTI** findings, `safeTested` (request aman), catatan. Action: `brief` (WAJIB sebelum hunt ulang), `list`, `forget`, `note`. Store: `.data/users/<user>/target-brain.json` (atomic, cap 40×120). Auto-write: `content_discover`/`js_mine`→endpoints, `tech_watch`→tech, `finding_add`→proof. |
+
+### 8.2 `retest` — Regression Retest Suite
+| Tool | What |
+|---|---|
+| `retest_list` (read) | Daftar case (filter `target` host). |
+| `retest_add` (write, confirm) | Simpan case manual: request + signature vulnerable (`expect_contains`/`expect_status`). |
+| `retest_run` (write, confirm) | Jalankan case by `id` atau per `target` → verdict 🔴 MASIH RENTAN / 🟢 sudah dipatch / ⚪ error. Scope-gated per case URL. Auto-create dari `finding_add` dg `retest_url`+`retest_expect`. |
+
+### 8.3 `auth_matrix` — Role/Permission Matrix (N-role)
+| Tool | What |
+|---|---|
+| `auth_matrix` (write, confirm) | `endpoints=<list> sessions=<admin,user,guest>` (+ anonymous otomatis) → 6×6 request. Output: matriks status/len + temuan `anonymous-access` & `cross-role` (±5% len). Fail-fast missing session; scope-gated per URL. |
+
+### 8.4 `dom_taint` — DOM XSS Taint Analysis (statik)
+| Tool | What |
+|---|---|
+| `dom_taint` (write, confirm) | Trace SOURCE (`location.*`, `postMessage`, `referrer`) → SINK (`innerHTML`, `eval`, `Function`, `document.write`, `insertAdjacentHTML`, jQuery `.html()`, `setAttribute on*`) di bundle JS. Sanitizer check (window ≤15 baris). Input: `url` (scope-gated) atau `text` (bundle dari `js_mine`). Output: `file:line sink ← source via var` + snippet. **Statik — WAJIB verifikasi manual sebelum finding_add**. |
+
+### 8.5 `learning` — Disclosed Report Patterns
+| Tool | What |
+|---|---|
+| `learning_ingest` (read/auto) | `text`/`url` + `title` → pattern (`vulnClass` 18 kelas, `tech`, `endpointStyle`, `trick`, `detection`) → store `.data/users/<user>/learnings-security.json` (cap 200, dedup class+title). |
+| `learning_query` (read/auto) | `query=<tech> vuln_class=<kelas>` → hint "target seperti ini biasanya kena X via Y" SEBELUM hunt (score = overlap token + boost class match). Tanpa arg = statistik per kelas. |
+
+---
+
+### Integrasi ke `bounty_run`
+
+`bounty_run auto_chain=true auto_evidence=true max_chains=5`:
+
+1. `engagement_create` → `program_score` → worklist ROI
+2. `campaign_run` → `suite_hunt` per host (`deep=true` default)
+3. **Auto exploit_chain** per lead high-signal (heuristic: IDOR→bola_diff, auth_bypass→JWT alg:none, SSRF→OAST, session_fixation)
+4. **Auto browser evidence** (snapshot)
+5. `poc_verify` → `finding_add` (draft, high/medium only, +dup_check)
+6. `generateReport` + **`reportPdf` otomatis** (scoped ke target) → `📎 <path>`
+7. Handoff list → push ke channel
+
+**Gates:** typecheck ✅ · lint 0 error · vitest 104/104 ✅ · verify.ts `superpowers OK` `exploit-chain OK` ✅
+
+**Live test (Discord, Netlify Lab):** 7 findings (2 Critical: SQLi + no-auth admin-data; 3 High: BOLA, header spoof, IDOR PII; 2 Medium: Stored XSS, missing headers) + **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
+
+**Total tools: 287** (8 tool baru: `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query`; CORE 129→128)
+
+---
+
 *Files:* `apps/web/src/lib/security.ts` · `securityWatch.ts` · `engagement.ts` ·
 `recon.ts` · `securityPlaybook.ts` · `netGuard.ts` · `apps/web/src/lib/tools.ts`
 (registry) · `apps/web/security-playbooks/` (adapted from Strix, Apache-2.0) ·

@@ -229,7 +229,7 @@ async function main() {
   // 9router's 64-slot cap is smaller than CORE and intentionally keeps only the
   // first 64 entries (documented limitation) — assert it there only for the
   // read-side tools that must always be present.
-  const pentestCore = ["cvss_score", "security_playbook", "pentest_scan", "http_request", "finding_add", "report_generate", "poc_verify", "oast_create"];
+  const pentestCore = ["cvss_score", "security_playbook", "pentest_scan", "http_request", "finding_add", "report_generate", "poc_verify", "oast_create", "target_brain", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query"];
   const groqNames = groqTools.map((t) => t.function.name);
   const pentestMissing = pentestCore.filter((n) => !groqNames.includes(n));
   if (pentestMissing.length) throw new Error(`groq cap dropped pentest tools: ${pentestMissing.join(", ")}`);
@@ -1525,7 +1525,7 @@ async function main() {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "bucket_enum", "submission_track", "cors_audit", "csp_audit", "http_history", "rapyd_request", "security_hunt", "race", "ws_probe", "poc_verify", "ato_prove", "oast_dns_create", "oast_dns_poll", "oast_dns_stop"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "submission_track", "cors_audit", "csp_audit", "http_history", "security_hunt", "poc_verify", "ato_prove", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
@@ -2852,7 +2852,127 @@ async function main() {
     console.log("auto-updater: OK (tools registered, status fields, disabled short-circuit, tick no-op out-of-hours)");
   }
 
-  // ── exploit chain builder ─────────────────────────────────────────────────
+  // ── superpowers: target brain / retest / auth matrix / dom taint / learning ─
+  {
+    const http = await import("node:http");
+    const srv = http.createServer((req, res) => {
+      // /api/dokumen: IDOR-style — anonymous & any session get the same object.
+      if ((req.url || "").startsWith("/api/dokumen")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end('{"id":1,"title":"Doc Klient","body":"internal"}');
+        return;
+      }
+      // /api/admin: role-gated — only the admin cookie passes.
+      if ((req.url || "").startsWith("/api/admin")) {
+        const ok = String(req.headers.cookie || "").includes("role=admin");
+        res.writeHead(ok ? 200 : 403, { "content-type": "application/json" });
+        res.end(ok ? '{"secret":true}' : '{"error":"forbidden"}');
+        return;
+      }
+      // /app.js: DOM sink bundle for dom_taint.
+      if ((req.url || "").startsWith("/app.js")) {
+        res.writeHead(200, { "content-type": "application/javascript" });
+        res.end('const q = location.hash.slice(1);\ndocument.getElementById("out").innerHTML = q;');
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end('<!doctype html><html><head><script src="/app.js"></script></head><body>lab</body></html>');
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+    const port = (srv.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    const su = "verify_superpowers";
+    try {
+      const brain = await import("./src/lib/targetBrain");
+      const { getTOOLS: gt } = await import("./src/lib/tools");
+      const toolNames = gt().map((t) => t.function.name);
+      for (const n of ["target_brain", "retest_list", "retest_add", "retest_run", "auth_matrix", "dom_taint", "learning_ingest", "learning_query"]) {
+        if (!toolNames.includes(n)) throw new Error(`superpower tool not registered: ${n}`);
+      }
+
+      // target brain: record → brief
+      brain.brainRecordEndpoints(su, base, ["/api/dokumen?id=1", "/api/admin"]);
+      brain.brainRecordTech(su, base, "nginx, Node 22");
+      brain.brainRecordProof(su, base, { what: "BOLA /api/dokumen?id", how: "bola_diff A/B", severity: "high" });
+      brain.brainRecordSafe(su, `${base}/api/admin`, "param_fuzz: no reflection");
+      const brief = brain.brainBrief(su, base);
+      if (!/TERBUKTI/.test(brief) || !/BOLA \/api\/dokumen/.test(brief) || !/\/api\/admin/.test(brief) || !/nginx/.test(brief)) throw new Error(`brain brief incomplete: ${brief.slice(0, 200)}`);
+      if (!/jangan ulang/i.test(brain.brainBrief(su, base))) throw new Error("brain brief missing safe-tested section");
+
+      // auth matrix against the live local server (2 sessions + anonymous)
+      const { setSession } = await import("./src/lib/httpSession");
+      setSession(su, "adminx", { cookie: "role=admin" });
+      setSession(su, "guestx", { cookie: "role=guest" });
+      const { authMatrix, matrixFindings, matrixSame, matrixGranted, parseMatrixSpec } = await import("./src/lib/authMatrix");
+      const mres = await authMatrix(su, { endpoints: ["/api/dokumen?id=1", "/api/admin"], sessions: "adminx,guestx", base_url: base });
+      if (!/AUTH MATRIX/.test(mres) || !/anonymous/.test(mres)) throw new Error(`auth matrix output: ${mres.slice(0, 200)}`);
+      if (!/TEMUAN KANDIDAT/.test(mres)) throw new Error("auth matrix should flag the IDOR lab endpoints");
+      if (!/anonymous-access/.test(mres) || !/cross-role/.test(mres)) throw new Error(`matrix findings missing: ${mres.slice(-400)}`);
+      // pure helpers
+      const spec1 = parseMatrixSpec({ endpoints: "/a", sessions: "a" });
+      if (!spec1.ok) throw new Error("parseMatrixSpec ok");
+      if (matrixGranted({ status: 200 }, 399) !== true || matrixGranted({ status: 0, error: "x" }, 399) !== false) throw new Error("matrixGranted");
+      if (matrixSame({ status: 200, len: 100, digest: "" }, { status: 200, len: 101, digest: "" }) !== true) throw new Error("matrixSame");
+      const mf = matrixFindings({ endpoints: ["/e"], sessions: ["hi", "lo"] }, [
+        { endpoint: "/e", session: "", status: 403, len: 5, digest: "" },
+        { endpoint: "/e", session: "hi", status: 200, len: 100, digest: "" },
+        { endpoint: "/e", session: "lo", status: 200, len: 100, digest: "" },
+      ]);
+      if (!mf.some((f) => f.kind === "cross-role")) throw new Error("matrixFindings cross-role");
+
+      // retest: save → run vulnerable → flip signature → run again → patched
+      const retest = await import("./src/lib/retest");
+      const c = retest.retestSave(su, { title: "BOLA dokumen", url: `${base}/api/dokumen?id=1`, expect_contains: "internal", expect_status: 200, severity: "high" });
+      const run1 = await retest.retestRun(su, { id: c.id });
+      if (!/MASIH RENTAN/.test(run1)) throw new Error(`retest run1: ${run1.slice(0, 160)}`);
+      retest.retestSave(su, { title: "BOLA dokumen", url: `${base}/api/dokumen?id=1`, expect_contains: "SHOULD-NOT-EXIST-SIGNATURE", expect_status: 999 });
+      const run2 = await retest.retestRun(su, { id: c.id });
+      if (!/sudah dipatch/.test(run2)) throw new Error(`retest run2: ${run2.slice(0, 160)}`);
+      if (!/retest cases/i.test(retest.retestListText(su))) throw new Error("retestListText");
+
+      // dom taint: live URL → flags innerHTML sink from location.hash
+      const { domTaint, analyzeTaint } = await import("./src/lib/domTaint");
+      const dt = await domTaint(su, { url: `${base}/index.html` });
+      if (!/DOM TAINT/.test(dt) || !/innerHTML/.test(dt) || !/location\.hash/.test(dt)) throw new Error(`dom_taint: ${dt.slice(0, 200)}`);
+      const dtInline = await domTaint(su, { text: "const h = location.hash; eval(h);", file_label: "inline.js" });
+      if (!/eval/.test(dtInline)) throw new Error(`dom_taint inline: ${dtInline.slice(0, 160)}`);
+      const dtscope = await domTaint(su, { url: "https://example.com/app.js" });
+      if (!/SCOPE/.test(dtscope)) throw new Error("dom_taint scope guard");
+      if (analyzeTaint("const a = document.referrer; el.textContent = a;", "x.js").length !== 0) throw new Error("analyzeTaint must skip textContent");
+
+      // learning: ingest (paste) → dedup → query → stats
+      const learning = await import("./src/lib/learning");
+      const ing = await learning.learningIngest(su, { title: "IDOR in orders API", text: "IDOR in /api/v1/orders allowed reading other tenants' orders. Bypass: incremented the order id. Detection: test object ids across two accounts." });
+      if (!/Pattern tersimpan/.test(ing)) throw new Error(`learning ingest: ${ing.slice(0, 160)}`);
+      const dup = await learning.learningIngest(su, { title: "IDOR in orders API", text: "IDOR in /api/v1/orders allowed reading other tenants' orders again with more detail and enough length here." });
+      if (!/Sudah ada pattern serupa/.test(dup)) throw new Error(`learning dedup: ${dup.slice(0, 160)}`);
+      const lq = learning.learningQuery(su, { query: "orders api" });
+      if (!/IDOR/.test(lq)) throw new Error(`learning query: ${lq.slice(0, 160)}`);
+      if (!/Security learnings/.test(learning.learningStatsText(su))) throw new Error("learningStatsText");
+
+      // finding_add hook: retest_url auto-creates a case + brain proof
+      const fa = await executeTool({ id: "verify-hook-1", name: "finding_add", arguments: JSON.stringify({ title: "Superpowers hook test", severity: "medium", target: base, retest_url: `${base}/api/dokumen?id=1`, retest_expect: "internal", retest_status: 200 }) }, su);
+      if (!/Retest case otomatis/.test(fa)) throw new Error(`finding_add retest hook: ${fa.slice(0, 200)}`);
+      const brainAfter = brain.brainGet(su, base);
+      if (!brainAfter || !brainAfter.proofs.some((p) => /Superpowers hook test/.test(p.what))) throw new Error("finding_add brain proof hook");
+
+      // scope + session guards
+      const { authMatrix: am2 } = await import("./src/lib/authMatrix");
+      const oos = await am2(su, { endpoints: ["https://example.com/a"], sessions: "adminx" });
+      if (!/SCOPE/.test(oos)) throw new Error("auth_matrix scope guard");
+      const nosess = await am2(su, { endpoints: ["/api/admin"], sessions: "nope", base_url: base });
+      if (!/tidak ada/.test(nosess)) throw new Error("auth_matrix missing-session guard");
+
+      // cleanup
+      brain.brainForget(su, base);
+      rmSync(join(appRoot(), ".data", "users", su), { recursive: true, force: true });
+      console.log("superpowers (target_brain/retest/auth_matrix/dom_taint/learning): OK");
+    } finally {
+      srv.close();
+    }
+  }
+
+  // ── exploit chain builder ─────────────────────────────────────────────
   {
     const { runExploitChain, listChains, CHAIN_TYPES } = await import("./src/lib/exploitChains");
     const { getTOOLS } = await import("./src/lib/tools");

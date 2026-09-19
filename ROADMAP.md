@@ -243,4 +243,12 @@ _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
 - [x] **Audit hardening**: `netGuard.assertPublicUrl` bersama, scope subdomain env, metadata diblok, ID anti-tabrakan, `engagement_create` confirm, `web_audit` anti-SSRF, suite pentest masuk `CORE_TOOL_NAMES`
 - [x] **Bug-bounty toolkit**: OAST (`oast_*`, blind/OOB), `http_session`+`bola_diff` (BOLA/IDOR 2 identitas), `content_discover`, `param_fuzz`, `jwt_attack`, `evidence_capture`, RoE manual/rate-limit + authorization via policy URL
 - [x] **Bounty workflow completeness**: `scope_import` (parse Targets→engagement), `crawl` (same-origin BFS), `param_discover` (hidden params), `recon_diff` (new assets), `recon_screenshot` (visual recon)
-- Pedoman & scope: `SECURITY.md`. **Total tools 276.**
+- [x] **Superpower Suite (2026-09-20)** — 5 modul pentest terintegrasi ke `bounty_run`:
+  - `target_brain` (persistent per-target KB: endpoints, tech, auth, proofs, safeTested)
+  - `retest_list/add/run` (regression suite: save → run → verdict 🔴/🟢/⚪)
+  - `auth_matrix` (N-role authorization matrix: 6×6, anonymous-access + cross-role)
+  - `dom_taint` (DOM XSS taint analysis statik: source→sink, sanitizer check)
+  - `learning_ingest/query` (disclosed report patterns → hunt hints)
+  - `bounty_run` enhanced: `auto_chain` (exploit_chain otomatis), `auto_evidence` (browser snapshot), `reportPdf` otomatis scoped ke target
+  - 8 tool baru → 287 total; CORE 129→128; Gates lolos ✅
+- Pedoman & scope: `SECURITY.md`. **Total tools 287.**

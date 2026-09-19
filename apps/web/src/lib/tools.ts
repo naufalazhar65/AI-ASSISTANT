@@ -3366,6 +3366,11 @@ const toolRegistry: ToolPlugin[] = [
             root_cause: { type: "string", description: "Akar masalah (Root Cause)" },
             remediation: { type: "string" },
             references: { type: "string", description: "Referensi (OWASP/CVE/URL)" },
+            retest_url: { type: "string", description: "OPSIONAL: URL untuk regression retest — membuat case otomatis supaya 'sudah dipatch belum?' bisa dicek 1 perintah (retest_run)" },
+            retest_method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] },
+            retest_session: { type: "string", description: "nama http_session untuk request retest" },
+            retest_expect: { type: "string", description: "substring pada respons VULNERABLE (signature temuan)" },
+            retest_status: { type: "number", description: "status respons vulnerable (0 = abaikan)" },
           },
           required: ["title"],
         },
@@ -3388,7 +3393,33 @@ const toolRegistry: ToolPlugin[] = [
           remediation: typeof args.remediation === "string" ? args.remediation : undefined,
           references: typeof args.references === "string" ? args.references : undefined,
         });
-        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title} (${f.id})`;
+        // SUPERPOWER hooks (best-effort, never fail the finding):
+        // 1) target brain — record the proven finding on the target.
+        try {
+          const { brainRecordProof } = await import("./targetBrain");
+          const t = typeof args.target === "string" ? args.target : f.target;
+          if (t) brainRecordProof(ctx.rawUser, t, { what: `${f.title}${t ? ` @ ${t}` : ""}`, how: (typeof args.evidence === "string" ? args.evidence : f.evidence || "finding_add").slice(0, 200), severity: f.severity, findingId: f.id });
+        } catch { /* best-effort */ }
+        // 2) regression retest — auto-create a case when retest_* args given.
+        let retestNote = "";
+        const retestUrl = typeof args.retest_url === "string" ? args.retest_url.trim() : "";
+        if (retestUrl && /^https?:\/\//i.test(retestUrl)) {
+          try {
+            const { retestSave } = await import("./retest");
+            const c = retestSave(ctx.rawUser, {
+              title: f.title,
+              url: retestUrl,
+              method: typeof args.retest_method === "string" ? args.retest_method : undefined,
+              session: typeof args.retest_session === "string" ? args.retest_session : undefined,
+              expect_contains: typeof args.retest_expect === "string" ? args.retest_expect : undefined,
+              expect_status: asNumber(args.retest_status),
+              findingId: f.id,
+              severity: f.severity,
+            });
+            retestNote = `\n♻️ Retest case otomatis: ${c.id} — jalankan retest_run id=${c.id} kapan pun untuk cek patch.`;
+          } catch { /* best-effort */ }
+        }
+        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title} (${f.id})${retestNote}`;
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : "finding_add failed"}`;
       }
@@ -3776,7 +3807,7 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "read", function: { name: "tech_watch", description: "Fingerprint teknologi host (framework/versi dari header+marker), diff vs snapshot terakhir, dan cari CVE untuk yang berubah. Scope-gated, read/auto, bounded (1 GET).", parameters: { type: "object", properties: { url: { type: "string" }, cve: { type: "boolean", description: "cari CVE (default true saat ada perubahan)" } }, required: ["url"] } } },
-    execute: async (args, ctx) => { try { const { techWatch } = await import("./techWatch"); return await techWatch(ctx.rawUser, String(args.url || ""), { cve: args.cve !== false }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "tech_watch failed"}`; } },
+    execute: async (args, ctx) => { try { const { techWatch } = await import("./techWatch"); const out = await techWatch(ctx.rawUser, String(args.url || ""), { cve: args.cve !== false }); try { const { brainRecordTech } = await import("./targetBrain"); const m = out.match(/^tech:\s*(.+)$/m); if (m) brainRecordTech(ctx.rawUser, String(args.url || ""), m[1].trim()); } catch { /* best-effort */ } return out; } catch (e) { return `Error: ${e instanceof Error ? e.message : "tech_watch failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "persona_show", description: "Tampilkan apa yang Mia ingat tentang user (fakta persona USER + gaya SOUL, plus riwayat yang digantikan). Read/auto.", parameters: { type: "object", properties: {}, required: [] } } },
@@ -3857,7 +3888,7 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { dupCheck } = await import("./dupes"); return dupCheck(ctx.rawUser, { title: String(args.title || ""), target: typeof args.target === "string" ? args.target : undefined, cwe: typeof args.cwe === "string" ? args.cwe : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "dup_check failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "write", function: { name: "bounty_run", description: "SATU PERINTAH bug-bounty (draft-only): engagement → worklist ber-ROI → campaign hunt bounded → klasifikasi lead → DRAFT finding (high-signal, +dup_check) → draft report → HANDOFF. TIDAK submit, tidak destruktif, tidak bypass WAF. Resumable. Write, confirm.", parameters: { type: "object", properties: { engagement: { type: "string", description: "id engagement (opsional; default engagement aktif pertama)" }, targets: { type: "array", description: "host eksplisit (opsional)" }, max_hosts: { type: "number", description: "default 5, maks 12" }, max_seconds: { type: "number", description: "budget, default 480s" }, deep: { type: "boolean" }, spec: { type: "string" }, session: { type: "string" } }, required: [] } } },
+    definition: { type: "function", risk: "write", function: { name: "bounty_run", description: "SATU PERINTAH bug-bounty (draft-only): engagement → worklist ber-ROI → campaign hunt bounded → klasifikasi lead → DRAFT finding (high-signal, +dup_check) → draft report → HANDOFF. TIDAK submit, tidak destruktif, tidak bypass WAF. Resumable. Baru: auto_chain (exploit_chain otomatis per lead), auto_evidence (browser snapshot), max_chains. Write, confirm.", parameters: { type: "object", properties: { engagement: { type: "string", description: "id engagement (opsional; default engagement aktif pertama)" }, targets: { type: "array", description: "host eksplisit (opsional)" }, max_hosts: { type: "number", description: "default 5, maks 12" }, max_seconds: { type: "number", description: "budget, default 480s" }, deep: { type: "boolean" }, spec: { type: "string" }, session: { type: "string" }, auto_chain: { type: "boolean", description: "jalankan exploit_chain otomatis pada lead high-signal (IDOR/auth_bypass/SSRF/session_fixation)" }, auto_evidence: { type: "boolean", description: "capture browser screenshot untuk tiap kandidat" }, max_chains: { type: "number", description: "maks chain per host (default 3, maks 5)" } }, required: [] } } },
     execute: async (args, ctx) => {
       try {
         const { bountyRun } = await import("./bounty");
@@ -3869,6 +3900,9 @@ const toolRegistry: ToolPlugin[] = [
           deep: args.deep === true,
           spec: typeof args.spec === "string" ? args.spec : undefined,
           session: typeof args.session === "string" ? args.session : undefined,
+          auto_chain: args.auto_chain === true,
+          auto_evidence: args.auto_evidence === true,
+          max_chains: asNumber(args.max_chains),
         });
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : "bounty_run failed"}`;
@@ -3913,8 +3947,86 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { writeupText } = await import("./writeup"); return writeupText(ctx.rawUser, { id: typeof args.id === "string" ? args.id : undefined, platform: typeof args.platform === "string" ? args.platform : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "writeup failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "target_brain", description: "Memori persisten PER-TARGET: endpoint/params yang pernah terlihat, tech, auth model, temuan TERBUKTI, dan request yang sudah dites aman — WAJIB dibaca (action=brief) SEBELUM menguji ulang sebuah target supaya lanjut dari titik terakhir, bukan mengulang. content_discover/js_mine/tech_watch/finding_add menulis ke sini OTOMATIS. Read/auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["brief", "list", "forget", "note"], description: "default brief" }, target: { type: "string", description: "host/URL target (untuk brief/forget/note)" }, note: { type: "string", description: "catatan bebas (untuk action=note)" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const brain = await import("./targetBrain");
+        const action = typeof args.action === "string" ? args.action : "brief";
+        const target = typeof args.target === "string" ? args.target : "";
+        if (action === "list" || (!target && action !== "list")) return action === "list" ? brain.brainListText(ctx.rawUser) : "Error: target wajib untuk action=brief/forget/note (mis. target=host.tld).";
+        if (action === "forget") return brain.brainForget(ctx.rawUser, target) ? `🧠 Target brain ${target} direset.` : `Tidak ada data untuk ${target}.`;
+        if (action === "note") {
+          const note = typeof args.note === "string" ? args.note : "";
+          if (!note) return "Error: note wajib untuk action=note.";
+          brain.brainNote(ctx.rawUser, target, note);
+          return `🧠 Catatan tersimpan untuk ${target}.`;
+        }
+        return brain.brainBrief(ctx.rawUser, target);
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "target_brain failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "retest_list", description: "Daftar retest case (regression suite): temuan terbukti + signature rentan untuk di-recheck kapan pun. Opsi `target` (host) untuk filter. Read/auto.", parameters: { type: "object", properties: { target: { type: "string" } }, required: [] } } },
+    execute: async (args, ctx) => { try { const { retestListText } = await import("./retest"); return retestListText(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "retest_list failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "retest_add", description: "Simpan/edit retest case manual: request + signature respons RENTAN (expect_contains/expect_status). Dipakai saat temuan belum punya case. (finding_add dengan retest_url+retest_expect membuat case OTOMATIS.) Write, confirm.", parameters: { type: "object", properties: { title: { type: "string" }, url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] }, headers: { type: "object" }, body: { type: "string" }, session: { type: "string", description: "nama http_session" }, expect_contains: { type: "string", description: "substring pada respons VULNERABLE" }, expect_status: { type: "number", description: "status respons vulnerable (0 = abaikan)" }, finding_id: { type: "string" }, severity: { type: "string", enum: ["critical", "high", "medium", "low", "info"] } }, required: ["title", "url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { retestSave } = await import("./retest");
+        const c = retestSave(ctx.rawUser, {
+          title: String(args.title || ""),
+          url: String(args.url || ""),
+          method: typeof args.method === "string" ? args.method : undefined,
+          headers: args.headers && typeof args.headers === "object" ? (args.headers as Record<string, string>) : undefined,
+          body: typeof args.body === "string" ? args.body : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+          expect_contains: typeof args.expect_contains === "string" ? args.expect_contains : undefined,
+          expect_status: asNumber(args.expect_status),
+          findingId: typeof args.finding_id === "string" ? args.finding_id : undefined,
+          severity: typeof args.severity === "string" ? args.severity : undefined,
+        });
+        return `♻️ Retest case tersimpan ${c.id} — ${c.title}\n   ${c.method} ${c.url}\n   expect: ${c.expect_contains || `(status ${c.expect_status || "2xx"})`}\nJalankan ulang kapan pun: retest_run id=${c.id} (atau per target).`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "retest_add failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "retest_run", description: "Jalankan retest case (id) atau SEMUA case per target → verdict 🔴 masih rentan / 🟢 sudah dipatch / ⚪ error. Ini cara 'sudah dipatch belum?' dijawab dalam satu perintah (fix-verification). Scope-gated per case. Write, confirm.", parameters: { type: "object", properties: { id: { type: "string", description: "id case, mis. R-..." }, target: { type: "string", description: "host — jalankan semua case target itu" } }, required: [] } } },
+    execute: async (args, ctx) => { try { const { retestRun } = await import("./retest"); return await retestRun(ctx.rawUser, { id: typeof args.id === "string" ? args.id : undefined, target: typeof args.target === "string" ? args.target : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "retest_run failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "auth_matrix", description: "Matriks otorisasi N-role: iterasi SEMUA http_session (+ anonymous) × endpoint, deteksi akses lintas-role & anonymous-access. Upgrade bola_diff (2 sesi) ke matriks penuh. sessions=list,name (urutan = hak akses turun); endpoints=list,url. Bounded ≤6×6, 1 request/pasangan. Write, confirm.", parameters: { type: "object", properties: { endpoints: { type: "array", description: "URL/paths, mis. [\"/api/dokumen?id=1\",\"/api/admin\"]" }, sessions: { type: "array", description: "nama http_session, mis. [\"admin\",\"user\",\"guest\"] — urutan pertama = paling berprivilege" }, base_url: { type: "string", description: "prefix bila endpoints berupa path relatif" }, granted_status_max: { type: "number", description: "status yang dianggap 'diberikan akses' (default 399)" } }, required: ["endpoints", "sessions"] } } },
+    execute: async (args, ctx) => { try { const { authMatrix } = await import("./authMatrix"); return await authMatrix(ctx.rawUser, { endpoints: args.endpoints, sessions: args.sessions, base_url: typeof args.base_url === "string" ? args.base_url : undefined, granted_status_max: asNumber(args.granted_status_max) }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "auth_matrix failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "dom_taint", description: "Analisis taint DOM-XSS (statik): trace location.hash/search/postMessage/referrer → innerHTML/eval/Function/document.write di bundle JS target, tandai aliran TANPA sanitizer. Input `url` (scope-gated) atau `text` (isi bundle dari js_mine). Hasil = statik, WAJIB verifikasi manual sebelum finding_add. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "halaman HTML atau file .js (scope-gated)" }, text: { type: "string", description: "isi bundle JS (dari js_mine) — tanpa jaringan" }, file_label: { type: "string", description: "label file untuk text" } }, required: [] } } },
+    execute: async (args, ctx) => { try { const { domTaint } = await import("./domTaint"); return await domTaint(ctx.rawUser, { url: typeof args.url === "string" ? args.url : undefined, text: typeof args.text === "string" ? args.text : undefined, file_label: typeof args.file_label === "string" ? args.file_label : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "dom_taint failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "learning_ingest", description: "Belajar dari report disclosed: tempel `text` writeup atau `url` artikel publik → pattern (kelas vuln, tech, endpoint style, trik, detection) tersimpan & bisa di-query saat hunt target serupa. Simpan PATTERN saja (bukan kredensial). Read/auto.", parameters: { type: "object", properties: { text: { type: "string", description: "isi report/writeup" }, url: { type: "string", description: "URL artikel publik" }, title: { type: "string" } }, required: [] } } },
+    execute: async (args, ctx) => { try { const { learningIngest } = await import("./learning"); return await learningIngest(ctx.rawUser, { text: typeof args.text === "string" ? args.text : undefined, url: typeof args.url === "string" ? args.url : undefined, title: typeof args.title === "string" ? args.title : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "learning_ingest failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "learning_query", description: "Query pattern dari report disclosed yang cocok dengan target sekarang (tech/endpoint style/vuln_class) — hint 'target seperti ini biasanya kena X via Y' SEBELUM hunting. Tanpa arg = statistik. Read/auto.", parameters: { type: "object", properties: { query: { type: "string", description: "mis. tech=laravel, /api/v1/, graphql" }, vuln_class: { type: "string", description: "mis. idor, ssrf, jwt" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const learning = await import("./learning");
+        const q = typeof args.query === "string" ? args.query.trim() : "";
+        const vc = typeof args.vuln_class === "string" ? args.vuln_class.trim() : "";
+        if (!q && !vc) return learning.learningStatsText(ctx.rawUser);
+        return learning.learningQuery(ctx.rawUser, { query: q || undefined, vuln_class: vc || undefined });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "learning_query failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "content_discover", description: "Content discovery aktif (scope-gated): robots.txt/sitemap, link halaman, endpoint dari file JS, + probe path umum (mis. /admin,/.env,/swagger.json). Hanya lab/engagement. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. http://127.0.0.1:4010 atau https://app.klien.com" } }, required: ["url"] } } },
-    execute: async (args, ctx) => { try { const { contentDiscover } = await import("./recon"); return await contentDiscover(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "content_discover failed"}`; } },
+    execute: async (args, ctx) => { try { const { contentDiscover } = await import("./recon"); const out = await contentDiscover(ctx.rawUser, String(args.url || "")); try { const { brainRecordEndpoints } = await import("./targetBrain"); const paths = [...out.matchAll(/^•\s(\/.+)$/gm)].map((m) => m[1]); brainRecordEndpoints(ctx.rawUser, String(args.url || ""), paths.slice(0, 60)); } catch { /* best-effort */ } return out; } catch (e) { return `Error: ${e instanceof Error ? e.message : "content_discover failed"}`; } },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "param_fuzz", description: "Fuzz parameter URL dgn payload (XSS/SQLi/SSTI/redirect/cmdi) → deteksi reflection, SQL error, eval 7*7, open-redirect, timing. Scope-gated, low-rate. Opsi `callback` (dari oast_create) menambah kelas SSRF. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dgn param, mis. http://127.0.0.1:4010/greet?name=x" }, params: { type: "array", description: "Param spesifik (opsional; default dari URL)" }, classes: { type: "array", description: "xss/sqli/ssti/redirect/cmdi/ssrf (opsional)" }, method: { type: "string", enum: ["GET", "POST"] }, callback: { type: "string", description: "URL OAST untuk kelas ssrf (opsional)" } }, required: ["url"] } } },
@@ -3986,7 +4098,7 @@ const toolRegistry: ToolPlugin[] = [
   },
   {
     definition: { type: "function", risk: "write", function: { name: "js_mine", description: "Mining file JS (scope-gated): ekstrak endpoint/path + indikasi secret/token (nilai di-redact) dari bundle. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "Halaman HTML atau file .js" } }, required: ["url"] } } },
-    execute: async (args, ctx) => { try { const { jsMine } = await import("./recon"); return await jsMine(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "js_mine failed"}`; } },
+    execute: async (args, ctx) => { try { const { jsMine } = await import("./recon"); const out = await jsMine(ctx.rawUser, String(args.url || "")); try { const { brainRecordEndpoints } = await import("./targetBrain"); const paths = [...out.matchAll(/^[•]\s(\/.+)$/gm)].map((m) => m[1]).slice(0, 60); brainRecordEndpoints(ctx.rawUser, String(args.url || ""), paths); } catch { /* best-effort */ } return out; } catch (e) { return `Error: ${e instanceof Error ? e.message : "js_mine failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "api_spec", description: "Enumerasi endpoint dari spec OpenAPI/Swagger atau Postman (JSON): `path` (file sandbox), `url` (publik/target), atau `text`. Read, auto.", parameters: { type: "object", properties: { path: { type: "string" }, url: { type: "string" }, text: { type: "string" } }, required: [] } } },

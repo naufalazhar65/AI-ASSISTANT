@@ -152,4 +152,69 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Audit hardening (2026-09-15)** — cakupan subdomain env `PENTEST_LAB_TARGETS`, `netGuard.assertPublicUrl` bersama (IPv6/metadata), ID temuan anti-tabrakan, `engagement_create` write/confirm, `web_audit` anti-SSRF, metadata endpoint diblok, suite pentest masuk `CORE_TOOL_NAMES` (Groq).
 - **Bug-bounty toolkit (2026-09-15)** — `oast_create/poll/stop` (OOB/blind via webhook.site), `http_session` + `http_request session/save_session` (auth), `bola_diff` (BOLA/IDOR dua identitas A/B), `content_discover` (robots/sitemap/JS/path), `param_fuzz` (XSS/SQLi/SSTI/redirect/cmdi per-param), `jwt_attack` (forge/crack), `evidence_capture` (screenshot + raw HTTP), `scope_import` (parse Targets→engagement), `crawl`, `param_discover`, `recon_diff` (aset baru), `recon_screenshot` (visual recon), `js_mine` (endpoint+secret JS), `api_spec`/`graphql_probe`, `request_save`/`request_run`, `platform_severity` (H1/VRT), `cve_intel`, `recon_dnsbrute`, `recon_ports`, `bucket_enum`, `submission_track`, `cors_audit`, `csp_audit`, `http_history`, `race`, `ws_probe`, `browser_eval` (Playwright), DNS-OAST (`oast_dns_create/poll/stop`, interactsh). `recon_subdomains` multi-sumber (crt.sh+certspotter); **scope-watch** heartbeat (`SECURITY_SCOPE_WATCH`) push aset baru. Biner terpasang: searchsploit, semgrep, trivy, gobuster, katana, interactsh-client. RoE-aware: manual + rate-limit default.
 - **`security_hunt` (2026-09-15)** — orkestrasi otonom: satu perintah menjalankan header/cookie+CSP+CORS+content discovery+crawl+JS mining (+param discovery `deep=true`) lalu merangkum **LEADS**. Scope-gated + bounded.
-- **Cheat-sheet** — `SECURITY.md`. **Total tools 276.**
+- **Cheat-sheet** — `SECURITY.md`. **Total tools 287.**
+
+---
+
+## 20. Superpower Suite (2026-09-20)
+
+Lima modul pentest "superpower" yang saling menguatkan, terintegrasi ke `bounty_run` untuk alur one-command penuh:
+
+### 20.1 `targetBrain` — Persistent Target Brain
+- **Store:** `.data/users/<user>/target-brain.json` (atomic, cap 40 target × 120 endpoint)
+- **Auto-write hooks:** `content_discover` + `js_mine` → `brainRecordEndpoints`, `tech_watch` → `brainRecordTech`, `finding_add` → `brainRecordProof`
+- **Tool:** `target_brain` (read/auto) — action `brief` (WAJIB sebelum hunt ulang: TERBUKTI + endpoints + safeTested + catatan), `list`, `forget`, `note`
+
+### 20.2 `retest` — Regression Retest Suite
+- **Store:** `.data/users/<user>/retest.json` (cap 120, lastRunAt+lastVerdict per case)
+- **Auto-create:** `finding_add` dg arg `retest_url`+`retest_expect`+`retest_status` → case otomatis (`♻️ Retest case otomatis: R-…`)
+- **Tools:** `retest_list` (read), `retest_add` (write, confirm), `retest_run` (write, confirm) — verdict 🔴 MASIH RENTAN / 🟢 sudah dipatch / ⚪ error; scope-gated per case URL
+
+### 20.3 `authMatrix` — Role/Permission Matrix (N-role)
+- `auth_matrix endpoints=<list> sessions=<admin,user,guest>` (+ anonymous otomatis) → max 6×6 request
+- Output: matriks status/len per sel + temuan `anonymous-access` & `cross-role` (±5% len, status sama)
+- Fail-fast missing session; scope-gated per URL
+
+### 20.4 `domTaint` — DOM XSS Taint Analysis (statik)
+- Trace SOURCE (`location.*`, `postMessage`, `document.referrer`) → SINK (`innerHTML`, `eval`, `Function`, `document.write`, `insertAdjacentHTML`, jQuery `.html()`, `setAttribute on*`)
+- Sanitizer check (window ≤15 baris): `encodeURIComponent`, `DOMPurify`, `textContent`, `escapeHtml`
+- Input: `url` (scope-gated; HTML → ≤8 script same-origin) atau `text` (bundle dari `js_mine`)
+- Output: `file:line sink ← source via var` + snippet; **statik — WAJIB verifikasi manual sebelum finding_add**
+
+### 20.5 `learning` — Belajar dari Report Disclosed
+- `learning_ingest text=…|url=…` → pattern terstruktur (`vulnClass` 18 kelas, `tech`, `endpointStyle`, `trick`, `detection`) → store `.data/users/<user>/learnings-security.json` (cap 200, dedup class+title)
+- `learning_query query=<tech> vuln_class=<kelas>` → hint "target seperti ini biasanya kena X via Y" SEBELUM hunt (score = overlap token + boost class match)
+- `learnClassify`: jwt di-utamakan di atas auth-bypass; `learnTech` dukungan "nextjs"/"next.js"; dedup unik
+
+---
+
+### Integrasi ke Bounty Run
+`bounty_run auto_chain=true auto_evidence=true max_chains=5`:
+1. `engagement_create` → `program_score` → worklist ROI
+2. `campaign_run` → `suite_hunt` per host (deep=true default)
+3. **Auto exploit_chain** per lead high-signal (heuristic: IDOR→bola_diff, auth_bypass→JWT, SSRF→OAST, session_fixation)
+4. **Auto browser evidence** (snapshot)
+5. `poc_verify` → `finding_add` (draft, high/medium only, +dup_check)
+6. `generateReport` + **`reportPdf` otomatis** (scoped ke target) → `📎 <path>`
+7. Handoff list → push ke channel
+
+### Gates & Live Test
+- **Gates:** typecheck ✅ · lint 0 error · vitest 104/104 ✅ · verify.ts `superpowers OK` `exploit-chain OK` ✅
+- **Live test (Discord, Netlify Lab):** 7 findings (2 Critical: SQLi + no-auth admin-data; 3 High: BOLA, header spoof, IDOR PII; 2 Medium: Stored XSS, missing headers) + **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
+
+---
+
+### Files Changed:
+- `apps/web/src/lib/targetBrain.ts` (baru) — persistent per-target KB
+- `apps/web/src/lib/retest.ts` (baru) — regression suite
+- `apps/web/src/lib/authMatrix.ts` (baru) — N-role matrix
+- `apps/web/src/lib/domTaint.ts` (baru) — DOM XSS taint
+- `apps/web/src/lib/learning.ts` (baru) — disclosed report patterns
+- `apps/web/src/lib/bounty.ts` — +3 param (`auto_chain`, `auto_evidence`, `max_chains`) + auto_chain + auto_evidence + `reportPdf`
+- `apps/web/src/lib/campaign.ts` — `deep: true` default
+- `apps/web/src/lib/tools.ts` — 8 tool def + bounty_run param
+- `apps/web/src/lib/agent.ts` — `exploit_chain` ke `HEADLESS_SIDE_EFFECT_TOOLS`
+- `apps/web/verify.ts` — assertions updated
+- `AGENTS.md` — updated
+
+**Total tools: 287** (8 tool baru: `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query`; CORE 129→128)

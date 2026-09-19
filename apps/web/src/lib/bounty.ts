@@ -15,8 +15,10 @@ import { appRoot } from "./users";
 import { getEngagement, newestActiveEngagement } from "./engagement";
 import { campaignRunDetailed } from "./campaign";
 import { rankTargets } from "./roi";
-import { addFinding, generateReport } from "./security";
+import { addFinding, generateReport, reportPdf } from "./security";
 import { dupCheck } from "./dupes";
+import { runExploitChain } from "./exploitChains";
+import { browserSnapshot } from "./browser";
 
 type RunState = { lastRun: string; runs: { at: string; engagement: string; hosts: number; leads: number; drafts: number; stop: string }[] };
 function stateFile(): string {
@@ -59,7 +61,18 @@ function scopeHostsFor(engId?: string): { hosts: string[]; label: string } {
 
 export async function bountyRun(
   rawUser: unknown,
-  opts: { engagement?: string; targets?: string[]; max_hosts?: number; max_seconds?: number; deep?: boolean; spec?: string; session?: string } = {}
+  opts: { 
+    engagement?: string; 
+    targets?: string[]; 
+    max_hosts?: number; 
+    max_seconds?: number; 
+    deep?: boolean; 
+    spec?: string; 
+    session?: string;
+    auto_chain?: boolean;
+    auto_evidence?: boolean;
+    max_chains?: number;
+  } = {}
 ): Promise<string> {
   const explicit = (opts.targets || []).map((t) => t.trim()).filter(Boolean);
   const { hosts, label } = explicit.length ? { hosts: explicit, label: "targets eksplisit" } : scopeHostsFor(opts.engagement);
@@ -85,6 +98,53 @@ export async function bountyRun(
   for (const r of outcome.results) for (const l of r.leads) allLeads.push({ host: r.host, lead: l });
   const candidates = allLeads.filter((x) => isHighSignalLead(x.lead));
 
+  // ===== AUTO CHAIN: run exploit_chain on high-signal leads =====
+  const chainResults: string[] = [];
+  if (opts.auto_chain === true) {
+    const maxChains = Math.min(5, Math.max(1, Number(opts.max_chains) || 3));
+    let chainCount = 0;
+    for (const c of candidates) {
+      if (chainCount >= maxChains) break;
+      const lead = c.lead.toLowerCase();
+      let chainType: "idor" | "auth_bypass" | "ssrf" | "session_fixation" | null = null;
+      const chainOpts: Record<string, unknown> = { url: c.host };
+
+      // Heuristic: pick chain based on lead content
+      if (/idor|bola|object.*level|broken.*access/i.test(lead)) chainType = "idor";
+      else if (/auth.*bypass|jwt|alg.*none|token/i.test(lead)) chainType = "auth_bypass";
+      else if (/ssrf|server.*side.*request/i.test(lead)) chainType = "ssrf";
+      else if (/session.*fix|login.*session/i.test(lead)) chainType = "session_fixation";
+
+      if (chainType) {
+        try {
+          const chainRes = await runExploitChain(rawUser, chainType, chainOpts);
+          chainResults.push(`⛓️ ${c.host} (${chainType}): ${chainRes.split("\n")[0]}`);
+          chainCount++;
+        } catch (e) {
+          chainResults.push(`⛓️ ${c.host} (${chainType}) error: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+    if (chainResults.length) out.push(...chainResults);
+  }
+
+  // ===== AUTO EVIDENCE: capture screenshot via browser =====
+  const evidenceResults: string[] = [];
+  if (opts.auto_evidence === true) {
+    for (const c of candidates.slice(0, 5)) {
+      try {
+        // Open the lead URL in browser and snapshot
+        const { browserOpen } = await import("./browser");
+        await browserOpen(c.host);
+        await browserSnapshot(); // snapshot for evidence (saved via browser context)
+        evidenceResults.push(`📸 ${c.host}: browser snapshot captured`);
+      } catch (e) {
+        evidenceResults.push(`📸 ${c.host} error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (evidenceResults.length) out.push(...evidenceResults);
+  }
+
   // Draft findings for high-signal leads (NOT verified — clearly labelled).
   const drafts: string[] = [];
   for (const c of candidates.slice(0, 10)) {
@@ -103,9 +163,15 @@ export async function bountyRun(
   }
 
   let report = "";
+  let pdfReport = "";
   if (drafts.some((d) => d.startsWith("📝"))) {
     try {
-      report = generateReport(rawUser).split("\n")[0];
+      report = generateReport(rawUser, { target: ranked[0] }).split("\n")[0];
+    } catch {
+      /* best-effort */
+    }
+    try {
+      pdfReport = await reportPdf(rawUser, { target: ranked[0] });
     } catch {
       /* best-effort */
     }
@@ -131,6 +197,7 @@ export async function bountyRun(
     `Host dijalankan: ${outcome.ran} · lead: ${allLeads.length} · kandidat: ${candidates.length} · draft finding: ${drafts.filter((d) => d.startsWith("📝")).length}`,
     drafts.length ? `\nDraft/tindak lanjut:\n${drafts.map((d) => `• ${d}`).join("\n")}` : "\nTidak ada kandidat high-signal (lead lain tetap di hunt_log).",
     report ? `\n📄 ${report}` : "",
+    pdfReport ? `\n📎 ${pdfReport}` : "",
     `\n── HANDOFF (butuh kamu) ──\n- ${handoff.join("\n- ")}`,
     `\n⚠️ Semua draft belum diverifikasi & TIDAK disubmit. Ini pemetaan otomatis, bukan jaminan temuan.`,
   ]

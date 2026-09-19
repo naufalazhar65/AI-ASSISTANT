@@ -607,3 +607,86 @@ Files changed:
 - `AGENTS.md` — updated
 
 **Ready for commit.**
+
+## Session 2026-09-19 — Superpower Suite (5 modul): target brain, retest, auth matrix, dom taint, learning
+
+Lima "superpower" pentest yang saling menguatkan, SEMUA jalan dalam SATU sesi (uncommitted, menunggu approval):
+
+**1. `targetBrain.ts` — Persistent Target Brain (memori per-target).** Satu sumber kebenaran per-host: endpoints+params (nilai query DIBUANG — hanya nama param yang disimpan), tech fingerprint, temuan TERBUKTI (proof: what/how/severity/findingId), request yang sudah dites aman (`safeTested`), catatan bebas. Store `.data/users/<user>/target-brain.json` (atomic, cap 40 target × 120 endpoint). Pure helpers `brainHost`/`brainPathKey`/`brainParamNames` unit-tested. **Auto-write hooks (fire-and-forget, best-effort):** `content_discover`+`js_mine` → brainRecordEndpoints (parse bullet `/path` dari output), `tech_watch` → brainRecordTech (regex baris `tech:`), `finding_add` → brainRecordProof. Tool `target_brain` (read/auto): action brief (WAJIB sebelum uji ulang target — berisi "TERBUKTI", endpoints, "sudah dites aman — jangan ulang", catatan)/list/forget/note.
+
+**2. `retest.ts` — Regression Retest Suite (fix-verification jadi 1 perintah).** Setiap temuan terbukti → retest case (request + signature respons VULNERABLE: `expect_contains`/`expect_status`). `retest_run id=…|target=…` → verdict per case: 🔴 MASIH RENTAN (signature masih cocok) / 🟢 sudah dipatch (signature hilang) / ⚪ error/skip (scope ditolak, session hilang, network). Store `.data/users/<user>/retest.json` (cap 120, lastRunAt+lastVerdict per case). **AUTO-CREATE:** `finding_add` menerima arg opsional `retest_url`+`retest_expect`+`retest_status`+`retest_method`+`retest_session` → case otomatis saat temuan dicatat (output + "♻️ Retest case otomatis: R-…"). Pure `retestVerdict`/`retestCaseId`/`retestHost` unit-tested (verdict no-assertion: 2xx = vulnerable signal, else patched). Semua case di-scope-check `targetAllowed` saat RUN (bukan cuma saat add) — engagement yang sudah ditutup auto-skip.
+
+**3. `authMatrix.ts` — Role/Permission Matrix (upgrade bola_diff A/B → N-role).** `auth_matrix endpoints=<list> sessions=<admin,user,guest>` (urutan = privilege menurun) × (+ anonymous otomatis) → 1 request per (endpoint × identitas), max 6×6. Output: matriks status/len per sel + TEMUAN KANDIDAT: `anonymous-access` (anon ✅ di endpoint yang seharusnya ber-role) & `cross-role` (role rendah melihat respons SAMA dengan role tinggi — toleransi ±5% len, status sama). Endpoint harus absolut atau + `base_url`; missing session fail-fast dengan daftar session yang ada; setiap URL di-scope-gate. Pure `parseMatrixSpec`/`matrixGranted`/`matrixSame`/`matrixFindings` unit-tested (termasuk "uniform" = aman/info).
+
+**4. `domTaint.ts` — DOM XSS taint analysis (statik).** Trace SOURCE (`location.hash/search/href/pathname`, `document.referrer`, `postMessage` event.data, `window.name`) → SINK (`innerHTML/outerHTML`, `document.write(ln)`, `eval`, `new Function`, `insertAdjacentHTML`, jQuery `.html()`, `setAttribute("on…")`) dalam SATU file; sanitizer menghapus flag (`encodeURIComponent/DOMPurify/textContent/escapeHtml…`, window ≤15 baris di atas sink). Input `url` (scope-gated; HTML → ambil ≤8 script same-origin) atau `text` (isi bundle dari js_mine — tanpa jaringan). Output: per-flow `file:line sink ← source via var` + snippet; selalu "statik — WAJIB verifikasi manual sebelum finding_add". Pure `analyzeTaint` unit-tested (positif: hash→innerHTML, postMessage→eval; negatif: textContent, tanpa sink).
+
+**5. `learning.ts` — belajar dari report disclosed.** `learning_ingest text=…|url=…` (fetch artikel publik, strip tag, cap 8k) → pattern terstruktur (`learnExtract`: title, vulnClass via `learnClassify` — 18 kelas, tech via `learnTech`, endpointStyle, trick, detection) → store `.data/users/<user>/learnings-security.json` (cap 200, dedup: class+title sama → skip dengan pesan "Sudah ada pattern serupa"). `learning_query query=<tech> vuln_class=<kelas>` → hint "target seperti ini biasanya kena X via Y" SEBELUM hunt (score = overlap token + boost class match). `learning_query` tanpa arg = statistik per kelas. Bug yang ditangkap test: `learnClassify("JWT authentication bypass")` dulu jatuh ke `auth-bypass` (regex auth-bypass di atas jwt) → jwt dipindah DI ATAS auth-bypass; `brainParamNames` dulu mengembalikan duplikat (`?b=1&b=2` → [a,b,b]) → uniq.
+
+**Wiring (tools.ts/agent.ts):** 8 tool baru → total **287 tools**: `target_brain`, `retest_list` (read/auto), `retest_add`, `retest_run`, `auth_matrix`, `dom_taint` (write/confirm), `learning_ingest`, `learning_query` (read/auto). **CORE rebalance presisi 129→128:** +7 (target_brain, retest_run/add/list, auth_matrix, dom_taint, learning_ingest+query), demote 8 (race, ws_probe, oast_dns_create/poll/stop, rapyd_request, bucket_enum, zap_scan — SEMUA masih terdaftar, hanya keluar prioritas Groq; verbatim assertion verify untuk zap/race/ws/oast_dns/rapyd/bucket dihapus). Prompt: blok "SUPERPOWER SUITE (1)-(5)" di SYSTEM_PROMPT; PERSONAL_LIST_TOOLS +8 (anti-hijack, konsisten dengan suite_hunt). Playbook baru `vulnerabilities/authorization-matrix.md` (→ **84 pack**).
+
+**serverKeys fix (installer opencode v2):** slot auth.json berubah `opencode-go` → `opencode`; `ensureOpenCodeGoKey` kini fallback ke slot `opencode` (v1 tetap diprioritaskan) — memperbaiki "opencodego did not resolve" yang pre-existing sejak install v2.0.8.
+
+**verify.ts blok "superpowers …: OK":** local server (dokumen IDOR + /api/admin role-gated + /app.js DOM sink) → brain brief + auth_matrix E2E (anonymous-access & cross-role terflag) + retest E2E (MASIH RENTAN → flip signature → sudah dipatch) + dom_taint E2E (url & inline & scope guard) + learning ingest→dedup→query→stats + finding_add hook (retest case otomatis + brain proof) + 8 tool terdaftar. Assertion list cap-provider disesuaikan (+retest_list, -8 demoted).
+
+**Gates:** typecheck ✅ · lint 38 warning (baseline; 0 di file baru) · vitest **104/104** (+18 superpowers) · verify.ts **EXIT=0** · server restart sehat (health ok, 1 instance, 0×409, 0 error) · probe live via executeTool: brain/list/learning/auth_matrix-scope/dom_taint-inline+**live ke lab Netlify owner (2 JS, 0 flow)**. Live turn via LLM di Discord belum dites (owner belum coba); 9router/openrouter dipakai sebagai fallback test.
+
+---
+
+## Session 2026-09-20 — Superpower Suite COMMITTED + Bounty Run Enhanced + Headless Guard
+
+### Superpower Suite (5 modul) — NOW COMMITTED
+Semua 5 modul superpower sudah lolos gates dan di-commit:
+- **287 tools** total (8 tool baru: `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query`)
+- CORE rebalance **129→128** (+7 superpower, demote 8 niche)
+- Playbook baru `vulnerabilities/authorization-matrix.md` → **84 pack**
+- serverKeys fix: `opencode` slot fallback untuk installer v2
+- Gates: typecheck/lint/vitest 104/104/verify.ts EXIT=0 ✅
+
+---
+
+### Bounty Run Enhanced (auto_chain + auto_evidence + PDF otomatis)
+
+**`bounty.ts` + `campaign.ts` + `tools.ts`:**
+- Baru 3 param: `auto_chain` (exploit_chain otomatis per lead high-signal), `auto_evidence` (browser snapshot), `max_chains` (default 3, maks 5)
+- Heuristik chain: IDOR → bola_diff, auth_bypass → JWT alg:none, SSRF → OAST, session_fixation
+- `deep: true` default di `campaignRunDetailed` (`opts.deep !== false`)
+- PDF otomatis: `reportPdf(rawUser, { target: ranked[0] })` dipanggil setelah `generateReport`, output `📎 <path>`
+- `exploit_chain` ditambah ke `HEADLESS_SIDE_EFFECT_TOOLS` (denied di automation/webhook)
+
+**Gates:** typecheck ✅ · lint 0 error · vitest 104/104 ✅ · verify.ts `superpowers OK` `exploit-chain OK` ✅
+
+---
+
+### Live Test: Full Pentest Netlify Lab → 7 Findings + PDF
+
+Perintah: `mia coba lakukan full pentest di https://6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app/index.html auto_chain=true auto_evidence=true max_chains=5 lalu buatkan report pdfnya`
+
+**Pipeline berjalan:**
+1. `engagement_create` → `pentest_resources` → `security_hunt` → `auth_hunt`
+2. `exploit_chain` (IDOR + SSRF) → confirm → `poc_verify` (3/3 PASS)
+3. `param_fuzz` + `oast_poll` (SSRF OAST)
+4. `finding_add` (7 draft findings)
+5. `generateReport` + `reportPdf` → **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
+
+**Temuan (7):**
+| Severity | Jumlah | Detail |
+|----------|--------|--------|
+| Critical | 2 | SQLi `/api/cari-berita` (dump users + plaintext pwd), `/api/admin-data` no auth |
+| High | 3 | BOLA `/api/dokumen`, header `x-user-role` spoofable, IDOR `/api/cek-nik` & `/api/profil-pegawai` |
+| Medium | 2 | Stored XSS `/api/pengaduan`, missing security headers |
+
+**Provider 503 pada run kedua** — transient (9router overloaded), bukan bug kode. Run pertama **sukses penuh**.
+
+---
+
+### Files Changed:
+- `apps/web/src/lib/bounty.ts` — +3 param + auto_chain + auto_evidence + reportPdf
+- `apps/web/src/lib/campaign.ts` — `deep: true` default
+- `apps/web/src/lib/tools.ts` — tool def update + 3 param baru
+- `apps/web/src/lib/agent.ts` — `exploit_chain` ke `HEADLESS_SIDE_EFFECT_TOOLS`
+- `apps/web/verify.ts` — assertions updated
+- `AGENTS.md` — updated
+
+---
+
+**Status:** Ready for commit. Gates: typecheck ✅ lint ✅ vitest 104/104 ✅ verify.ts EXIT=0 ✅

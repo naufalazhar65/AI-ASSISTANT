@@ -78,7 +78,7 @@ export async function campaignRunDetailed(
     const key = normalizeTarget(url);
     if (done.has(key)) { skipped.push(t); lines.push(`⏭️ ${t} — dilewati (sudah dead/lead/finding di hunt_log)`); continue; }
 
-    const res = await suiteHunt(rawUser, url, { deep: opts.deep === true, spec: opts.spec, session: opts.session });
+    const res = await suiteHunt(rawUser, url, { deep: opts.deep !== false, spec: opts.spec, session: opts.session });
     const st = huntStatusFor(readHunt(rawUser), url) || (/^Error:/.test(res) ? "error" : "?");
     ran++;
     if (/^Error:/.test(res)) {
