@@ -575,3 +575,35 @@ Perbaikan (satu pemilik, tidak bisa drift): klausa ditambahkan di `currentTimeLi
 Catatan (tidak diubah): entri `dailyMemory` menyimpan header timestamp ISO **UTC** (`## 2026-09-17T06:21:…Z`) yang muncul mentah di `memory_get` — sumber potensi kebingungan jam WIB-vs-UTC bila ter-recall; kalau mau, header bisa ditulis WIB (perlu keputusan karena file lama sudah ISO-Z). Fitur opsional: kalau Mia memang harus tahu "sudah berapa lama user tidak chat", perlu simpan waktu pesan terakhir per chat (state adapter) — bukan sekadar prompt.
 
 Residual yang **tidak** diubah (disengaja): body sukses non-stream (gateway yang mengabaikan `stream:true`) masih belum diekstrak jadi teks — semua provider yang dipakai (OpenRouter/Groq/opencodeGo/9router) menuruti `stream:true`, jadi ini pre-existing dan di luar audit; `free-models-per-min` OpenRouter itu kuota akun (failover ke model free lain bisa kena 429 yang sama) — dicatat, tapi failover tetap dipertahankan karena laporan lapangan menunjukkan sebagian model free limit-nya per-model.
+
+## Session 2026-09-19 — Exploit Chain Builder + report target fix
+
+**Exploit Chain Builder DONE (typecheck/lint/test/verify green, live-verified di Discord):** `exploitChains.ts` — automated orchestration of existing pentest tools into common attack chains. 4 chain types:
+- **idor**: content_discover → http_request (baseline) → bola_diff (A/B sessions) → JSON field diff → finding BOLA/IDOR (CVSS 7.5)
+- **auth_bypass**: Decode JWT → alg:none variants → claim tampering (role/admin/user_id) → finding auth bypass (CVSS 9.8)
+- **ssrf**: param_discover → oast_create → inject SSRF payloads → oast_poll → finding SSRF/metadata/RCE (CVSS 7.5–10.0)
+- **session_fixation**: GET login (pre-session) → POST login (post-session) → compare session IDs → finding session fixation (CVSS 7.4)
+
+Tool: `exploit_chain` (risk `write`, FR-14 confirm, CORE 128, scope-gated `targetAllowed`). Params: `chain` (required), `url` (required), `session_a`/`session_b` (IDOR), `token`/`session` (auth_bypass), `callback`/`params` (ssrf), `login_url`/`username`/`password`/`user_field`/`pass_field`/`protected_url` (session_fixation). Output: structured finding (title/CVSS/OWASP/CWE/steps/evidence/remediation) ready for `finding_add`.
+
+Prompt guidance added: `EXPLOIT CHAIN` section in SYSTEM_PROMPT tells model when to use `exploit_chain` vs manual tool calls. Findings still need `poc_verify` for determinism before `finding_add` (FINDING RULES).
+
+Live test (Discord, lab Netlify `cozy-kangaroo-42f2e0.netlify.app`):
+- `exploit_chain chain=ssrf url=...` → confirmation → execute → "no SSRF indicators" (correct — param id bukan URL-accepting)
+- `exploit_chain chain=idor url=... session_a=account_a session_b=account_b` → confirmation → execute → **BOLA/IDOR terdeteksi: response identik 200 untuk 2 akun berbeda, CVSS 7.5**
+- `exploit_chain chain=idor url=...` tanpa session → helpful message "butuh 2 sesi akun berbeda"
+
+Gates: typecheck, vitest 86/86, verify.ts EXIT=0 (12 integration checks pass), lint 0 errors.
+
+**Report per-target fix (bug found during live test):** `report_generate` execute function **tidak pass `target`** ke `generateReport` — `generateReport(ctx.rawUser)` tanpa opts → laporan mencampur SEMUA temuan dari semua target. Fixed: execute now passes `{ target: args.target }`. `report_generate`, `report_save`, `report_pdf` sekarang semua `required: ["target"]` dengan deskripsi "WAJIB sertakan `target` — tanpa target, laporan mencampur SEMUA temuan". Prompt sudah punya aturan "LAPORAN PER TARGET" tapi model tidak selalu compliance — required param memaksa model pass target.
+
+**Cleanup (post-review):** Removed unused imports/constants from `exploitChains.ts` — `crawlSite`, `readSessions`, `CHAIN_BUDGET_MS`, `MAX_STEPS`, `ChainStep` type, `extractJwtFromHeaders` function, and unused `steps` variables in `chainAuthBypass`/`chainSessionFixation`. Lint now clean for this file (0 warnings).
+
+Files changed:
+- `apps/web/src/lib/exploitChains.ts` — **baru**, 4 chain definitions + orchestrator (~500 baris, cleaned up unused code)
+- `apps/web/src/lib/tools.ts` — +`exploit_chain` plugin, `report_generate`/`report_save`/`report_pdf` target fix + required
+- `apps/web/src/lib/agent.ts` — +`exploit_chain` di CORE_TOOL_NAMES + SYSTEM_PROMPT (tool list + confirmation list + prompt guidance)
+- `apps/web/verify.ts` — +exploit chain test block (12 assertions)
+- `AGENTS.md` — updated
+
+**Ready for commit.**

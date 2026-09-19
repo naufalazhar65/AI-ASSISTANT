@@ -2851,6 +2851,45 @@ async function main() {
     }
     console.log("auto-updater: OK (tools registered, status fields, disabled short-circuit, tick no-op out-of-hours)");
   }
+
+  // ── exploit chain builder ─────────────────────────────────────────────────
+  {
+    const { runExploitChain, listChains, CHAIN_TYPES } = await import("./src/lib/exploitChains");
+    const { getTOOLS } = await import("./src/lib/tools");
+    // Tool registered
+    const tool = getTOOLS().find((t) => t.function.name === "exploit_chain");
+    if (!tool) throw new Error("exploit_chain tool not registered");
+    // listChains returns all chain types
+    const chains = listChains();
+    if (!chains.includes("idor")) throw new Error("listChains missing idor");
+    if (!chains.includes("auth_bypass")) throw new Error("listChains missing auth_bypass");
+    if (!chains.includes("ssrf")) throw new Error("listChains missing ssrf");
+    if (!chains.includes("session_fixation")) throw new Error("listChains missing session_fixation");
+    // CHAIN_TYPES has 4 entries
+    if (Object.keys(CHAIN_TYPES).length !== 4) throw new Error(`expected 4 chains, got ${Object.keys(CHAIN_TYPES).length}`);
+    // Invalid chain type returns error
+    const bad = await runExploitChain(null, "nonexistent", { url: "http://127.0.0.1:4010" });
+    if (!bad.includes("Error")) throw new Error("expected error for invalid chain");
+    // Invalid URL returns error
+    const badUrl = await runExploitChain(null, "idor", { url: "not-a-url" });
+    if (!badUrl.includes("Error")) throw new Error("expected error for invalid URL");
+    // Scope-gated: public URL rejected
+    const pub = await runExploitChain(null, "idor", { url: "https://example.com/test" });
+    if (!pub.includes("SCOPE")) throw new Error(`expected SCOPE error, got: ${pub.slice(0, 60)}`);
+    // IDOR chain without sessions returns helpful message (no crash)
+    const idorNoSess = await runExploitChain(null, "idor", { url: "http://127.0.0.1:4010/api/dokumen?id=1" });
+    if (!idorNoSess.includes("EXPLOIT CHAIN")) throw new Error(`idor chain should return header, got: ${idorNoSess.slice(0, 60)}`);
+    // Auth bypass without token returns helpful message
+    const authNoToken = await runExploitChain(null, "auth_bypass", { url: "http://127.0.0.1:4010/api/dokumen?id=1" });
+    if (!authNoToken.includes("EXPLOIT CHAIN")) throw new Error(`auth_bypass chain should return header`);
+    // Session fixation without creds returns helpful message
+    const sfNoCreds = await runExploitChain(null, "session_fixation", { url: "http://127.0.0.1:4010" });
+    if (!sfNoCreds.includes("EXPLOIT CHAIN")) throw new Error(`session_fixation chain should return header`);
+    // SSRF chain runs param_discover (at minimum)
+    const ssrf = await runExploitChain(null, "ssrf", { url: "http://127.0.0.1:4010/api/dokumen?id=1" });
+    if (!ssrf.includes("EXPLOIT CHAIN")) throw new Error(`ssrf chain should return header, got: ${ssrf.slice(0, 80)}`);
+    console.log("exploit-chain: OK (tool registered, 4 chains, scope-gated, helpful errors, SSRF runs)");
+  }
 }
 
 main().catch((err) => {

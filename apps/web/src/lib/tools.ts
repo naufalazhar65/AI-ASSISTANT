@@ -3419,14 +3419,14 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "report_generate",
-        description: "Susun laporan pentest markdown dari temuan yang tercatat (Title/Severity/Evidence/Impact/Remediation). Opsional `target` (host/URL) untuk membatasi laporan ke target itu saja — pakai ini supaya laporan lab tidak bercampur temuan lama dari target lain. Read, auto.",
-        parameters: { type: "object", properties: { target: { type: "string", description: "Host/URL, mis. cozy-kangaroo-42f2e0.netlify.app" } }, required: [] },
+        description: "Susun laporan pentest markdown dari temuan. WAJIB sertakan `target` saat user menyebut satu lab/target — tanpa target, laporan mencampur SEMUA temuan. Read, auto.",
+        parameters: { type: "object", properties: { target: { type: "string", description: "host atau URL target — WAJIB diisi" } }, required: ["target"] },
       },
     },
-    execute: async (_args, ctx) => {
+    execute: async (args, ctx) => {
       try {
         const { generateReport } = await import("./security");
-        return generateReport(ctx.rawUser);
+        return generateReport(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined });
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : "report_generate failed"}`;
       }
@@ -3477,7 +3477,7 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { iocExtract } = await import("./security"); return iocExtract(String(args.text || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "ioc_extract failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "read", function: { name: "report_save", description: "Simpan laporan pentest (dari temuan) ke file markdown di .data/users/<user>/reports/. Opsional `target` (host/URL) untuk membatasi ke target itu. Read, auto.", parameters: { type: "object", properties: { target: { type: "string" } }, required: [] } } },
+    definition: { type: "function", risk: "read", function: { name: "report_save", description: "Simpan laporan pentest ke file markdown. WAJIB sertakan `target` saat user menyebut satu lab/target — tanpa target, laporan mencampur SEMUA temuan. Read, auto.", parameters: { type: "object", properties: { target: { type: "string", description: "host atau URL target — WAJIB diisi" } }, required: ["target"] } } },
     execute: async (args, ctx) => { try { const { reportSave } = await import("./security"); return reportSave(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_save failed"}`; } },
   },
   {
@@ -3485,7 +3485,7 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { sqlmapScan } = await import("./security"); return await sqlmapScan(String(args.url || ""), { level: asNumber(args.level), risk: asNumber(args.risk) }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "sqlmap_scan failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "read", function: { name: "report_pdf", description: "Buat PDF laporan pentest (dari temuan) via Playwright → .data/users/<user>/reports/*.pdf. Opsional `target` (host/URL) untuk membatasi ke target itu — sangat disarankan saat melaporkan satu lab/target. Read, auto.", parameters: { type: "object", properties: { target: { type: "string" } }, required: [] } } },
+    definition: { type: "function", risk: "read", function: { name: "report_pdf", description: "Buat PDF laporan pentest via Playwright → .data/users/<user>/reports/*.pdf. WAJIB sertakan `target` (host/URL) — tanpa target, laporan mencampur SEMUA temuan dari semua target. Read, auto.", parameters: { type: "object", properties: { target: { type: "string", description: "host atau URL target — WAJIB diisi" } }, required: ["target"] } } },
     execute: async (args, ctx) => { try { const { reportPdf } = await import("./security"); return await reportPdf(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_pdf failed"}`; } },
   },
   {
@@ -3878,6 +3878,31 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: { type: "function", risk: "read", function: { name: "bounty_status", description: "Riwayat ringkas bounty_run terakhir (host/lead/draft). Read/auto.", parameters: { type: "object", properties: {}, required: [] } } },
     execute: async () => { try { const { bountyStatus } = await import("./bounty"); return bountyStatus(); } catch (e) { return `Error: ${e instanceof Error ? e.message : "bounty_status failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "exploit_chain", description: "Jalankan exploit chain otomatis: IDOR (bola_diff), auth_bypass (JWT alg:none/claim tampering), SSRF (OAST callback), atau session_fixation. Satu konfirmasi = satu chain penuh. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { chain: { type: "string", enum: ["idor", "auth_bypass", "ssrf", "session_fixation"], description: "jenis chain" }, url: { type: "string", description: "target URL (lab/engagement)" }, session_a: { type: "string", description: "nama http_session akun A (untuk IDOR)" }, session_b: { type: "string", description: "nama http_session akun B (untuk IDOR)" }, token: { type: "string", description: "JWT token (untuk auth_bypass)" }, session: { type: "string", description: "nama http_session berisi token (untuk auth_bypass)" }, callback: { type: "string", description: "OAST callback URL (opsional, auto-create jika kosong)" }, params: { type: "array", description: "parameter spesifik untuk SSRF (opsional, auto-discover)" }, login_url: { type: "string", description: "URL login (untuk session_fixation)" }, username: { type: "string", description: "username (untuk session_fixation)" }, password: { type: "string", description: "password (untuk session_fixation)" }, user_field: { type: "string", description: "nama field username di form (default: username)" }, pass_field: { type: "string", description: "nama field password di form (default: password)" }, protected_url: { type: "string", description: "URL terlindungi untuk diuji (untuk session_fixation)" } }, required: ["chain", "url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { runExploitChain } = await import("./exploitChains");
+        return await runExploitChain(ctx.rawUser, String(args.chain || ""), {
+          url: typeof args.url === "string" ? args.url : undefined,
+          session_a: typeof args.session_a === "string" ? args.session_a : undefined,
+          session_b: typeof args.session_b === "string" ? args.session_b : undefined,
+          token: typeof args.token === "string" ? args.token : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+          callback: typeof args.callback === "string" ? args.callback : undefined,
+          params: asStringArray(args.params),
+          login_url: typeof args.login_url === "string" ? args.login_url : undefined,
+          username: typeof args.username === "string" ? args.username : undefined,
+          password: typeof args.password === "string" ? args.password : undefined,
+          user_field: typeof args.user_field === "string" ? args.user_field : undefined,
+          pass_field: typeof args.pass_field === "string" ? args.pass_field : undefined,
+          protected_url: typeof args.protected_url === "string" ? args.protected_url : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "exploit_chain failed"}`;
+      }
+    },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "oauth_hunt", description: "Uji OAuth/OIDC (scope-gated): ambil discovery, lalu probe authorization_endpoint dengan varian bypass `redirect_uri` → deteksi open redirect (jalur ATO). Bounded, GET saja. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "issuer / /.well-known/openid-configuration / base host" }, client_id: { type: "string", description: "client_id (opsional)" } }, required: ["url"] } } },
