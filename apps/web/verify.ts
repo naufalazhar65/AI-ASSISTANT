@@ -1525,7 +1525,7 @@ async function main() {
     const { toolsForUrl } = await import("./src/lib/agent");
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "scope_import", "crawl", "param_discover", "recon_diff", "recon_screenshot", "platform_severity", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "recon_dnsbrute", "recon_ports", "submission_track", "cors_audit", "csp_audit", "http_history", "security_hunt", "poc_verify", "ato_prove", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "param_discover", "js_mine", "api_spec", "graphql_probe", "request_save", "request_run", "cve_intel", "cors_audit", "csp_audit", "http_history", "security_hunt", "poc_verify", "ato_prove", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
@@ -2985,8 +2985,11 @@ async function main() {
     if (!chains.includes("auth_bypass")) throw new Error("listChains missing auth_bypass");
     if (!chains.includes("ssrf")) throw new Error("listChains missing ssrf");
     if (!chains.includes("session_fixation")) throw new Error("listChains missing session_fixation");
-    // CHAIN_TYPES has 4 entries
-    if (Object.keys(CHAIN_TYPES).length !== 4) throw new Error(`expected 4 chains, got ${Object.keys(CHAIN_TYPES).length}`);
+    for (const t of ["race", "graphql", "xxe", "open_redirect", "cache_poison"]) {
+      if (!chains.includes(t)) throw new Error(`listChains missing tier-1 wrapper: ${t}`);
+    }
+    // CHAIN_TYPES has 9 entries (4 original + 5 tier-1 wrappers)
+    if (Object.keys(CHAIN_TYPES).length !== 9) throw new Error(`expected 9 chains, got ${Object.keys(CHAIN_TYPES).length}`);
     // Invalid chain type returns error
     const bad = await runExploitChain(null, "nonexistent", { url: "http://127.0.0.1:4010" });
     if (!bad.includes("Error")) throw new Error("expected error for invalid chain");
@@ -3037,7 +3040,7 @@ async function main() {
     const multiBad = await runExploitChain(null, "idor,bogus", { url: "http://127.0.0.1:4010/api/dokumen?id=1" });
     if (!multiBad.includes("⛔ CHAIN TIDAK DIJALANKAN: \"bogus\"")) throw new Error(`unknown chain in batch must be an honest skip marker, got: ${multiBad.slice(0, 120)}`);
     if (!multiBad.includes("0 chain dengan langkah nyata · 2 dilewati")) throw new Error(`mixed batch summary wrong, got: ${multiBad.slice(-160)}`);
-    console.log("exploit-chain: OK (tool registered, 4 chains, scope-gated, helpful errors, SSRF runs, comma-separated batches honest)");
+    console.log("exploit-chain: OK (tool registered, 9 chains incl. 5 tier-1 wrappers, scope-gated, helpful errors, SSRF runs, comma-separated batches honest)");
   }
 
   // ── deterministic PDF delivery helpers ────────────────────────────────
@@ -3083,6 +3086,146 @@ async function main() {
       rmSync(join(appRoot(), ".data", "users", su2), { recursive: true, force: true });
     }
     console.log("deterministic-pdf (fabrication note + delivery target helpers + real PDF on disk): OK");
+  }
+
+  // ── tier-1 attack suite: race/graphql/cache/xxe/redirect/ws/github/har ──
+  {
+    const http = await import("node:http");
+    const srv = http.createServer((req, res) => {
+      const url = req.url || "";
+      if (url.startsWith("/api/race")) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end('{"ok":true}');
+        return;
+      }
+      if (url.startsWith("/redirect")) {
+        const dest = new URL(url, "http://x").searchParams.get("url") || "/";
+        res.writeHead(302, { location: dest });
+        res.end();
+        return;
+      }
+      if (url.startsWith("/graphql")) {
+        let body = "";
+        req.on("data", (c) => { body += c; });
+        req.on("end", () => {
+          if (body.includes("IntrospectionQuery")) {
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ data: { __schema: { queryType: { fields: [{ name: "me" }, { name: "users" }] }, mutationType: { fields: [{ name: "login" }] } } } }));
+            return;
+          }
+          if (body.startsWith("[")) {
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify([{ data: { __typename: "Query" } }, { data: { __typename: "Query" } }]));
+            return;
+          }
+          if (body.includes("a: __typename")) {
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ data: { a: "Query", b: "Query" } }));
+            return;
+          }
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ errors: [{ message: "Cannot query field 'me' on type 'Query'." }] }));
+        });
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<!doctype html><html><body>lab</body></html>");
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+    const port = (srv.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    const t1 = "verify_tier1";
+    try {
+      const { getTOOLS } = await import("./src/lib/tools");
+      const names = getTOOLS().map((t) => t.function.name);
+      for (const n of ["race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import"]) {
+        if (!names.includes(n)) throw new Error(`tier-1 tool not registered: ${n}`);
+      }
+
+      // race_attack: live volley against a deterministic 200 endpoint → all-success flag
+      const pro = await import("./src/lib/proAttack");
+      const rr = await pro.raceAttackPro(t1, { url: `${base}/api/race`, method: "POST", count: 5 });
+      if (!/RACE ATTACK/.test(rr) || !/request UNIK semuanya sukses/.test(rr)) throw new Error(`race_attack: ${rr.slice(0, 200)}`);
+      const flags = pro.raceClassify(5, [{ status: 200, len: 10, digest: "a" }, { status: 200, len: 11, digest: "b" }, { status: 200, len: 12, digest: "c" }, { status: 200, len: 13, digest: "d" }, { status: 200, len: 14, digest: "e" }], true);
+      if (!flags.some((f) => f.includes("duplicate-creation")) || !flags.some((f) => f.includes("outcome berbeda"))) throw new Error("raceClassify");
+      const rrScope = await pro.raceAttackPro(t1, { url: "https://example.com/api" });
+      if (!/SCOPE/.test(rrScope)) throw new Error("race_attack scope guard");
+
+      // graphql_hunt: introspection open + batching accepted + alias + GET
+      const gh = await import("./src/lib/graphqlHunt");
+      const gres = await gh.graphqlHunt(t1, { url: `${base}/graphql` });
+      if (!/GRAPHQL HUNT/.test(gres) || !/Introspection TERBUKA/.test(gres) || !/BATCHING AKTIF/.test(gres) || !/Query via GET diterima/.test(gres)) throw new Error(`graphql_hunt: ${gres.slice(0, 300)}`);
+      if (gh.parseSuggestions('Did you mean "users" or "user"?').join() !== "users,user") throw new Error("parseSuggestions");
+      if (gh.parseGraphqlFields({ data: { __schema: { queryType: { fields: [{ name: "me" }] }, mutationType: { fields: [] } } } }).query[0] !== "me") throw new Error("parseGraphqlFields");
+      if (gh.batchVerdict([{ data: {} }, { data: {} }]) !== "batched") throw new Error("batchVerdict");
+      if (!gh.depthProbeQuery("me", 3).includes("me{me{me{me}}}")) throw new Error("depthProbeQuery");
+      const gScope = await gh.graphqlHunt(t1, { url: "https://example.com/graphql" });
+      if (!/SCOPE/.test(gScope)) throw new Error("graphql_hunt scope guard");
+
+      // cache_poison_prover: pure signals + scope guard
+      const sig = pro.cacheProbeSignals({ status: 200, body: "", headers: {}, ms: 1 }, { status: 200, body: `x ${"mia123"}.example.com y`, headers: { "x-cache": "HIT" }, ms: 2 }, "mia123");
+      if (!sig.some((s) => s.includes("cacheable")) || !sig.some((s) => s.includes("TERPANTUL"))) throw new Error(`cacheProbeSignals: ${sig.join(";")}`);
+      const cpScope = await pro.cachePoisonProver(t1, { url: "https://example.com/" });
+      if (!/SCOPE/.test(cpScope)) throw new Error("cache_poison scope guard");
+
+      // xxe_chain: payload builder + signals + scope guard
+      const docs = pro.xxePayloads("https://webhook.site/abc");
+      if (docs.length !== 4 || !docs[0].decl.includes("file:///etc/passwd") || !docs[2].selfClosing) throw new Error("xxePayloads");
+      const doc = pro.buildXxeDoc(docs[0], "<req>{XXE}</req>");
+      if (!doc.startsWith("<req><!ENTITY") || !doc.includes("&xxe;</req>")) throw new Error(`buildXxeDoc template: ${doc}`);
+      const doc2 = pro.buildXxeDoc(docs[2]);
+      if (!doc2.includes("%remote;") || !doc2.endsWith("<r/>")) throw new Error("buildXxeDoc param-entity");
+      const xs = pro.xxeSignals({ status: 200, body: "root:x:0:0:root:/root:/bin/bash\n", headers: {}, ms: 1 });
+      if (!xs.some((x) => x.includes("TERBACA"))) throw new Error("xxeSignals");
+      const xScope = await pro.xxeChain(t1, { url: "https://example.com/xml" });
+      if (!/SCOPE/.test(xScope)) throw new Error("xxe_chain scope guard");
+
+      // open_redirect_chain: live 302 that echoes the param → external confirmed
+      const ored = await pro.openRedirectChain(t1, { url: `${base}/redirect?url=/safe` });
+      if (!/OPEN REDIRECT/.test(ored) || !/REDIRECT EKSTERNAL TERKONFIRMASI/.test(ored) || !ored.includes("https://evil.example/")) throw new Error(`open_redirect_chain: ${ored.slice(0, 240)}`);
+      if (pro.redirectVerdict("https://evil.example/", "https://evil.example/x") !== "external-redirect") throw new Error("redirectVerdict confirm");
+      if (pro.redirectVerdict("https://evil.example/", "https://target.com/x") !== "none") throw new Error("redirectVerdict none");
+      const oScope = await pro.openRedirectChain(t1, { url: "https://example.com/r" });
+      if (!/SCOPE/.test(oScope)) throw new Error("open_redirect scope guard");
+
+      // ws_hunt: scope guard + verdict helper
+      const ws = await import("./src/lib/wsHunt");
+      const wScope = await ws.wsHunt(t1, { url: "wss://example.com/ws" });
+      if (!/SCOPE/.test(wScope)) throw new Error("ws_hunt scope guard");
+      if (!/TIDAK divalidasi/.test(ws.cswshVerdict(101, 101, 101)) || !/Origin divalidasi/.test(ws.cswshVerdict(403, 101, 101))) throw new Error("cswshVerdict");
+
+      // github_osint: pure helpers + bad action (no network in verify)
+      const go = await import("./src/lib/githubOsint");
+      const dorks = go.domainDorks("https://www.target.com/path");
+      if (dorks.length !== 6 || !dorks[0].includes('"target.com"')) throw new Error("domainDorks");
+      if (go.repoSlug("https://github.com/owner/repo.git") !== "owner/repo" || go.repoSlug("nope") !== null) throw new Error("repoSlug");
+      const hits = go.parseGrepApp({ hits: { hits: [{ _source: { repo: { raw: "a/b" }, path: { raw: "cfg.php" }, content: { snippet: "$pass = \"x\";" } } }] } });
+      if (hits.length !== 1 || hits[0].repo !== "a/b") throw new Error("parseGrepApp");
+      if (!/Error/.test(await go.githubOsint(t1, { action: "bogus" }))) throw new Error("github_osint action guard");
+
+      // har_import: parse → inventory + session save (values never printed)
+      const hi = await import("./src/lib/harImport");
+      const har = JSON.stringify({ log: { entries: [
+        { request: { method: "GET", url: `http://x.test/api/doc?id=1`, headers: [{ name: "Authorization", value: "Bearer sk-TOPSECRET123456" }], cookies: [{ name: "sid", value: "s1" }], queryString: [{ name: "id", value: "1" }] }, response: { status: 200, headers: [{ name: "Set-Cookie", value: "sid=s2; Path=/" }] } },
+        { request: { method: "POST", url: "http://x.test/api/login", headers: [], cookies: [], queryString: [] }, response: { status: 302, headers: [] } },
+      ] } });
+      const hout = await hi.harImport(t1, { text: har, save_session: "harsess" });
+      if (!/HAR IMPORT/.test(hout) || !/harsess/.test(hout) || !/api\/doc/.test(hout)) throw new Error(`har_import: ${hout.slice(0, 200)}`);
+      if (hout.includes("sk-TOPSECRET123456")) throw new Error("har_import leaked auth header value");
+      const { readSessions } = await import("./src/lib/httpSession");
+      const sess = readSessions(t1)["harsess"];
+      if (!sess || !sess.cookies.sid) throw new Error("har_import session not saved");
+      const ents = hi.parseHarEntries(har);
+      if (ents.length !== 2 || ents[0].params[0] !== "id") throw new Error("parseHarEntries");
+      if (hi.harParamNames(ents)[0][0] !== "id") throw new Error("harParamNames");
+      if (!hi.harCookieUnion(ents, "x.test").sid) throw new Error("harCookieUnion");
+      if (!hi.harAuthHeaders(ents)[0].includes("authorization")) throw new Error("harAuthHeaders");
+
+      console.log("tier-1 (race/graphql/cache/xxe/redirect/ws/github/har): OK (8 tools registered, live race+redirect+graphql, scope guards, secrets masked)");
+    } finally {
+      srv.close();
+      rmSync(join(appRoot(), ".data", "users", t1), { recursive: true, force: true });
+    }
   }
 }
 
