@@ -276,11 +276,11 @@ const SYSTEM_PROMPT = [
   + "MULTI-COMMAND RULE (WAJIB): bila user mengirim BEBERAPA baris perintah tool sekaligus (mis. beberapa `http_request`, `api_spec`, `hunt_log`), panggil SEMUA tool itu pada giliran yang sama — jangan hanya sebagian. Bila ada yang benar-benar tak bisa dijalankan, sebutkan eksplisit mana yang dilewati dan alasannya (jangan diam-diam menghilang)."
   + "COMMAND-LINE OBEDIENCE (WAJIB): bila pesan user berisi BARIS PERINTAH TOOL eksplisit (pola `nama_tool arg=…`, mis. `graphql_probe url=…` atau `http_request method=POST url=… body=…`), panggil PERSIS tool itu dengan argumen tersebut — JANGAN menggantinya dengan hunt_log/engagement_list/automation_list atau merangkum status, dan JANGAN menghilangkan salah satu. Setelah hasilnya ada, jawab ringkas dari data itu; jangan memanggil tool status tambahan tanpa diminta."
   + "PERSONA MEMORY: 'apa yang kamu ingat tentang aku?' → persona_show; 'ingat ini/ingat ya: X' → persona_set (key+value); 'lupakan soal X' → persona_forget. Fakta dikelola kanonik (favorite_food == preference.food; nilai terbaru menang, lama masuk riwayat) dan rahasia/token/OTP DITOLAK — jangan pernah menyimpan kredensial sebagai fakta."
-  + "FINDING RULES (WAJIB): sebelum finding_add untuk lead yang bisa di-replay, jalankan poc_verify (N× + expect_status/expect_contains + baseline kontrol) — jangan laporkan yang tidak stabil/deterministik. permintaan 'catat temuan / simpan finding / finding_add / catat X' → panggil `finding_add` LANGSUNG (bukan finding_list dulu; finding_list hanya bila user minta DAFTAR temuan). Tulis `cvss` saja bila tahu — jangan menebak `severity` terpisah (severity diturunkan otomatis dari CVSS). Map kategori ke **OWASP Top 10:2025** (Injection=A05:2025, Broken Access Control=A01:2025, Security Misconfiguration=A02:2025, Authentication Failures=A07:2025) dan labeli edisinya, kecuali user minta edisi lain. 'bikin laporan' → report_generate lalu report_pdf." 
+  + "FINDING RULES (WAJIB): sebelum finding_add untuk lead yang bisa di-replay, jalankan poc_verify (N× + expect_status/expect_contains + baseline kontrol) — jangan laporkan yang tidak stabil/deterministik. permintaan 'catat temuan / simpan finding / finding_add / catat X' → panggil `finding_add` LANGSUNG (bukan finding_list dulu; finding_list hanya bila user minta DAFTAR temuan). Tulis `cvss` saja bila tahu — jangan menebak `severity` terpisah (severity diturunkan otomatis dari CVSS). Map kategori ke **OWASP Top 10:2025** (Injection=A05:2025, Broken Access Control=A01:2025, Security Misconfiguration=A02:2025, Authentication Failures=A07:2025) dan labeli edisinya, kecuali user minta edisi lain. 'bikin laporan' → report_generate lalu report_pdf. PENTING: kalau user minta 'pdf'/'pdfnya' → `report_pdf` WAJIB — `report_save` HANYA menulis .md dan TIDAK menggenapi permintaan PDF; jangan antar file .md seolah sudah jadi PDF." 
   + "BUG BOUNTY (program publik: Bugcrowd/HackerOne/YesWeHack/Intigriti — aset in-scope BERIZIN lewat safe harbor): MIA BOLEH bekerja di sini. Langkah: (1) minta host **in-scope** + **out-of-scope** + **URL policy/terms**; (2) sarankan `engagement_create` (authorization=URL program, scope=[host in-scope], out_of_scope=[...]) supaya tool aktif (http_request/pentest_scan/nuclei_custom/sqlmap/recon_httpx) boleh jalan ke host itu; (3) PATUHI RoE: HANYA host in-scope, **default MANUAL + rate-limit** — JANGAN pakai scanner otomatis (nmap/nuclei/ffuf/sqlmap/zap_scan) KECUALI RoE/aturan program mengizinkannya (TANYA dulu), DILARANG DoS/stress/destructive, mengakses data user lain, dan social engineering bila RoE melarang; pakai akun uji; (4) alur temuan: recon pasif (recon_subdomains/recon_params) → web_audit/lab_fetch/http_request manual → finding_add (evidence+steps+impact+remediation) → report_generate/report_pdf, dan tulis sesuai format platform (Title/Severity/Steps/Evidence/Impact/Remediation). Kalau user menyebut platform LATIHAN (TryHackMe/HTB/PortSwigger), tetap arahkan ke pentest_resources & jangan diotomasi. PENTING (ATURAN KERAS): SEBELUM menolak/menahan karena alasan scope, WAJIB panggil `engagement_list` DAN `pentest_resources`, lalu cocokkan host target. Host BERIZIN bila: (a) ada di `scope` engagement AKTIF, ATAU (b) terdaftar sebagai LAB MILIK OWNER di `pentest_resources` (env PENTEST_LAB_TARGETS — termasuk lab publik milik owner seperti Netlify; TIDAK butuh engagement), ATAU (c) localhost/RFC1918/`PENTEST_LAB_TARGETS`. Untuk (a)/(b)/(c) LANGSUNG jalankan tool ber-scope (`lab_fetch`, `http_request`, `web_audit`, `content_discover`, `crawl`, `js_mine`, `recon_*`, `param_*`, `browser_open`) TANPA ragu. JANGAN pernah mengarang 'belum ada engagement yang mencakup' bila `engagement_list`/`pentest_resources` menunjukkannya ADA, dan JANGAN menolak lab milik owner (mis. Netlify pribadi) hanya karena tidak ada engagement — cek daftar lab dulu. Status 'pihak ketiga'/'vendor' BUKAN alasan menolak bila host tercantum di scope program (contoh: `checkout.webmd.com` ada di engagement Internet Brands → boleh diuji). Kalau ragu soal aturan vendor/out-of-scope, sebutkan sebagai catatan RoE & tetap lanjut membaca/uji pasif — bukan menolak total. Aturan sandbox-only (mis. Rapyd) hanya membatasi API pembayaran (api.rapyd.net), BUKAN web testing host in-scope." 
   + "HIGH-VALUE BOUNTY TOOLS: (1) BLIND/OOB — `oast_create` (dapat callback URL webhook.site) → sisipkan URL ke payload (SSRF URL param, blind XSS <script src>, XXE entity, RCE/SSTI) → kirim via http_request/lab_fetch → `oast_poll` (hit = bukti out-of-band). Ini satu-satunya cara membuktikan blind SSRF/RCE. (2) AUTH/BOLA — `http_session action=set name=A cookie=…` (dan B untuk akun kedua); `http_request ... session=A save_session=A` untuk login/authed; `bola_diff url=… session_a=A session_b=B` membandingkan respons dua identitas (identik 200 = indikasi BOLA/IDOR). (3) CONTENT DISCOVERY — `content_discover url=…` (robots/sitemap/link/endpoint JS/path umum). Alur bounty: recon → content_discover → http_session A/B → http_request/bola_diff → oast_create→payload→oast_poll → finding_add → report. (4) `param_fuzz url=…` — inject payload XSS/SQLi/SSTI/redirect/cmdi ke tiap param, flag reflection/error/eval/timing (opsi `callback`=URL OAST untuk kelas ssrf). (5) `jwt_attack` — decode/forge alg:none/HS256/alg-confusion/crack secret lemah, lalu uji token via http_request. (6) `evidence_capture url=… request={…}` — simpan screenshot + raw HTTP ke reports/evidence/ untuk lampiran laporan." 
   + "BOUNTY WORKFLOW LENGKAP: (1) saat user menyebut program (Bugcrowd/HackerOne/…), minta/minta-tempel daftar Targets → `scope_import` (text=… atau url=…) → sarankan `engagement_create` (verifikasi manual). (2) `crawl url=…` enumerasi path/form/JS same-origin. (3) `param_discover url=…` cari param tersembunyi → `param_fuzz` kandidatnya. (4) `recon_diff domain=…` tandai aset BARU sejak run terakhir (prioritaskan — aset baru = bug baru). (5) `recon_screenshot domain=…` visual recon host hidup. Urutan rutin: scope_import → engagement_create → recon_subdomains → recon_httpx → recon_diff → crawl → js_mine/api_spec/graphql_probe → param_discover/param_fuzz → http_session/bola_diff/request_save/request_run → oast → jwt_attack → evidence_capture → finding_add → platform_severity → report." 
-  + "EXPLOIT CHAIN (otomatisasi multi-step attack): `exploit_chain chain=<jenis> url=<target>` menjalankan SATU chain penuh dalam SATU konfirmasi. Jenis: `idor` (content_discover → http_request → bola_diff A/B sessions → JSON field diff), `auth_bypass` (decode JWT → alg:none → claim tampering → test), `ssrf` (param_discover → oast_create → inject payloads → oast_poll), `session_fixation` (GET login → POST login → compare session IDs). Scope-gated (targetAllowed). Butuh setup: IDOR butuh 2 http_session (akun A & B); auth_bypass butuh token JWT atau http_session berisi token; ssrf auto-create OAST callback; session_fixation butuh username+password. Output: structured finding (title/CVSS/OWASP/CWE/steps/evidence/remediation) SIAP `finding_add`. PENTING: finding dari exploit_chain tetap butuh `poc_verify` untuk determinisme sebelum `finding_add` (FINDING RULES). Pakai exploit_chain saat user minta 'full IDOR test', 'cek auth bypass', 'test SSRF', atau 'cek session fixation' pada satu target — JANGAN panggil tool satu-satu bila chain tersedia."
+  + "EXPLOIT CHAIN (otomatisasi multi-step attack): `exploit_chain chain=<jenis> url=<target>` menjalankan chain penuh dalam SATU konfirmasi. `chain` boleh SATU nama ATAU koma-terpisah untuk beberapa chain sekaligus (mis. `chain=\"idor,ssrf\"`) — tiap chain dijalankan berurutan dan hasilnya per-chain, jadi jangan panggil tool satu-satu bila chain tersedia. Jenis: `idor` (content_discover → http_request → bola_diff A/B sessions → JSON field diff), `auth_bypass` (decode JWT → alg:none → claim tampering → test), `ssrf` (param_discover → oast_create → inject payloads → oast_poll), `session_fixation` (GET login → POST login → compare session IDs). Scope-gated (targetAllowed). Butuh setup: IDOR butuh 2 http_session (akun A & B); auth_bypass butuh token JWT atau http_session berisi token; ssrf auto-create OAST callback; session_fixation butuh username+password. Output: structured finding (title/CVSS/OWASP/CWE/steps/evidence/remediation) SIAP `finding_add`. PENTING: finding dari exploit_chain tetap butuh `poc_verify` untuk determinisme sebelum `finding_add` (FINDING RULES). KEJUJURAN CHAIN: kalau output chain mengandung '⛔ CHAIN TIDAK DIJALANKAN', \"Error:\", 'TIDAK ADA chain yang benar-benar dijalankan', atau '0 chain dengan langkah nyata', itu artinya chain TIDAK jalan (butuh session_a/session_b untuk idor, token untuk auth_bypass, username/password untuk session_fixation, atau nama chain tidak dikenal) — katakan jujur chain tidak dijalankan + apa yang kurang, JANGAN sekali-kali menarasikan 'sudah aku uji'/'selesai diuji' seolah chain jalan/menemukan temuan baru. Laporan PDF yang dicetak di giliran yang sama hanya memuat temuan yang SUDAH ada sebelumnya kalau tidak ada chain/finding tool yang benar-benar jalan."
   + "SUPERPOWER SUITE (hafalan target, regresi, matriks otorisasi, DOM taint, belajar dari writeup): "
   + "(1) `target_brain` = memori persisten PER-TARGET — SEBELUM menguji/menguji-ulang sebuah host, panggil `target_brain action=brief target=<host>` untuk melihat endpoint/params yang pernah terlihat, tech, temuan TERBUKTI, dan request yang sudah dites aman (jangan ulang yang sudah aman/dead). content_discover/js_mine/tech_watch/finding_add menulis ke sini otomatis; tambah catatan via action=note. 'inget kan lab X?'/'lanjutkan pentest lab X' → brief dulu. "
   + "(2) REGRESI: temuan terbukti harus punya retest case — saat finding_add, sertakan `retest_url` (+`retest_expect` signature rentan / `retest_status`, `retest_session`) supaya case dibuat OTOMATIS; case manual via `retest_add`. 'sudah dipatch belum?'/'cek ulang temuan' → `retest_run id=…` atau `retest_run target=<host>` → 🔴 masih rentan / 🟢 patched. Layar daftar: retest_list. Setelah fix-verification PASS, finding_resolve temuan yang sudah mati. "
@@ -2321,6 +2321,174 @@ export function summarizeToolResults(messages: ChatMessage[], maxPerResult = 300
 }
 
 /**
+ * Honest PDF guard: when the user explicitly asked for a PDF report ("buatkan
+ * report pdfnya") but this turn only produced markdown — report_save /
+ * report_generate ran and report_pdf did NOT — append a deterministic note so a
+ * .md file is never presented as the requested PDF deliverable. Pure — tested.
+ */
+/**
+ * Actual instruction behind a turn, skipping bare approvals. Tool-confirmation
+ * continuations append the approval ("oke", "ya", "lanjut", "tidak") as the
+ * NEWEST user message while the real ask ("... lalu buatkan report pdfnya")
+ * sits earlier — an honesty guard that reads "oke" as the request would never
+ * fire (live 2026-09-20: the fabricated-PDF turn slipped through exactly this
+ * way; neither the PDF nor the exploit-chain guard saw the pentest ask). Pure.
+ */
+const ACK_ONLY_RE = /^(ya+|iya+|ok+|okay+|oke+|sip|siap|yes|no|tidak|nggak|gak|boleh|setuju|lanjut|go|done|yaudah)[!.…\s]*$/i;
+export function lastInstructionText(messages: ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    const t = messageText(m.content || "").trim();
+    if (!t) continue;
+    if (ACK_ONLY_RE.test(t)) continue;
+    return t;
+  }
+  return "";
+}
+
+/** Did an assistant tool_calls message of this turn declare `name`? Pure — tested. */
+export function turnRanTool(messages: ChatMessage[], name: string): boolean {
+  for (const m of messages) {
+    if (m.role === "assistant" && m.tool_calls) {
+      for (const tc of m.tool_calls) if (tc.function.name === name) return true;
+    }
+  }
+  return false;
+}
+
+export function pdfDeliverableSuffix(messages: ChatMessage[], text: string): string {
+  const ask = lastInstructionText(messages);
+  if (!/\bpdf\b|pdf-?nya|laporan\s+pdf|report\s+pdf/i.test(ask)) return "";
+  // Which report tools actually ran this turn (assistant tool_calls that executed)?
+  const mdOnly =
+    (turnRanTool(messages, "report_save") || turnRanTool(messages, "report_generate")) && !turnRanTool(messages, "report_pdf");
+  // Only suppress when the reply ALREADY ADMITS the gap ("PDF-nya belum",
+  // "belum ada pdf", "belum kupdf-kan"). Merely MENTIONING "PDF" — especially a
+  // false success claim like "sudah kususun jadi PDF — cek report-....pdf" — is
+  // NOT an admission: that is exactly how the fabricating reply slips through
+  // (live 2026-09-20: the model quoted a report-*.pdf path that was never
+  // created). Don't double-suffix a genuine admission; always suffix a lie.
+  const admitsGap = /(\bpdf\b|pdf-?nya)[^\n]{0,40}\bbelum\b|\bbelum\b[^\n]{0,40}\bpdf\b|\bbukan\s+pdf\b|belum ada file/i.test(text);
+  if (admitsGap) return "";
+  if (mdOnly)
+    return " (PDF-nya belum kubuat — yang barusan masih versi .md/teks, dan belum ada file PDF dari pengujian ini. Bilang \"buat pdf-nya ya\" kalau mau.)";
+  // No report_* tool ran AT ALL this turn, yet the reply quotes a report-*.pdf
+  // path — a pure fabrication (nothing was rendered). Live 2026-09-20 second
+  // occurrence: the model narrated "report-2026-09-20T12-00-11-234Z.pdf" while
+  // the turn never called report_pdf/report_save/report_generate even once.
+  if (
+    !turnRanTool(messages, "report_pdf") &&
+    !turnRanTool(messages, "report_save") &&
+    !turnRanTool(messages, "report_generate") &&
+    /report-[0-9A-Za-z:.()+_-]*\.pdf/i.test(text)
+  )
+    return " (Catatan jujur: giliran ini belum membuat laporan apa pun — tidak ada file PDF-nya. Aku belum men-generate report-nya; bilang \"buat pdf-nya ya\" dan aku buatkan sekarang.)";
+  return "";
+}
+
+/**
+ * Best target to scope a deterministic PDF to: the `target` the model already
+ * passed to report_generate/report_save this turn, else the first http(s) URL
+ * in the user's instruction (the lab they asked to test), else undefined (a
+ * full cross-target report). Pure — tested.
+ */
+export function reportTargetFromMessages(messages: ChatMessage[]): string | undefined {
+  for (const m of messages) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      if (tc.function.name !== "report_generate" && tc.function.name !== "report_save") continue;
+      try {
+        const a = JSON.parse(tc.function.arguments || "{}") as { target?: unknown };
+        if (typeof a.target === "string" && a.target.trim()) return a.target.trim();
+      } catch {
+        /* malformed args — keep scanning */
+      }
+    }
+  }
+  const ask = lastInstructionText(messages);
+  return (ask.match(/https?:\/\/[^\s"'<>)\]]+/i) || [])[0] || undefined;
+}
+
+/**
+ * Deterministic PDF delivery: the user explicitly asked for a PDF report this
+ * turn, so actually CREATE it now (their ask IS the authorization) instead of
+ * only admitting the gap — the deliverable must land in the folder. Live
+ * 2026-09-20: the model twice narrated a report-*.pdf path while no report tool
+ * ever ran; the fix is to make the file real. Returns a truthful "(suffix)"
+ * with the actual filename on success, or "" on failure so the caller falls
+ * back to the honest gap note. Voice gets a short spoken-friendly form (no
+ * filesystem path).
+ */
+async function tryDeliverReportPdf(messages: ChatMessage[], rawUser: unknown, channel: Channel): Promise<string> {
+  try {
+    const { reportPdf } = await import("./security");
+    const target = reportTargetFromMessages(messages);
+    const out = await reportPdf(rawUser, target ? { target } : {});
+    const file = (out.match(/report-[0-9A-Za-z:.()+_-]+\.pdf/i) || [])[0] || "";
+    if (!file) return "";
+    if (channel === "voice") return " (PDF-nya sudah kubuat — cek folder laporanmu ya.)";
+    return ` (📎 PDF-nya sudah kubuat: \`${file}\` — cek folder laporanmu ya.)`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Honest exploit-chain guard: when the user asked for pentest/exploit work and
+ * this turn's `exploit_chain` result shows NO chain actually ran (Error: /
+ * aggregate "TIDAK ADA chain yang benar-benar dijalankan" / all-⛔ skipped with
+ * 0 langkah), but the reply still narrates testing success ("sudah aku uji"),
+ * append a deterministic note so a skipped/errored chain is never presented as
+ * a done pentest — and a PDF printed that turn is never implied to hold new
+ * findings. Mirrors pdfDeliverableSuffix; pure — tested.
+ */
+export function chainRunClaimSuffix(messages: ChatMessage[], text: string): string {
+  // Only when the user actually asked for pentest/exploit work this turn
+  // (skipping bare "oke"/"ya" confirmation continuations — see lastInstructionText).
+  const ask = lastInstructionText(messages);
+  if (!/(pentest|exploit|uji|hunt|chain)/i.test(ask)) return "";
+
+  // Collect this turn's exploit_chain tool results (assistant tool_calls → tool msgs).
+  const chainOuts: string[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role === "assistant" && m.tool_calls) {
+      const hit = m.tool_calls.some((tc) => tc.function.name === "exploit_chain");
+      if (!hit) continue;
+      for (let j = i + 1; j < messages.length; j++) {
+        if (messages[j].role !== "tool") break;
+        const c = messageText(messages[j].content || "");
+        if (c) chainOuts.push(c);
+      }
+    }
+  }
+  if (!chainOuts.length) return "";
+  const last = chainOuts[chainOuts.length - 1];
+
+  // Did any chain actually execute steps? N>0 in "N langkah dijalankan" = real work.
+  const steps = last.match(/(\d+)\s+langkah dijalankan/);
+  const ranSteps = steps ? parseInt(steps[1], 10) : 0;
+  // A comma-separated batch ends with "━━ Ringkasan ━━\nN chain dengan langkah
+  // nyata · M dilewati". When N>0 some chains really ran: the reply's success
+  // narration is defensible and the per-chain ⛔ skips must NOT read as a
+  // whole-batch "nothing ran". Only treat the batch as no-work on an explicit
+  // 0-ran Ringkasan (or all ⛔ with no aggregate).
+  const ringkasan = last.match(/(\d+)\s+chain dengan langkah nyata/);
+  const aggregateRan = ringkasan ? parseInt(ringkasan[1], 10) > 0 : false;
+  const errored = /\bError:/.test(last);
+  const aggregateZero = /TIDAK ADA chain yang benar-benar dijalankan|0 chain dengan langkah nyata/.test(last);
+  const allSkipped = /⛔ CHAIN TIDAK DIJALANKAN/.test(last);
+  if (ranSteps > 0 || aggregateRan || !(errored || aggregateZero || allSkipped)) return "";
+
+  // The reply must claim testing success to warrant the honest suffix.
+  if (!/(full pentest|pentest)|(sudah|selesai|berhasil)[^\n]{0,20}(uji|tes|test|hunt)/i.test(text)) return "";
+  // If the model already admitted the skip/error, don't double-suffix.
+  if (/tidak (dijalankan|jalan|bisa|dikenal)|error|gagal|skip|butuh (sesi|token|kredensial)/i.test(text)) return "";
+  return " (Catatan jujur: exploit_chain tadi TIDAK menjalankan satu chain pun — hasilnya error/skip (butuh setup seperti sesi/token/kredensial atau nama chain tidak dikenal). Laporan yang dicetak memuat temuan yang SUDAH tercatat sebelumnya, bukan pengujian baru dari giliran ini.)";
+}
+
+/**
  * Budget for trying the whole chain. Each member can spend its own
  * same-model rate-limit retry (up to 6s), so a free-tier outage across all
  * members could otherwise stall a voice/chat turn for ~40s — worse than an
@@ -2939,6 +3107,41 @@ async function runAssistantTurnImpl(opts: {
     } catch { /* fall back to existing text */ }
   }
   text = ensureMoodReplyQuality(messages, text, collector.verbatimHit);
+
+  // Honest PDF guard + deterministic PDF delivery: when the user asked for a
+  // PDF report this turn, the deliverable must ACTUALLY exist in the folder —
+  // never a .md presented as PDF, never a fabricated report-*.pdf path. Live
+  // 2026-09-20: the model claimed a PDF path twice while no report tool
+  // (report_pdf!) ever ran. So if the user asked for a PDF and report_pdf did
+  // NOT run, deterministically produce it now (their ask IS the authorization);
+  // on success append a truthful "(sudah kubuat: <file>)" — on failure keep the
+  // honest gap note so the reply never fake-presents a PDF. Mirrors the
+  // reminder / spotify / place-check honesty guards (deterministic, appended).
+  if (!collector.verbatimHit) {
+    const ask = lastInstructionText(messages);
+    const askedPdf = !!ask && /\bpdf\b|pdf-?nya|laporan\s+pdf|report\s+pdf/i.test(ask);
+    const delivered =
+      askedPdf && !needsConfirmation?.length && !opts.autoDenyRisky && !turnRanTool(messages, "report_pdf")
+        ? await tryDeliverReportPdf(messages, opts.user, channel)
+        : "";
+    if (delivered) {
+      // A real file now exists — "(sudah kubuat: <file>)" replaces both the
+      // ".md-only" note and the fabrication note.
+      text = `${text}${delivered}`;
+    } else {
+      const pdfNote = pdfDeliverableSuffix(messages, text);
+      if (pdfNote) text = `${text}${pdfNote}`;
+    }
+  }
+
+  // Honest exploit-chain guard: user asked for pentest/exploit work and
+  // exploit_chain errored/skipped this turn (no chain ran), but the reply still
+  // narrates testing success — a skipped/errored chain must never read as a
+  // done pentest, and a PDF printed that turn must not imply new findings.
+  if (!collector.verbatimHit) {
+    const chainNote = chainRunClaimSuffix(messages, text);
+    if (chainNote && !needsConfirmation?.length) text = `${text}${chainNote}`;
+  }
 
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
   // This provides the YYYY-MM-DD.md files that memory_get reads and that

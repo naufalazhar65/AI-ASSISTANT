@@ -895,7 +895,11 @@ export function reportSave(rawUser: unknown, opts: { target?: string } = {}): st
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `report-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
   writeFileSync(file, md);
-  return `📄 Laporan disimpan: ${file}\n\n${md.slice(0, 800)}`;
+  return (
+    `📄 Laporan MARKDOWN disimpan: ${file}\n` +
+    `📌 Ini versi .md. Kalau user minta "pdf", lanjutkan dengan report_pdf (target=...) — jangan antar file .md sebagai pengganti PDF.\n\n` +
+    md.slice(0, 800)
+  );
 }
 
 // ── SQLi testing with sqlmap (authorized lab only) ──────────────────────────

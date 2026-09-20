@@ -59,9 +59,19 @@ export function matrixGranted(row: Pick<MatrixRow, "status" | "error">, grantedM
 /**
  * Compare two responses for "same data" (status equal-granted + similar body).
  * Pure — tested.
+ *
+ * Guard (2026-09-20): when lengths are near-identical (≤64 B) the CONTENT must
+ * actually match — same size but different content (e.g. a 200 login page vs a
+ * 200 data listing) is not "same data" and must not be reported as cross-role.
+ * Only applied when both rows carry a digest (back-compat with old tests/rows).
  */
 export function matrixSame(a: Pick<MatrixRow, "status" | "len" | "digest">, b: Pick<MatrixRow, "status" | "len" | "digest">): boolean {
-  return a.status === b.status && Math.abs(a.len - b.len) <= Math.max(64, Math.floor(Math.max(a.len, b.len) * 0.05));
+  if (a.status !== b.status) return false;
+  const lenDiff = Math.abs(a.len - b.len);
+  const tolerance = Math.max(64, Math.floor(Math.max(a.len, b.len) * 0.05));
+  if (lenDiff > tolerance) return false;
+  if (lenDiff <= 64 && a.digest && b.digest && a.digest !== b.digest) return false;
+  return true;
 }
 
 type Fetcher = (url: string, headers: Record<string, string>) => Promise<{ status: number; body: string; error?: string }>;

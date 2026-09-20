@@ -2996,19 +2996,93 @@ async function main() {
     // Scope-gated: public URL rejected
     const pub = await runExploitChain(null, "idor", { url: "https://example.com/test" });
     if (!pub.includes("SCOPE")) throw new Error(`expected SCOPE error, got: ${pub.slice(0, 60)}`);
-    // IDOR chain without sessions returns helpful message (no crash)
+    // IDOR chain without sessions returns a LOUD skip marker (no fake steps, no network)
     const idorNoSess = await runExploitChain(null, "idor", { url: "http://127.0.0.1:4010/api/dokumen?id=1" });
     if (!idorNoSess.includes("EXPLOIT CHAIN")) throw new Error(`idor chain should return header, got: ${idorNoSess.slice(0, 60)}`);
-    // Auth bypass without token returns helpful message
+    if (!idorNoSess.includes("⛔ CHAIN TIDAK DIJALANKAN")) throw new Error(`idor chain without sessions must say TIDAK DIJALANKAN, got: ${idorNoSess.slice(0, 120)}`);
+    if (!idorNoSess.includes("0 langkah dijalankan")) throw new Error(`idor chain without sessions must report 0 steps, got: ${idorNoSess.slice(0, 120)}`);
+    // Auth bypass without token returns the same loud skip marker
     const authNoToken = await runExploitChain(null, "auth_bypass", { url: "http://127.0.0.1:4010/api/dokumen?id=1" });
     if (!authNoToken.includes("EXPLOIT CHAIN")) throw new Error(`auth_bypass chain should return header`);
-    // Session fixation without creds returns helpful message
+    if (!authNoToken.includes("⛔ CHAIN TIDAK DIJALANKAN")) throw new Error(`auth_bypass without token must say TIDAK DIJALANKAN, got: ${authNoToken.slice(0, 120)}`);
+    if (!authNoToken.includes("0 langkah dijalankan")) throw new Error("auth_bypass without token must report 0 steps");
+    // Session fixation without creds returns the same loud skip marker
     const sfNoCreds = await runExploitChain(null, "session_fixation", { url: "http://127.0.0.1:4010" });
     if (!sfNoCreds.includes("EXPLOIT CHAIN")) throw new Error(`session_fixation chain should return header`);
+    if (!sfNoCreds.includes("⛔ CHAIN TIDAK DIJALANKAN")) throw new Error(`session_fixation without creds must say TIDAK DIJALANKAN, got: ${sfNoCreds.slice(0, 120)}`);
+    if (!sfNoCreds.includes("0 langkah dijalankan")) throw new Error(`session_fixation without creds must report 0 steps`);
+    // Scope gate covers EVERY hop: out-of-scope login_url / protected_url rejected
+    const sfScope = await runExploitChain(null, "session_fixation", { url: "http://127.0.0.1:4010/", login_url: "https://example.com/login" });
+    if (!sfScope.includes("SCOPE")) throw new Error(`expected SCOPE for out-of-scope login_url, got: ${sfScope.slice(0, 80)}`);
+    const sfScopeP = await runExploitChain(null, "session_fixation", { url: "http://127.0.0.1:4010/", protected_url: "https://example.com/panel" });
+    if (!sfScopeP.includes("SCOPE")) throw new Error(`expected SCOPE for out-of-scope protected_url, got: ${sfScopeP.slice(0, 80)}`);
+    // In-scope (same lab origin) login_url passes the gate
+    const sfOk = await runExploitChain(null, "session_fixation", { url: "http://127.0.0.1:4010/", login_url: "http://127.0.0.1:4010/login" });
+    if (sfOk.includes("SCOPE")) throw new Error(`in-scope login_url should not be rejected: ${sfOk.slice(0, 80)}`);
     // SSRF chain runs param_discover (at minimum)
     const ssrf = await runExploitChain(null, "ssrf", { url: "http://127.0.0.1:4010/api/dokumen?id=1" });
     if (!ssrf.includes("EXPLOIT CHAIN")) throw new Error(`ssrf chain should return header, got: ${ssrf.slice(0, 80)}`);
-    console.log("exploit-chain: OK (tool registered, 4 chains, scope-gated, helpful errors, SSRF runs)");
+    // Comma-separated chain batches run each chain and end with an honest summary.
+    // idor + session_fixation both skip structurally BEFORE any network hop, so this
+    // is deterministic: aggregate header, per-chain ⛔ blocks, Ringkasan with 0 ran.
+    const multi = await runExploitChain(null, "idor,session_fixation", { url: "http://127.0.0.1:4010/api/dokumen?id=1" });
+    if (!multi.includes("EXPLOIT CHAIN (2)")) throw new Error(`multi-chain should use aggregate header, got: ${multi.slice(0, 80)}`);
+    if (!multi.includes("⛓️ EXPLOIT CHAIN: IDOR")) throw new Error(`multi-chain should keep per-chain IDOR block`);
+    if (!multi.includes("⛓️ EXPLOIT CHAIN: SESSION_FIXATION")) throw new Error(`multi-chain should keep per-chain SESSION_FIXATION block`);
+    const multiSkipCount = (multi.match(/⛔ CHAIN TIDAK DIJALANKAN/g) || []).length;
+    if (multiSkipCount !== 2) throw new Error(`expected 2 skipped blocks in aggregate, got ${multiSkipCount}`);
+    if (!multi.includes("0 chain dengan langkah nyata · 2 dilewati")) throw new Error(`multi-chain summary must be honest, got: ${multi.slice(-160)}`);
+    if (!multi.includes("TIDAK ADA chain yang benar-benar dijalankan")) throw new Error(`multi-chain zero-run note missing`);
+    // Unknown token inside a batch is an honest skip marker, not a silent drop
+    const multiBad = await runExploitChain(null, "idor,bogus", { url: "http://127.0.0.1:4010/api/dokumen?id=1" });
+    if (!multiBad.includes("⛔ CHAIN TIDAK DIJALANKAN: \"bogus\"")) throw new Error(`unknown chain in batch must be an honest skip marker, got: ${multiBad.slice(0, 120)}`);
+    if (!multiBad.includes("0 chain dengan langkah nyata · 2 dilewati")) throw new Error(`mixed batch summary wrong, got: ${multiBad.slice(-160)}`);
+    console.log("exploit-chain: OK (tool registered, 4 chains, scope-gated, helpful errors, SSRF runs, comma-separated batches honest)");
+  }
+
+  // ── deterministic PDF delivery helpers ────────────────────────────────
+  {
+    const { turnRanTool, reportTargetFromMessages, pdfDeliverableSuffix } = await import("./src/lib/agent");
+    const mkTc = (name: string, args: string) => ({ id: "c", type: "function" as const, function: { name, arguments: args } });
+    if (!turnRanTool([{ role: "assistant", content: null, tool_calls: [mkTc("report_generate", "{}")] }], "report_generate")) throw new Error("turnRanTool should see declared tool");
+    if (turnRanTool([{ role: "assistant", content: null, tool_calls: [mkTc("report_generate", "{}")] }], "report_pdf")) throw new Error("turnRanTool false for undeclared tool");
+    const scoped = reportTargetFromMessages([
+      { role: "user", content: "pentest lab lalu buatkan report pdfnya" },
+      { role: "user", content: "oke" },
+      { role: "assistant", content: null, tool_calls: [mkTc("report_generate", '{"target":"https://lab/index.html"}')] },
+    ]);
+    if (scoped !== "https://lab/index.html") throw new Error(`reportTargetFromMessages should read report_generate target, got ${scoped}`);
+    const askUrl = reportTargetFromMessages([
+      { role: "user", content: "full pentest di https://6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app/index.html lalu buatkan report pdfnya" },
+      { role: "user", content: "oke" },
+    ]);
+    if (!askUrl || !askUrl.includes("netlify.app")) throw new Error("reportTargetFromMessages should fall back to the ask URL");
+    // Pure fabrication: no report tool ran, reply quotes a report-*.pdf path → honest note
+    const fab = pdfDeliverableSuffix(
+      [{ role: "user", content: "full pentest lab lalu buatkan report pdfnya" }, { role: "user", content: "ya" }, { role: "assistant", content: null, tool_calls: [mkTc("exploit_chain", "{}")] }],
+      "Selesai Mas Naufal 🌸 Detail lengkapnya sudah aku buatkan dalam laporan PDF di folder .../report-2026-09-20T12-00-11-234Z.pdf ya"
+    );
+    if (!fab.includes("belum membuat laporan apa pun")) throw new Error(`fabricated-PDF note should fire, got: ${fab.slice(0, 80)}`);
+    // report_pdf ran → real file exists → never a fabrication note
+    const real = pdfDeliverableSuffix(
+      [{ role: "user", content: "full pentest lab lalu buatkan report pdfnya" }, { role: "assistant", content: null, tool_calls: [mkTc("report_pdf", "{}")] }],
+      "Selesai, PDF-nya sudah kubuat: report-2026-09-20T12-00-11-234Z.pdf"
+    );
+    if (real !== "") throw new Error(`real report_pdf should suppress the note, got: ${real.slice(0, 80)}`);
+    // REAL delivery contract: reportPdf actually writes a report-*.pdf file and the
+    // deterministic suffix parses its filename — the deliverable must exist on disk.
+    const { reportPdf } = await import("./src/lib/security");
+    const su2 = "verify_pdfdrill";
+    try {
+      const out = await reportPdf(su2, { target: "http://127.0.0.1:4010" });
+      const file = (out.match(/report-[0-9A-Za-z:.()+_-]+\.pdf/i) || [])[0] || "";
+      if (!file) throw new Error(`reportPdf should return a report-*.pdf filename, got: ${out.slice(0, 80)}`);
+      const onDisk = join(userDataRoot(), su2, "reports", file);
+      if (!existsSync(onDisk)) throw new Error(`deliverable not on disk: ${onDisk}`);
+    } finally {
+      rmSync(join(appRoot(), ".data", "users", su2), { recursive: true, force: true });
+    }
+    console.log("deterministic-pdf (fabrication note + delivery target helpers + real PDF on disk): OK");
   }
 }
 

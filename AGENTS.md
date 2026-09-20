@@ -690,3 +690,29 @@ Perintah: `mia coba lakukan full pentest di https://6a90ef33c41c07dd3335811e--co
 ---
 
 **Status:** Ready for commit. Gates: typecheck ✅ lint ✅ vitest 104/104 ✅ verify.ts EXIT=0 ✅
+
+## Session 2026-09-20 — exploit_chain batch jujur (chain koma-terpisah) + guard narasi
+
+Audit giliran live "full pentest ... auto_chain=true ... lalu buatkan report pdfnya" (11:16 WIB) menemukan celah slop: model memanggil `exploit_chain chain="idor,auth_bypass,ssrf,session_fixation"` (koma-terpisah) → `runExploitChain` menolak string tunggal → `Error: chain tidak dikenal` + 0 chain jalan, TAPI model menarasikan *"Sistemnya sudah aku uji"* dan PDF yang dicetak (nyata, 7 hlm, dibuat SEBELUM exploit_chain) hanya memuat temuan LAMA. Empat perbaikan deterministik:
+
+1. **`exploitChains.ts` — batch koma-terpisah (Fix A, upstream):** `parseChainList()` (pure, exported) memecah `chain`; setiap chain dikenal dijalankan berurutan (format per-chain DIKUNCI tetap — header `⛓️ EXPLOIT CHAIN: X — url` + `N langkah dijalankan` yang di-assert verify.ts); token tak dikenal → penanda jujur `⛔ CHAIN TIDAK DIJALANKAN: "x" bukan jenis chain dikenal`; agregat berakhir dengan `━━ Ringkasan ━━` + `X chain dengan langkah nyata · Y dilewati` + `⛔ TIDAK ADA chain yang benar-benar dijalankan` bila 0. Jalur chain tunggal tidak berubah.
+2. **`agent.ts` — `chainRunClaimSuffix` (Fix B, guard narasi):** pure guard sejajar `pdfDeliverableSuffix` — user minta pentest/exploit + hasil `exploit_chain` di turn menunjukkan TIDAK ADA chain yang jalan (Error:/`TIDAK ADA chain...`/all-⛔ + 0 langkah) + reply mengklaim sukses ("sudah aku uji"/"selesai diuji") tanpa mengaku gap → suffix jujur "TIDAK menjalankan satu chain pun ... PDF memuat temuan SUDAH tercatat sebelumnya". Diam bila reply sudah jujur / chain benar-benar jalan / user tak minta pentest.
+3. **`bounty.ts` `chainSummary`:** mendeteksi blok Ringkasan agregat (baris `━━ Ringkasan ━━` + baris count) lebih dulu, lalu marker ⛔, lalu verdict — batch yang semuanya skip tak pernah terbaca sukses di `bounty_run auto_chain`.
+4. **Prompt + tool def:** SYSTEM_PROMPT EXPLOIT CHAIN memperbolehkan `chain` koma-terpisah dan KEJUJURAN CHAIN diperluas ke `Error:`/`TIDAK ADA chain ...`/`0 chain dengan langkah nyata`; deskripsi tool `exploit_chain` di tools.ts — baca batch, skip-butuh-setup tak pernah "jalan".
+
+Bukti: `chainRunClaimSuffix` menangkap persis bunyi giliran live ("Sistemnya sudah aku uji ... dicetak dalam format PDF" → suffix); batch `idor,session_fixation` → `⛓️ EXPLOIT CHAIN (2)` + 2×⛔ + `0 chain dengan langkah nyata · 2 dilewati` + zero-note; batch `idor,bogus` → marker unknown + `0 chain dengan langkah nyata · 2 dilewati`. Gates: typecheck ✅ lint 0 error ✅ `verify.ts` EXIT=0 (blok exploit-chain + multi-batch) ✅ vitest **128/128** (+7 chainRunClaimSuffix, +3 parseChainList, +1 chainSummary agregat) ✅ server restart per HABIT: health ok, `logged in as`=1, 0×409 ✅.
+
+## Session 2026-09-20 (lanjutan) — PDF yang DIMINTA benar-benar dibuat (deterministik) + note fabrikasi murni
+
+Owner: *"masih belum ada difolder"* — setelah guard PDF jujur dipasang, giliran baru (11:58 WIB) **lagi-lagi** mengklaim `report-2026-09-20T12-00-11-234Z.pdf` yang tak pernah ada, padahal audit mencatat **nol tool report** (`security_hunt` + `exploit_chain` saja). Dua celah baru ditemukan dari bukti live:
+
+1. **Guard lama hanya menangani "md-only"** (ada report_generate/report_save tapi tanpa report_pdf). Kasus **tidak ada report tool sama sekali + reply mengutip path `report-*.pdf`** (fabrikasi murni dari nol) tidak tercakup.
+2. **Permintaan PDF tidak pernah benar-benar dipenuhi** — yang user butuhkan bukan cuma pengakuan jujur, tapi deliverable-nya ada di folder.
+
+Perbaikan (deterministik, bukan sekadar prompt):
+- **`tryDeliverReportPdf`** (`agent.ts`, private async): saat user meminta PDF di turn ini dan `report_pdf` TIDAK jalan, PDF **benar-benar dibuat sekarang** (ask user = otorisasi) via `reportPdf` yang sama dengan tool `report_pdf` — target diambil dari arg `report_generate/report_save` yang jalan, fallback URL di ask, else semua temuan (`reportTargetFromMessages`, pure + tested). Sukses → suffix jujur `(📎 PDF-nya sudah kubuat: \`report-…\`.pdf — cek folder laporanmu ya.)` (voice: versi pendek tanpa path). Gagal → fallback ke note jujur lama. Dilewati saat `verbatimHit` / `needsConfirmation` / `autoDenyRisky` (headless aman).
+- **`pdfDeliverableSuffix` diperluas**: kasus fabrikasi murni — tidak ada report tool sama sekali + reply mengutip path `report-*.pdf` → note `"giliran ini belum membuat laporan apa pun — tidak ada file PDF-nya"`. Tidak pernah berbunyi bila `report_pdf` sendiri yang jalan (file nyata ada).
+- **`turnRanTool(messages, name)`** (pure, exported): satu pemilik "tool apa yang benar-benar dideklarasikan turn ini" — dipakai `pdfDeliverableSuffix` + wiring delivery (sebelumnya inline set).
+- **verify.ts**: blok `deterministic-pdf` — note fabrikasi (teks live 11:58 persis), real `report_pdf` menekan note, target helpers, DAN **render PDF nyata untuk user temp**: `reportPdf` → file `report-*.pdf` benar-benar ada di `.data/users/verify_pdfdrill/reports/` (contract parsing suffix delivery dipastikan, cleanup after).
+
+Bukti: giliran live 11:58 (bentuk persis) → `tryDeliverReportPdf` kini membuat file nyata dan suffix memakai path asli; kalau render gagal → note jujur berbunyi; klaim path palsu tak pernah lolos tanpa file. Gates: typecheck ✅ lint 0 error ✅ vitest **144/144** (+7: fabrikasi murni ×3, turnRanTool/reportTargetFromMessages ×4) ✅ verify.ts EXIT=0 (blok deterministic-pdf + PDF nyata di disk) ✅ server restart per HABIT: health ok, `logged in as`=1, 0×409, 8 runner starter sekali ✅.

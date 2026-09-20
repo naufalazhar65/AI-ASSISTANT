@@ -117,6 +117,22 @@ export function brainPathKey(url: string): string {
   }
 }
 
+/**
+ * Normalize an endpoint line into a storage-safe path (origin stripped).
+ * Handles absolute URLs AND bare paths; query string preserved (values dropped
+ * at call sites via brainParamNames). Pure.
+ */
+export function brainPath(raw: string): string {
+  const s = (raw || "").trim();
+  if (!s) return "";
+  try {
+    const u = new URL(/^https?:\/\//i.test(s) ? s : `http://x${s.startsWith("/") ? "" : "/"}${s}`);
+    return `${u.pathname}${u.search}`;
+  } catch {
+    return normalizeTarget(s).replace(/^https?:\/\/[^/]+/i, "");
+  }
+}
+
 /** Param names from a URL's query string (unique, sorted). Pure — tested. */
 export function brainParamNames(url: string): string[] {
   try {
@@ -134,7 +150,7 @@ export function brainRecordEndpoints(rawUser: unknown, baseUrl: string, paths: s
   const t = getTarget(brain, host);
   const now = new Date().toISOString();
   for (const raw of paths.slice(0, MAX_ENDPOINTS)) {
-    const path = normalizeTarget(raw).replace(/^https?:\/\/[^/]+/i, "");
+    const path = brainPath(raw);
     if (!path || path === "/") continue;
     const params = brainParamNames(`http://x${path.startsWith("/") ? "" : "/"}${path}`);
     const key = path.split("?")[0];

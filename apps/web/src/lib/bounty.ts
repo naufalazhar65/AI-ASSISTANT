@@ -18,7 +18,7 @@ import { rankTargets } from "./roi";
 import { addFinding, generateReport, reportPdf } from "./security";
 import { dupCheck } from "./dupes";
 import { runExploitChain } from "./exploitChains";
-import { browserSnapshot } from "./browser";
+import { evidenceCapture } from "./evidence";
 
 type RunState = { lastRun: string; runs: { at: string; engagement: string; hosts: number; leads: number; drafts: number; stop: string }[] };
 function stateFile(): string {
@@ -42,9 +42,37 @@ function writeState(s: RunState): void {
 
 /** A lead worth turning into a draft finding (vs. just noise in the handoff). */
 export function isHighSignalLead(lead: string): boolean {
-  return /BUCKET TERBUKA|REALTIME DB TERBUKA|tanpa HttpOnly|tanpa Secure|tanpa SameSite|TANPA auth|TANPA auth|200 TANPA|ter-reflect|open redirect|SQL error|SSTI|command output|terkonfirmasi|PUBLIK|kebocoran|exposed/i.test(
+  return /BUCKET TERBUKA|REALTIME DB TERBUKA|tanpa HttpOnly|tanpa Secure|tanpa SameSite|TANPA auth|200 TANPA|ter-reflect|open redirect|SQL error|SSTI|command output|terkonfirmasi|PUBLIK|kebocoran|exposed/i.test(
     lead || ""
   );
+}
+
+/** One-line, honest verdict from an exploit chain output (skips the header/meta). Pure — tested. */
+export function chainSummary(t: string): string {
+  const lines = t.split("\n");
+  // Aggregate (comma-separated chains) output ends with a Ringkasan block that
+  // states how many chains actually ran vs. were skipped — surface THAT first
+  // (the header line plus the following count line, e.g. "0 chain dengan
+  // langkah nyata · 4 dilewati" + the "TIDAK ADA chain ..." zero-run note).
+  const aggIdx = lines.findIndex((l) => /━━ Ringkasan ━━/.test(l.trim()));
+  if (aggIdx >= 0) {
+    const tail = lines.slice(aggIdx).map((l) => l.trim()).filter(Boolean);
+    return tail.join(" · ").slice(0, 140);
+  }
+  const aggLine = lines.find((l) => /chain dengan langkah nyata|TIDAK ADA chain yang benar-benar dijalankan/.test(l.trim()));
+  if (aggLine) return aggLine.trim().slice(0, 140);
+  // A skipped chain is a structural no-op (missing sessions/token/credentials).
+  // Surface that honest marker FIRST — a fallback to the first non-empty line
+  // would otherwise return the "⛓️ EXPLOIT CHAIN: ..." header and read as success.
+  const skipped = t.match(/⛔ CHAIN TIDAK DIJALANKAN[^\n]*/);
+  if (skipped) return skipped[0].trim().slice(0, 140);
+  const findCount = t.match(/📋 FINDINGS SIAP REPORT \((\d+)\)/);
+  const sigCount = t.match(/🚨 SIGNALS \((\d+)\)/);
+  const verdict = lines.find((l) => /🔴 \d+ potensi|✅ Tidak ada indikasi|✅ Tidak ada bypass|✅ Tidak ada session|✅ Tidak ada akses/.test(l.trim()));
+  const bits = [verdict?.trim(), findCount ? `${findCount[1]} finding (belum diverifikasi)` : "", sigCount ? `${sigCount[1]} sinyal` : ""].filter(Boolean).join(" · ");
+  if (bits) return bits;
+  const first = lines.map((l) => l.trim()).find(Boolean);
+  return (first || t).slice(0, 140);
 }
 
 function scopeHostsFor(engId?: string): { hosts: string[]; label: string } {
@@ -107,7 +135,11 @@ export async function bountyRun(
       if (chainCount >= maxChains) break;
       const lead = c.lead.toLowerCase();
       let chainType: "idor" | "auth_bypass" | "ssrf" | "session_fixation" | null = null;
-      const chainOpts: Record<string, unknown> = { url: c.host };
+      // Candidate hosts come bare (no scheme) from the campaign — exploit_chain
+      // requires a full http(s) URL, so coerce here or every chain would fail
+      // with "URL harus http(s)". 
+      const targetUrl = /^https?:\/\//i.test(c.host) ? c.host : `https://${c.host}`;
+      const chainOpts: Record<string, unknown> = { url: targetUrl };
 
       // Heuristic: pick chain based on lead content
       if (/idor|bola|object.*level|broken.*access/i.test(lead)) chainType = "idor";
@@ -118,7 +150,7 @@ export async function bountyRun(
       if (chainType) {
         try {
           const chainRes = await runExploitChain(rawUser, chainType, chainOpts);
-          chainResults.push(`⛓️ ${c.host} (${chainType}): ${chainRes.split("\n")[0]}`);
+          chainResults.push(`⛓️ ${c.host} (${chainType}): ${chainSummary(chainRes)}`);
           chainCount++;
         } catch (e) {
           chainResults.push(`⛓️ ${c.host} (${chainType}) error: ${e instanceof Error ? e.message : String(e)}`);
@@ -128,16 +160,15 @@ export async function bountyRun(
     if (chainResults.length) out.push(...chainResults);
   }
 
-  // ===== AUTO EVIDENCE: capture screenshot via browser =====
+  // ===== AUTO EVIDENCE: save REAL evidence (screenshot file) per candidate =====
   const evidenceResults: string[] = [];
   if (opts.auto_evidence === true) {
     for (const c of candidates.slice(0, 5)) {
       try {
-        // Open the lead URL in browser and snapshot
-        const { browserOpen } = await import("./browser");
-        await browserOpen(c.host);
-        await browserSnapshot(); // snapshot for evidence (saved via browser context)
-        evidenceResults.push(`📸 ${c.host}: browser snapshot captured`);
+        const targetUrl = /^https?:\/\//i.test(c.host) ? c.host : `https://${c.host}`;
+        const saved = await evidenceCapture(rawUser, { url: targetUrl });
+        const shot = saved.split("\n").map((l) => l.trim()).filter(Boolean).find((l) => l.includes("screenshot")) || saved.split("\n")[0];
+        evidenceResults.push(`📸 ${c.host}: ${shot}`);
       } catch (e) {
         evidenceResults.push(`📸 ${c.host} error: ${e instanceof Error ? e.message : String(e)}`);
       }
