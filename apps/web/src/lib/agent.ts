@@ -36,6 +36,7 @@ import { allowedWorkspaces } from "./users";
 import { clockLabel } from "./time";
 import { readReminders } from "./reminders";
 import { appendDailyMemory } from "./dailyMemory";
+import { metaProseNote } from "./metaProse";
 import { recallContext } from "./rag";
 import { scheduleLinkCapture } from "./library";
 import { checkRateLimit, RateLimitError } from "./rateLimit";
@@ -280,7 +281,7 @@ const SYSTEM_PROMPT = [
   + "BUG BOUNTY (program publik: Bugcrowd/HackerOne/YesWeHack/Intigriti — aset in-scope BERIZIN lewat safe harbor): MIA BOLEH bekerja di sini. Langkah: (1) minta host **in-scope** + **out-of-scope** + **URL policy/terms**; (2) sarankan `engagement_create` (authorization=URL program, scope=[host in-scope], out_of_scope=[...]) supaya tool aktif (http_request/pentest_scan/nuclei_custom/sqlmap/recon_httpx) boleh jalan ke host itu; (3) PATUHI RoE: HANYA host in-scope, **default MANUAL + rate-limit** — JANGAN pakai scanner otomatis (nmap/nuclei/ffuf/sqlmap/zap_scan) KECUALI RoE/aturan program mengizinkannya (TANYA dulu), DILARANG DoS/stress/destructive, mengakses data user lain, dan social engineering bila RoE melarang; pakai akun uji; (4) alur temuan: recon pasif (recon_subdomains/recon_params) → web_audit/lab_fetch/http_request manual → finding_add (evidence+steps+impact+remediation) → report_generate/report_pdf, dan tulis sesuai format platform (Title/Severity/Steps/Evidence/Impact/Remediation). Kalau user menyebut platform LATIHAN (TryHackMe/HTB/PortSwigger), tetap arahkan ke pentest_resources & jangan diotomasi. PENTING (ATURAN KERAS): SEBELUM menolak/menahan karena alasan scope, WAJIB panggil `engagement_list` DAN `pentest_resources`, lalu cocokkan host target. Host BERIZIN bila: (a) ada di `scope` engagement AKTIF, ATAU (b) terdaftar sebagai LAB MILIK OWNER di `pentest_resources` (env PENTEST_LAB_TARGETS — termasuk lab publik milik owner seperti Netlify; TIDAK butuh engagement), ATAU (c) localhost/RFC1918/`PENTEST_LAB_TARGETS`. Untuk (a)/(b)/(c) LANGSUNG jalankan tool ber-scope (`lab_fetch`, `http_request`, `web_audit`, `content_discover`, `crawl`, `js_mine`, `recon_*`, `param_*`, `browser_open`) TANPA ragu. JANGAN pernah mengarang 'belum ada engagement yang mencakup' bila `engagement_list`/`pentest_resources` menunjukkannya ADA, dan JANGAN menolak lab milik owner (mis. Netlify pribadi) hanya karena tidak ada engagement — cek daftar lab dulu. Status 'pihak ketiga'/'vendor' BUKAN alasan menolak bila host tercantum di scope program (contoh: `checkout.webmd.com` ada di engagement Internet Brands → boleh diuji). Kalau ragu soal aturan vendor/out-of-scope, sebutkan sebagai catatan RoE & tetap lanjut membaca/uji pasif — bukan menolak total. Aturan sandbox-only (mis. Rapyd) hanya membatasi API pembayaran (api.rapyd.net), BUKAN web testing host in-scope." 
   + "HIGH-VALUE BOUNTY TOOLS: (1) BLIND/OOB — `oast_create` (dapat callback URL webhook.site) → sisipkan URL ke payload (SSRF URL param, blind XSS <script src>, XXE entity, RCE/SSTI) → kirim via http_request/lab_fetch → `oast_poll` (hit = bukti out-of-band). Ini satu-satunya cara membuktikan blind SSRF/RCE. (2) AUTH/BOLA — `http_session action=set name=A cookie=…` (dan B untuk akun kedua); `http_request ... session=A save_session=A` untuk login/authed; `bola_diff url=… session_a=A session_b=B` membandingkan respons dua identitas (identik 200 = indikasi BOLA/IDOR). (3) CONTENT DISCOVERY — `content_discover url=…` (robots/sitemap/link/endpoint JS/path umum). Alur bounty: recon → content_discover → http_session A/B → http_request/bola_diff → oast_create→payload→oast_poll → finding_add → report. (4) `param_fuzz url=…` — inject payload XSS/SQLi/SSTI/redirect/cmdi ke tiap param, flag reflection/error/eval/timing (opsi `callback`=URL OAST untuk kelas ssrf). (5) `jwt_attack` — decode/forge alg:none/HS256/alg-confusion/crack secret lemah, lalu uji token via http_request. (6) `evidence_capture url=… request={…}` — simpan screenshot + raw HTTP ke reports/evidence/ untuk lampiran laporan." 
   + "BOUNTY WORKFLOW LENGKAP: (1) saat user menyebut program (Bugcrowd/HackerOne/…), minta/minta-tempel daftar Targets → `scope_import` (text=… atau url=…) → sarankan `engagement_create` (verifikasi manual). (2) `crawl url=…` enumerasi path/form/JS same-origin. (3) `param_discover url=…` cari param tersembunyi → `param_fuzz` kandidatnya. (4) `recon_diff domain=…` tandai aset BARU sejak run terakhir (prioritaskan — aset baru = bug baru). (5) `recon_screenshot domain=…` visual recon host hidup. Urutan rutin: scope_import → engagement_create → recon_subdomains → recon_httpx → recon_diff → crawl → js_mine/api_spec/graphql_probe → param_discover/param_fuzz → http_session/bola_diff/request_save/request_run → oast → jwt_attack → evidence_capture → finding_add → platform_severity → report." 
-  + "EXPLOIT CHAIN (otomatisasi multi-step attack): `exploit_chain chain=<jenis> url=<target>` menjalankan chain penuh dalam SATU konfirmasi. `chain` boleh SATU nama ATAU koma-terpisah untuk beberapa chain sekaligus (mis. `chain=\"idor,ssrf\"`) — tiap chain dijalankan berurutan dan hasilnya per-chain, jadi jangan panggil tool satu-satu bila chain tersedia. Jenis: `idor` (content_discover → http_request → bola_diff A/B sessions → JSON field diff), `auth_bypass` (decode JWT → alg:none → claim tampering → test), `ssrf` (param_discover → oast_create → inject payloads → oast_poll), `session_fixation` (GET login → POST login → compare session IDs), `race` (paralel + nonce unik → duplicate-creation), `graphql` (introspection/suggestion/batching/depth), `xxe` (auto-OAST → file-read/OOB → oast_poll), `open_redirect` (19 param × 8 payload bypass), `cache_poison` (header matrix + fat GET). Scope-gated (targetAllowed). FULL PENTEST DI LAB MILIK OWNER: sertakan `exploit_chain chain=\"idor,ssrf,race,graphql,xxe,open_redirect,cache_poison\"` sebagai tahap pembuktian SEBELUM report — temuan lama tetap sah, chain menambah pembuktian/sinyal baru (yang butuh setup di-skip jujur, bukan alasan menunda report). Butuh setup: IDOR butuh 2 http_session (akun A & B); auth_bypass butuh token JWT atau http_session berisi token; ssrf auto-create OAST callback; session_fixation butuh username+password. Output: structured finding (title/CVSS/OWASP/CWE/steps/evidence/remediation) SIAP `finding_add`. PENTING: finding dari exploit_chain tetap butuh `poc_verify` untuk determinisme sebelum `finding_add` (FINDING RULES). KEJUJURAN CHAIN: kalau output chain mengandung '⛔ CHAIN TIDAK DIJALANKAN', \"Error:\", 'TIDAK ADA chain yang benar-benar dijalankan', atau '0 chain dengan langkah nyata', itu artinya chain TIDAK jalan (butuh session_a/session_b untuk idor, token untuk auth_bypass, username/password untuk session_fixation, atau nama chain tidak dikenal) — katakan jujur chain tidak dijalankan + apa yang kurang, JANGAN sekali-kali menarasikan 'sudah aku uji'/'selesai diuji' seolah chain jalan/menemukan temuan baru. Laporan PDF yang dicetak di giliran yang sama hanya memuat temuan yang SUDAH ada sebelumnya kalau tidak ada chain/finding tool yang benar-benar jalan."
+  + "EXPLOIT CHAIN (otomatisasi multi-step attack): `exploit_chain chain=<jenis> url=<target>` menjalankan chain penuh dalam SATU konfirmasi. `chain` boleh SATU nama ATAU koma-terpisah untuk beberapa chain sekaligus (mis. `chain=\"idor,ssrf\"`) — tiap chain dijalankan berurutan dan hasilnya per-chain, jadi jangan panggil tool satu-satu bila chain tersedia. Jenis: `idor` (content_discover → http_request → bola_diff A/B sessions → JSON field diff), `auth_bypass` (decode JWT → alg:none → claim tampering → test), `ssrf` (param_discover → oast_create → inject payloads → oast_poll), `session_fixation` (GET login → POST login → compare session IDs), `race` (paralel + nonce unik → duplicate-creation), `graphql` (introspection/suggestion/batching/depth), `xxe` (auto-OAST → file-read/OOB → oast_poll), `open_redirect` (19 param × 8 payload bypass), `cache_poison` (header matrix + fat GET). BUSINESS LOGIC: `workflow_fuzz` = fuzz alur bisnis multi-step (login→cart→checkout→refund): mutasi skip/repeat/reorder + nilai (qty negatif, amount 0/0.01, coupon reuse) vs happy path — satu-satunya cara menemukan missing state validation & double-processing (CWE-840/841, payout tertinggi). Definisikan happy-path dulu via `steps` inline atau `flow_run save=<nama>` lalu `workflow_fuzz name=<nama>`; WAJIB ada di setiap full pentest aplikasi dengan alur transaksi. LLM PROMPT INJECTION (OWASP LLM01/LLM02): target punya fitur AI/chatbot/LLM → `prompt_injection_hunt url=<endpoint chat>` uji 4 kelas: leak (system-prompt bocor), indirect (payload via input dokumen/param → beacon OAST — bukti via `oast_poll`, bukan respons), toolbait (bait tool-call JSON), bypass (guardrail hilang). Baseline-controlled — selalu `oast_create` dulu kalau mau uji indirect/exfil. Sinyal → `poc_verify` → `finding_add`. Scope-gated (targetAllowed). JS RECON (bundle ter-obfuscasi — DEFAULT): target web modern hampir selalu bundle minified/webpack, jadi `js_mine` adalah langkah PERTAMA dan `js_deobfuscate url=<halaman|file.js>` langkah WAJIB sesudahnya, bukan opsi. Pemicu konkret: hasil js_mine 0–5 endpoint, nama variabel `_0x`/`e_`/huruf-tunggal, file >200KB, atau user menyebut 'minified/obfuscated/tersembunyi' → panggil `js_deobfuscate` SEBELUM lanjut. `js_deobfuscate` mengganti string-array obfuscator.io jadi literal (eval-free), melipat concat terpisah baris, dan memulihkan source map .map ter-publish (source asli, file/line asli, CWE-540) — jangan menyimpulkan 'tidak ada endpoint tersembunyi' sebelum js_deobfuscate dicoba; uji endpoint hasilnya setelah itu. FULL PENTEST DI LAB MILIK OWNER: sertakan `exploit_chain chain=\"idor,ssrf,race,graphql,xxe,open_redirect,cache_poison\"` sebagai tahap pembuktian SEBELUM report — temuan lama tetap sah, chain menambah pembuktian/sinyal baru (yang butuh setup di-skip jujur, bukan alasan menunda report). Butuh setup: IDOR butuh 2 http_session (akun A & B); auth_bypass butuh token JWT atau http_session berisi token; ssrf auto-create OAST callback; session_fixation butuh username+password. Output: structured finding (title/CVSS/OWASP/CWE/steps/evidence/remediation) SIAP `finding_add`. PENTING: finding dari exploit_chain tetap butuh `poc_verify` untuk determinisme sebelum `finding_add` (FINDING RULES). KEJUJURAN CHAIN: kalau output chain mengandung '⛔ CHAIN TIDAK DIJALANKAN', \"Error:\", 'TIDAK ADA chain yang benar-benar dijalankan', atau '0 chain dengan langkah nyata', itu artinya chain TIDAK jalan (butuh session_a/session_b untuk idor, token untuk auth_bypass, username/password untuk session_fixation, atau nama chain tidak dikenal) — katakan jujur chain tidak dijalankan + apa yang kurang, JANGAN sekali-kali menarasikan 'sudah aku uji'/'selesai diuji' seolah chain jalan/menemukan temuan baru. Laporan PDF yang dicetak di giliran yang sama hanya memuat temuan yang SUDAH ada sebelumnya kalau tidak ada chain/finding tool yang benar-benar jalan."
   + "SUPERPOWER SUITE (hafalan target, regresi, matriks otorisasi, DOM taint, belajar dari writeup): "
   + "(1) `target_brain` = memori persisten PER-TARGET — SEBELUM menguji/menguji-ulang sebuah host, panggil `target_brain action=brief target=<host>` untuk melihat endpoint/params yang pernah terlihat, tech, temuan TERBUKTI, dan request yang sudah dites aman (jangan ulang yang sudah aman/dead). content_discover/js_mine/tech_watch/finding_add menulis ke sini otomatis; tambah catatan via action=note. 'inget kan lab X?'/'lanjutkan pentest lab X' → brief dulu. "
   + "(2) REGRESI: temuan terbukti harus punya retest case — saat finding_add, sertakan `retest_url` (+`retest_expect` signature rentan / `retest_status`, `retest_session`) supaya case dibuat OTOMATIS; case manual via `retest_add`. 'sudah dipatch belum?'/'cek ulang temuan' → `retest_run id=…` atau `retest_run target=<host>` → 🔴 masih rentan / 🟢 patched. Layar daftar: retest_list. Setelah fix-verification PASS, finding_resolve temuan yang sudah mati. "
@@ -642,13 +643,13 @@ const HEADLESS_SIDE_EFFECT_TOOLS = new Set([
   "retest_run", "retest_add", "auth_matrix", "dom_taint", "content_discover",
   "learning_ingest",
   "exploit_chain", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",
-  "open_redirect_chain", "ws_hunt",
+  "open_redirect_chain", "ws_hunt", "prompt_injection_hunt", "workflow_fuzz",
 ]);
 export function isHeadlessSideEffect(name: string): boolean {
   return HEADLESS_SIDE_EFFECT_TOOLS.has(name);
 }
 
-const CORE_TOOL_NAMES = new Set<string>([
+export const CORE_TOOL_NAMES = new Set<string>([
   // daily essentials first
   "web_search", "calculate",
   "save_note", "list_notes", "delete_note",
@@ -663,12 +664,30 @@ const CORE_TOOL_NAMES = new Set<string>([
   "calendar_list", "calendar_add",
   "browser_open",
   "transcribe",
-  "git_status", "git_commit", "security_scan", "secret_scan", "pentest_resources", "recon_subdomains",  "recon_httpx", "recon_params", "security_playbook", "sast_scan", "memory", // pentest action/report suite — must survive capped providers so the
+  "git_status", "git_commit", "security_scan", "secret_scan", "pentest_resources", "recon_subdomains",
+  "recon_httpx", "recon_params", "security_playbook", "sast_scan", "memory",
+  // pentest action/report suite — must survive capped providers so the
   // advertised workflow (scan → finding → report) actually works there.
-  // Order matters on the smaller 9router cap: the ANALYSIS chain (scan → score →
+  // prompt_injection_hunt sits at the head of the analysis chain so the
+  // 9router 64-window carries it. Order matters on the smaller 9router cap:
+  // the ANALYSIS chain (scan → score →
   // prove → report) comes first, while the heavy exploitation scanners
   // (sqlmap/zap) sit just past it — they need their own binaries anyway.
-  "pentest_scan", "cvss_score", "poc_verify", "ato_prove", "http_request", "finding_add", "finding_list", "race_attack", "graphql_hunt", "github_osint", "har_import", "report_generate", "report_save", "report_pdf", "engagement_create", "engagement_list", "engagement_close", "web_audit", "domain_audit", "oast_create", "oast_poll", "oast_stop", "http_session", "cdp_status", "cdp_request", "bola_diff", "tamper_script", "content_discover", "param_fuzz", "jwt_attack", "crawl", "param_discover", "request_save", "request_run", "js_mine", "api_spec", "graphql_probe", "cve_intel", "cors_audit", "csp_audit", "http_history", "security_hunt", "suite_hunt", "hunt_log", "auth_hunt", "api_hunt", "engagement_targets", "tech_watch", "policy_set", "flow_run",  "campaign_run", "bounty_run", "exploit_chain", "oauth_hunt", "writeup", "persona_show", "persona_set", "persona_forget",  // SUPERPOWER suite (target memory / retest / auth matrix / DOM taint /
+  "prompt_injection_hunt", "pentest_scan", "cvss_score", "poc_verify", "ato_prove", "http_request",
+  "finding_add", "finding_list",
+  "race_attack", "graphql_hunt", "workflow_fuzz", "github_osint", "har_import",
+  "report_generate", "report_save", "report_pdf",
+  "engagement_create", "engagement_list", "engagement_close",
+  "web_audit", "domain_audit", "oast_create", "oast_poll", "oast_stop",
+  "http_session", "cdp_status", "cdp_request", "bola_diff", "tamper_script",
+  "content_discover", "param_fuzz", "jwt_attack", "crawl", "param_discover",
+  "request_save", "request_run", "js_mine", "js_deobfuscate", "api_spec", "cve_intel",
+  "cors_audit", "csp_audit",
+  "security_hunt", "suite_hunt", "hunt_log", "auth_hunt",
+  "engagement_targets", "tech_watch", "policy_set", "flow_run",
+  "campaign_run", "bounty_run", "exploit_chain", "oauth_hunt", "writeup",
+  "persona_show", "persona_set", "persona_forget",
+  // SUPERPOWER suite (target memory / retest / auth matrix / DOM taint /
   // disclosed-report learning) — kept inside CORE by demoting 6 niche tools
   // (race/ws_probe/oast_dns_* stay available on uncapped providers).
   "target_brain", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query",
@@ -679,6 +698,16 @@ const CORE_TOOL_NAMES = new Set<string>([
   // finding_resolve/finding_export/sqlmap_scan/recon_list (still registered).
   "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt",
   "edit_file", "exec_write",
+  // prompt_injection_hunt balance: graphql_probe demoted (superseded by
+  // graphql_hunt), api_hunt restored after an accidental drop (it is the
+  // suite_hunt pillar that answers "pentest [host]" turns). CORE stays
+  // exactly 128. Both remain registered for uncapped providers.
+  "api_hunt",
+  // Restore 3 prompt-load-bearing tools that fec37f3 demoted while its CORE
+  // merge silently shrank 128→124: scope_import = BOUNTY WORKFLOW entry,
+  // platform_severity = report chain (2 refs), finding_resolve = retest loop
+  // (2 refs). Groq's window now carries exactly CORE again.
+  "scope_import", "platform_severity", "finding_resolve",
   ]);
 
 function toolsForUrl(url: string): ReturnType<typeof getTOOLS> {
@@ -999,11 +1028,14 @@ const PERSONAL_LIST_TOOLS = new Set([
   "poc_verify", "param_fuzz", "js_mine", "api_spec", "graphql_probe", "cve_intel", "dep_audit", "sast_scan",
   "content_discover", "crawl", "param_discover", "jwt_attack", "cloud_misconfig", "race", "ws_probe",
   "oast_poll", "oast_dns_poll", "bola_diff", "cdp_status", "cdp_request", "cdp_eval", "tamper_script",
-  "request_run", "bucket_enum", "scope_import", "flow_run",  "campaign_run", "bounty_run", "exploit_chain", "oauth_hunt",
+  "request_run", "bucket_enum", "scope_import", "flow_run", "campaign_run", "bounty_run", "exploit_chain", "oauth_hunt",
+  "prompt_injection_hunt",
+  // JS recon: deobfuscation upgrades js_mine (string-array/concat/sourcemap).
+  "js_mine", "js_deobfuscate",
   "recon_subdomains", "recon_httpx", "recon_params", "recon_diff", "recon_dnsbrute", "recon_ports",
   "recon_screenshot", "recon_takeover", "evidence_capture", "writeup",
   "target_brain", "retest_run", "retest_list", "retest_add", "auth_matrix", "dom_taint", "learning_query",
-  "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import",
+  "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import", "workflow_fuzz",
 ]);
 
 /**
@@ -1104,6 +1136,34 @@ async function runAgent(
     // message fields, so attach it only for that endpoint.
     ...(reasoning && /opencode\.ai\/zen\/go/.test(url) ? { reasoning_content: reasoning } : {}),
   });
+
+  // Capped-provider delivery guard (live-drill finding, 2026-09-21): on a
+  // capped provider the model can call a tool its tool list never contained —
+  // the static SYSTEM_PROMPT advertises the full suite everywhere while the
+  // dispatcher draws from the FULL registry (live: 9router 64-window →
+  // `exploit_chain` call that toolsForUrl never delivered). Answer every
+  // undelivered call with an honest placeholder (each tool_call_id MUST get a
+  // tool result or strict gateways 400 on the next round), then keep only
+  // delivered calls so NO downstream path (confirm/auto-approve/verbatim/
+  // execute) ever runs a tool beyond this provider's delivery promise.
+  const deliveredNames = new Set(toolsForUrl(url).map((t) => t.function.name));
+  const undeliveredCalls = toolCalls2.filter((c) => !deliveredNames.has(c.name));
+  for (const call of undeliveredCalls) {
+    console.log(`[agent] ${call.name} not delivered on this provider — refused`);
+    messages.push({
+      role: "tool",
+      tool_call_id: call.id,
+      content:
+        `Error: tool "${call.name}" is not available on this provider (tool budget). ` +
+        `Use only tools from your tool list — for pentesting here: pentest_resources, ` +
+        `pentest_scan, http_request, poc_verify, ato_prove, finding_add, finding_list, ` +
+        `workflow_fuzz, prompt_injection_hunt, race_attack, graphql_hunt, github_osint. ` +
+        `State plainly what could NOT be run — never claim it executed.`,
+    });
+  }
+  if (undeliveredCalls.length) {
+    toolCalls2.splice(0, toolCalls2.length, ...toolCalls2.filter((c) => deliveredNames.has(c.name)));
+  }
 
   // A fresh turn pausing on a risky tool: hand it back to the caller, unless
   // this is a headless/automated turn (no human to confirm) — then decline the
@@ -2497,6 +2557,110 @@ export function chainRunClaimSuffix(messages: ChatMessage[], text: string): stri
 }
 
 /**
+ * Deterministically-executed tools. Their post-processors (scheduleReminderFromIntent,
+ * ensurePlanFromIntent, scheduleMonitorFromIntent, planSpotifyTurn, sleep timer,
+ * tryDeliverReportPdf, logDetectedMood) run them OUTSIDE the tool loop, so a reply
+ * narrating them can be truthful with NO assistant tool_call on record. Claims about
+ * these are exempt from the run-claim guard.
+ */
+const TOOL_CLAIM_EXEMPT = new Set([
+  "remind_me",
+  "plan_create",
+  "monitor_add",
+  "spotify_play",
+  "spotify_pause",
+  "spotify_next",
+  "spotify_previous",
+  "spotify_volume",
+  "spotify_mode",
+  "spotify_queue",
+  "spotify_sleep_timer",
+  "report_pdf",
+  "report_generate",
+  "report_save",
+  "mood_log",
+]);
+
+/** A tool result is a real EXECUTION only when it isn't a refusal/placeholder:
+ *  batch "Not selected", headless "Auto-declined", or the delivery-guard refusal
+ *  ("not available on this provider"). Pure — tested. */
+export function toolResultExecuted(content: string): boolean {
+  if (!content || !content.trim()) return false;
+  if (/^(?:Not selected|Not executed|Auto-declined)/i.test(content.trim())) return false;
+  if (/not available on this provider|refused to execute/i.test(content)) return false;
+  return true;
+}
+
+/** Did an assistant tool_call for `name` actually execute (non-refused result)? Pure — tested. */
+export function toolActuallyRan(messages: ChatMessage[], name: string): boolean {
+  for (const m of messages) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      if (tc.function.name !== name) continue;
+      const res = messages.find((x) => x.role === "tool" && x.tool_call_id === tc.id);
+      if (res && toolResultExecuted(messageText(res.content))) return true;
+    }
+  }
+  return false;
+}
+
+const TOOL_CLAIM_KU_RE = /\bku[-\s]?(?:pakai|pake|gunakan|jalankan|jalanin|eksekusi|uji|tes|test|scan|coba)\b/i;
+const TOOL_CLAIM_AKU_RE = /\baku\s+(?:pakai|pake|gunakan|jalankan|jalanin)\b/i;
+const TOOL_CLAIM_PAST_VERB_RE = /\b(?:sudah|telah|berhasil|barusan)\b[\s\S]{0,28}\b(?:pakai|pake|gunakan|jalankan|jalanin|eksekusi|uji|tes|test|scan)\b/i;
+const TOOL_CLAIM_RESULT_AFTER_RE = /\b(?:menunjukkan|menghasilkan|mengembalikan|memberi(?:kan)?\s+hasil|berhasil)\b/i;
+const TOOL_CLAIM_ADMISSION_RE = /\b(?:belum|nggak\s*(?:sempat|jadi|jalan)|tidak\s*(?:sempat|jadi|jalan|bisa)|gagal|dibatalkan|batal|skip)\b/i;
+const TOOL_CLAIM_FUTURE_RE = /\b(?:nanti|besok|akan|mau|coba|kalau|rencana|sebaiknya|seharusnya|saranku|saran\b|mungkin|idealnya)\b/i;
+const TOOL_CLAIM_PAST_MARK_RE = /\b(?:sudah|telah|berhasil|barusan|tadi)\b/i;
+
+/**
+ * Honest tool-run guard: a reply that NARRATES a tool as executed ("kuuji pakai
+ * http_request", "hasil dari poc_verify", "http_request menunjukkan 200") must
+ * not stand when that tool never actually ran in the visible conversation —
+ * never declared, or declared but refused ("Not selected" / delivery guard /
+ * "Auto-declined"). Live 2026-09-21: Mia wrote "kuuji pakai http_request" while
+ * only recon_subdomains had run — narration, not execution. Deterministically
+ * executed tools (TOOL_CLAIM_EXEMPT) are exempt: their post-processors run them
+ * outside the tool loop, so the claim can be true with no tool_call on record.
+ * Mirrors pdf/chain guards; pure — unit-tested. Returns "" when nothing to say.
+ */
+export function toolRunClaimSuffix(messages: ChatMessage[], text: string): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  const names = getTOOLS()
+    .map((x) => x.function.name)
+    .sort((a, b) => b.length - a.length);
+  const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const alt = new RegExp(`\\b(${escaped.join("|")})\\b`, "gi");
+  const flagged = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = alt.exec(t)) !== null) {
+    const name = match[1];
+    const start = match.index;
+    const before = t.slice(Math.max(0, start - 70), start);
+    const after = t.slice(start + name.length, start + name.length + 70);
+    const window = `${before} ${after}`;
+    if (TOOL_CLAIM_EXEMPT.has(name)) continue;
+    if (toolActuallyRan(messages, name)) continue;
+    // Already admits non-execution ("belum", "gagal", "tidak jadi") — no suffix.
+    if (TOOL_CLAIM_ADMISSION_RE.test(window)) continue;
+    const claimed =
+      TOOL_CLAIM_KU_RE.test(before) ||
+      TOOL_CLAIM_AKU_RE.test(before) ||
+      TOOL_CLAIM_PAST_VERB_RE.test(window) ||
+      /\bhasil\s*(?:dari)?\s*$/.test(before) ||
+      TOOL_CLAIM_RESULT_AFTER_RE.test(after);
+    if (!claimed) continue;
+    // Future/conditional/plan mention ("nanti kupakai X", "kalau pakai X") is not
+    // a claim of execution — unless a past marker is present ("sudah kubisa pakai X").
+    if (TOOL_CLAIM_FUTURE_RE.test(window) && !TOOL_CLAIM_PAST_MARK_RE.test(window)) continue;
+    flagged.add(name);
+  }
+  if (!flagged.size) return "";
+  const list = [...flagged].slice(0, 3).join(", ");
+  return ` (Catatan jujur: hasil eksekusi ${list} tidak tercatat di giliran ini — tool itu belum benar-benar kujalankan. Bilang "jalankan" kalau mau aku kerjakan sekarang ya.)`;
+}
+
+/**
  * Budget for trying the whole chain. Each member can spend its own
  * same-model rate-limit retry (up to 6s), so a free-tier outage across all
  * members could otherwise stall a voice/chat turn for ~40s — worse than an
@@ -2666,6 +2830,21 @@ async function runAssistantTurnImpl(opts: {
   const resolved = resolveProvider(providerId);
   if (!resolved) {
     throw new Error(`Provider "${providerId}" is not configured`);
+  }
+
+  // Tool-budget honesty hint (live 2026-09-21: on 9router the model kept
+  // attempting lab_fetch/security_hunt first — advertised by the static
+  // SYSTEM_PROMPT — then burned a round on the delivery guard's honest
+  // refusal before adapting). Capped providers deliver only a toolsForUrl
+  // subset, so name the missing high-profile tools up front and the model
+  // plans with what it actually has. Uncapped providers deliver everything
+  // → `missing` is empty → no hint, no prompt bloat.
+  const deliveredTools = toolsForUrl(resolved.url);
+  const HINT_UNDELIVERED = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "report_generate", "report_save", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "content_discover", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate"];
+  const missingTools = HINT_UNDELIVERED.filter((n) => !deliveredTools.some((t) => t.function.name === n));
+  if (missingTools.length) {
+    systemPrompt +=
+      `\n\nTOOL BUDGET (provider ini): hanya ${deliveredTools.length} tool yang tersedia. TIDAK tersedia di sini: ${missingTools.join(", ")}. JANGAN memanggilnya — rencanakan dengan tool yang ada (pentest_resources, pentest_scan, http_request, poc_verify, ato_prove, finding_add, finding_list, workflow_fuzz, prompt_injection_hunt, race_attack, graphql_hunt) dan katakan jujur kalau sebuah tahap butuh provider lain. Untuk permintaan pentest/pengujian: LANGSUNG kerjakan alurnya dengan tool yang tersedia mulai giliran ini — jangan minta izin, jangan menawarkan alternatif dulu. SWEEP MENYELURUH: kalau user minta pentest semua bagian/full/menyeluruh, JANGAN bertanya bagian mana yang diuji duluan (arahan sudah jelas) — lakukan sendiri secara sistematis: enumerasi endpoint dari halaman/JS yang ter-fetch, uji satu per satu dengan http_request (+ poc_verify untuk yang mencurigakan), catat tiap temuan dengan finding_add, lanjut ke endpoint berikutnya sampai semua teruji. KONTEKS TEMUAN: sebelum menguji target, panggil finding_list target=<host> — bila findings target itu sudah tercatat, pakai sebagai titik mulai dan sebut dengan benar; DILARANG mengklaim "endpoint/API belum ketemu" bila findings store sudah berisi endpoint itu. Pengujian endpoint pakai http_request — browser_open hanya untuk melihat halaman, jangan loop untuk pengujian. PENGECUALIAN PDF: kalau user minta PDF laporan ("buatkan pdf", "laporan pdf"), TERIMA permintaannya dan jawab positif — sistem provider ini tetap membuat PDF-nya secara otomatis dari temuan tercatat; JANGAN bilang fitur PDF tidak aktif, JANGAN tawarkan file markdown sebagai pengganti, dan JANGAN berkata akan membuatnya "nanti/segera setelah ada temuan" — kalau sistem membuatnya, PDF-nya SUDAH ada saat balasan ini terkirim. PDF adalah PELAPORAN, bukan pengganti pengujian: setelah PDF dibuat, bila user minta full/menyeluruh, LANJUTKAN sweep http_request + finding_add ke endpoint berikutnya — jangan berhenti menguji hanya karena PDF sudah tercetak. Bicara LANGSUNG ke user ("Mas Naufal, ini statusnya…"), bukan menulis instruksi tentang dia (bukan "Beri tahu Mas Naufal …").`;
   }
 
   // Fail fast on an invalid model instead of hanging (trust-boundary validation,
@@ -3142,6 +3321,15 @@ async function runAssistantTurnImpl(opts: {
     }
   }
 
+  // Meta-prose guard: a reply written in an imperative stage-direction
+  // register ("Beri tahu Mas Naufal …") is not a message TO the user — it is
+  // the model echoing the hint's instruction voice as user-facing prose.
+  // Deterministically append a warm corrective note; pure helper, tested.
+  if (!collector.verbatimHit && text.trim()) {
+    const metaNote = metaProseNote(text);
+    if (metaNote) text = `${text}${metaNote}`;
+  }
+
   // Honest exploit-chain guard: user asked for pentest/exploit work and
   // exploit_chain errored/skipped this turn (no chain ran), but the reply still
   // narrates testing success — a skipped/errored chain must never read as a
@@ -3149,6 +3337,19 @@ async function runAssistantTurnImpl(opts: {
   if (!collector.verbatimHit) {
     const chainNote = chainRunClaimSuffix(messages, text);
     if (chainNote && !needsConfirmation?.length) text = `${text}${chainNote}`;
+  }
+
+  // Honest tool-run guard: a reply that NARRATES tools as executed ("kuuji pakai
+  // http_request", "hasil dari poc_verify") must match execution records — never
+  // run ahead of them. When the reply claims a tool that did NOT actually run in
+  // the visible conversation (never declared, or refused "Not selected"/delivery-
+  // guard/"Auto-declined"), append a deterministic honest note. Deterministically
+  // executed tools (remind_me/plan_create/spotify_*/report_*/mood_log) are exempt
+  // — their post-processors run them outside the tool loop, so the claim can be
+  // true with no tool_call on record. Mirrors the chain/pdf guards; pure, tested.
+  if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
+    const runNote = toolRunClaimSuffix(messages, text);
+    if (runNote) text = `${text}${runNote}`;
   }
 
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).

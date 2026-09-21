@@ -27,3 +27,7 @@ apps/web/*probe.ts
 .brv/
 
 cyber-security-ethical-hacker-essential-skills-tools.md
+
+# local env backups (contain secrets)
+.env.local.bak-*
+apps/web/.env.local.bak-*

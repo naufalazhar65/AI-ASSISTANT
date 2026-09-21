@@ -129,14 +129,14 @@ refused.
 |---|---|
 | `security_playbook` | loads a pentest knowledge pack on demand (`name=` or `query=`, no args = catalog) |
 
-**78 packs across 11 categories** live in
+**84 packs across 11 categories** live in
 `apps/web/security-playbooks/<category>/<name>.md`, **adapted from
 [Strix](https://github.com/usestrix/strix) (Apache-2.0)**:
 
 - `methodology` — application-security-testing (AppSec end-to-end), owasp-top-10-testing (**OWASP Top 10:2025**), api-security-testing (**API Top 10:2023**), whitebox-code-review, fix-and-verify, source-aware-whitebox, browser-transport-tampering (tamper via app transport when a WAF blocks programmatic replay), authenticated-testing (CDP to the user's own browser — real session, secrets never reach the LLM)
 - `scan_modes` — scan-modes (quick / standard / deep / diff)
 - `analysis` — counterevidence, severity-calibration, fix-verification, source-aware-discovery
-- `vulnerabilities` (×28) — ssrf, idor, xss, sql_injection, ssti, xxe, csrf, race_conditions, http_request_smuggling, authentication_jwt, mass_assignment, path_traversal, nosql_injection, insecure_deserialization, prototype_pollution, business_logic, subdomain-takeover, llm-prompt-injection, …
+- `vulnerabilities` (×33) — ssrf, idor, xss, sql_injection, ssti, xxe, csrf, race_conditions, http_request_smuggling, authentication_jwt, mass_assignment, path_traversal, nosql_injection, insecure_deserialization, prototype_pollution, business_logic, subdomain-takeover, llm-prompt-injection, web-cache-poisoning (Mia), websocket-security (Mia), account-takeover (Mia), host-header-injection (Mia), authorization-matrix (Mia), …
 - `tooling` — nmap, nuclei, httpx, ffuf, sqlmap, subfinder, katana, naabu, semgrep, hurl, python, agent_browser, hypothesis
 - `protocols` — oauth, graphql
 - `frameworks` — nextjs, django, fastapi, nestjs
@@ -353,11 +353,70 @@ Lima modul pentest canggih yang terintegrasi ke `bounty_run` untuk alur one-comm
 
 **Live test (Discord, Netlify Lab):** 7 findings (2 Critical: SQLi + no-auth admin-data; 3 High: BOLA, header spoof, IDOR PII; 2 Medium: Stored XSS, missing headers) + **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
 
-**Total tools: 287** (8 tool baru: `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query`; CORE 129→128)
+**Total tools: 298** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **84 playbook** · **vitest 244** · 2026-09-19→21: `exploit_chain` (9 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt` + honesty/delivery guards (lihat §9).
+
+---
+
+## 9. Attack completeness & honesty guards (2026-09-19 → 2026-09-21)
+
+Melengkapi §8 (Superpower Suite) — semuanya scope-gated `targetAllowed`, bounded, sinyal jujur (sinyal ≠ vuln; selalu `poc_verify` → `finding_add`).
+
+### 9.1 Exploit Chain Builder — `exploit_chain` (write, confirm, CORE)
+
+Satu konfirmasi untuk rantai serangan umum; `chain` menerima **daftar koma-terpisah** (batch dijalankan berurutan; token tak dikenal → `⛔ CHAIN TIDAK DIJALANKAN`, Ringkasan `X chain dengan langkah nyata · Y dilewati`):
+
+| Chain | Pipeline | Temuan |
+|---|---|---|
+| `idor` | content_discover → baseline → `bola_diff` A/B → field diff | BOLA/IDOR (CVSS 7.5) |
+| `auth_bypass` | decode JWT → alg:none → claim tampering (role/user_id) | auth bypass (9.8) |
+| `ssrf` | param_discover → `oast_create` → inject payload → `oast_poll` | SSRF/OAST (7.5–10) |
+| `session_fixation` | GET login (pre) → POST login (post) → banding session id | session fixation (7.4) |
+| `race` | wrapper `race_attack` (N paralel + NONCE) | duplicate-creation |
+| `graphql` | wrapper `graphql_hunt` (introspection/suggestions/batching/depth) | batching+depth kandidat |
+| `xxe` | auto-OAST → inline file-read/OOB/param-entity/PHP filter | XXE (passwd TERBACA) |
+| `open_redirect` | wrapper `open_redirect_chain` (19 param, host-based verdict) | open redirect |
+| `cache_poison` | wrapper `cache_poison_prover` (host-header/fat-GET, STRONG bila cacheable) | web cache poisoning |
+
+Guard `chainRunClaimSuffix` (agent.ts): reply mengklaim sukses padahal output menunjukkan 0 chain jalan → catatan jujur ditambahkan.
+
+### 9.2 Tier-1 Attack Suite (write, confirm; `github_osint`/`har_import` read, auto)
+
+| Tool | What |
+|---|---|
+| `race_attack` | ≤30 request paralel + **NONCE unik** per request (`{{NONCE}}`) → bukti duplicate-creation; `raceClassify` pure-tested. PRO `race`. |
+| `graphql_hunt` | introspection → field-suggestion mining (`Did you mean`, `parseSuggestions`) → alias ganda → JSON-array batching (`batchVerdict`) → depth probe. PRO `graphql_probe`. |
+| `cache_poison_prover` | matriks X-Forwarded-Host/X-Host/X-Original-URL/X-Rewrite-URL/X-Forwarded-Scheme/Port + fat-GET (POST + `X-HTTP-Method-Override: GET`) + param refleksi (`utm_*`/`callback`/`next`/`redirect`/`url`); `cacheProbeSignals` (x-cache/age/cf-cache-status) → pantulan+cacheable = **STRONG**. |
+| `xxe_chain` | auto-OAST → 4 payload (file-read `/etc/passwd` inline, OOB entity, param-entity OOB, PHP filter); `xxeSignals`; marker `{XXE}` di `body_template`. |
+| `open_redirect_chain` | 19 param umum × bypass (scheme-less `//host`, userinfo, `%2f`), ≤40 request, **break per param**; `redirectVerdict` host-based (echo query-string ≠ redirect). |
+| `ws_hunt` | handshake RAW node:http (tanpa Origin / Origin evil / Origin target) → `cswshVerdict` (evil 101 + control 101 = Origin tidak divalidasi); opsi `tab` = CDP `new WebSocket` dari browser user (cookie asli, secret tetap di browser). PRO `ws_probe`. |
+| `github_osint` | OSINT publik: grep.app code dorks per domain + GitHub commit-history secret scan; nilai rahasia SELALU disensur (`scanTextSecrets`). |
+| `har_import` | tempel HAR DevTools → dedup ×N, param union, cookie ∪ Set-Cookie, Authorization (nilai dimask) → `save_session=<nama>` siap `bola_diff`/`auth_matrix`/`http_request`. |
+
+### 9.3 Business-logic fuzz — `workflow_fuzz` (write, confirm, CORE)
+
+State-transition fuzzer di atas primitif flow: happy-path flow ≥2 langkah (login→cart→checkout→refund) lalu mutasi **skip/repeat/reorder/value** (qty -1/0/99999, amount 0/0.01/negatif, currency XXX, coupon reuse), bounded ≤14; `classifyMutation` (double-processing / missing-state-validation / info / ditolak) → sinyal → `poc_verify` → `finding_add` (CWE-840/841). Prompt BUSINESS LOGIC: WAJIB di tiap full pentest aplikasi transaksional.
+
+### 9.4 JS deobfuscation — `js_deobfuscate` (read, auto, CORE)
+
+Eval-free: string-array webpack/obfuscator.io (Pass A collect / B accessor / C replacement), concat multi-baris (foldConcats 8 pass), **source-map restore** (`sourcesContent` inline/`.js.map` dengan atribusi file `← api.ts`). Bounded (≤900KB, ≤8 pass, array ≤2000, map sources ≤120). Gunakan setelah `js_mine` menghasilkan sedikit endpoint dari bundle besar/minified.
+
+### 9.5 LLM prompt-injection — `prompt_injection_hunt` (write, confirm, CORE)
+
+Probe endpoint LLM/agent terhadap prompt injection (delimiter confusion, indirect injection, role override) dengan payload terukur; sinyal jujur, bukan klaim eksploit.
+
+### 9.6 Honesty & delivery guards (agent.ts, semua kanal)
+
+1. **Delivery guard** (choke point setelah assistant `tool_calls`): tool di luar `toolsForUrl(url)` (jendela provider) dijawab placeholder jujur "not available on this provider (tool budget)" + tool pengganti; `toolCalls2` di-reassign ke subset ter-delivery → **tidak ada jalur** (confirm/auto-approve/verbatim/execute) yang bisa menjalankan tool di luar janji delivery. **TOOL BUDGET hint** menyisipkan daftar tak-ter-delivery ke prompt (provider capped) + "langsung kerjakan dengan tool yang tersedia" + **PENGECUALIAN PDF** (user minta PDF → sistem buat otomatis via `tryDeliverReportPdf`, dilarang bilang "tidak aktif").
+2. **`toolRunClaimSuffix`** (honesty, 11 unit lock): klaim eksekusi tool di prosa tanpa deklarasi `tool_calls` / hasil placeholder (`Not selected`/`Not executed`/`Auto-declined`/"not delivered") → catatan jujur `(Catatan jujur: hasil eksekusi X tidak tercatat di giliran ini — belum benar-benar kujalankan…)` cap 3 tool; `TOOL_CLAIM_EXEMPT` = tool deterministik (remind_me, plan_create, monitor_add, spotify_*, report_*, mood_log).
+3. **`pdfDeliverableSuffix`** (fabrikasi penuh): reply mengutip `report-*.pdf` tanpa tool report → note "tidak ada file PDF-nya"; bila user minta PDF dan tak ada tool report, `tryDeliverReportPdf` **membuat PDF nyata** sekarang.
+4. **`metaProse.ts`**: prosa stage-direction ("Beri tahu Mas Naufal …") → koreksi hangat deterministik.
+5. **CORE invariant runtime** (verify.ts): CORE=128 unik ter-resolve; jendela 9router-64 membawa chain analisis (`workflow_fuzz`, `race_attack`, `graphql_hunt`, `prompt_injection_hunt`, `http_request`, `poc_verify`, `finding_add`, …) — silent-shrink tak bisa lolos.
 
 ---
 
 *Files:* `apps/web/src/lib/security.ts` · `securityWatch.ts` · `engagement.ts` ·
 `recon.ts` · `securityPlaybook.ts` · `netGuard.ts` · `apps/web/src/lib/tools.ts`
 (registry) · `apps/web/security-playbooks/` (adapted from Strix, Apache-2.0) ·
-`labs/pentest/`.
+`labs/pentest/` · `apps/web/src/lib/exploitChains.ts` · `proAttack.ts` ·
+`graphqlHunt.ts` · `wsHunt.ts` · `githubOsint.ts` · `harImport.ts` ·
+`workflowFuzz.ts` · `jsDeobfuscate.ts` · `promptInjection.ts` · `metaProse.ts`.

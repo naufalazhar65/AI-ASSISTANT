@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-287-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-298-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![Playbooks](https://img.shields.io/badge/security%20playbooks-84-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
@@ -37,7 +37,7 @@ Defensive + **authorized** offensive work.
 - Recon / attack-surface mapping (passive + scoped active)
 - Autonomous **`security_hunt`** → LEADS, not raw dumps
 - OWASP Top 10:2025 / API Top 10:2023 / Bugcrowd VRT
-- 82 knowledge packs (adapted from Strix + 4 Mia-authored: web-cache-poisoning, websocket-security, account-takeover, host-header-injection)
+- 84 playbook packs (Strix-adapted + 8 Mia-authored: web-cache-poisoning, websocket-security, account-takeover, host-header-injection, idor-triage, browser-transport-tampering, authenticated-testing, authorization-matrix)
 - Findings → CVSS/OWASP/CWE → SARIF/PDF report
 - Bug-bounty toolkit (OAST, BOLA, JWT, fuzz, evidence)
 
@@ -73,13 +73,13 @@ TELEGRAM_BOT_TOKEN=...                # @BotFather
 TELEGRAM_ALLOWED_USERNAME=...         # without @
 DISCORD_BOT_TOKEN=...                 # Discord Developer Portal
 DISCORD_ALLOWED_USER_ID=...           # owner snowflake
-# Brain (choose one; default in .env.local is opencodego):
+# Brain (choose one; default in .env.local is 9router since 2026-09-21 — opencodego Go quota exhausted, full-window when reset):
 OPENCODEGO_API_KEY=...                # OpenCode Go subscription (or opencode CLI login)
 # Optional:
 OPENROUTER_API_KEY=...                # https://openrouter.ai/keys
-LLM_API_KEY=... LLM_API_BASE=http://localhost:20128/v1   # 9router local proxy
+LLM_API_KEY=... LLM_API_BASE=http://127.0.0.1:20128/v1   # 9router local proxy
 ALLOWED_WORKSPACES=/Users/me/PROJECT/other-app            # comma-separated
-NEXT_PUBLIC_AI_PROVIDER=opencodego    # mock | groq | openrouter | 9router | opencode | opencodego
+NEXT_PUBLIC_AI_PROVIDER=9router       # mock | groq | openrouter | 9router | opencode | opencodego
 
 # 3) Run + verify
 npm run dev -w @voice/web             # http://localhost:3000
@@ -107,7 +107,7 @@ flowchart LR
 ```
 
 - **Core:** `lib/agent.ts` — one turn (`stream → tools → follow-up → auto-memory → reminder → mood → toolsForUrl cap`) for **every** channel.
-- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `opencodego` = default brain; `groq` = STT/TTS; `9router` = local proxy; `openrouter` = free fallback.
+- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `9router` = current default brain (64-tool window); `opencodego` = full 298-tool window (quota exhausted 2026-09-21, returns after reset); `groq` = STT/TTS; `openrouter` = freeride fallback.
 - **Adapter:** `channels/{telegram,discord}.ts` + `pushTarget.ts`. Discord DM needs `partials:[Channel,Message]` + `msg.fetch()`.
 - **State:** `packages/state-machine` — `IDLE → LISTENING → PROCESSING → SPEAKING → TURN_END/INTERRUPTED` (invalid transitions impossible).
 
@@ -126,8 +126,9 @@ Full guide, scope rules, and examples: **[SECURITY.md](./SECURITY.md)**.
 | **Posture / hygiene** | `security_scan` · `secret_scan` · `tls_check` · `breach_check` · `dep_audit` · `verify_patch` · `sast_scan` |
 | **Recon (attack surface)** | `recon_subdomains` · `recon_httpx` · `recon_params` · `recon_takeover` · `recon_dnsbrute` · `recon_ports` · `recon_diff` · `recon_screenshot` · `recon_list` · `bucket_enum` |
 | **Autonomous hunt** | `security_hunt` (header/CSP/CORS + discovery + crawl + JS mining + params → **LEADS**) · `suite_hunt` (satu konfirmasi: security + auth + api hunt, auto `hunt_log`) · `auth_hunt` (auth-flow surface) · `api_hunt` (spec-driven unauth probe) |
-| **Web / API** | `web_audit` · `domain_audit` · `cors_audit` · `csp_audit` · `content_discover` · `crawl` · `js_mine` · `api_spec` · `graphql_probe` · `oauth_hunt` · `param_discover` · `param_fuzz` |
-| **Exploit-aid (authorized)** | `http_request` · `cdp_status` · `cdp_request` · `cdp_eval` · `cdp_open` · `bola_diff` · `jwt_attack` · `race` · `ws_probe` · `oast_create/poll` · `oast_dns_create/poll` · `http_session` · `tamper_script` |
+| **Web / API** | `web_audit` · `domain_audit` · `cors_audit` · `csp_audit` · `content_discover` · `crawl` · `js_mine` · **`js_deobfuscate`** (string-array/concat/source-map restore) · `api_spec` · `graphql_probe` · **`graphql_hunt`** (introspection/suggestions/batching/depth) · `oauth_hunt` · `param_discover` · `param_fuzz` · **`prompt_injection_hunt`** (LLM prompt-injection) |
+| **Exploit-aid (authorized)** | **`exploit_chain`** (9 chains: idor/auth_bypass/ssrf/session_fixation + race/graphql/xxe/open_redirect/cache_poison) · `http_request` · `cdp_status` · `cdp_request` · `cdp_eval` · `cdp_open` · `bola_diff` · `jwt_attack` · **`race_attack`** (N-parallel + NONCE duplicate-creation proof) · **`ws_hunt`** (CSWSH handshake matrix + CDP tab) · **`cache_poison_prover`** (host-header/decompression matrix + fat-GET) · **`xxe_chain`** (auto-OAST file-read/OOB/param-entity) · **`open_redirect_chain`** (19 param × bypass, host-based verdict) · **`ato_prove`** (credential-leak → login → protected URL) · `oast_create/poll` · `oast_dns_create/poll` · `http_session` · `tamper_script` · **`workflow_fuzz`** (business-logic state-transition fuzz: skip/repeat/reorder/value) |
+| **OSINT & session import** | **`github_osint`** (code dorks + commit-history secret scan, redacted) · **`har_import`** (DevTools HAR → `http_session` ready, credentials masked) |
 | **Scanners (lab/engagement)** | `pentest_scan` (nmap/nuclei/nikto/ffuf) · `nuclei_custom` · `sqlmap_scan` · `zap_scan` · `trivy_scan` |
 | **Analysis** | `password_strength` · `hash_identify` · `jwt_inspect` · `ioc_extract` · `cvss_score` |
 | **Findings & reports** | `finding_add/list/resolve/export` · `poc_verify` · `writeup` · `hardening_plan/pdf` · `report_generate/save/pdf` · `platform_severity` · `submission_track` |
@@ -163,7 +164,7 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
 | **Superpower** | `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query` | Per-target memory, regression suite, N-role matrix, DOM XSS taint, disclosed patterns |
 
-**287 tools total.** Full list derives from the registry — see
+**298 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---
@@ -205,7 +206,7 @@ apps/web                  Next.js 15 (UI, hooks, audio, persona, /api/*)
   src/ai                  ConversationManager, GroqStreamingProvider, VAD
   src/lib                 tools, agent, providers, persona, autoMemory, hunt, recon, security, tamper, huntLog, …
   src/channels            telegram.ts, discord.ts, pushTarget.ts, replyChunk.ts
-  security-playbooks/     82 knowledge packs (categories: methodology, vulnerabilities, …)
+  security-playbooks/     84 playbook packs (categories: methodology, vulnerabilities, …)
   persona/                IDENTITY.md, SOUL.md, USER.md, DREAMS.md
   verify.ts               offline proofs (tsx)
 packages/state-machine    Explicit state machine
@@ -224,7 +225,7 @@ npm run dev -w @voice/web        # http://localhost:3000
 npm run typecheck
 npm run lint
 npm run build
-npm test                         # vitest (9 tests)
+npm test                         # vitest (244 tests, 14 files)
 npx tsx apps/web/verify.ts       # offline proofs (tsx, must EXIT 0)
 npx tsx packages/state-machine/verify.ts
 ```

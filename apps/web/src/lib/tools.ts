@@ -3856,6 +3856,25 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "workflow_fuzz", description: "FUZZ ALUR BISNIS (state-transition): definisikan happy-path flow ≥2 langkah (login→cart→checkout→refund) → mutasi urutan (skip step/repeat/reorder) + mutasi nilai (qty -1/0/99999, amount 0/0.01/negatif, currency, coupon reuse) → diff outcome vs happy path. Menemukan missing state validation (checkout tanpa bayar) & double-processing (refund dobel) yang TIDAK terlihat scanner signature. `name` = flow tersimpan (flow_run save=), atau `steps` inline. Scope-gated, bounded ≤14 mutasi. Write, confirm.", parameters: { type: "object", properties: { name: { type: "string", description: "flow tersimpan" }, steps: { type: "array", description: "[{method,url,headers,body,session,expect_status,expect_contains,extract}] — happy path" }, vars: { type: "object" }, focus_step: { type: "number", description: "index step untuk value mutation (default step terakhir)" }, kinds: { type: "array", description: "skip/repeat/reorder/value (default semua)" }, max: { type: "number", description: "maks mutasi (default 14)" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { workflowFuzz } = await import("./workflowFuzz");
+        const steps = Array.isArray(args.steps) ? (args.steps as unknown[]) : undefined;
+        return await workflowFuzz(ctx.rawUser, {
+          name: typeof args.name === "string" ? args.name : undefined,
+          flow: steps?.length ? { steps: steps as never } : undefined,
+          vars: args.vars && typeof args.vars === "object" ? (args.vars as Record<string, string>) : undefined,
+          focus_step: typeof args.focus_step === "number" ? args.focus_step : undefined,
+          kinds: Array.isArray(args.kinds) ? (args.kinds as string[]).filter((k): k is string => typeof k === "string") : undefined,
+          max: typeof args.max === "number" ? args.max : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "workflow_fuzz failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "flow_list", description: "Daftar flow tersimpan. Read/auto.", parameters: { type: "object", properties: {}, required: [] } } },
     execute: async (_a, ctx) => { try { const { flowListText } = await import("./flow"); return flowListText(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "flow_list failed"}`; } },
   },
@@ -4065,12 +4084,20 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { harImport } = await import("./harImport"); return await harImport(ctx.rawUser, { text: String(args.text || ""), save_session: typeof args.save_session === "string" ? args.save_session : undefined, host: typeof args.host === "string" ? args.host : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "har_import failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "prompt_injection_hunt", description: "Uji LLM-app target: system-prompt leak (repeat instructions), indirect injection dgn beacon OAST (bukti via oast_poll), tool-call bait, guardrail bypass. Baseline-controlled (marker yang sudah ada di respons normal tidak dianggap sinyal). Scope-gated, ≤40 request. Write, confirm. Bukti → poc_verify → finding_add (OWASP LLM01/LLM02).", parameters: { type: "object", properties: { url: { type: "string", description: "Endpoint chat/completion target, mis. http://127.0.0.1:4010/api/ask" }, param: { type: "string", description: "Nama param utk metode GET (default q)" }, method: { type: "string", enum: ["GET", "POST"], description: "POST default (JSON body {body_field: payload})" }, body_field: { type: "string", description: "Nama field JSON utk POST (default message)" }, callback: { type: "string", description: "URL OAST (dari oast_create) — wajib utk kelas indirect" }, classes: { type: "array", description: "leak/indirect/toolbait/bypass (opsional; default semua yang bisa)" }, session: { type: "string", description: "Nama http_session utk cookie (opsional)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { promptInjectionHunt } = await import("./promptInjection"); const classes = asStringArray(args.classes); return await promptInjectionHunt(ctx.rawUser, { url: String(args.url || ""), param: typeof args.param === "string" ? args.param : undefined, method: typeof args.method === "string" ? args.method : undefined, body_field: typeof args.body_field === "string" ? args.body_field : undefined, callback: typeof args.callback === "string" ? args.callback : undefined, classes, session: typeof args.session === "string" ? args.session : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "prompt_injection_hunt failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "content_discover", description: "Content discovery aktif (scope-gated): robots.txt/sitemap, link halaman, endpoint dari file JS, + probe path umum (mis. /admin,/.env,/swagger.json). Hanya lab/engagement. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "mis. http://127.0.0.1:4010 atau https://app.klien.com" } }, required: ["url"] } } },
     execute: async (args, ctx) => { try { const { contentDiscover } = await import("./recon"); const out = await contentDiscover(ctx.rawUser, String(args.url || "")); try { const { brainRecordEndpoints } = await import("./targetBrain"); const paths = [...out.matchAll(/^•\s(\/.+)$/gm)].map((m) => m[1]); brainRecordEndpoints(ctx.rawUser, String(args.url || ""), paths.slice(0, 60)); } catch { /* best-effort */ } return out; } catch (e) { return `Error: ${e instanceof Error ? e.message : "content_discover failed"}`; } },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "param_fuzz", description: "Fuzz parameter URL dgn payload (XSS/SQLi/SSTI/redirect/cmdi) → deteksi reflection, SQL error, eval 7*7, open-redirect, timing. Scope-gated, low-rate. Opsi `callback` (dari oast_create) menambah kelas SSRF. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dgn param, mis. http://127.0.0.1:4010/greet?name=x" }, params: { type: "array", description: "Param spesifik (opsional; default dari URL)" }, classes: { type: "array", description: "xss/sqli/ssti/redirect/cmdi/ssrf (opsional)" }, method: { type: "string", enum: ["GET", "POST"] }, callback: { type: "string", description: "URL OAST untuk kelas ssrf (opsional)" } }, required: ["url"] } } },
     execute: async (args) => { try { const { paramFuzz } = await import("./paramFuzz"); const params = asStringArray(args.params); const classes = asStringArray(args.classes); return await paramFuzz(undefined, { url: String(args.url || ""), params, classes, method: typeof args.method === "string" ? args.method : undefined, callback: typeof args.callback === "string" ? args.callback : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "param_fuzz failed"}`; } },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "js_deobfuscate", description: "Mining JS bundle yang SADAR-obfuscasi: string-array webpack/obfuscator.io diganti literal (eval-free), string concat dilipat, source map .map yang ter-publish dipulihkan (source asli, file/line asli) → endpoint + secret yang tidak terlihat js_mine biasa. Bisa arahkan ke halaman HTML atau langsung ke file .js. Read, auto, scope-gated.", parameters: { type: "object", properties: { url: { type: "string", description: "URL halaman HTML atau file .js (lab/engagement berizin)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { deobfuscateAndMine } = await import("./jsDeobfuscate"); return await deobfuscateAndMine(ctx.rawUser, String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "js_deobfuscate failed"}`; } },
   },
   {
     definition: { type: "function", risk: "read", function: { name: "jwt_attack", description: "Toolkit JWT: decode, forge alg:none, HS256 (secret), alg-confusion (public key), crack secret HS256 lemah. Lokal (tanpa jaringan). Read, auto. Uji token hasilnya via http_request ke target berizin.", parameters: { type: "object", properties: { action: { type: "string", enum: ["decode", "none", "hs256", "confusion", "crack"] }, token: { type: "string" }, secret: { type: "string" }, publicKey: { type: "string", description: "PEM kunci publik server (untuk confusion)" }, claims: { type: "string", description: "JSON claim override, mis. {\"role\":\"admin\"}" }, words: { type: "string", description: "kata tambahan untuk crack" } }, required: ["action"] } } },
@@ -4137,7 +4164,7 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { platformSeverity } = await import("./security"); return platformSeverity({ cvss: asNumber(args.cvss), vector: typeof args.vector === "string" ? args.vector : undefined, severity: typeof args.severity === "string" ? args.severity : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "platform_severity failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "write", function: { name: "js_mine", description: "Mining file JS (scope-gated): ekstrak endpoint/path + indikasi secret/token (nilai di-redact) dari bundle. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "Halaman HTML atau file .js" } }, required: ["url"] } } },
+    definition: { type: "function", risk: "write", function: { name: "js_mine", description: "Mining file JS (scope-gated): ekstrak endpoint/path + indikasi secret/token (nilai di-redact) dari bundle. Write, confirm. PENTING: js_mine hanya grep teks mentah — kalau bundle minified/besar dan hasilnya kosong atau hanya sedikit endpoint, LANGSUNG lanjutkan dengan `js_deobfuscate` (membaca string-array obfuscator.io, concat, dan source map yang js_mine tidak lihat); jangan menyimpulkan 'tidak ada endpoint' sebelum js_deobfuscate dicoba.", parameters: { type: "object", properties: { url: { type: "string", description: "Halaman HTML atau file .js" } }, required: ["url"] } } },
     execute: async (args, ctx) => { try { const { jsMine } = await import("./recon"); const out = await jsMine(ctx.rawUser, String(args.url || "")); try { const { brainRecordEndpoints } = await import("./targetBrain"); const paths = [...out.matchAll(/^[•]\s(\/.+)$/gm)].map((m) => m[1]).slice(0, 60); brainRecordEndpoints(ctx.rawUser, String(args.url || ""), paths); } catch { /* best-effort */ } return out; } catch (e) { return `Error: ${e instanceof Error ? e.message : "js_mine failed"}`; } },
   },
   {

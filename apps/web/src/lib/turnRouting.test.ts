@@ -5,6 +5,25 @@
 // key were all pure-logic bugs, so they can be locked here (fast, no network).
 
 import { describe, expect, it } from "vitest";
+import { metaProseNote } from "./metaProse";
+
+describe("metaProseNote (stage-direction register leak)", () => {
+  it("catches the live 3:17 PM stage-direction prose", () => {
+    const text = "Laporan PDF yang dicetak sekarang berisi temuan yang sudah ada. Beri tahu Mas Naufal PDF sudah ada di folder laporan.";
+    expect(metaProseNote(text)).not.toBe("");
+  });
+  it("catches generic addressee variants", () => {
+    expect(metaProseNote("bilang owner kalau selesai")).not.toBe("");
+    expect(metaProseNote("Kasih tahu Mas Naufal laporannya jadi")).not.toBe("");
+  });
+  it("never flags normal user-facing sentences", () => {
+    expect(metaProseNote("Mas Naufal, laporannya sudah ada di folder ya 🌸")).toBe("");
+    expect(metaProseNote("Kabari ya kalau mau kulanjutkan")).toBe("");
+    expect(metaProseNote("Beri tahu aku kalau butuh diulang")).toBe("");
+    expect(metaProseNote("")).toBe("");
+  });
+});
+
 import { planSpotifyTurn, detectSpotifyAfterTrack, detectSpotifyControl, isPlaybackCommand } from "./spotifyIntent";
 import { moodTone } from "./mood";
 import { isFillerLine } from "./memoryNoise";
@@ -12,7 +31,7 @@ import { clockLabel, wibDay, wibDayIndex, wibDailyNext } from "./time";
 import { isSilentAutomationReply } from "./automationRunner";
 import { parseLatLonAnywhere } from "./geo";
 import { resolveFavoriteQuery } from "./spotify";
-import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList } from "./agent";
+import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList, toolRunClaimSuffix, toolResultExecuted, toolActuallyRan } from "./agent";
 import { reminderMessage, isTerseReminder, hasOwnCloser } from "./reminderMessage";
 import { scrubToolMarkup } from "../channels/replyChunk";
 
@@ -251,5 +270,106 @@ describe("markup scraps never reach the chat", () => {
     const text = "Halo beb 🌸 " + "<" + '｜｜DSML｜｜' + " calls>";
     const out = stripToolCallProse(text);
     expect(out).toContain("Halo beb");
+  });
+});
+
+describe("tool-run claim honesty (narration must match execution records)", () => {
+  const ran = (name: string, content: string) => [
+    { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name, arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "c1", content },
+  ] as never;
+
+  it("flags a claimed-but-never-run tool (live 2026-09-21: 'kuuji pakai http_request' while only recon ran)", () => {
+    const messages = ran("recon_subdomains", "3 subdomain ditemukan: api, www, dev");
+    const text = "Aku sudah cek subdomain-nya, lalu kuuji pakai http_request ke endpoint API.";
+    const out = toolRunClaimSuffix(messages, text);
+    expect(out).not.toBe("");
+    expect(out).toContain("http_request");
+    expect(out).not.toContain("recon_subdomains"); // only the fabricated one is flagged
+  });
+
+  it("flags claims whose tool result was a refusal, not an execution", () => {
+    // batch "Not selected"
+    const refused = ran("http_request", "Not selected: the user did not approve this action in this batch.");
+    expect(toolRunClaimSuffix(refused, "kuuji pakai http_request ke /api/dokumen")).not.toBe("");
+    // delivery guard
+    const undelivered = ran("exploit_chain", 'Error: tool "exploit_chain" is not available on this provider (tool budget).');
+    expect(toolRunClaimSuffix(undelivered, "hasil dari exploit_chain menunjukkan 4 chain jalan")).not.toBe("");
+    // headless auto-decline
+    const headless = ran("http_request", "Auto-declined (headless turn).");
+    expect(toolRunClaimSuffix(headless, "kueksekusi http_request dan berhasil")).not.toBe("");
+  });
+
+  it("is silent when the tool actually executed this turn", () => {
+    for (const text of [
+      "Kuuji pakai http_request ke /api/dokumen, hasilnya 200.",
+      "Hasil dari recon_subdomains menampilkan 3 subdomain.",
+      "poc_verify menunjukkan 3/3 PASS pada temuan itu.",
+    ]) {
+      const names = ["http_request", "recon_subdomains", "poc_verify"];
+      const target = names.find((n) => text.includes(n))!;
+      expect(toolRunClaimSuffix(ran(target, "OK 200"), text), text).toBe("");
+    }
+  });
+
+  it("is silent on future/conditional/plan mentions (not claims of execution)", () => {
+    const empty: never[] = [];
+    expect(toolRunClaimSuffix(empty, "Nanti kupakai http_request kalau lanjut")).toBe("");
+    expect(toolRunClaimSuffix(empty, "Seharusnya pakai poc_verify untuk bukti")).toBe("");
+    expect(toolRunClaimSuffix(empty, "Kalau mau, aku bisa pakai http_request")).toBe("");
+    expect(toolRunClaimSuffix(empty, "Saranku pakai web_search dulu")).toBe("");
+  });
+
+  it("is silent when the reply already admits non-execution", () => {
+    const empty: never[] = [];
+    expect(toolRunClaimSuffix(empty, "Belum sempat kupakai http_request, maaf")).toBe("");
+    expect(toolRunClaimSuffix(empty, "Gagal kupakai poc_verify — errornya scope")).toBe("");
+  });
+
+  it("is silent for deterministically-executed tools (post-processors run outside the loop)", () => {
+    const empty: never[] = [];
+    expect(toolRunClaimSuffix(empty, "remind_me sudah kujalankan, jam 7 kubangunkan ya")).toBe("");
+    expect(toolRunClaimSuffix(empty, "spotify_play langsung kupakai untuk lagunya")).toBe("");
+    expect(toolRunClaimSuffix(empty, "report_pdf kuproses dan hasilnya sudah jadi")).toBe("");
+    expect(toolRunClaimSuffix(empty, "mood_log kupakai untuk mencatat perasaanmu")).toBe("");
+  });
+
+  it("lists multiple fabricated claims, capped at three", () => {
+    const text = "Kuuji pakai http_request, lalu poc_verify, terus web_search, dan akhirnya recon_subdomains berhasil.";
+    const out = toolRunClaimSuffix([], text);
+    expect(out).toContain("http_request");
+    expect(out).toContain("poc_verify");
+    expect(out).toContain("web_search");
+    const listed = out.match(/http_request|poc_verify|web_search/g) ?? [];
+    expect(listed.length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("tool result executed gate (refusals are not executions)", () => {
+  it("rejects every placeholder/refusal shape", () => {
+    expect(toolResultExecuted("Not selected: the user did not approve this action in this batch.")).toBe(false);
+    expect(toolResultExecuted("Not executed (deferred).")).toBe(false);
+    expect(toolResultExecuted("Auto-declined (headless turn).")).toBe(false);
+    expect(toolResultExecuted('Error: tool "exploit_chain" is not available on this provider (tool budget).')).toBe(false);
+    expect(toolResultExecuted("refused to execute (scope).")).toBe(false);
+    expect(toolResultExecuted("")).toBe(false);
+  });
+
+  it("accepts real outputs, including honest tool errors", () => {
+    expect(toolResultExecuted("200 OK {\"nama\":\"Bambang\"}")).toBe(true);
+    expect(toolResultExecuted("Error: gagal menjalankan nuclei (binary not found)")).toBe(true); // real attempt, real error
+  });
+
+  it("toolActuallyRan only when a non-refused result exists", () => {
+    const real = [
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "200 OK" },
+    ] as never;
+    expect(toolActuallyRan(real, "http_request")).toBe(true);
+    const refused = [
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "Not selected: ..." },
+    ] as never;
+    expect(toolActuallyRan(refused, "http_request")).toBe(false);
   });
 });
