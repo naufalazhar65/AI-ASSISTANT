@@ -353,7 +353,7 @@ Lima modul pentest canggih yang terintegrasi ke `bounty_run` untuk alur one-comm
 
 **Live test (Discord, Netlify Lab):** 7 findings (2 Critical: SQLi + no-auth admin-data; 3 High: BOLA, header spoof, IDOR PII; 2 Medium: Stored XSS, missing headers) + **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
 
-**Total tools: 298** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **84 playbook** · **vitest 244** · 2026-09-19→21: `exploit_chain` (9 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt` + honesty/delivery guards (lihat §9).
+**Total tools: 300** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **84 playbook** · **vitest 291** · 2026-09-19→22: `exploit_chain` (9 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt`, **`llm_hunt`**/**`mcp_hunt`** + honesty/delivery guards (lihat §9).
 
 ---
 
@@ -404,7 +404,25 @@ Eval-free: string-array webpack/obfuscator.io (Pass A collect / B accessor / C r
 
 Probe endpoint LLM/agent terhadap prompt injection (delimiter confusion, indirect injection, role override) dengan payload terukur; sinyal jujur, bukan klaim eksploit.
 
-### 9.6 Honesty & delivery guards (agent.ts, semua kanal)
+### 9.6 LLM red-team — `llm_hunt` + MCP server audit — `mcp_hunt` (write, confirm, CORE)
+
+**`llm_hunt`** (melengkapi `prompt_injection_hunt`): probe endpoint LLM/agent dengan **5 kelas DEEP red-team**, auto-petakan ke OWASP LLM Top 10 2025:
+- **jailbreak** → LLM01: DAN/UnGPT/VOID/role-pivot "ignore all instructions"; hit = marker game-on direspons ATAU refusal hilang vs baseline.
+- **rag** → LLM01+04+08: injeksi INDIRECT lewat "retrieved document" (konteks retrieval dipercaya but tidak tepercaya); hit = token `RAG_OBEY_<canary>` ditaati (STRONG deterministik).
+- **agency** → LLM06+11: model diminta aksi kuat (send_email/delete_user/transfer/exec) tanpa konfirmasi; hit = marker approval di-echo ATAU tool-call JSON menamai tool kuat.
+- **exfil** → LLM02+05: CANARY (fake secret) disemai di prompt, disuruh kirim/echo; hit = canary muncul di respons (STRONG) ATAU beacon OAST (`callback` opt) via `oast_poll`.
+- **pii** → LLM02: NIK/email/phone seed; hit = nilai seed di-echo (STRONG).
+Semua **baseline-controlled** (marker yang sudah ada di respons benign = bukan sinyal), **trivial-echo suppressed** (`trivialEcho`), bounded ≤40 request, concurrency 4, seed `llmCanaryFromSeed`, GET (param) / POST (`body_field`) didukung.
+
+**`mcp_hunt`**: audit server **Model Context Protocol** (JSON-RPC 2.0 HTTP / legacy SSE) = surface SUPPLY-CHAIN (tool output & resource content dikonsumsi LLM):
+1. discovery `initialize` (protocol 2025-06-18) di kandidat (`mcpCandidates` root+/mcp+/sse), fallback SSE legacy.
+2. inventory `tools/list`+`resources/list`+`prompts/list` — **anon-access** signal saat tanpa session/auth.
+3. **sensitive-tool** exposure (`mcpSensitiveTool`: exec/shell/delete/transfer/admin/secret…) — HANYA dilist, tak pernah dipanggil.
+4. **arg injection** ≤2 tool NON-sensitif dengan string param — marker echo = input→output tanpa sanitasi (hasil akan dikonsumsi LLM); callback OAST opsional sebagai nilai arg.
+5. **resource scan** ≤2 teks — `scanTextSecrets` (nilai REDACTED) + `mcpInstrSignals` (ignore-previous/system_reminder/<system>) → LLM01/08/11 via konten resource.
+Sinyal → `poc_verify` → `finding_add` (OWASP LLM01/02/03/04/05/06/08/11).
+
+### 9.7 Honesty & delivery guards (agent.ts, semua kanal)
 
 1. **Delivery guard** (choke point setelah assistant `tool_calls`): tool di luar `toolsForUrl(url)` (jendela provider) dijawab placeholder jujur "not available on this provider (tool budget)" + tool pengganti; `toolCalls2` di-reassign ke subset ter-delivery → **tidak ada jalur** (confirm/auto-approve/verbatim/execute) yang bisa menjalankan tool di luar janji delivery. **TOOL BUDGET hint** menyisipkan daftar tak-ter-delivery ke prompt (provider capped) + "langsung kerjakan dengan tool yang tersedia" + **PENGECUALIAN PDF** (user minta PDF → sistem buat otomatis via `tryDeliverReportPdf`, dilarang bilang "tidak aktif").
 2. **`toolRunClaimSuffix`** (honesty, 11 unit lock): klaim eksekusi tool di prosa tanpa deklarasi `tool_calls` / hasil placeholder (`Not selected`/`Not executed`/`Auto-declined`/"not delivered") → catatan jujur `(Catatan jujur: hasil eksekusi X tidak tercatat di giliran ini — belum benar-benar kujalankan…)` cap 3 tool; `TOOL_CLAIM_EXEMPT` = tool deterministik (remind_me, plan_create, monitor_add, spotify_*, report_*, mood_log).
@@ -419,4 +437,5 @@ Probe endpoint LLM/agent terhadap prompt injection (delimiter confusion, indirec
 (registry) · `apps/web/security-playbooks/` (adapted from Strix, Apache-2.0) ·
 `labs/pentest/` · `apps/web/src/lib/exploitChains.ts` · `proAttack.ts` ·
 `graphqlHunt.ts` · `wsHunt.ts` · `githubOsint.ts` · `harImport.ts` ·
-`workflowFuzz.ts` · `jsDeobfuscate.ts` · `promptInjection.ts` · `metaProse.ts`.
+`workflowFuzz.ts` · `jsDeobfuscate.ts` · `promptInjection.ts` · `metaProse.ts` ·
+`llmHunt.ts` · `mcpHunt.ts`.
