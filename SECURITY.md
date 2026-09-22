@@ -353,7 +353,7 @@ Lima modul pentest canggih yang terintegrasi ke `bounty_run` untuk alur one-comm
 
 **Live test (Discord, Netlify Lab):** 7 findings (2 Critical: SQLi + no-auth admin-data; 3 High: BOLA, header spoof, IDOR PII; 2 Medium: Stored XSS, missing headers) + **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
 
-**Total tools: 300** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **84 playbook** · **vitest 291** · 2026-09-19→22: `exploit_chain` (9 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt`, **`llm_hunt`**/**`mcp_hunt`** + honesty/delivery guards (lihat §9).
+**Total tools: 303** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **84 playbook** · **vitest 360** · 2026-09-19→22: `exploit_chain` (9 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt`, **`llm_hunt`**/**`mcp_hunt`** + honesty/delivery guards (lihat §9).
 
 ---
 
@@ -429,6 +429,14 @@ Sinyal → `poc_verify` → `finding_add` (OWASP LLM01/02/03/04/05/06/08/11).
 3. **`pdfDeliverableSuffix`** (fabrikasi penuh): reply mengutip `report-*.pdf` tanpa tool report → note "tidak ada file PDF-nya"; bila user minta PDF dan tak ada tool report, `tryDeliverReportPdf` **membuat PDF nyata** sekarang.
 4. **`metaProse.ts`**: prosa stage-direction ("Beri tahu Mas Naufal …") → koreksi hangat deterministik.
 5. **CORE invariant runtime** (verify.ts): CORE=128 unik ter-resolve; jendela 9router-64 membawa chain analisis (`workflow_fuzz`, `race_attack`, `graphql_hunt`, `prompt_injection_hunt`, `http_request`, `poc_verify`, `finding_add`, …) — silent-shrink tak bisa lolos.
+6. **`composeBuildClaimSuffix`** (2026-09-22): path artefak `-exploit.(mjs|py|sh)` yang dikutip tanpa build, narasi "terbukti penuh" di atas verdict PUTUS/TAK TERSAMBUNG, narasi "sudah kubuat" di atas "tidak dibuat" → catatan jujur (last-verdict-wins, diam bila mengakui/membuktikan; 7 unit lock + blok verify).
+
+### 9.8 Chain composer + exploit artifact + session wizard (2026-09-22 → 2026-09-23)
+
+- **`vuln_compose`** (write/confirm, CORE 105/106): ≥2 temuan PROVEN satu host → hop output-A → input-B deterministik → replay `pocVerify` per hop → komposit critical hanya bila semua STABIL.
+- **`exploit_build`** (write/confirm, CORE): replay target dari evidence → script standalone deterministik (node/python/curl) + OAST beacon opsional → file atomik `.data/users/<u>/exploits/`; "tidak dibuat" tanpa file bila tak proven/luar scope.
+- **`auth_setup`** (write/confirm, CORE slot 80): login ≤4 akun → sesi bernama siap (`session_a/b`); password masked; scope + headless-guarded.
+- **Audit 2026-09-23** (semua kanal): IDOR per-hop scope-gate + anon publicity control; auth_bypass no-token control (publik = info); secret-evidence redact (MCP/GitHub/HAR); sinyal OOB/callback → info `ⓘ`; `learningIngest` SSRF guard (`isPrivateIp` + redirect re-check); `matrixSame` digest + default granted 2xx; `report_pdf`/`finding_resolve` risk→write; confirm-path re-gate (delivery+headless); round budget 10 khusus pentest; `sanitizeHttpUrl`; link-capture gate `isPentestAsk`.
 
 ---
 
@@ -438,4 +446,4 @@ Sinyal → `poc_verify` → `finding_add` (OWASP LLM01/02/03/04/05/06/08/11).
 `labs/pentest/` · `apps/web/src/lib/exploitChains.ts` · `proAttack.ts` ·
 `graphqlHunt.ts` · `wsHunt.ts` · `githubOsint.ts` · `harImport.ts` ·
 `workflowFuzz.ts` · `jsDeobfuscate.ts` · `promptInjection.ts` · `metaProse.ts` ·
-`llmHunt.ts` · `mcpHunt.ts`.
+`llmHunt.ts` · `mcpHunt.ts` · `vulnCompose.ts` · `exploitBuild.ts` · `authSetup.ts`.

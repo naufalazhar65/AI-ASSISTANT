@@ -14,7 +14,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 
 ## 2. Otak & Provider
 
-- **OpenCode Go (GLM 5.2)** — full-window brain (semua 300 tool); default pindah ke **9router** sejak 2026-09-21 (kuota Go bulanan habis, reset ~15 hari — lihat §21); auto-switch ke `deepseek-v4-flash-vision-exp` saat ada gambar
+- **OpenCode Go (GLM 5.2)** — full-window brain (semua 303 tool); default pindah ke **9router** sejak 2026-09-21 (kuota Go bulanan habis, reset ~15 hari — lihat §21); auto-switch ke `deepseek-v4-flash-vision-exp` saat ada gambar
 - **Multi-provider** — Groq / opencode local / 9router / openrouter / mock, selectable per channel
 - **Spotify sleep timer** — `spotify_sleep_timer`: `after_track=true` (matikan setelah lagu ini selesai) / `minutes=N` / `cancel=true`; timer in-process (hilang saat restart) + push ⏹️ saat dieksekusi
 - **Persona facts**: kunci kanonik + resolusi konflik (nilai terbaru menang, riwayat di `## Superseded` yang TIDAK di-inject ke prompt) + **rahasia/token ditolak** + cap 80 fakta; tool `persona_show` / `persona_set` (`ingat ini: …`) / `persona_forget` (`lupakan …`)
@@ -152,7 +152,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Audit hardening (2026-09-15)** — cakupan subdomain env `PENTEST_LAB_TARGETS`, `netGuard.assertPublicUrl` bersama (IPv6/metadata), ID temuan anti-tabrakan, `engagement_create` write/confirm, `web_audit` anti-SSRF, metadata endpoint diblok, suite pentest masuk `CORE_TOOL_NAMES` (Groq).
 - **Bug-bounty toolkit (2026-09-15)** — `oast_create/poll/stop` (OOB/blind via webhook.site), `http_session` + `http_request session/save_session` (auth), `bola_diff` (BOLA/IDOR dua identitas A/B), `content_discover` (robots/sitemap/JS/path), `param_fuzz` (XSS/SQLi/SSTI/redirect/cmdi per-param), `jwt_attack` (forge/crack), `evidence_capture` (screenshot + raw HTTP), `scope_import` (parse Targets→engagement), `crawl`, `param_discover`, `recon_diff` (aset baru), `recon_screenshot` (visual recon), `js_mine` (endpoint+secret JS), `api_spec`/`graphql_probe`, `request_save`/`request_run`, `platform_severity` (H1/VRT), `cve_intel`, `recon_dnsbrute`, `recon_ports`, `bucket_enum`, `submission_track`, `cors_audit`, `csp_audit`, `http_history`, `race`, `ws_probe`, `browser_eval` (Playwright), DNS-OAST (`oast_dns_create/poll/stop`, interactsh). `recon_subdomains` multi-sumber (crt.sh+certspotter); **scope-watch** heartbeat (`SECURITY_SCOPE_WATCH`) push aset baru. Biner terpasang: searchsploit, semgrep, trivy, gobuster, katana, interactsh-client. RoE-aware: manual + rate-limit default.
 - **`security_hunt` (2026-09-15)** — orkestrasi otonom: satu perintah menjalankan header/cookie+CSP+CORS+content discovery+crawl+JS mining (+param discovery `deep=true`) lalu merangkum **LEADS**. Scope-gated + bounded.
-- **Cheat-sheet** — `SECURITY.md`. **Total tools 300.**
+- **Cheat-sheet** — `SECURITY.md`. **Total tools 303.**
 
 ---
 
@@ -217,13 +217,13 @@ Lima modul pentest "superpower" yang saling menguatkan, terintegrasi ke `bounty_
 - `apps/web/verify.ts` — assertions updated
 - `AGENTS.md` — updated
 
-**Total tools: 300** · **CORE 128** (jendela Groq; 9router membawa 64 chain analisis) · **84 playbook** · **vitest 291**
+**Total tools: 303** · **CORE 128** (jendela Groq; 9router membawa 64 chain analisis) · **84 playbook** · **vitest 360**
 
 ---
 
-## 21. Security Copilot — lanjutan (2026-09-19 → 2026-09-21)
+## 21. Security Copilot — lanjutan (2026-09-19 → 2026-09-23)
 
-Semua menambang di atas §19/§20; total naik ke **300 tool** (2026-09-22), CORE tetap **128**, playbook **84**, vitest **291**.
+Semua menambang di atas §19/§20; total naik ke **303 tool** (2026-09-23), CORE tetap **128**, playbook **84**, vitest **360**.
 
 ### 21.1 Exploit Chain Builder (2026-09-19)
 - **`exploit_chain`** (write/confirm, CORE, scope-gated) — satu konfirmasi untuk rantai serangan umum; support **batch koma-terpisah** (`chain="idor,ssrf,race"` → semua dijalankan berurutan, token tak dikenal ditandai `⛔ TIDAK DIJALANKAN` jujur). Chain: `idor` (bola_diff A/B → BOLA/IDOR), `auth_bypass` (JWT alg:none/tamper), `ssrf` (param → OAST), `session_fixation` (login pre/post → session id), + wrapper Tier-1 (`race`, `graphql`, `xxe`, `open_redirect`, `cache_poison`) = **9 chain**.
@@ -274,7 +274,15 @@ Semua menambang di atas §19/§20; total naik ke **300 tool** (2026-09-22), CORE
 - **`metaProse.ts`**: deteksi prosa stage-direction ("Beri tahu Mas Naufal …") → koreksi hangat deterministik; hint: bicara LANGSUNG, PDF bukan pengganti pengujian.
 - **CORE invariant runtime**: verify.ts mengunci CORE=128 unik ter-resolve + jendela 9router-64 membawa chain analisis (workflow_fuzz/race_attack/graphql_hunt/prompt_injection_hunt/http_request/poc_verify/finding_add) — silent-shrink tidak bisa lolos gates lagi.
 
-### Gates & catatan (2026-09-21 → 2026-09-22)
+### 21.8 Chain composer + exploit artifact + session wizard (2026-09-22 → 2026-09-23)
+- **`vuln_compose`** (write/confirm, CORE) — komposer chain lintas-kelas: ≥2 temuan PROVEN satu host → relasi output-A → input-B deterministik (endpoint/param/token/object-id) → replay tiap hop via `pocVerify` → verdict TERBUKTI PENUH (temuan komposit critical) / PUTUS DI HOP n / TAK TERSAMBUNG.
+- **`exploit_build`** (write/confirm, CORE) — artefak exploit standalone NYATA di disk (node/python/curl: nonce di-seed, replay 3× + asserts, exit 0=VULNERABLE); "tidak dibuat" bila tak proven/luar scope — tanpa file.
+- **`auth_setup`** (write/confirm, CORE slot 80 tukar `tamper_script`) — wizard sesi uji: login ≤4 akun via `atoProve` → `session_a/b` siap untuk `exploit_chain`/`bola_diff`/`auth_matrix`; password masked, scope + headless-guarded.
+- **`composeBuildClaimSuffix`** (honesty guard): path artefak fabrikasi / inversi verdict PUTUS-"terbukti"/"tidak dibuat"-"sudah kubuat" → catatan jujur (7 unit lock).
+- **Audit post-19-Sep** (2 critical: IDOR per-hop scope + auth_bypass tanpa kontrol; 11 high: secret-evidence, inflasi sinyal→info `ⓘ`, SSRF ingest, digest/digest-default, risk write, confirm re-gate; 12 medium) + round budget dinamis (`PENTEST_MAX_ROUNDS=10` khusus pentest), `sanitizeHttpUrl`, `proofWarning`, link-capture gate `isPentestAsk`, fallback resumable, bounty coverage-note.
+
+### Gates & catatan (2026-09-21 → 2026-09-23)
+- **Gates (2026-09-23):** typecheck 0 · lint 0 errors · vitest **360/360** · verify.ts EXIT=0 (blok: audit-fix IDOR scope/auth-control/risk/openrouter/SSRF, auth_setup wizard live, Kohona link-gate + fallback resumable, bounty coverage/wildcard) · restart tmux sehat (health ok, `logged in as`=1, 0×409).
 - **Gates (2026-09-22):** typecheck 0 · lint 38 baseline · vitest **291/291** (16 file; +47 `llmHunt`/`mcpHunt`) · verify.ts EXIT=0 (blok live mock LLM leaky + mock MCP server; **tool registry integrity (300 tools)** + CORE invariant 128 + window 9router dikunci) · restart tmux sehat (health ok, `logged in as`=1, 0×409).
 - **Gates (2026-09-21):** typecheck 0 · lint 38 baseline · vitest **244/244** · verify.ts EXIT=0 · restart tmux sehat (health ok, 1 instance, 0×409).
 - **Brain:** opencodego kuota bulanan HABIS (429, reset ~15 hari) → default `9router` (64-tool, chain analisis penuh). Groq free 413 ITPM (payload 37.9k vs limit 7k) = resi lama; pentest penuh butuh opencodego reset / groq paid / 9router chain-analisis.
