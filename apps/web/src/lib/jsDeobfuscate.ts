@@ -55,6 +55,21 @@ function squeezePlus(text: string): string {
     .replace(/\({2,}/g, (m) => (m.length > 6 ? "(".repeat(6) : m));
 }
 
+/** Spans of quoted string literals (naive, escape-aware). Replacements inside
+ *  them are skipped — rewriting string CONTENT corrupts mined endpoints
+ *  (audit 2026-09-23: Pass D dumped JSON arrays into string literals). Pure. */
+export function quotedSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  const re = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) spans.push([m.index, m.index + m[0].length]);
+  return spans;
+}
+
+function inQuoted(spans: Array<[number, number]>, off: number): boolean {
+  return spans.some(([a, b]) => off >= a && off < b);
+}
+
 /** Decode the escape sequences that appear inside evaluated string literals
  *  (JS via String eval, and JSON.parse strings). `\xNN`, `\uNNNN`,
  *  `\\`/`\"`/`\'`/`\n`/`\r`/`\t`/`\/`. Unknown escapes preserved verbatim. */
@@ -310,18 +325,22 @@ export function deobfuscate(src: string): { text: string; arrays: number } {
       const i = Number(num);
       return Number.isInteger(i) && i >= 0 && i < elems.length ? JSON.stringify(elems[i]) : null;
     };
-    text = text.replace(new RegExp(`(?<![\\w$])${esc}\\s*\\[\\s*["']?(\\d{1,7})["']?\\s*\\]`, "g"), (_f, num: string) => resolve(num) ?? _f);
-    text = text.replace(new RegExp(`(?<![\\w$.])${esc}\\s*\\.\\s*at\\s*\\(\\s*(\\d{1,7})\\s*\\)`, "g"), (_f, num: string) => resolve(num) ?? _f);
+    const spans = quotedSpans(text);
+    const skipQuoted = (_f: string, num: string, off: number): string => (inQuoted(spans, off) ? _f : (resolve(num) ?? _f));
+    text = text.replace(new RegExp(`(?<![\\w$])${esc}\\s*\\[\\s*["']?(\\d{1,7})["']?\\s*\\]`, "g"), skipQuoted);
+    text = text.replace(new RegExp(`(?<![\\w$.])${esc}\\s*\\.\\s*at\\s*\\(\\s*(\\d{1,7})\\s*\\)`, "g"), skipQuoted);
   }
 
   // Pass D — remaining bare identifier references (alias chains resolved
-  // iteratively, loop-free).
+  // iteratively, loop-free). Skips matches inside string literals.
   for (let round = 0; round < 4 && arrays.size; round++) {
     let changed = false;
     for (const [name, elems] of arrays) {
       const esc = name.replace(/\$/g, "\\$");
       const pat = new RegExp(`(?<![\\w$.])${esc}(?!\\s*\\()`, "g");
-      text = text.replace(pat, () => {
+      const spans = quotedSpans(text);
+      text = text.replace(pat, (full: string, off: number): string => {
+        if (inQuoted(spans, off)) return full;
         changed = true;
         return JSON.stringify(elems);
       });
@@ -399,10 +418,12 @@ export function isPathLike(s: string): boolean {
 
 /** URL of an adjacent source map for a bundle URL (pure). */
 export function findSourceMapUrl(bundleUrl: string, body: string): string | null {
-  const inline = body.match(/\/\*[#@]\s*sourceMappingURL=(\S+?)\s*\*\/\s*$/);
+  // Line form first (most common): //# sourceMappingURL=app.js.map
+  const line = body.match(/^\s*\/\/[#@]\s*sourceMappingURL=(\S+?)\s*$/m);
+  const inline = line?.[1] ? line[1] : body.match(/\/\*[#@]\s*sourceMappingURL=(\S+?)\s*\*\/\s*$/)?.[1];
   if (inline) {
     try {
-      return new URL(inline[1], bundleUrl).toString();
+      return new URL(inline, bundleUrl).toString();
     } catch {
       return null;
     }

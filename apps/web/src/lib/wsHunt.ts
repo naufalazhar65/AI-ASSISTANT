@@ -16,6 +16,11 @@ export async function wsHandshake(urlStr: string, extraHeaders: Record<string, s
   let u: URL;
   try { u = new URL(urlStr); } catch { return { status: 0, headers: {}, error: "URL tidak valid" }; }
   if (!/^wss?:$/.test(u.protocol)) return { status: 0, headers: {}, error: "harus ws:// atau wss://" };
+  // Defense in depth (audit 2026-09-23): gate here too, not just at the
+  // ws_hunt entry — this function is exported and carries no session, but it
+  // must never be the path that skips scope.
+  const httpEquiv = urlStr.replace(/^ws(s?):\/\//i, "http$1://");
+  if (!targetAllowed(httpEquiv)) return { status: 0, headers: {}, error: "SCOPE — di luar lab/engagement" };
   const tls = u.protocol === "wss:";
   const mod = tls ? httpsRequest : httpRequest;
   const headers: Record<string, string> = {

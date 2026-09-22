@@ -68,6 +68,12 @@ function read(rawUser: unknown): Brain {
     const j = JSON.parse(readFileSync(p, "utf8")) as unknown;
     return j && typeof j === "object" ? (j as Brain) : {};
   } catch {
+    // Quarantine corrupt stores instead of resetting (audit 2026-09-23: a
+    // reset + next write permanently wiped the store).
+    try {
+      const p = storePath(rawUser);
+      if (existsSync(p)) renameSync(p, `${p}.corrupt-${Date.now()}`);
+    } catch { /* best-effort */ }
     return {};
   }
 }
@@ -153,13 +159,18 @@ export function brainRecordEndpoints(rawUser: unknown, baseUrl: string, paths: s
     const path = brainPath(raw);
     if (!path || path === "/") continue;
     const params = brainParamNames(`http://x${path.startsWith("/") ? "" : "/"}${path}`);
-    const key = path.split("?")[0];
+    // Store names-only query (audit 2026-09-23): brainPath keeps ?values=
+    // which persisted tokens/IDs to disk + prompt via brainBrief. Strip them.
+    const bare = path.split("?")[0];
+    const stored = params.length ? `${bare}?${params.join("&")}` : bare;
+    const key = bare;
     const existing = t.endpoints.find((e) => e.path.split("?")[0] === key);
     if (existing) {
       existing.params = [...new Set([...existing.params, ...params])].slice(0, 12);
+      existing.path = stored;
       existing.updatedAt = now;
     } else {
-      t.endpoints.push({ path, params, methods: [], status: [], note: "", updatedAt: now });
+      t.endpoints.push({ path: stored, params, methods: [], status: [], note: "", updatedAt: now });
     }
   }
   while (t.endpoints.length > MAX_ENDPOINTS) t.endpoints.shift();

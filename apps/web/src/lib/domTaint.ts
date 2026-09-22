@@ -14,6 +14,13 @@
 
 import { targetAllowed } from "./security";
 
+/** Escape a string for literal use inside new RegExp (audit 2026-09-23: `$`
+ *  is legal in JS identifiers, so an unescaped `$x` became an end-anchor and
+ *  its flows never matched). Pure — tested. */
+export function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export type TaintFlow = {
   source: string;
   sourceLine: number;
@@ -70,14 +77,17 @@ export function analyzeTaint(text: string, fileLabel = "bundle.js"): TaintFlow[]
       if (m) tainted.set(m[1], { source: src.name, line: i + 1 });
     }
     // 2) sinks: does the sink call reference a tainted variable?
+    // (No \b: `$` is non-word, so \b never matches before `$x` — use explicit
+    // identifier-boundary lookarounds. Audit 2026-09-23.)
     for (const sink of TAINT_SINKS) {
       if (!sink.re.test(line)) continue;
       for (const [v, t] of tainted) {
-        if (!new RegExp(`\\b${v}\\b`).test(line)) continue;
+        const vRe = new RegExp(`(?<![\\w$])${escapeRegExp(v)}(?![\\w$])`);
+        if (!vRe.test(line)) continue;
         // Walk back ≤15 lines for a sanitizer touching the same variable.
         let sanitized = false;
         for (let j = i - 1; j >= Math.max(0, i - 15); j--) {
-          if (new RegExp(`\\b${v}\\b`).test(lines[j]) && TAINT_SANITIZERS.test(lines[j])) {
+          if (vRe.test(lines[j]) && TAINT_SANITIZERS.test(lines[j])) {
             sanitized = true;
             break;
           }

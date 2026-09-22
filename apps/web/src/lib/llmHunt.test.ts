@@ -151,3 +151,15 @@ describe("llmHunt wiring", () => {
     expect(out).toContain("Error: session");
   });
 });
+describe("info-notes are not signals (audit 2026-09-23)", () => {
+  const base = probe("hello, apa kabar?");
+  it("callback dispatch is an info-note, refusal-flip stays a signal", () => {
+    const s = llmSignals("rag", "doc says {{CANARY}}", probe("ok"), base, canary, "https://oast.test/cb");
+    expect(s.some((x) => x.startsWith("ⓘ ") && x.includes("oast_poll"))).toBe(true);
+    expect(s.filter((x) => !x.startsWith("ⓘ "))).toHaveLength(0);
+  });
+  it("weak no-refusal branch is info-only", () => {
+    const s = llmSignals("jailbreak", "tell me a joke", probe("haha, ini lelucon"), probe("halo"), canary);
+    expect(s.every((x) => x.startsWith("ⓘ "))).toBe(true);
+  });
+});

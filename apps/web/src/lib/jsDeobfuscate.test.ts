@@ -13,6 +13,7 @@ import {
   hasDeobfSignal,
   isPathLike,
   looksMinified,
+  quotedSpans,
   splitTopLevel,
   unwrapChunk,
 } from "./jsDeobfuscate";
@@ -155,6 +156,12 @@ describe("findSourceMapUrl", () => {
     expect(findSourceMapUrl("https://x.com/assets/app.1234.js", body)).toBe("https://x.com/assets/app.1234.js.map");
   });
 
+  it("prefers an explicit inline map over the adjacent guess (audit 2026-09-23)", () => {
+    const body = `console.log(1);\n//# sourceMappingURL=other.map\n`;
+    // Adjacent guess would be custom.js.map — the explicit line form must win.
+    expect(findSourceMapUrl("https://x.com/a/custom.js", body)).toBe("https://x.com/a/other.map");
+  });
+
   it("falls back to the adjacent .js.map", () => {
     expect(findSourceMapUrl("https://x.com/a/bundle.js", "")).toBe("https://x.com/a/bundle.js.map");
   });
@@ -182,5 +189,19 @@ describe("looksMinified / hasDeobfSignal / dedupe", () => {
 
   it("dedupes preserving order", () => {
     expect(dedupe(["a", "b", "a"])).toEqual(["a", "b"]);
+  });
+});
+
+describe("quotedSpans (audit 2026-09-23: no rewrites inside string literals)", () => {
+  it("leaves string content alone during array substitution", () => {
+    const src = `var _0x4c2e=['/api/real','POST'];var s="use _0x4c2e[0] here";go(_0x4c2e[0]);`;
+    const { text } = deobfuscate(src);
+    expect(text).toContain('"/api/real"');
+    expect(text).toContain('"use _0x4c2e[0] here"');
+  });
+
+  it("quotedSpans finds double/single/backtick spans", () => {
+    const spans = quotedSpans(`a("x") + 'y' + \`z\``);
+    expect(spans.length).toBe(3);
   });
 });

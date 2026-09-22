@@ -14,6 +14,7 @@ import { mkdirSync, readFileSync, existsSync, writeFileSync, renameSync } from "
 import { join } from "node:path";
 import { appRoot } from "./users";
 import { ProviderId, resolveProvider, providerHeaders } from "./providers";
+import { ensureOpenCodeGoKey } from "./serverKeys";
 import { isProviderRetryable } from "./assistantError";
 
 const DIR = join(appRoot(), ".data", "provider-health");
@@ -225,6 +226,9 @@ export async function providerHealthTick(now = Date.now()): Promise<string> {
 
 /** Human digest for `provider_status` (read, auto). */
 export function providerHealthStatus(): string {
+  // Seed from CLI-login file first (audit 2026-09-23): file-login installs
+  // otherwise misreport (env-only check missed ~/.local/share/opencode).
+  try { ensureOpenCodeGoKey(); } catch { /* best-effort */ }
   const state = readState();
   const defaults: Partial<Record<ProviderId, string>> = {
     opencodego: process.env.OPENCODEGO_API_KEY ? "opencodego" : undefined,

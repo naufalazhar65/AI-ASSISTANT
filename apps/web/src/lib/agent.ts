@@ -105,7 +105,11 @@ export const CONFIRM_FRAME_PREFIX = "@@CONFIRM ";
  * same id pattern is never blocked (call.ids are LLM-generated per turn).
  */
 const CONFIRM_DEDUP_TTL_MS = 10 * 60_000;
-const confirmExecuted = new Map<string, { at: number; content: string }>();
+// Process-wide (globalThis): module-level state resets under HMR/dev, which
+// re-armed the at-most-once guard and could re-run a confirmed side effect
+// (audit 2026-09-23, same class as the once.ts fix).
+const confirmExecuted: Map<string, { at: number; content: string }> =
+  ((globalThis as unknown as { __miaConfirmExecuted?: Map<string, { at: number; content: string }> }).__miaConfirmExecuted ??= new Map());
 
 function confirmCacheKey(user: unknown, callId: string): string {
   return `${String(user ?? "anon")}::${callId}`;
@@ -624,11 +628,14 @@ function extractRetryAfterMs(err: Error): number {
  *  - Groq: hard API limit of 128 tools (157 registered would 400).
  *  - 9router (local proxy → Gemini free tier): a big payload burns the free
  *    quota and 429s, so keep it small.
+ *  - openrouter.ai (free-tier models): same treatment — a ~300-tool payload
+ *    risks 429/reject, so cap at the known-good 128 (audit 2026-09-23).
  * All other providers get the full set.
  */
 const TOOL_CAPS: { test: RegExp; max: number }[] = [
   { test: /groq\.com/, max: 128 },
   { test: /127\.0\.0\.1:20128|localhost:20128/, max: 64 },
+  { test: /openrouter\.ai/, max: 128 },
 ];
 /**
  * Risk-`read` tools that still change the REAL WORLD (playback, windows, remote
@@ -1329,6 +1336,17 @@ const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan",
       return { needsConfirmation: null };
     }
   } catch { /* fall through to warm fallback */ }
+  // Pentest asks legitimately need more rounds than the budget (recon → hunt →
+  // probe → poc → finding → report); progress persists (hunt_log/target_brain/
+  // findings), so offer continuation instead of a dead-end "split it up"
+  // (live 2026-09-22: "full pentest menyeluruh" died here with an apology).
+  const { isPentestAsk } = await import("./library");
+  if (isPentestAsk(lastInstructionText(messages))) {
+    collector.collect(
+      "Putaran pertamaku habis di tengah pengujian — tapi progresnya tersimpan (hunt_log, target_brain, temuan). Bilang \"lanjut\" dan aku teruskan dari tahap berikutnya ya. 🌸"
+    );
+    return { needsConfirmation: null };
+  }
   collector.collect(
     "Maaf, pembicaraan ini butuh beberapa langkah yang kuketuk terlalu lama — " +
     "coba pecah pertanyaannya jadi lebih kecil ya. 🌸"
@@ -2818,7 +2836,7 @@ async function runAssistantTurnImpl(opts: {
   // stiff, listy output. Append a concise, format-level tone memo so even
   // when the base prompt is ignored, this small addendum nudges the model.
   if (providerId === "9router") {
-    systemPrompt += "\n\nFORMATTING RULE: respond as ONE warm flowing message — no bullet lists, no 'Saran:'/'Catatan:'/'Penyebab:' labels, no colon headings, no numbered steps, no '→' arrows. Just 1–3 natural sentences. Even for technical answers, weave facts into conversational prose, not a slide deck.";
+    systemPrompt += "\n\nFORMATTING RULE: respond as ONE warm flowing message — no bullet lists, no 'Saran:'/'Catatan:'/'Penyebab:' labels, no colon headings, no numbered steps, no '→' arrows. Just 1–3 natural sentences. Even for technical answers, weave facts into conversational prose, not a slide deck. EXCEPTION: pentest finding/report lists stay one-finding-per-line (numbered) — readability of findings beats prose style.";
   }
 
   // Rolling summary: when the conversation grew very long, the oldest messages
@@ -2959,8 +2977,25 @@ async function runAssistantTurnImpl(opts: {
       }
       let toolResult: string;
       if (allow) {
-        toolResult = isDedup ? cached!.content : await executeTool(call, opts.user, { lastUserText: lastUserTextFrom(messages) });
-        confirmExecuted.set(cacheKey, { at: Date.now(), content: toolResult });
+        // Re-gate on the confirm path (audit 2026-09-23): an approval can be
+        // stale (provider switched since the proposal) or crafted. A call this
+        // provider never delivered, or one a headless turn must auto-deny, is
+        // declined honestly instead of executed.
+        const defNow = getTOOLS().find((t) => t.function.name === call.name);
+        const deliveredNow = toolsForUrl(resolved.url).some((t) => t.function.name === call.name);
+        let confirmArgs: Record<string, unknown> = {};
+        try { confirmArgs = JSON.parse(call.arguments || "{}") as Record<string, unknown>; } catch { confirmArgs = {}; }
+        const { autoApproveAllowed: policyAllows } = await import("./policy");
+        const { targetAllowed: scopeAllows } = await import("./security");
+        const autoOk = !!defNow && requiresConfirmation(defNow) && policyAllows(call.name, defNow.risk, confirmArgs, { urlAllowed: (u) => scopeAllows(u) });
+        if (!defNow || !deliveredNow) {
+          toolResult = `Not executed: "${call.name}" is not available on this provider (tool budget). Do NOT claim it ran; offer a delivered alternative.`;
+        } else if (opts.autoDenyRisky && (requiresConfirmation(defNow) || isHeadlessSideEffect(call.name)) && !autoOk) {
+          toolResult = "Auto-declined (headless turn). Do NOT execute it; briefly tell the user this needs an attended approval.";
+        } else {
+          toolResult = isDedup ? cached!.content : await executeTool(call, opts.user, { lastUserText: lastUserTextFrom(messages) });
+          confirmExecuted.set(cacheKey, { at: Date.now(), content: toolResult });
+        }
       } else {
         toolResult = "The user declined this action. Do NOT execute it; briefly tell the user you skipped it.";
       }

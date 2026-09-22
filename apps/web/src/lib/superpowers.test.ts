@@ -3,8 +3,8 @@ import { brainHost, brainPathKey, brainPath, brainParamNames } from "./targetBra
 import { chainSummary } from "./bounty";
 import { retestCaseId, retestHost, retestVerdict } from "./retest";
 import { parseMatrixSpec, matrixGranted, matrixSame, matrixFindings } from "./authMatrix";
-import { analyzeTaint, TAINT_SOURCES, TAINT_SINKS } from "./domTaint";
-import { learnClassify, learnTech, learnEndpointStyle, learnExtract } from "./learning";
+import { analyzeTaint, escapeRegExp, TAINT_SOURCES, TAINT_SINKS } from "./domTaint";
+import { learnClassify, learnTech, learnEndpointStyle, learnExtract, isPrivateIp } from "./learning";
 import { pdfDeliverableSuffix, chainRunClaimSuffix, lastInstructionText, reportTargetFromMessages, turnRanTool, type ChatMessage } from "./agent";
 import { parseChainList } from "./exploitChains";
 
@@ -100,6 +100,55 @@ describe("auth matrix helpers", () => {
     expect(matrixSame(data, { status: 200, len: 1024, digest: "1024:12345" })).toBe(true);
     // Row without digest (legacy) keeps the old length-only behavior.
     expect(matrixSame({ status: 200, len: 1024, digest: "" }, login)).toBe(true);
+  });
+
+  it("matrixSame requires digest equality at any in-tolerance size gap (audit 2026-09-23)", () => {
+    // 100 B gap within 5% tolerance but different content — was "same" (FP).
+    expect(matrixSame({ status: 200, len: 2000, digest: "2000:aaaa" }, { status: 200, len: 2100, digest: "2100:bbbb" })).toBe(false);
+    expect(matrixSame({ status: 200, len: 2000, digest: "2000:aaaa" }, { status: 200, len: 2100, digest: "2000:aaaa" })).toBe(true);
+  });
+
+  it("matrix default granted ceiling is 2xx (302-to-login is not access)", () => {
+    const spec = parseMatrixSpec({ endpoints: "/a", sessions: "admin" });
+    expect(spec.ok && spec.spec.grantedStatusMax).toBe(299);
+    expect(matrixGranted({ status: 302, error: undefined }, 299)).toBe(false);
+    expect(matrixGranted({ status: 200, error: undefined }, 299)).toBe(true);
+  });
+
+  it("isPrivateIp denies loopback/RFC1918/link-local/metadata, allows public (audit 2026-09-23)", () => {
+    for (const ip of ["127.0.0.1", "10.0.0.5", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "0.0.0.0", "::1", "fe80::1", "fc00::1", "::ffff:127.0.0.1", "localhost", "224.0.0.1", "999.1.1.1"]) {
+      expect(isPrivateIp(ip), ip).toBe(true);
+    }
+    for (const ip of ["8.8.8.8", "1.1.1.1", "172.15.0.1", "172.32.0.1", "100.63.0.1", "100.128.0.1", "2606:4700:4700::1111"]) {
+      expect(isPrivateIp(ip), ip).toBe(false);
+    }
+    // Hostnames are not our call (DNS decides) — never blanket-deny.
+    expect(isPrivateIp("example.com")).toBe(false);
+  });
+
+  it("escapeRegExp neutralizes $ in identifiers (audit 2026-09-23)", () => {
+    expect(escapeRegExp("$x")).toBe("\\$x");
+    // \b can never precede `$` (non-word char) — callers use lookarounds.
+    expect(new RegExp(`(?<![\\w$])${escapeRegExp("$x")}(?![\\w$])`).test("a = $x;")).toBe(true);
+    expect(new RegExp(`(?<![\\w$])${escapeRegExp("$x")}(?![\\w$])`).test("a = $xy;")).toBe(false);
+  });
+
+  it("tracks $-prefixed variables source→sink (audit 2026-09-23)", () => {
+    const flows = analyzeTaint(`const $x = location.hash;\ndocument.body.innerHTML = $x;`, "app.js");
+    expect(flows.length).toBe(1);
+    expect(flows[0].variable).toBe("$x");
+    expect(flows[0].sanitized).toBe(false);
+  });
+
+  it("brainRecordEndpoints stores names-only query (no secret values)", async () => {
+    const { brainRecordEndpoints, brainBrief } = await import("./targetBrain");
+    const u = "audit_brain_values";
+    brainRecordEndpoints(u, "https://lab.tld", ["/api/dokumen?token=abc123&id=7"]);
+    const brief = brainBrief(u, "lab.tld");
+    expect(brief).toContain("token");
+    expect(brief).not.toContain("abc123");
+    const { brainForget } = await import("./targetBrain");
+    brainForget(u, "lab.tld");
   });
 
   it("matrixFindings flags anonymous-access and cross-role, not uniform", () => {

@@ -84,7 +84,7 @@ export async function graphqlHunt(rawUser: unknown, opts: { url: string; session
   if (!/^https?:\/\//i.test(u)) return "Error: URL harus http(s).";
   if (!targetAllowed(u)) return "Error: SCOPE — graphql_hunt hanya untuk lab / engagement aktif / PENTEST_LAB_TARGETS.";
   const lines: string[] = [];
-  const depth = Math.min(100, Math.max(10, Number(opts.depth) || 50));
+  const depth = Math.min(50, Math.max(10, Number(opts.depth) || 25));
 
   // 1) Introspection
   const intro = await gql(u, JSON.stringify({ query: INTROSPECTION, operationName: "IntrospectionQuery" }), opts.session, rawUser);

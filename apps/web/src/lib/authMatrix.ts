@@ -45,7 +45,7 @@ export function parseMatrixSpec(input: { endpoints?: unknown; sessions?: unknown
   const sessions = [...new Set(toList(input.sessions))].slice(0, MAX_SESSIONS);
   if (!endpoints.length) return { ok: false, error: "endpoints wajib (mis. endpoints=/api/dokumen?id=1,/api/admin — koma untuk banyak)" };
   if (!sessions.length) return { ok: false, error: "sessions wajib (mis. sessions=guest,user,admin — koma untuk banyak; anonymous otomatis ditambahkan)" };
-  const granted = input.granted_status_max === undefined ? 399 : Number(input.granted_status_max);
+  const granted = input.granted_status_max === undefined ? 299 : Number(input.granted_status_max);
   if (!Number.isFinite(granted) || granted < 100 || granted > 599) return { ok: false, error: "granted_status_max harus 100-599" };
   return { ok: true, spec: { endpoints, sessions, grantedStatusMax: granted } };
 }
@@ -64,13 +64,16 @@ export function matrixGranted(row: Pick<MatrixRow, "status" | "error">, grantedM
  * actually match — same size but different content (e.g. a 200 login page vs a
  * 200 data listing) is not "same data" and must not be reported as cross-role.
  * Only applied when both rows carry a digest (back-compat with old tests/rows).
+ * Hardened (2026-09-23): digest equality is required whenever BOTH digests
+ * exist, regardless of lenDiff — different bodies at similar-but-larger sizes
+ * (65 B–5%) previously compared "same" (cross-role false positive).
  */
 export function matrixSame(a: Pick<MatrixRow, "status" | "len" | "digest">, b: Pick<MatrixRow, "status" | "len" | "digest">): boolean {
   if (a.status !== b.status) return false;
   const lenDiff = Math.abs(a.len - b.len);
   const tolerance = Math.max(64, Math.floor(Math.max(a.len, b.len) * 0.05));
   if (lenDiff > tolerance) return false;
-  if (lenDiff <= 64 && a.digest && b.digest && a.digest !== b.digest) return false;
+  if (a.digest && b.digest && a.digest !== b.digest) return false;
   return true;
 }
 

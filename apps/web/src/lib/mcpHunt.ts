@@ -144,9 +144,11 @@ export function mcpPickStringArg(schema: unknown): string | null {
   const keys = Object.keys(props);
   const required = Array.isArray((schema as { required?: unknown[] }).required) ? (schema as { required?: unknown[] }).required as string[] : [];
   // Prefer a required string param, else the first string param.
+  // (Audit 2026-09-23: number/integer params got the string marker, errored,
+  // and the error itself became a "signal" — string-only now.)
   for (const k of required) {
     const p = props[k] as { type?: string } | undefined;
-    if (p && (p.type === "string" || p.type === "number" || p.type === "integer")) return k;
+    if (p && p.type === "string") return k;
   }
   for (const k of keys) {
     const p = props[k] as { type?: string } | undefined;
@@ -313,11 +315,15 @@ export async function mcpHunt(
 
   const hits: McpVerdict[] = [];
   const counts = { tools: tools.length, resources: resources.length, prompts };
+  // Info-notes (bounded): dispatched-but-unproven observations (e.g. callback
+  // sent, proof = oast_poll). Never counted as signals/hits.
+  const infoLines: string[] = [];
 
   // 3. Anonymous-access signal: full inventory without any auth/session.
+  // (Bisa jadi publik by design — cek manual sebelum finding.)
   if (!opts.session) hits.push({
     name: "anon-access",
-    signals: ["inventaris tools/resources dibuka TANPA auth/session", `tools:${counts.tools}, resources:${counts.resources}`],
+    signals: ["inventaris tools/resources dibuka TANPA auth/session (bisa jadi publik by design — cek manual)", `tools:${counts.tools}, resources:${counts.resources}`],
     evidence: `${tools.slice(0, 3).map((t) => t.name).join(", ")}${tools.length > 3 ? ", …" : ""}`,
   });
 
@@ -348,8 +354,12 @@ export async function mcpHunt(
     const sig: string[] = [];
     if (mcpReflected(canary, joined)) sig.push("marker ARG REFLECTED — input→output tanpa sanitasi (hasil tool akan dikonsumsi LLM)");
     if (m?.error) sig.push(`tools/call error: ${String(m.error.message || m.error.code || "?")}`);
-    if (callback) sig.push("callback terkirim sebagai nilai arg — bukti OOB = `oast_poll`");
+    // Callback dispatch is an info-note, not a signal: proof is oast_poll.
+    // (Audit 2026-09-23: counting it inflated every callback run to a "hit".)
+    const info: string[] = [];
+    if (callback) info.push("callback terkirim sebagai nilai arg — bukti OOB = `oast_poll`");
     if (sig.length) hits.push({ name: `arg-injection (${t.name}.${argName})`, signals: sig, evidence: joined.slice(0, 160) });
+    else if (info.length) infoLines.push(`• arg-injection (${t.name}.${argName}): ${info.join("; ")}`);
   }
   if (!probeTargets.length && tools.length && !sensitive.length) {
     hits.push({ name: "arg-injection", signals: ["semua tool tanpa param string yang aman — skip pemanggilan"], evidence: "" });
@@ -375,10 +385,17 @@ export async function mcpHunt(
     if (secrets.length) sig.push(`konten memuat rahasia (${[...new Set(secrets)].slice(0, 3).join(", ")}) — nilai di-redact`);
     const instr = mcpInstrSignals(text.slice(0, 4000));
     if (instr.length) sig.push(`konten memuat ${instr.join(" + ")}`);
-    if (sig.length) hits.push({ name: `resource-scan (${res.uri})`, signals: sig, evidence: text.slice(0, 140).replace(/\s+/g, " ") });
+    // Evidence must never carry raw secret VALUES (audit 2026-09-23): when a
+    // secret is flagged, cite location + type only, never the raw slice.
+    const evidence = secrets.length
+      ? `[redacted — ${[...new Set(secrets)].slice(0, 3).join(", ")} di ${res.uri}]`
+      : text.slice(0, 140).replace(/\s+/g, " ");
+    if (sig.length) hits.push({ name: `resource-scan (${res.uri})`, signals: sig, evidence });
   }
 
-  return summarizeMcpHits(
+  const out = summarizeMcpHits(
     live, { serverName: info.serverName, serverVersion: info.serverVersion, protocol: info.protocol, caps }, counts, hits, reqCount
   );
+  if (!infoLines.length) return out;
+  return `${out}\n\nℹ️ Info (bukan sinyal, tidak dihitung):\n${infoLines.slice(0, 6).join("\n")}`;
 }

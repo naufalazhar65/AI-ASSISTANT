@@ -110,8 +110,15 @@ async function runSteps(rawUser: unknown, steps: FlowStep[], vars: Record<string
       for (const [name, spec] of Object.entries(step.extract || {})) {
         let val: string | undefined;
         if (spec.startsWith("regex:")) {
-          const m = r.body.match(new RegExp(spec.slice(6)));
-          val = m?.[1] ?? m?.[0];
+          // User-supplied pattern on a large body: guard invalid + ReDoS-prone
+          // shapes (audit 2026-09-23) — fail the step honestly, never hang.
+          try {
+            if (spec.length > 200) throw new Error("pola regex terlalu panjang (maks 200)");
+            const m = r.body.slice(0, 4000).match(new RegExp(spec.slice(6)));
+            val = m?.[1] ?? m?.[0];
+          } catch (e) {
+            return { ok: false, results, vars: v, failAt: i, why: `extract regex gagal: ${e instanceof Error ? e.message : String(e)}` };
+          }
         } else {
           try { val = getPath(JSON.parse(r.body), spec); } catch { val = undefined; }
         }
@@ -164,7 +171,7 @@ export async function workflowFuzz(rawUser: unknown, opts: { flow?: Flow; name?:
   }
   if (!flow || !Array.isArray(flow.steps) || flow.steps.length < 2) return "Error: butuh flow ≥2 langkah (inline `steps` atau `name` tersimpan dari flow_run save=).";
   if (flow.steps.length > MAX_STEPS) return `Error: terlalu banyak langkah (maks ${MAX_STEPS}) — pecah alurnya.`;
-  const urls = flow.steps.map((s) => substitute(s.url, flow!.vars || {}));
+  const urls = flow.steps.map((s) => substitute(s.url, { ...(flow.vars || {}), ...(opts.vars || {}) }));
   for (const u of urls) {
     if (!/^https?:\/\//i.test(u) || !targetAllowed(u)) return `Error: SCOPE — ${u.slice(0, 80)} bukan lab/engagement aktif.`;
   }
@@ -209,6 +216,7 @@ export async function workflowFuzz(rawUser: unknown, opts: { flow?: Flow; name?:
 
   lines.push(`\n━━ Ringkasan ━━`);
   lines.push(`${ran} mutasi · ${signals.length} sinyal bermakna · happy path ${base.ok ? "OK" : "GAGAL"}.`);
+  lines.push(`⚠️ Mutasi repeat/value MENGEKSEKUSI ulang langkah state-changing nyata (refund/transfer/coupon) di target — hanya jalankan di lab milikmu setelah konfirmasi, dan cek efek sampingnya.`);
   if (!signals.length) lines.push("Tidak ada indikasi business-logic bug dari mutasi ini — coba flow lain / focus_step lain / payload value lain.");
   lines.push(`\n⚠️ Sinyal ≠ exploit: bukti harus efek nyata (saldo/record/status order). poc_verify → finding_add (kategori business logic, CWE-840/841).`);
   return lines.join("\n");

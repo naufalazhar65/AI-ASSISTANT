@@ -86,8 +86,14 @@ export async function githubOsint(rawUser: unknown, opts: { action?: string; dom
       if (!hits.length) { lines.push(`• "${q}" — 0 hit publik`); await politeDelay(); continue; }
       for (const h of hits) {
         const secrets = scanTextSecrets(h.snippet, 10);
-        const tag = secrets.length ? ` 🚨 secret: ${secrets.map((s) => s.type).join(",")} (nilai DISENSUR)` : "";
-        lines.push(`• ${h.repo} → ${h.path}${tag}\n   ${h.snippet.replace(/\s+/g, " ").slice(0, 160)}`);
+        // Secret values NEVER reach chat/log/memory (audit 2026-09-23): flagged
+        // hits cite repo → path + type only, never the snippet text.
+        if (secrets.length) {
+          const tag = ` 🚨 secret: ${secrets.map((s) => s.type).join(",")} (nilai DISENSUR — snippet disembunyikan)`;
+          lines.push(`• ${h.repo} → ${h.path}${tag}`);
+        } else {
+          lines.push(`• ${h.repo} → ${h.path}\n   ${h.snippet.replace(/\s+/g, " ").slice(0, 160)}`);
+        }
       }
       await politeDelay();
     }

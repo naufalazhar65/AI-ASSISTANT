@@ -205,7 +205,8 @@ export function xxeSignals(p: ProbeResult): string[] {
   if (/root:.*:[0-9]+:[0-9]+:/.test(p.body)) out.push("🔥 /etc/passwd TERBACA (file-read terbukti)");
   if (/not matched|referenced but not|undeclared entity|The entity/i.test(p.body)) out.push("XML ter-parse (entitas diproses) — parser XML aktif");
   if (/base64|<\?xml/i.test(p.body) && /php:\/\//i.test(p.body) === false && p.status === 200 && /cm9vdA|root/.test(p.body)) out.push("base64 content muncul (PHP filter read kandidat)");
-  if (p.status !== 0 && p.status !== 200) out.push(`status ${p.status}`);
+  // (Audit 2026-09-23: a bare non-200 status is noise — 302/400/404 alone is
+  // not an XXE signal and inflated "sinyal" counts. Dropped.)
   return out;
 }
 
@@ -236,7 +237,10 @@ export async function xxeChain(rawUser: unknown, opts: { url: string; method?: s
     const r = await fetchProbe(u, { method, body: doc, headers: { "content-type": ct }, session: opts.session, rawUser });
     recordHttp(rawUser, { method, url: u, status: r.status, bytes: r.body.length, ms: r.ms, at: new Date().toISOString() });
     const s = xxeSignals(r);
-    lines.push(`• ${p.name}${s.length ? `\n   ↳ ${s.join("; ")}${s.some((x) => x.includes("TERBACA")) ? `\n   ↳ ${r.body.slice(0, 200).replace(/\s+/g, " ")}` : ""}` : " — tanpa sinyal"}`);
+    // Proof needs the matched line only — never dump surrounding file body
+    // (audit 2026-09-23: the 200-char slice spread /etc/passwd content).
+    const leakLine = s.some((x) => x.includes("TERBACA")) ? (r.body.match(/root:.*:[0-9]+:[0-9]+:.*/g)?.[0]?.slice(0, 120) ?? "") : "";
+    lines.push(`• ${p.name}${s.length ? `\n   ↳ ${s.join("; ")}${leakLine ? `\n   ↳ bukti: ${leakLine.replace(/\s+/g, " ")}` : ""}` : " — tanpa sinyal"}`);
     await politeDelay();
   }
   const { oastPoll } = await import("./oast");

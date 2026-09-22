@@ -47,6 +47,10 @@ function read(rawUser: unknown): LearnPattern[] {
     const j = JSON.parse(readFileSync(p, "utf8")) as unknown;
     return Array.isArray(j) ? (j as LearnPattern[]).filter((p) => p && typeof p.title === "string") : [];
   } catch {
+    try {
+      const p = storePath(rawUser);
+      if (existsSync(p)) renameSync(p, `${p}.corrupt-${Date.now()}`);
+    } catch { /* best-effort */ }
     return [];
   }
 }
@@ -124,6 +128,34 @@ export function learnExtract(text: string, source: string): LearnPattern | null 
   };
 }
 
+/** True when an IP literal is non-public (SSRF guard for server-side fetch). Pure. */
+export function isPrivateIp(ip: string): boolean {
+  const v = (ip || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!v || v === "localhost") return true;
+  if (v.includes(":")) {
+    // IPv6 / mapped-IPv4.
+    if (v === "::1" || v === "::") return true;
+    if (v.startsWith("fe80:") || v.startsWith("fec0:") || v.startsWith("fc") || v.startsWith("fd")) return true;
+    const m4 = v.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (m4) return isPrivateIp(m4[1]);
+    if (v.startsWith("ff")) return true;
+    // Non-hex colon form = hostname, not an IP → DNS resolution decides.
+    if (!/^[0-9a-f:]+$/i.test(v)) return false;
+    return false;
+  }
+  const parts = v.split(".");
+  // Not an IPv4 literal (hostname) → not our call; DNS resolution decides.
+  if (parts.length !== 4 || parts.some((x) => !/^\d+$/.test(x))) return false;
+  const p = parts.map(Number);
+  if (p.some((n) => n < 0 || n > 255)) return true; // unparseable = deny
+  const [a, b] = p;
+  if (a === 10 || a === 127 || (a === 169 && b === 254) || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31)) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if ((a === 192 && b === 0) || (a === 192 && b === 2) || (a === 198 && b === 51) || (a === 203 && b === 113)) return true;
+  if (a === 0 || a >= 224) return true;
+  return false;
+}
+
 /** Ingest from pasted text or a public URL. */
 export async function learningIngest(rawUser: unknown, opts: { text?: string; url?: string; title?: string }): Promise<string> {
   let text = (opts.text || "").trim();
@@ -132,9 +164,42 @@ export async function learningIngest(rawUser: unknown, opts: { text?: string; ur
     const url = opts.url.trim();
     if (!/^https?:\/\//i.test(url)) return "Error: url harus http(s).";
     try {
-      const res = await fetch(url, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15_000) });
-      if (!res.ok) return `Error: fetch → ${res.status}`;
-      const html = await res.text();
+      // SSRF guard (audit 2026-09-23): resolve every hop (initial + ≤3
+      // redirects) and refuse non-public IPs (localhost/RFC1918/link-local/
+      // cloud metadata 169.254.169.254). Redirects are followed manually so
+      // each Location is re-checked — fetch() would follow blindly.
+      const { promises: dns } = await import("node:dns");
+      let cur = url;
+      let html = "";
+      for (let hop = 0; hop < 4; hop++) {
+        let u: URL;
+        try { u = new URL(cur); } catch { return "Error: url tidak valid."; }
+        if (!/^https?:$/i.test(u.protocol)) return "Error: hanya http(s).";
+        // Literal IPs AND reserved names are checked without DNS (audit
+        // 2026-09-23: resolve throws for unroutable literals/metadata IP and
+        // for localhost in DNS-less sandboxes — the guard must see them first).
+        const hn = u.hostname;
+        if (isPrivateIp(hn)) return `Error: SCOPE — host ${hn} non-publik (SSRF guard menolak). Tempel teks artikelnya langsung.`;
+        {
+          let addrs: string[] = [];
+          try { addrs = await dns.resolve4(hn); } catch { /* try v6 below */ }
+          if (!addrs.length) {
+            try { addrs = await dns.resolve6(hn); } catch { return `Error: host tidak ter-resolve: ${hn}`; }
+          }
+          if (!addrs.length || addrs.some(isPrivateIp)) return `Error: SCOPE — host ${hn} non-publik (SSRF guard menolak). Tempel teks artikelnya langsung.`;
+        }
+        const res = await fetch(cur, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15_000), redirect: "manual" });
+        if (res.status >= 300 && res.status < 400) {
+          const loc = res.headers.get("location");
+          if (!loc) return `Error: redirect tanpa Location (${res.status}).`;
+          cur = new URL(loc, cur).toString();
+          continue;
+        }
+        if (!res.ok) return `Error: fetch → ${res.status}`;
+        html = await res.text();
+        break;
+      }
+      if (!html) return "Error: terlalu banyak redirect.";
       // Strip tags crudely; cap to keep the store small.
       text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 8000);
       source = url;

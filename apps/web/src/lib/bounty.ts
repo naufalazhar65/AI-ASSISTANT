@@ -105,7 +105,10 @@ export async function bountyRun(
   const explicit = (opts.targets || []).map((t) => t.trim()).filter(Boolean);
   const { hosts, label } = explicit.length ? { hosts: explicit, label: "targets eksplisit" } : scopeHostsFor(opts.engagement);
   if (!hosts.length) {
-    return `Tidak bisa jalan: ${label}. Buat dulu dengan engagement_create (name, client, authorization, scope[]), atau beri \`targets\`.`;
+    const hint = /tak ada engagement aktif|tak ditemukan|tidak aktif/.test(label)
+      ? "Buat dulu dengan engagement_create (name, client, authorization, scope[]), atau beri `targets`."
+      : `${label} tidak menghasilkan host konkret (scope wildcard-only seperti *.example.com tidak bisa di-enumerasi) — beri \`targets\` eksplisit.`;
+    return `Tidak bisa jalan: ${label}. ${hint}`;
   }
   const ranked = rankTargets(hosts).map((r) => r.host).slice(0, Math.min(12, Math.max(1, Number(opts.max_hosts) || 5)));
 
@@ -150,8 +153,11 @@ export async function bountyRun(
       if (chainType) {
         try {
           const chainRes = await runExploitChain(rawUser, chainType, chainOpts);
+          // Structural skips (no sessions/creds/setup) must not burn the
+          // max_chains budget (audit 2026-09-23) — only real runs count.
+          const skipped = /⛔ CHAIN TIDAK DIJALANKAN|0 langkah dijalankan|0 chain dengan langkah nyata/.test(chainRes);
           chainResults.push(`⛓️ ${c.host} (${chainType}): ${chainSummary(chainRes)}`);
-          chainCount++;
+          if (!skipped) chainCount++;
         } catch (e) {
           chainResults.push(`⛓️ ${c.host} (${chainType}) error: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -207,6 +213,14 @@ export async function bountyRun(
       /* best-effort */
     }
   }
+  // Honest coverage (audit 2026-09-23): the report/PDF is scoped to ranked[0]
+  // only — drafts on other hosts are NOT in it. Say so instead of implying
+  // full coverage.
+  const draftHosts = [...new Set(candidates.map((c) => c.host))];
+  const uncovered = draftHosts.filter((h) => h !== ranked[0]);
+  const coverageNote = uncovered.length
+    ? `\n📑 Cakupan laporan: PDF/markdown di atas hanya memuat ${ranked[0]} — draft di ${uncovered.join(", ")} TIDAK termasuk (minta report per host bila perlu).`
+    : "";
 
   // Persist run state (resumable history).
   const st = readState();
@@ -229,6 +243,7 @@ export async function bountyRun(
     drafts.length ? `\nDraft/tindak lanjut:\n${drafts.map((d) => `• ${d}`).join("\n")}` : "\nTidak ada kandidat high-signal (lead lain tetap di hunt_log).",
     report ? `\n📄 ${report}` : "",
     pdfReport ? `\n📎 ${pdfReport}` : "",
+    coverageNote,
     `\n── HANDOFF (butuh kamu) ──\n- ${handoff.join("\n- ")}`,
     `\n⚠️ Semua draft belum diverifikasi & TIDAK disubmit. Ini pemetaan otomatis, bukan jaminan temuan.`,
   ]

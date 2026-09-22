@@ -119,6 +119,14 @@ export function removeLibraryEntry(rawUser: unknown, ref: string): string {
   return `Dihapus dari daftar bacaan: ${removed.title || removed.url}`;
 }
 
+/** True when the ask is pentest/security work (audit 2026-09-23): a target
+ *  URL in such an ask is something to TEST, never reading material — link
+ *  capture must not file it (live: the Kohona lab URL + API responses with
+ *  PII summaries ended up in the reading list). Pure — tested. */
+export function isPentestAsk(text: string): boolean {
+  return /pentest|exploit|vuln|bug[\s-]*bounty|\bhunt\b|poc_verify|finding_add|audit\s+keamanan|menyeluruh|laporan\s+pdf|report\s+pdf|daftar\s+temuan/i.test(text || "");
+}
+
 /** Extract the first http(s) URL from a text (strips trailing punctuation/closing brackets). */
 export function firstUrlInText(text: string): string | null {
   const m = text.match(/https?:\/\/[^\s"<>]+/i);
@@ -244,6 +252,8 @@ export function scheduleLinkCapture(
     const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content)?.content;
     const lastUserText = String(lastUser ?? "");
     if (!firstUrlInText(lastUserText)) return text;
+    // A pentest ask carries a TARGET, not reading material — never file it.
+    if (isPentestAsk(lastUserText)) return text;
     void captureLinkFromMessage({ messages, user, provider, model });
     if (!hasPendingConfirmation && !/simpan|saved|kurangkum|rangkum|kuarsipkan|daftar bacaan|bookmark/i.test(text)) {
       return `${text.trim()} (${linkSavedSuffix()})`.trim();

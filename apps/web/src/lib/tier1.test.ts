@@ -163,3 +163,17 @@ describe("har import helpers", () => {
     expect(a[0]).toMatch(/\(\d+c\)|pendek/);
   });
 });
+
+describe("harImport hardening (audit 2026-09-23)", () => {
+  it("skips malformed entries instead of throwing", () => {
+    const bad = JSON.stringify({ log: { entries: [{ request: null }, {}, { request: { method: "GET", url: "https://h.tld/a", headers: [{ name: null, value: "x" }, null], queryString: null, cookies: [{ name: "s" }] } }] } });
+    expect(() => parseHarEntries(bad)).not.toThrow();
+    expect(parseHarEntries(bad).length).toBe(1);
+  });
+  it("auth header shows presence only, zero value chars", () => {
+    const e = parseHarEntries(JSON.stringify({ log: { entries: [{ request: { method: "GET", url: "https://h.tld/a", headers: [{ name: "Authorization", value: "Bearer supersecretvalue123" }] }, response: { status: 200, headers: [] } }] } }));
+    const a = harAuthHeaders(e);
+    expect(a[0]).toContain("present (");
+    expect(a[0]).not.toContain("super");
+  });
+});

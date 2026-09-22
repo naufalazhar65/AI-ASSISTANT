@@ -473,6 +473,23 @@ async function main() {
   const noTargets = await bountyRun("verify_bounty", { engagement: "ENG-does-not-exist" });
   if (!/Tidak bisa jalan/.test(noTargets)) throw new Error(`bountyRun should refuse with an unknown engagement: ${noTargets.slice(0, 80)}`);
   if (typeof (await bountyStatus()) !== "string") throw new Error("bountyStatus bad");
+  // Wildcard-only scope is not enumerable — the refusal must say so (audit 2026-09-23).
+  {
+    const fsE = await import("node:fs");
+    const { appRoot: root } = await import("./src/lib/users");
+    const engPath = root() + "/.data/engagements.json";
+    const before = fsE.existsSync(engPath) ? fsE.readFileSync(engPath, "utf8") : null;
+    try {
+      const { createEngagement, closeEngagement } = await import("./src/lib/engagement");
+      const e = createEngagement({ name: "Wildcard Only", client: "T", authorization: "PO-1", scope: ["*.example.com"] });
+      const wild = await bountyRun("verify_bounty", { engagement: e.id });
+      if (!/wildcard-only/.test(wild)) throw new Error(`wildcard scope must explain itself, got: ${wild.slice(0, 120)}`);
+      closeEngagement(e.id);
+    } finally {
+      if (before === null) { try { fsE.unlinkSync(engPath); } catch { /* noop */ } }
+      else fsE.writeFileSync(engPath, before);
+    }
+  }
   console.log("bounty_run classifier + guard: OK");
 
   // --- automation dedupe/merge (duplicate-push bug fix) ---
@@ -3180,6 +3197,58 @@ async function main() {
     if (composeBuildClaimSuffix(putus, "Chain-nya putus di hop 1, belum terbukti.") !== "") throw new Error("guard must stay silent on honest admission");
     if (composeBuildClaimSuffix(noRun, "Halo, harimu gimana?") !== "") throw new Error("guard must stay silent on unrelated prose");
     console.log("compose/build honesty guard: OK (3 lies flagged, proof/admission/prose silent)");
+  }
+
+  // ── audit 2026-09-23 regression (post-19-Sep features) ───────────────
+  {
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      if (req.url === "/") { res.writeHead(200, { "content-type": "text/html" }); res.end('<a href="https://example.com/evil?id=1">x</a><a href="/doc?id=1">y</a>'); return; }
+      if (req.url === "/doc?id=1") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"doc":1,"owner":"shared-public-fixture-body-padding-1234567890"}'); return; }
+      if (req.url === "/open") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"public":true,"data":"hello world, this body is long enough"}'); return; }
+      res.writeHead(404); res.end("no");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    try {
+      const { runExploitChain, gateTestUrls } = await import("./src/lib/exploitChains");
+      // CRIT1 (pure): attacker-influenced absolute URLs never pass the gate.
+      const g = gateTestUrls("http://127.0.0.1:9/", ["/doc?id=1", "https://example.com/evil?id=1", "ftp://x/y"]);
+      if (g.inScope.length !== 1 || !g.inScope[0].includes("/doc?id=1")) throw new Error(`gate must keep in-scope relative, got: ${JSON.stringify(g)}`);
+      if (g.skipped.length !== 2) throw new Error(`gate must drop OOS + non-http, got: ${JSON.stringify(g)}`);
+      // CRIT1 (live): in-scope candidates are still tested end-to-end, and a
+      // public identical page is downgraded (anon control), never an IDOR hit.
+      const idor = await runExploitChain("audit23", "idor", { url: `${base}/`, session_a: "a", session_b: "b" });
+      if (!idor.includes("Baseline (Session A)") || !idor.includes("/doc?id=1")) {
+        throw new Error(`idor must test in-scope hops, got: ${idor.slice(0, 200)}`);
+      }
+      if (!idor.includes("PUBLIK")) throw new Error("idor must downgrade the public identical page via the anon control");
+      if (/potensi IDOR ditemukan/.test(idor)) throw new Error("public page must not be flagged IDOR");
+      // CRIT2: public endpoint (no-token control grants) must not yield critical.
+      const fakeJwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.fakesig";
+      const ab = await runExploitChain("audit23", "auth_bypass", { url: `${base}/open`, token: fakeJwt });
+      if (!/publik/i.test(ab)) throw new Error(`auth_bypass must note the public control, got: ${ab.slice(0, 200)}`);
+      if (ab.includes("Severity: critical")) throw new Error("auth_bypass must not file critical on a public endpoint");
+      // Risk taxonomy: disk writes / store mutations need confirm.
+      const { getTOOLS, requiresConfirmation } = await import("./src/lib/tools");
+      for (const n of ["report_pdf", "finding_resolve"]) {
+        const t = getTOOLS().find((x) => x.function.name === n);
+        if (!t || t.risk !== "write" || !requiresConfirmation(t)) throw new Error(`${n} must be risk write + confirm`);
+      }
+      // openrouter.ai gets the 128 cap (no 300-tool free-tier payload).
+      const { toolsForUrl: tfu } = await import("./src/lib/agent");
+      if (tfu("https://openrouter.ai/api/v1/chat/completions").length > 128) throw new Error("openrouter cap missing");
+      // learningIngest SSRF guard: literal non-public IPs refused pre-DNS.
+      const { learningIngest } = await import("./src/lib/learning");
+      const meta = await learningIngest("audit23", { url: "http://169.254.169.254/latest/meta-data/" });
+      if (!meta.includes("SCOPE")) throw new Error(`metadata IP must be refused, got: ${meta.slice(0, 100)}`);
+      const loop = await learningIngest("audit23", { url: "http://localhost:9/x" });
+      if (!loop.includes("SCOPE")) throw new Error(`localhost must be refused, got: ${loop.slice(0, 100)}`);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+    console.log("audit 2026-09-23: OK (idor per-hop scope, auth_bypass public control, risk write x2, openrouter cap, ingest SSRF)");
   }
 
   // ── deterministic PDF delivery helpers ────────────────────────────────

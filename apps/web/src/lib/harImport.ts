@@ -32,14 +32,18 @@ export function parseHarEntries(text: string): HarEntry[] {
     const req = r.request;
     if (!req?.url || !req.method) continue;
     const reqHeaders: Record<string, string> = {};
-    for (const h of req.headers || []) reqHeaders[h.name.toLowerCase()] = h.value;
-    const setCookies: string[] = (r.response?.headers || []).filter((h) => h.name.toLowerCase() === "set-cookie").map((h) => h.value);
-    const params = (req.queryString || []).map((q) => q.name).filter(Boolean);
+    // Malformed entries are skipped, never fatal (audit 2026-09-23).
+    for (const h of req.headers || []) {
+      if (!h || typeof h.name !== "string") continue;
+      reqHeaders[h.name.toLowerCase()] = typeof h.value === "string" ? h.value : "";
+    }
+    const setCookies: string[] = (r.response?.headers || []).filter((h) => h && typeof h.name === "string" && h.name.toLowerCase() === "set-cookie").map((h) => h.value);
+    const params = (req.queryString || []).map((q) => q && q.name).filter(Boolean);
     let host = ""; let path = "";
     try { const u = new URL(req.url); host = u.host; path = u.pathname; } catch { continue; }
     out.push({
       method: req.method.toUpperCase(), url: req.url, host, path, status: r.response?.status || 0,
-      reqHeaders, params, cookies: (req.cookies || []).map((c) => [c.name, c.value] as [string, string]),
+      reqHeaders, params, cookies: (req.cookies || []).filter((c) => c && typeof c.name === "string").map((c) => [c.name, typeof c.value === "string" ? c.value : ""] as [string, string]),
       setCookies,
     });
   }
@@ -79,13 +83,15 @@ export function harCookieUnion(entries: HarEntry[], host: string): Record<string
   return out;
 }
 
-/** Auth-relevant request headers present (names + masked values). Pure. */
+/** Auth-relevant request headers present (names + presence only). Pure. */
 export function harAuthHeaders(entries: HarEntry[]): string[] {
   const found = new Map<string, string>();
   for (const e of entries) {
     for (const [k, v] of Object.entries(e.reqHeaders)) {
       if (!["authorization", "cookie", "x-api-key", "x-auth-token", "x-csrf-token"].includes(k)) continue;
-      const masked = v.length > 12 ? `${v.slice(0, 8)}…(${v.length}c)` : "(pendek)";
+      // Presence + length only — zero value chars (audit 2026-09-23: an 8-char
+      // token prefix is a real partial leak into chat/audit/memory).
+      const masked = `present (${v.length}c)`;
       if (!found.has(k)) found.set(k, masked);
     }
   }
@@ -93,7 +99,11 @@ export function harAuthHeaders(entries: HarEntry[]): string[] {
 }
 
 export async function harImport(rawUser: unknown, opts: { text: string; save_session?: string; host?: string }): Promise<string> {
-  const entries = parseHarEntries(opts.text || "");
+  const raw = opts.text || "";
+  // Input cap (audit 2026-09-23): a multi-MB paste would blow memory/context.
+  const MAX_HAR_CHARS = 2_000_000;
+  const clipped = raw.length > MAX_HAR_CHARS;
+  const entries = parseHarEntries(clipped ? raw.slice(0, MAX_HAR_CHARS) : raw);
   if (!entries.length) return "Error: HAR tidak terbaca. Export via DevTools → Network → klik kanan → 'Save all as HAR' lalu tempel isinya.";
   const hosts = [...new Set(entries.map((e) => e.host))];
   const hostSel = opts.host && hosts.includes(opts.host) ? opts.host : hosts[0];
@@ -102,7 +112,7 @@ export async function harImport(rawUser: unknown, opts: { text: string; save_ses
   const auth = harAuthHeaders(entries);
   const cookies = harCookieUnion(entries, hostSel);
   const lines: string[] = [
-    `🧾 HAR IMPORT — ${entries.length} entri, ${hosts.length} host (${hosts.slice(0, 6).join(", ")}${hosts.length > 6 ? " …" : ""})`,
+    `🧾 HAR IMPORT — ${entries.length} entri, ${hosts.length} host (${hosts.slice(0, 6).join(", ")}${hosts.length > 6 ? " …" : ""})${clipped ? " — input dipotong 2MB (paste terlalu besar)" : ""}`,
     `\nEndpoint (${Math.min(eps.length, 40)}/${new Set(entries.map((e) => `${e.method} ${e.host}${e.path}`)).size}):`,
     ...eps,
   ];

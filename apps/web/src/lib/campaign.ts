@@ -78,14 +78,16 @@ export async function campaignRunDetailed(
     const key = normalizeTarget(url);
     if (done.has(key)) { skipped.push(t); lines.push(`⏭️ ${t} — dilewati (sudah dead/lead/finding di hunt_log)`); continue; }
 
-    const res = await suiteHunt(rawUser, url, { deep: opts.deep !== false, spec: opts.spec, session: opts.session });
+    // One default owner (audit 2026-09-23): deep is opt-in everywhere —
+    // bounty passes `deep === true`, so campaign must too (was !== false).
+    const res = await suiteHunt(rawUser, url, { deep: opts.deep === true, spec: opts.spec, session: opts.session });
     const st = huntStatusFor(readHunt(rawUser), url) || (/^Error:/.test(res) ? "error" : "?");
-    ran++;
     if (/^Error:/.test(res)) {
       results.push({ host: t, status: "error", leads: [] });
       lines.push(`✗ ${t} — ${res.split("\n")[0].slice(0, 100)}`);
       continue;
     }
+    ran++;
     const leads = extractLeads(res);
     if (st === "lead") leadHosts++;
     results.push({ host: t, status: st, leads });

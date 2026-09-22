@@ -880,3 +880,14 @@ Owner: "oker kerjakan #1 + #2 dengan maksimal" — dua tool pentest advanced:
 **Bug ditangkap saat build:** (1) typo paren `new Set(` tak tertutup di `extractSignals` (TS1005) — ditemukan via bisect repro minimal; (2) regex param `{1,30}` menolak param 1-huruf (`?x=`) → `{0,30}`; (3) drill harness deadlock (server + execFileSync blocking satu event-loop) — BUKAN bug artefak (artefak standalone exit 0 VULNERABLE deterministik).
 
 **Gates:** typecheck 0 · vitest **322/322** (19 file, +17 baru) · `verify.ts` EXIT=0 (blok baru: registrasi write/confirm, CORE 128, window Groq, live chain 2-hop → TERBUKTI PENUH + komposit filed, cross-host refused, artefak ada di disk + dua verdict branch, unknown/out-of-scope/SINGLE jujur) · lint 0 errors (1 warning baru diperbaiki) · restart tmux sehat (health ok, `logged in as`=1, 0×409). **Commit + push disetujui owner (`e03a4a9`).**
+
+## Session 2026-09-22/23 — audit post-19-Sep (4 subagent) + live Kohona turn
+
+Owner khawatir bug di fitur ≥19 Sep → audit paralel 4 klaster (prover/chains/stores/agent-core). **2 CRITICAL + 11 HIGH + 12 MEDIUM confirmed & fixed**, 14 ditolak beralasan.
+
+CRITICAL: (1) IDOR fetch URL absolut OOS dengan session cookie → `gateTestUrls` per-hop + `hasIdParam` parse-URL (regex lama menelan `//` scheme+port → chain mem-flag halaman start-nya sendiri); + kontrol anon (publik → info). (2) auth_bypass critical tanpa kontrol → kontrol no-token, publik = downgrade info.
+HIGH: mcp evidence mentah → redact; inflasi sinyal callback/jailbreak-lemah (llmHunt/promptInjection) → info `ⓘ` bukan hit; `wsHandshake` gate dalam; snippet github disembunyikan bila flagged; HAR 8-char → presence-only; `learningIngest` SSRF (`isPrivateIp` + redirect re-check); `matrixSame` digest + default granted 399→299; `report_pdf`/`finding_resolve` risk→write; confirm-path re-gate (delivery+headless).
+MEDIUM: brain values strip, quarantine korup x2, sourcemap `//#`, Pass C/D quote-aware, domTaint lookaround, HAR cap+guard, workflow vars merge+warning+regex guard, bounty budget skip, campaign deep default+ran counter.
+LOW: mcpPickStringArg string-only, graphql depth 25/50, passwd matched-line, openrouter cap 128, providerHealth ensure, confirmExecuted globalThis, memo carve-out pentest lists.
+Live Kohona turn: round-habis → fallback resumable ("bilang lanjut"); link-capture difire di URL target (+PII NIK di reading list) → `isPentestAsk` gate + 4 entri dibersihkan; PDF deterministik terverifikasi nyata (161KB, 8 temuan). bounty_run: coverage-note PDF + wildcard-hint.
+Gates: typecheck 0 · vitest 349/349 · verify EXIT=0 · lint 0 errors. **Commit + push disetujui owner.**
