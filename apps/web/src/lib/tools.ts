@@ -5,7 +5,6 @@ import { detectMoodIntent } from "./moodIntent";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
 import { asBodyString, asNumber, asStringArray, redactArgsForDisplay } from "./args";
 import { addReminder, readReminders, type Reminder } from "./reminders";
-import { nextOccurrence } from "./reminderIntent";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addOrMergeAutomation, describeSchedule } from "./automations";
@@ -5429,10 +5428,19 @@ function scheduleReminder(text: string, isoWhen: string, rawUser: unknown, repea
   // Safety net: a model without a live clock sometimes emits a past/stale date
   // for a bare clock time ("jam 3 sore"). Never schedule in the past — rebase
   // such a time to its next occurrence (today/tomorrow) via the shared parser.
+  // Wall-clock is read from the STRING (audit 2026-09-23): the model writes WIB
+  // wall times, so Date methods (server zone) would rebase to the wrong clock
+  // on any non-WIB host. Falls back to WIB-reading the instant when unparseable.
+  const wall = /T(\d{2}):(\d{2})/.exec(isoWhen);
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { wibDailyNext, wibParts } = require("./time") as typeof import("./time");
   const atMs = parsed.getTime() < Date.now()
-    ? nextOccurrence(parsed.getHours(), parsed.getMinutes())
+    ? wall
+      ? wibDailyNext(Number(wall[1]), Number(wall[2]))
+      : wibDailyNext(wibParts(parsed).h, wibParts(parsed).mi)
     : parsed.getTime();
   const whenText = new Date(atMs).toLocaleString("en-GB", {
+    timeZone: "Asia/Jakarta",
     dateStyle: "medium",
     timeStyle: "short",
   });

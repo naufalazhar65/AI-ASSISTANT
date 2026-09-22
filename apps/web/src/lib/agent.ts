@@ -1655,9 +1655,11 @@ export function buildReminderList(user: unknown): string | null {
     if (!rs.length) return null;
     const lines = [`Daftar reminder kamu beb — ${rs.length} total 🌸`];
     for (const r of rs.slice(0, 10)) {
-      const t = new Date(r.at).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      // WIB-pinned (audit 2026-09-23 — CI runs on UTC): the old zone-free
+      // toLocaleString rendered server-local hours on any non-WIB host.
+      const t = new Date(r.at).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
       const stamp = (ms: number) =>
-        new Date(ms).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+        new Date(ms).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
       const status = r.delivered
         ? r.deliveredAt && r.lastFiredAt && r.deliveredAt - r.lastFiredAt > 30 * 60_000
           ? ` · kesampaian TELAT ${stamp(r.deliveredAt)} (slot ${stamp(r.lastFiredAt)} pas device off)`

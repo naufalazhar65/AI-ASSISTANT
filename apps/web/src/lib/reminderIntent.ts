@@ -103,13 +103,14 @@ export function parseClockTime(text: string): ParsedTime | null {
 /**
  * Next epoch-ms matching the given clock time (today, or tomorrow if already
  * past / within a small margin for "tomorrow morning").
+ * WIB-pinned (audit 2026-09-23 — CI runs on UTC): the old server-local day
+ * math scheduled "jam 7 pagi" at 07:00 UTC on non-WIB hosts. Delegates to the
+ * single owner wibDailyNext (same today-or-tomorrow semantics).
  */
 export function nextOccurrence(hour: number, minute: number, now = Date.now()): number {
-  const d = new Date(now);
-  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour, minute, 0, 0);
-  // If the time already passed today, push to tomorrow (early-morning wakeups).
-  if (target.getTime() <= now) target.setDate(target.getDate() + 1);
-  return target.getTime();
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { wibDailyNext } = require("./time") as typeof import("./time");
+  return wibDailyNext(hour, minute, now);
 }
 
 /**

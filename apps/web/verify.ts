@@ -2630,10 +2630,17 @@ async function main() {
   // while the store already moved to 14.00). It must read live store state and
   // be null when nothing is scheduled. ---
   const { buildReminderList } = await import("./src/lib/agent");
+  // WIB wall-clock helpers (audit 2026-09-23 — CI runs on UTC): reminder
+  // fixtures/assertions must use Asia/Jakarta wall time, never the server zone.
+  const { wibDay: wibDayV, wibParts: wibPartsV } = await import("./src/lib/time");
+  const wibHourV = (ms: number) => wibPartsV(ms).h;
+  const wibAtV = (hh: number, mm = 0, daysAgo = 0) => {
+    const [wy, wmo, wd] = wibDayV(Date.now()).split("-").map(Number);
+    return Date.UTC(wy, wmo - 1, wd, hh, mm) - 7 * 3600_000 - daysAgo * 86_400_000;
+  };
   const blUser = `verify_remlistbuild_${Date.now()}`;
   if (buildReminderList(blUser) !== null) throw new Error("empty reminder store should build null list");
-  const b1 = new Date(); b1.setHours(16, 0, 0, 0);
-  addRem("kopi ☕", b1.getTime(), blUser);
+  addRem("kopi ☕", wibAtV(16, 0), blUser);
   const blText = buildReminderList(blUser);
   if (!blText || !blText.includes("Daftar reminder") || !blText.includes("16.00") || !blText.includes("• ")) {
     throw new Error(`buildReminderList should reflect the live store: ${JSON.stringify(blText)}`);
@@ -2648,10 +2655,8 @@ async function main() {
   const rcUser = `verify_remcancel_${Date.now()}`;
   const { addReminder: addRemC, readReminders: readRemC, deleteRemindersAtTime } = await import("./src/lib/reminders");
   const { detectReminderIntents: detectInts, detectReminderCancels } = await import("./src/lib/reminderIntent");
-  const day7 = new Date(); day7.setHours(7, 0, 0, 0);
-  const day9 = new Date(); day9.setHours(9, 0, 0, 0);
-  addRemC("bangunin aku jam 7 pagi", day7.getTime() - 86400000, rcUser, { repeat: "daily" });
-  addRemC("Bangun tidur Mas Naufal! ☀️🌸", day9.getTime() - 86400000, rcUser, { repeat: "daily" });
+  addRemC("bangunin aku jam 7 pagi", wibAtV(7, 0, 1), rcUser, { repeat: "daily" });
+  addRemC("Bangun tidur Mas Naufal! ☀️🌸", wibAtV(9, 0, 1), rcUser, { repeat: "daily" });
   const rcMsg = "Mia, reminder bangunin tidurnya jam 9 pagi aja ya, jadi yang jam 7 pagi hapus aja";
   const cancels = detectReminderCancels(rcMsg);
   if (!cancels.length || cancels[0].hour !== 7) throw new Error(`cancel clause not detected: ${JSON.stringify(cancels)}`);
@@ -2675,11 +2680,8 @@ async function main() {
   // "mia coba ubah aja deh tidurnya jadi aja" / "jangan" being scheduled. ---
   const rmvUser = `verify_remmove_${Date.now()}`;
   const { moveReminder } = await import("./src/lib/reminders");
-  const day7v = new Date(); day7v.setHours(7, 0, 0, 0);
-  const day9v = new Date(); day9v.setHours(9, 0, 0, 0);
-  const day10 = new Date(); day10.setHours(10, 0, 0, 0);
-  addRemC("sunrise hero practice", day7v.getTime() - 86400000, rmvUser, { repeat: "daily" });
-  addRemC("Bangun tidur Mas Naufal! ☀️🌸", day9v.getTime() - 86400000, rmvUser, { repeat: "daily" });
+  addRemC("sunrise hero practice", wibAtV(7, 0, 1), rmvUser, { repeat: "daily" });
+  addRemC("Bangun tidur Mas Naufal! ☀️🌸", wibAtV(9, 0, 1), rmvUser, { repeat: "daily" });
   const rmvMsg = "mia coba ubah aja deh bangunin tidurnya jadi jam 10 pagi aja, jangan jam 9";
   const rmvIntents = detectInts(rmvMsg) ?? [];
   const repoint = rmvIntents.find((i) => i.repoint);
@@ -2693,11 +2695,11 @@ async function main() {
   if (rmvAfter.some((r) => r.text.includes("jadi aja") || r.text.includes("jangan") || r.text.includes("mia coba"))) {
     throw new Error(`junk move text scheduled: ${JSON.stringify(rmvAfter)}`);
   }
-  const at10 = rmvAfter.find((r) => new Date(r.at).getHours() === 10);
+  const at10 = rmvAfter.find((r) => wibHourV(r.at) === 10);
   if (!at10 || !at10.text.includes("Bangun tidur") || at10.repeat !== "daily") {
     throw new Error(`wake daily should now be 10:00 daily: ${JSON.stringify(rmvAfter)}`);
   }
-  if (rmvAfter.filter((r) => new Date(r.at).getHours() === 9).length !== 0) {
+  if (rmvAfter.filter((r) => wibHourV(r.at) === 9).length !== 0) {
     throw new Error(`09:00 slot should be empty after move: ${JSON.stringify(rmvAfter)}`);
   }
   const rmvCancels = detectReminderCancels(rmvMsg);
@@ -2714,8 +2716,7 @@ async function main() {
   // "sudah aku ubah ke jam 13.00" was a lie — the reminder stayed at 12:00. ---
   const rbareUser = `verify_rembare_${Date.now()}`;
   const { moveReminder: moveBare } = await import("./src/lib/reminders");
-  const noonB = new Date(); noonB.setHours(12, 0, 0, 0);
-  addRemC("Makan sate maranggi mas naufal 🍢🌸", noonB.getTime(), rbareUser);
+  addRemC("Makan sate maranggi mas naufal 🍢🌸", wibAtV(12, 0), rbareUser);
   const bareMsg = "ubah aja deh makan satenya jam 1 siang";
   const bareIntents = detectInts(bareMsg) ?? [];
   if (!bareIntents.length || !bareIntents.some((i) => i.repoint)) {
@@ -2723,7 +2724,7 @@ async function main() {
   }
   const bare = bareIntents.find((i) => i.repoint)!;
   const bareMoved = moveBare(rbareUser, bare.text, bare.atMs);
-  if (!bareMoved || new Date(bareMoved.at).getHours() !== 13) {
+  if (!bareMoved || wibHourV(bareMoved.at) !== 13) {
     throw new Error(`bare repoint should move sate reminder to 13:00: ${JSON.stringify(bareMoved ?? null)}`);
   }
   rmSync(join(userDataRoot(), rbareUser), { recursive: true, force: true });
@@ -2736,9 +2737,7 @@ async function main() {
   // geser) and the reminder stayed at 14:00 while the model claimed to move it. ---
   const rgantiUser = `verify_remganti_${Date.now()}`;
   const { moveReminder: moveGanti } = await import("./src/lib/reminders");
-  const twoPmG = new Date(); twoPmG.setHours(14, 0, 0, 0);
-  const fourPmG = new Date(); fourPmG.setHours(16, 0, 0, 0);
-  addRemC("Makan siang Mas Naufal 🍛", twoPmG.getTime(), rgantiUser);
+  addRemC("Makan siang Mas Naufal 🍛", wibAtV(14, 0), rgantiUser);
   const gantiMsg = "ganti lagi deh jadwal makan siangnya jadi jam 4 sore";
   const gantiIntents = detectInts(gantiMsg) ?? [];
   if (!gantiIntents.length || !gantiIntents.some((i) => i.repoint)) {
@@ -2746,7 +2745,7 @@ async function main() {
   }
   const ganti = gantiIntents.find((i) => i.repoint)!;
   const gantiMoved = moveGanti(rgantiUser, ganti.text, ganti.atMs);
-  if (!gantiMoved || new Date(gantiMoved.at).getHours() !== 16) {
+  if (!gantiMoved || wibHourV(gantiMoved.at) !== 16) {
     throw new Error(`ganti repoint should move meal reminder to 16:00: ${JSON.stringify(gantiMoved ?? null)}`);
   }
   rmSync(join(userDataRoot(), rgantiUser), { recursive: true, force: true });
@@ -2756,7 +2755,7 @@ async function main() {
   // makan jam 3 sore" → "makan" (2026-09-11 live: the reminder was stored as
   // "mia makan" because "mia" is the addressing word, not a topic noun). ---
   const cleanInts = detectInts("mia ingetin aku makan jam 3 sore ya") ?? [];
-  if (!cleanInts.length || cleanInts[0].text !== "makan" || new Date(cleanInts[0].atMs).getHours() !== 15) {
+  if (!cleanInts.length || cleanInts[0].text !== "makan" || wibHourV(cleanInts[0].atMs) !== 15) {
     throw new Error(`"mia ingetin aku makan jam 3 sore ya" should clean to "makan"@15:00: ${JSON.stringify(cleanInts)}`);
   }
   console.log("reminder clean mia: OK (\"mia ingetin aku makan jam 3 sore ya\" → \"makan\"@15:00)");
@@ -2769,20 +2768,18 @@ async function main() {
   // duplicate ("deh ingetinnya makannya jadi") instead of relocating 15:00→13:00. ---
   const rstemUser = `verify_remstem_${Date.now()}`;
   const { moveReminder: moveStem } = await import("./src/lib/reminders");
-  const fivePmU = new Date(); fivePmU.setHours(15, 0, 0, 0);
-  const onePmU = new Date(); onePmU.setHours(13, 0, 0, 0);
-  addRemC("Waktunya makan Mas Naufal 🍴", fivePmU.getTime(), rstemUser);
+  addRemC("Waktunya makan Mas Naufal 🍴", wibAtV(15, 0), rstemUser);
   const stemMsg = "ya ubah aja deh ingetinnya makannya jadi jam 1 siang";
   const stemIntents = detectInts(stemMsg) ?? [];
   if (!stemIntents.some((i) => i.repoint)) {
     throw new Error(`stem repoint intent not detected: ${JSON.stringify(stemIntents)}`);
   }
-  const stemMoved = moveStem(rstemUser, "deh ingetinnya makannya jadi", onePmU.getTime());
-  if (!stemMoved || new Date(stemMoved.at).getHours() !== 13 || !stemMoved.text.includes("Waktunya makan")) {
+  const stemMoved = moveStem(rstemUser, "deh ingetinnya makannya jadi", wibAtV(13, 0));
+  if (!stemMoved || wibHourV(stemMoved.at) !== 13 || !stemMoved.text.includes("Waktunya makan")) {
     throw new Error(`stem move should relocate meal reminder to 13:00 keeping title: ${JSON.stringify(stemMoved ?? null)}`);
   }
   const stemAfter = readRemC(rstemUser);
-  if (stemAfter.filter((r) => new Date(r.at).getHours() === 13).length !== 1) {
+  if (stemAfter.filter((r) => wibHourV(r.at) === 13).length !== 1) {
     throw new Error(`exactly one 13:00 reminder after stem move: ${JSON.stringify(stemAfter)}`);
   }
   rmSync(join(userDataRoot(), rstemUser), { recursive: true, force: true });

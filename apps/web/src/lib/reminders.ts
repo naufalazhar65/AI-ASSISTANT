@@ -21,6 +21,7 @@
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { isTestUserKey, sanitizeUser, userDataRoot } from "./users";
+import { clockLabel } from "./time";
 
 export interface Reminder {
   id: string;
@@ -194,7 +195,9 @@ export function addReminder(
   const existingIdx = reminders.findIndex((r) => {
     if (r.fired) return false;
     const rAt = new Date(r.at);
-    const sameClock = rAt.getHours() === atClock.getHours() && rAt.getMinutes() === atClock.getMinutes();
+    // WIB wall-clock compare (audit 2026-09-23): server-zone compare mismerges
+    // across zones/DST. clockLabel is the single owner.
+    const sameClock = clockLabel(rAt) === clockLabel(atClock);
     if (repeat === "daily") return sameClock;
     if (mergeAtClock) return sameClock;
     // one-shot: same text + same date+clock → dedup
@@ -340,8 +343,9 @@ export function deleteRemindersAtTime(rawUser: unknown, hour: number, minute: nu
   const all = readReminders(rawUser);
   const before = all.length;
   const kept = all.filter((r) => {
-    const d = new Date(r.at);
-    return !(d.getHours() === hour && d.getMinutes() === (minute || 0));
+    // WIB wall-clock compare (audit 2026-09-23): hour/minute args are user
+    // WIB wall-clock, so compare against the WIB reading of the stored instant.
+    return clockLabel(new Date(r.at)) !== `${String(hour).padStart(2, "0")}:${String(minute || 0).padStart(2, "0")}`;
   });
   if (kept.length === before) return 0;
   writeReminders(kept, userKey);

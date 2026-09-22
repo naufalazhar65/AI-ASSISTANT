@@ -29,7 +29,7 @@ function writeAtomic(path: string, data: string): void {
 }
 
 import { loadDailyMemoryPrompt } from "./dailyMemory";
-import { wibDay } from "./time";
+import { wibDay, clockLabel } from "./time";
 
 /**
  * Loads the assistant's persona files (IDENTITY/DREAMS/SOUL/USER) at request
@@ -466,8 +466,10 @@ export function syncWakePersona(rawUser: unknown): void {
     const { isWakeIntent } = require("./reminderIntent") as typeof import("./reminderIntent");
     const wake = readReminders(rawUser).find((r) => isWakeIntent(r.text));
     if (!wake) return;
-    const d = new Date(wake.at);
-    upsertPersonaFact("USER", "wake_up_time", `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`, rawUser);
+    // WIB-pinned (audit 2026-09-23 — CI runs on UTC): getHours() reads the
+    // SERVER zone, so a 05:00+07:00 reminder became "22:00" anywhere off-WIB.
+    // clockLabel is the single owner of HH:MM formatting (lib/time.ts).
+    upsertPersonaFact("USER", "wake_up_time", clockLabel(new Date(wake.at)), rawUser);
   } catch {
     /* best-effort */
   }

@@ -4,6 +4,28 @@
 // and reminders went out as "· pukul 06:00 AM".
 
 /**
+ * Full Asia/Jakarta wall-clock parts for APIs that need fields, not strings
+ * (AppleScript calendar/reminders decompose a Date; decomposing in server
+ * time shifts the event on any non-WIB host — audit 2026-09-23).
+ * Pure (Intl).
+ */
+export function wibParts(at: Date | number): { y: number; mo: number; d: number; h: number; mi: number; s: number } {
+  const d = at instanceof Date ? at : new Date(at);
+  const parts: Record<string, number> = {};
+  try {
+    for (const p of new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Jakarta", year: "numeric", month: "numeric", day: "numeric",
+      hour: "numeric", minute: "numeric", second: "numeric", hour12: false,
+    }).formatToParts(d)) {
+      if (p.type !== "literal") parts[p.type] = Number(p.value);
+    }
+  } catch {
+    return { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate(), h: d.getHours(), mi: d.getMinutes(), s: d.getSeconds() };
+  }
+  return { y: parts.year, mo: parts.month, d: parts.day, h: parts.hour === 24 ? 0 : parts.hour, mi: parts.minute, s: parts.second };
+}
+
+/**
  * 24-hour "HH:MM" in Asia/Jakarta, pinned to the zone (never the server's).
  * Pure (Intl) — unit-tested.
  */

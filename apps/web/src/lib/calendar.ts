@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
+import { wibParts } from "./time";
 
 export interface CalEvent {
   id: string;
@@ -116,13 +117,18 @@ export async function addToMacCalendar(title: string, start: Date, end: Date): P
   // Build dates outside the Calendar tell block (Standard Additions scope) to avoid
   // term shadowing (Calendar defines its own `months`) and locale date-parsing bugs (9/5 vs 5/9).
   const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-  const toAppleDate = (name: string, d: Date) => `set ${name} to current date
-  set year of ${name} to ${d.getFullYear()}
-  set month of ${name} to ${MONTHS[d.getMonth()]}
-  set day of ${name} to ${d.getDate()}
-  set hours of ${name} to ${d.getHours()}
-  set minutes of ${name} to ${d.getMinutes()}
-  set seconds of ${name} to ${d.getSeconds()}`;
+  const toAppleDate = (name: string, d: Date) => {
+    // WIB wall-clock parts (audit 2026-09-23): decomposing in server time
+    // shifts the event on any non-WIB host.
+    const w = wibParts(d);
+    return `set ${name} to current date
+  set year of ${name} to ${w.y}
+  set month of ${name} to ${MONTHS[w.mo - 1]}
+  set day of ${name} to ${w.d}
+  set hours of ${name} to ${w.h}
+  set minutes of ${name} to ${w.mi}
+  set seconds of ${name} to ${w.s}`;
+  };
   const script = `
     ${toAppleDate("startDate", start)}
     ${toAppleDate("endDate", end)}
@@ -159,13 +165,18 @@ export async function listMacCalendar(days = 7): Promise<string> {
 
 export async function addToMacReminders(title: string, due: Date, notes?: string): Promise<string> {
   const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-  const toAppleDate = (name: string, d: Date) => `set ${name} to current date
-  set year of ${name} to ${d.getFullYear()}
-  set month of ${name} to ${MONTHS[d.getMonth()]}
-  set day of ${name} to ${d.getDate()}
-  set hours of ${name} to ${d.getHours()}
-  set minutes of ${name} to ${d.getMinutes()}
-  set seconds of ${name} to ${d.getSeconds()}`;
+  const toAppleDate = (name: string, d: Date) => {
+    // WIB wall-clock parts (audit 2026-09-23): decomposing in server time
+    // shifts the event on any non-WIB host.
+    const w = wibParts(d);
+    return `set ${name} to current date
+  set year of ${name} to ${w.y}
+  set month of ${name} to ${MONTHS[w.mo - 1]}
+  set day of ${name} to ${w.d}
+  set hours of ${name} to ${w.h}
+  set minutes of ${name} to ${w.mi}
+  set seconds of ${name} to ${w.s}`;
+  };
   const safeTitle = title.replace(/"/g, '\\"');
   const safeNotes = (notes || "").replace(/"/g, '\\"').slice(0, 500);
   const bodyProp = safeNotes ? `, body:"${safeNotes}"` : "";
