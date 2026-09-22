@@ -2434,12 +2434,21 @@ async function main() {
   if (!isProviderId("opencodego")) throw new Error("isProviderId rejects opencodego");
   const { ensureOpenCodeGoKey } = await import("./src/lib/serverKeys");
   ensureOpenCodeGoKey();
-  const goResolved = await (async () => {
-    const { resolveProvider } = await import("./src/lib/providers");
-    return resolveProvider("opencodego");
-  })();
-  if (!goResolved || !goResolved.apiKey) throw new Error("opencodego did not resolve (no env key / no auth.json)");
-  console.log("opencodego provider: OK (registered + key resolved server-side, model " + goResolved.defaultModel + ")");
+  // Deterministic on any machine (audit 2026-09-23 — CI has no real key and
+  // no auth.json): resolution is pure env mapping (no network), so seed a
+  // fixture key when none exists. On a keyed machine the real key is used.
+  const prevGoKey = process.env.OPENCODEGO_API_KEY;
+  if (!prevGoKey) process.env.OPENCODEGO_API_KEY = "verify-fixture-key";
+  try {
+    const goResolved = await (async () => {
+      const { resolveProvider } = await import("./src/lib/providers");
+      return resolveProvider("opencodego");
+    })();
+    if (!goResolved || !goResolved.apiKey) throw new Error("opencodego did not resolve with a key present");
+    console.log("opencodego provider: OK (registered + key resolved server-side, model " + goResolved.defaultModel + ")");
+  } finally {
+    if (prevGoKey === undefined) delete process.env.OPENCODEGO_API_KEY;
+  }
 
   // --- Codebase QA: chunk, index (temp workspace), search with file:line refs,
   // deny rules (.env / node_modules skipped), and real-repo smoke. ---
