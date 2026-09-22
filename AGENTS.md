@@ -891,3 +891,14 @@ MEDIUM: brain values strip, quarantine korup x2, sourcemap `//#`, Pass C/D quote
 LOW: mcpPickStringArg string-only, graphql depth 25/50, passwd matched-line, openrouter cap 128, providerHealth ensure, confirmExecuted globalThis, memo carve-out pentest lists.
 Live Kohona turn: round-habis → fallback resumable ("bilang lanjut"); link-capture difire di URL target (+PII NIK di reading list) → `isPentestAsk` gate + 4 entri dibersihkan; PDF deterministik terverifikasi nyata (161KB, 8 temuan). bounty_run: coverage-note PDF + wildcard-hint.
 Gates: typecheck 0 · vitest 349/349 · verify EXIT=0 · lint 0 errors. **Commit + push disetujui owner.**
+
+## Session 2026-09-22/23 (lanjutan) — 5-audit follow-up: round budget, prompt, history, wizard + live Kohona turns
+
+Audit 5 item → eksekusi 4 fix + 1 fitur (tanpa komit sampai approval, lalu disetujui):
+1. **Round budget dinamis** (`PENTEST_MAX_ROUNDS=10` khusus ask pentest via `isPentestAsk`, turn biasa tetap 7) — full pentest muat ~8-10 round.
+2. **Prompt**: markdown-ban di-scope voice-only; finding_list satu aturan (panggil diam-diam sebelum uji, verbatim hanya bila diminta); `engagement_create` masuk pause-list. Klaim CORE=129 terbukti salah (runtime 128).
+3. **Proof warning**: `finding_add` high/critical tanpa poc/retest → flag ⚠️ (tidak block). `proofWarning` pure + tes.
+4. **http-history**: `sanitizeHttpUrl` di `recordHttp` (nilai kredensial → REDACTED, `id`/`q` tetap) + scrub 3 record lama.
+5. **Wizard `auth_setup`** (baru, write/confirm): login ≤4 akun via atoProve → sesi siap (`session_a/b`), password masked, scope-gated, headless-guarded; CORE slot 80 (tukar `tamper_script`, window utuh); SYSTEM_PROMPT + HINT. Live drill lab lokal: 2 sesi SIAP.
+Live Kohona turns: link-capture bocor 3× (pola diperluas: petakan/recon/session/setup + sweep/endpoint) + 5 entri reading list dibersihkan (1 ber-PII); password di-echo → aturan ATO diperluas (audit log terverifikasi masked); semua penolakan tool luar-window terbukti tepat (posisi CORE); PDF deterministik nyata tiap turn; self-test 3× jalur Discord asli (aksi 2-6 tool, suffix hilang, capture 0).
+Gates: typecheck 0 · vitest 360/360 · verify EXIT=0 · lint 0 errors. **Commit + push disetujui owner.**

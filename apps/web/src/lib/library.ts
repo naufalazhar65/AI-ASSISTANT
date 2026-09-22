@@ -124,7 +124,7 @@ export function removeLibraryEntry(rawUser: unknown, ref: string): string {
  *  capture must not file it (live: the Kohona lab URL + API responses with
  *  PII summaries ended up in the reading list). Pure — tested. */
 export function isPentestAsk(text: string): boolean {
-  return /pentest|exploit|vuln|bug[\s-]*bounty|\bhunt\b|poc_verify|finding_add|audit\s+keamanan|menyeluruh|laporan\s+pdf|report\s+pdf|daftar\s+temuan/i.test(text || "");
+  return /pentest|exploit|vuln|bug[\s-]*bounty|\bhunt\b|\bsweep\b|endpoint|probe|telusuri|selidiki|poc_verify|finding_add|audit\s+keamanan|menyeluruh|laporan\s+pdf|report\s+pdf|daftar\s+temuan|petakan|pemetaan|\brecon\b|target_brain|content_discover|auth_setup|exploit_chain|vuln_compose|http_session|ato_prove|session_[ab]\b/i.test(text || "");
 }
 
 /** Extract the first http(s) URL from a text (strips trailing punctuation/closing brackets). */

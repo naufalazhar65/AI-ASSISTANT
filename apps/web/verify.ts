@@ -3251,6 +3251,76 @@ async function main() {
     console.log("audit 2026-09-23: OK (idor per-hop scope, auth_bypass public control, risk write x2, openrouter cap, ingest SSRF)");
   }
 
+  // ── audit round 2 (prompt budget, history sanitize, proof warn) ──────
+  {
+    const agent = await import("./src/lib/agent");
+    if (!(agent.PENTEST_MAX_ROUNDS > agent.MAX_TOOL_ROUNDS)) throw new Error("PENTEST_MAX_ROUNDS must exceed base budget");
+    const { sanitizeHttpUrl, recordHttp, readHttpHistory } = await import("./src/lib/httpHistory");
+    if (sanitizeHttpUrl("http://127.0.0.1:4010/admin-login?u=admin&p=x").includes("=admin")) {
+      throw new Error("recordHttp must scrub credential query values");
+    }
+    const hu = "verify_hist_scrub";
+    recordHttp(hu, { method: "GET", url: "http://127.0.0.1:4010/admin-login?u=admin&p=x", status: 200, bytes: 10, ms: 1, at: new Date().toISOString() });
+    const rows = readHttpHistory(hu);
+    if (!rows.length || rows[0].url.includes("=admin")) throw new Error("stored history must be scrubbed");
+    const fsH = await import("node:fs");
+    try { fsH.rmSync(`apps/web/.data/users/${hu}`, { recursive: true, force: true }); } catch { /* noop */ }
+    const { proofWarning } = await import("./src/lib/tools");
+    if (!proofWarning("critical", "plain output", "").includes("TANPA bukti")) throw new Error("proofWarning must fire");
+    if (proofWarning("critical", "poc_verify STABIL", "") !== "") throw new Error("proofWarning must stay silent on proof");
+    console.log("audit round 2: OK (pentest round budget, history sanitize, proof warn)");
+  }
+
+  // ── auth_setup wizard (audit 2026-09-23: 23 chain runs vs ~0 sessions) ──
+  {
+    const { getTOOLS, requiresConfirmation } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect } = await import("./src/lib/agent");
+    const t = getTOOLS().find((x) => x.function.name === "auth_setup");
+    if (!t || t.risk !== "write" || !requiresConfirmation(t)) throw new Error("auth_setup must be write/confirm");
+    if (!CORE_TOOL_NAMES.has("auth_setup")) throw new Error("auth_setup must be in CORE");
+    if (CORE_TOOL_NAMES.size !== 128) throw new Error(`CORE must stay 128 (got ${CORE_TOOL_NAMES.size})`);
+    if (!toolsForUrl("https://api.groq.com/openai/v1/chat/completions").some((x) => x.function.name === "auth_setup")) {
+      throw new Error("groq window must carry auth_setup");
+    }
+    if (!isHeadlessSideEffect("auth_setup")) throw new Error("auth_setup must be headless-guarded");
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        if (req.url === "/login" && req.method === "POST") {
+          const j = JSON.parse(body || "{}");
+          if ((j.username === "admin" && j.password === "s3cr3t") || (j.username === "guest" && j.password === "guest")) {
+            res.writeHead(200, { "content-type": "application/json", "Set-Cookie": `role=${j.username}; Path=/` });
+            res.end('{"ok":true}'); return;
+          }
+          res.writeHead(401); res.end("no"); return;
+        }
+        res.writeHead(404); res.end("no");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const { authSetup } = await import("./src/lib/authSetup");
+      const out = await authSetup("verify_authsetup", {
+        login_url: `http://127.0.0.1:${port}/login`,
+        accounts: [{ credential: "admin:s3cr3t", session: "verify_admin" }, { credential: "guest:guest", session: "verify_guest" }, { credential: "nouserpass", session: "x" }],
+      });
+      if (!out.includes('sesi "verify_admin" SIAP') || !out.includes('sesi "verify_guest" SIAP')) throw new Error(`wizard must ready both sessions, got: ${out.slice(0, 200)}`);
+      if (!out.includes("session_a=verify_admin")) throw new Error("wizard must print chain-ready names");
+      if (/s3cr3t/.test(out)) throw new Error("password must never appear in output");
+      if (!out.includes("user:pass")) throw new Error("malformed credential must be refused honestly");
+      const scope = await authSetup("verify_authsetup", { login_url: "https://example.com/login", accounts: [{ credential: "a:b", session: "s" }] });
+      if (!scope.includes("SCOPE")) throw new Error("out-of-scope login must be refused");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      const fsH = await import("node:fs");
+      try { fsH.rmSync("apps/web/.data/users/verify_authsetup", { recursive: true, force: true }); } catch { /* noop */ }
+    }
+    console.log("auth_setup wizard: OK (write/confirm, CORE 128, headless-guarded, live login → session, masked, scope)");
+  }
+
   // ── deterministic PDF delivery helpers ────────────────────────────────
   {
     const { turnRanTool, reportTargetFromMessages, pdfDeliverableSuffix } = await import("./src/lib/agent");

@@ -145,6 +145,19 @@ export interface ToolPlugin {
 }
 
 /** Tools that must wait for explicit user confirmation before running (FR-014). */
+/**
+ * Honest flag for high/critical findings filed without poc/retest proof
+ * (audit 2026-09-23). Returns a warning suffix or "". Pure — tested.
+ */
+export function proofWarning(severity: string, evidenceSteps: string, retestUrl: string): string {
+  if ((severity === "high" || severity === "critical") && !retestUrl) {
+    if (!/poc_verify|retest|terkonfirmasi|STABIL|deterministik|oast_poll/i.test(evidenceSteps || "")) {
+      return `\n⚠️ Temuan ${severity} TANPA bukti poc/retest — verifikasi via \`poc_verify\` + retest case sebelum submit/lapor.`;
+    }
+  }
+  return "";
+}
+
 export function requiresConfirmation(tool: ToolDefinition | undefined): boolean {
   return !!tool && tool.risk !== "read";
 }
@@ -3419,7 +3432,11 @@ const toolRegistry: ToolPlugin[] = [
             retestNote = `\n♻️ Retest case otomatis: ${c.id} — jalankan retest_run id=${c.id} kapan pun untuk cek patch.`;
           } catch { /* best-effort */ }
         }
-        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title} (${f.id})${retestNote}`;
+        // Proof-link warning (audit 2026-09-23): high/critical findings filed
+        // with no poc/retest evidence get an honest flag — warn, don't block
+        // (auto-history fallback + lab flows must keep working).
+        const proofNote = proofWarning(f.severity, `${f.evidence}\n${f.steps}`, retestUrl);
+        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title} (${f.id})${retestNote}${proofNote}`;
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : "finding_add failed"}`;
       }
@@ -3768,6 +3785,50 @@ const toolRegistry: ToolPlugin[] = [
         });
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : "ato_prove failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "auth_setup",
+        description:
+          "Wizard sesi uji 1 perintah: login N akun (maks 4) via atoProve, simpan cookie sesi bernama (admin/guest/...) siap untuk exploit_chain (session_a/session_b), bola_diff, auth_matrix, http_request. HANYA lab milik owner / engagement aktif. Password TIDAK pernah dikembalikan (dimask). Write, confirm.",
+        parameters: {
+          type: "object",
+          properties: {
+            login_url: { type: "string", description: "Endpoint login, mis. https://lab/api/login" },
+            accounts: { type: "array", description: 'Daftar akun: [{credential:"user:pass", session:"admin"}, ...] atau [{username, password, session}]' },
+            user_field: { type: "string", description: "nama field username (default: username)" },
+            pass_field: { type: "string", description: "nama field password (default: password)" },
+            body_template: { type: "string", description: "template body form dengan {{username}}/{{password}}" },
+            protected_url: { type: "string", description: "URL terlindungi untuk bukti akses (opsional)" },
+          },
+          required: ["login_url", "accounts"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { authSetup } = await import("./authSetup");
+        const raw = Array.isArray(args.accounts) ? args.accounts : [];
+        return await authSetup(ctx.rawUser, {
+          login_url: typeof args.login_url === "string" ? args.login_url : undefined,
+          accounts: raw.filter((x): x is Record<string, unknown> => !!x && typeof x === "object").map((x) => ({
+            credential: typeof x.credential === "string" ? x.credential : undefined,
+            username: typeof x.username === "string" ? x.username : undefined,
+            password: typeof x.password === "string" ? x.password : undefined,
+            session: typeof x.session === "string" ? x.session : undefined,
+          })),
+          user_field: typeof args.user_field === "string" ? args.user_field : undefined,
+          pass_field: typeof args.pass_field === "string" ? args.pass_field : undefined,
+          body_template: typeof args.body_template === "string" ? args.body_template : undefined,
+          protected_url: typeof args.protected_url === "string" ? args.protected_url : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "auth_setup failed"}`;
       }
     },
   },

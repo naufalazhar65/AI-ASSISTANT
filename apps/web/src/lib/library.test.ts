@@ -15,6 +15,16 @@ describe("isPentestAsk", () => {
     expect(isPentestAsk("baca link ini https://artikel.tld/x, menarik")).toBe(false);
     expect(isPentestAsk("halo")).toBe(false);
   });
+
+  it("flags recon/mapping and session-setup asks (live 2026-09-22 miss)", () => {
+    expect(isPentestAsk("petakan lab Kohona https://lab.tld/index.html pakai target_brain lalu content_discover")).toBe(true);
+    expect(isPentestAsk("auth_setup login_url=https://lab.tld/api/login accounts=[{credential:'a:b',session:'admin'}]")).toBe(true);
+    expect(isPentestAsk("exploit_chain chain=idor url=https://lab.tld/api/dokumen?id=1 session_a=admin session_b=guest")).toBe(true);
+  });
+
+  it("flags sweep/endpoint wording (live self-test 2026-09-22 miss)", () => {
+    expect(isPentestAsk("sweep endpoint publik lab Kohona https://lab.tld/index.html, mulai dari yang belum diuji")).toBe(true);
+  });
 });
 
 describe("scheduleLinkCapture pentest gate (audit 2026-09-22)", () => {
