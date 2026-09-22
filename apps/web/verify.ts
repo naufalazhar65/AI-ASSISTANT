@@ -15,7 +15,7 @@ import { appendDailyMemory } from "./src/lib/dailyMemory";
 import { buildEveningRecap, readLastRecapDay, saveLastRecapDay } from "./src/lib/recap";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -2229,7 +2229,11 @@ async function main() {
     // Absolute paths outside every root are rejected.
     if (resolveInSandbox(join(tmpdir(), "outside-me")) !== null) throw new Error("outside path not blocked");
     // Relative paths still resolve against the repo root (default sandbox).
-    if (!resolveInSandbox("package.json")?.includes("ai-assistant")) throw new Error("repo relative resolve failed");
+    // Assert on the basename + existence, never the folder name: CI checks
+    // out to .../AI-ASSISTANT/AI-ASSISTANT (uppercase) while local is
+    // .../ai-assistant (lowercase) — a case-sensitive includes() fails there.
+    const repoPkg = resolveInSandbox("package.json");
+    if (!repoPkg || basename(repoPkg) !== "package.json" || !existsSync(repoPkg)) throw new Error("repo relative resolve failed");
     if (resolveInSandbox("../somewhere") !== null) throw new Error("repo escape not blocked");
     if (resolveInSandbox("~/.ssh/id_rsa") !== null) throw new Error("tilde path not blocked");
   } finally {
