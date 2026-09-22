@@ -2304,9 +2304,12 @@ async function main() {
     else process.env.AUTH_TOKEN = prevAuth;
   }
   const { logInfo } = await import("./src/lib/appLogger");
+  // The logger names its file by WIB day (wibDay), NOT the UTC date — asserting
+  // with toISOString() failed whenever the run crossed WIB midnight (17:00 UTC).
+  const { wibDay: wibDayLog } = await import("./src/lib/time");
   logInfo("verify", "probe line");
-  const logFile = join(appRoot(), ".data", "logs", `APP-${new Date().toISOString().slice(0, 10)}.log`);
-  if (!existsSync(logFile)) throw new Error("app logger file missing");
+  const logFile = join(appRoot(), ".data", "logs", `APP-${wibDayLog(Date.now())}.log`);
+  if (!existsSync(logFile)) throw new Error(`app logger file missing (expected ${logFile})`);
   if (!readFileSync(logFile, "utf8").includes("probe line")) throw new Error("app logger line missing");
   console.log("fase5 auth+log: OK (AUTH_TOKEN gate, public paths, app logger writes)");
 
