@@ -20,5 +20,31 @@
     "byterover-cli": "^3.16.1",
     "playwright": "^1.62.1",
     "undici": "^8.10.2"
+  },
+  "overrides": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@campfirein/byterover-packages": {
+      "@types/hast": "3.0.5",
+      "@types/unist": "3.0.3",
+      "character-entities": "2.0.2",
+      "character-entities-legacy": "3.0.0",
+      "character-reference-invalid": "2.0.1",
+      "comma-separated-tokens": "2.0.3",
+      "diff": "9.0.0",
+      "hast-util-parse-selector": "4.0.0",
+      "hastscript": "9.0.1",
+      "is-alphabetical": "2.0.1",
+      "is-alphanumerical": "2.0.1",
+      "is-decimal": "2.0.1",
+      "is-hexadecimal": "2.0.1",
+      "parse-entities": "4.0.2",
+      "prismjs": "1.30.0",
+      "property-information": "7.2.0",
+      "react-syntax-highlighter": "16.1.1",
+      "refractor": "5.0.0",
+      "space-separated-tokens": "2.0.2",
+      "xtend": "4.0.2"
+    }
   }
 }

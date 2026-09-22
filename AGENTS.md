@@ -902,3 +902,13 @@ Audit 5 item → eksekusi 4 fix + 1 fitur (tanpa komit sampai approval, lalu dis
 5. **Wizard `auth_setup`** (baru, write/confirm): login ≤4 akun via atoProve → sesi siap (`session_a/b`), password masked, scope-gated, headless-guarded; CORE slot 80 (tukar `tamper_script`, window utuh); SYSTEM_PROMPT + HINT. Live drill lab lokal: 2 sesi SIAP.
 Live Kohona turns: link-capture bocor 3× (pola diperluas: petakan/recon/session/setup + sweep/endpoint) + 5 entri reading list dibersihkan (1 ber-PII); password di-echo → aturan ATO diperluas (audit log terverifikasi masked); semua penolakan tool luar-window terbukti tepat (posisi CORE); PDF deterministik nyata tiap turn; self-test 3× jalur Discord asli (aksi 2-6 tool, suffix hilang, capture 0).
 Gates: typecheck 0 · vitest 360/360 · verify EXIT=0 · lint 0 errors. **Commit + push disetujui owner.**
+
+## Session 2026-09-22/23 (lanjutan) — CI `npm ci` merah: lock out-of-sync + react skew (FIXED)
+
+CI gagal `npm ci` (EUSAGE: lock tak sinkron — react@18.3.1/19.3.0/mermaid/codemirror cascade). Root-cause bertingkat, diverifikasi berlapis:
+1. Pemicu: commit abeaed4 menambah `undici` ke root package.json TANPA update lock; plus registry drift sejak lock b067aad (byterover-cli deps, react 19.3.0 baru).
+2. node_modules lokal ternyata SUDAH bermutasi (root react 18.3.1 + react-dom 19.2.8 MISMATCH, nested react 19.3.0 di apps/web) — entah via install tak ter-commit; dev/tests lolos di atas pohon inkonsisten.
+3. `npm install --package-lock-only` GAGAL dengan EALLOWREMOTE — bukan bug repo: npm 12 default `allow-remote=none`/`allow-git=none` (secure-by-default); override eksplisit per-command.
+4. Akar lock: `@campfirein/byterover-packages` (github dep, tak ada di registry = 404) TERCATAT di `bundleDependencies` byterover-cli → arborist menandai `inBundle:true` tapi tetap memvalidasi anak-anaknya → 20 entri (diff@8/prismjs/refractor/hast/…) tak pernah bisa ditulis lock. Biner `brv` terbukti jalan tanpa subtree itu (`brv status` exit 0) → dead weight.
+5. `npm ci --dry-run` INVALID di npm (EUSAGE) — validasiku awalnya semu; hanya `npm ci` asli yang dipegang.
+Fix: `overrides` react/react-dom `^19.0.0` (root deterministik 19.3.0/19.2.8, peer terpenuhi) + scoped overrides 20 paket subtree-mati ke versi terkunci + regenerasi lock via npm 10 (toolchain CI; npm 12 tak cocok) + `npm ci` penuh + gates CI lokal (typecheck 0/lint 0/test 413/413/verify EXIT=0) + restart sehat + ci.yml node 20→22 (deps menuntut >=22). **Commit + push disetujui owner.**
