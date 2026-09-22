@@ -22,8 +22,8 @@
     "undici": "^8.10.2"
   },
   "overrides": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "@campfirein/byterover-packages": {
       "@types/hast": "3.0.5",
       "@types/unist": "3.0.3",
