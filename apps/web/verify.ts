@@ -2192,9 +2192,20 @@ async function main() {
     if (!isInternalTurn("[self-correct] x failed")) throw new Error("self-correct log must be internal");
     if (isInternalTurn("halo mia, aku capek")) throw new Error("real user text must NOT be internal");
     const { memoryWhere } = await import("./src/lib/memoryWhere");
-    const map = memoryWhere("naufalazhar652952");
-    if (!/\.data\/users\/naufalazhar652952\//.test(map) || !/persona/.test(map) || !/memory\//.test(map))
-      throw new Error(`memory_where should map the real stores: ${map.slice(0, 140)}`);
+    // Self-contained fixture (audit 2026-09-23 — CI has a fresh .data/):
+    // the old assertion read the REAL owner user, which only exists on the
+    // owner's Mac. Seed a throwaway user instead, plus the honest empty path.
+    const mwUser = `verify_memwhere_${Date.now()}`;
+    mkdirSync(join(userDataRoot(), mwUser, "persona"), { recursive: true });
+    writeFileSync(join(userDataRoot(), mwUser, "persona", "USER.md"), "## Facts\n- name: Probe\n");
+    mkdirSync(join(userDataRoot(), mwUser, "memory"), { recursive: true });
+    writeFileSync(join(userDataRoot(), mwUser, "memory", "2026-09-22.md"), "# 2026-09-22\nUser: halo\n");
+    const map = memoryWhere(mwUser);
+    if (!new RegExp(`\\.data/users/${mwUser}/`).test(map) || !/persona/.test(map) || !/memory\//.test(map))
+      throw new Error(`memory_where should map the seeded stores: ${map.slice(0, 140)}`);
+    const emptyMap = memoryWhere(`verify_memwhere_empty_${Date.now()}`);
+    if (!/Belum ada apa pun/.test(emptyMap)) throw new Error(`memory_where should be honest when empty: ${emptyMap.slice(0, 80)}`);
+    rmSync(join(userDataRoot(), mwUser), { recursive: true, force: true });
     console.log("internal-turn gate + memory_where map: OK");
   }
 
