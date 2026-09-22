@@ -1827,6 +1827,11 @@ async function main() {
   if (parsed.app !== "Code" || parsed.window !== "ai-assistant - main.ts") throw new Error(`parseActiveOutput failed: ${JSON.stringify(parsed)}`);
   const ctxText = await executeTool({ id: "t", name: "context_active", arguments: "{}" });
   if (!ctxText || /^Error:/.test(ctxText)) throw new Error(`context_active should not error: ${ctxText.slice(0, 80)}`);
+  // Non-macOS has no osascript sampler — the tool must say so honestly
+  // (degrade path) instead of Error: spawn osascript ENOENT.
+  if (process.platform !== "darwin" && !/tidak tersedia/i.test(ctxText)) {
+    throw new Error(`context_active should degrade honestly off-macOS: ${ctxText.slice(0, 80)}`);
+  }
   console.log("context: OK");
 
   // --- proactive nudge: silent tanpa sinyal, muncul saat mood negatif kemarin ---

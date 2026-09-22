@@ -57,6 +57,9 @@ export function parseActiveOutput(stdout: string): { app?: string; window?: stri
 }
 
 async function activeFromOsascript(): Promise<{ app: string; window?: string } | null> {
+  // osascript exists only on macOS — short-circuit elsewhere instead of
+  // spawning a binary that can never exist (CI/Linux → ENOENT).
+  if (process.platform !== "darwin") return null;
   const script = [
     'tell application "System Events"',
     'try',
@@ -84,7 +87,14 @@ async function activeFromOsascript(): Promise<{ app: string; window?: string } |
 
 /** Sample the active app/window once and persist it. Returns null when unavailable. */
 export async function sampleContext(): Promise<ActiveContext | null> {
-  const found = await activeFromOsascript();
+  let found: { app: string; window?: string } | null;
+  try {
+    found = await activeFromOsascript();
+  } catch {
+    // osascript missing/denied/failing (non-macOS, no Accessibility grant) —
+    // degrade to null per the module contract, never throw into the tool.
+    return null;
+  }
   if (!found) return null;
   const prev = readLast();
   const sameFocus = prev && prev.app === found.app && prev.window === found.window;
@@ -121,6 +131,10 @@ export async function currentContextTextFresh(): Promise<string> {
 export function startContextSampler(): void {
   // globalThis guard (see lib/once.ts): HMR must not add a second timer.
   if (alreadyStarted("context")) return;
+  if (process.platform !== "darwin") {
+    logInfo("context", "disabled (non-macOS — no osascript sampler)");
+    return;
+  }
   const seconds = contextSampleSeconds();
   if (!seconds) {
     logInfo("context", "disabled (CONTEXT_SAMPLE_SECONDS=0) — context_active akan sample saat dipanggil");
