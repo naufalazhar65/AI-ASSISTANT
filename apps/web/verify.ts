@@ -2544,20 +2544,35 @@ async function main() {
   if (!stoI || stoI.threshold !== 90 || stoI.direction !== "above") throw new Error(`compound storage: ${JSON.stringify(stoI)}`);
   if (!batI || batI.threshold !== 20 || batI.direction !== "below") throw new Error(`compound battery: ${JSON.stringify(batI)}`);
   const mUser = `verify_mon_${Date.now()}`;
-  addMonitor({ name: "Baterai Mac", kind: "device", subject: "battery", threshold: 100, direction: "below", rawUser: mUser });
+  // Battery % is only readable on a real Mac (pmset/ioreg); CI/Linux has no
+  // battery hardware (metric = null → no alert). Drive the same fire/re-arm
+  // path via storage there — pinned at its current percent so it always
+  // crosses deterministically on any host.
+  const { fetchPrice: fetchPriceDev } = await import("./src/lib/monitor");
+  const liveSubject = process.platform === "darwin" ? "battery" : "storage";
+  const liveName = liveSubject === "battery" ? "Baterai Mac" : "Storage Mac";
+  let liveThreshold: number;
+  if (liveSubject === "battery") {
+    liveThreshold = 100;
+  } else {
+    const pct = await fetchPriceDev({ id: "x", name: "Storage Mac", kind: "device", subject: "storage", threshold: 50, direction: "above", at: 0 });
+    if (pct === null || pct < 0 || pct > 100) throw new Error(`storage metric: ${pct}`);
+    liveThreshold = pct;
+  }
+  addMonitor({ name: liveName, kind: "device", subject: liveSubject, threshold: liveThreshold, direction: liveSubject === "battery" ? "below" : "above", rawUser: mUser });
   const alerts1 = await checkMonitorsAndAlert(mUser);
-  if (!alerts1.length || !alerts1[0].includes("Baterai Mac")) throw new Error(`battery alert missing: ${alerts1.join("|")}`);
+  if (!alerts1.length || !alerts1[0].includes(liveName)) throw new Error(`device alert missing: ${alerts1.join("|")}`);
   const alerts2 = await checkMonitorsAndAlert(mUser);
-  if (alerts2.length) throw new Error("battery alert should be armed-off after first fire");
+  if (alerts2.length) throw new Error("device alert should be armed-off after first fire");
   const list = listMonitors(mUser);
-  if (!list.includes("Baterai Mac") || !list.includes("[device]")) throw new Error(`listMonitors device: ${list}`);
+  if (!list.includes(liveName) || !list.includes("[device]")) throw new Error(`listMonitors device: ${list}`);
   // Storage metric readable on this Mac (any percent 0-100).
   const { fetchPrice } = await import("./src/lib/monitor");
   const storagePct = await fetchPrice({ id: "x", name: "Storage Mac", kind: "device", subject: "storage", threshold: 50, direction: "above", at: 0 });
   if (storagePct === null || storagePct < 0 || storagePct > 100) throw new Error(`storage metric: ${storagePct}`);
   for (const m of (await import("./src/lib/monitor")).readMonitors(mUser)) removeMonitor(m.id, mUser);
   rmSync(join(userDataRoot(), mUser), { recursive: true, force: true });
-  console.log(`mac monitor: OK (intents, battery alert fires+re-arms, storage ${storagePct}%)`);
+  console.log(`mac monitor: OK (intents, device alert fires+re-arms, storage ${storagePct}%)`);
 
   // --- Hysteresis: a value sitting ON the threshold (storage at its current
   // percent @ that same threshold) must alert ONCE, then stay silent while it
