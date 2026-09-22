@@ -35,6 +35,27 @@ describe("targetBrain pure helpers", () => {
     expect(brainParamNames("https://x.tld/p?b=1&a=2&b=3")).toEqual(["a", "b"]);
     expect(brainParamNames("https://x.tld/p")).toEqual([]);
   });
+
+  it("coverageTried maps text to attack classes (audit 2026-09-23+)", async () => {
+    const { coverageTried, brainCoverage, brainRecordEndpoints, brainRecordProof } = await import("./targetBrain");
+    expect([...coverageTried("BOLA /api/dokumen?id + poc_verify STABIL")].sort()).toEqual(["idor"]);
+    expect([...coverageTried("halo apa kabar")]).toEqual([]);
+    // Integration: endpoints + proof + finding → tried shown, rest are gaps.
+    const u = "verify_coverage_tmp";
+    brainRecordEndpoints(u, "https://cov.tld", ["/api/dokumen?id=1", "/page"]);
+    brainRecordProof(u, "https://cov.tld", { what: "BOLA /api/dokumen", how: "bola_diff A/B", severity: "high", findingId: "F-1" });
+    const { addFinding } = await import("./security");
+    addFinding(u, { title: "Stored XSS pengaduan", severity: "medium", target: "https://cov.tld/api/pengaduan", evidence: "payload ter-reflect" });
+    const out = await brainCoverage(u, "cov.tld");
+    expect(out).toContain("IDOR/BOLA");
+    expect(out).toContain("XSS");
+    expect(out).toContain("Gap");
+    expect(out).toContain("SSRF");
+    const empty = await brainCoverage(u, "unknown.tld");
+    expect(empty).toContain("kosong");
+    const fs = await import("node:fs");
+    fs.rmSync(`apps/web/.data/users/${u}`, { recursive: true, force: true });
+  });
 });
 
 describe("retest suite helpers", () => {

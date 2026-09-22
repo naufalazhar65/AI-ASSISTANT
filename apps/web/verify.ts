@@ -1577,7 +1577,7 @@ async function main() {
     if (unresolved.length) throw new Error(`CORE names not in registry: ${unresolved.join(",")}`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "sast_scan", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "param_discover", "js_mine", "js_deobfuscate", "api_spec", "request_save", "request_run", "cve_intel", "cors_audit", "csp_audit", "security_hunt", "poc_verify", "ato_prove", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "param_discover", "js_mine", "js_deobfuscate", "api_spec", "xss_hunt", "request_run", "cve_intel", "cors_audit", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
@@ -3389,6 +3389,236 @@ async function main() {
       try { fsH.rmSync("apps/web/.data/users/verify_exposure", { recursive: true, force: true }); } catch { /* noop */ }
     }
     console.log("exposure_hunt: OK (write/confirm, CORE 128, live LEAD + redact + 403-info + scope)");
+  }
+
+  // ── csrf_prove (CSRF end-to-end + PoC artifact) ───────────────────────
+  {
+    const { getTOOLS, requiresConfirmation } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl } = await import("./src/lib/agent");
+    const t = getTOOLS().find((x) => x.function.name === "csrf_prove");
+    if (!t || t.risk !== "write" || !requiresConfirmation(t)) throw new Error("csrf_prove must be write/confirm");
+    if (!CORE_TOOL_NAMES.has("csrf_prove")) throw new Error("csrf_prove must be in CORE");
+    if (CORE_TOOL_NAMES.size !== 128) throw new Error(`CORE must stay 128 (got ${CORE_TOOL_NAMES.size})`);
+    if (!toolsForUrl("https://api.groq.com/openai/v1/chat/completions").some((x) => x.function.name === "csrf_prove")) {
+      throw new Error("groq window must carry csrf_prove");
+    }
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        if (req.url === "/" && req.method === "GET") {
+          res.writeHead(200, { "content-type": "text/html" });
+          res.end('<form action="/do" method="POST"><input name="a" value="1"></form>');
+          return;
+        }
+        if (req.url === "/do" && req.method === "POST") { res.writeHead(200, { "content-type": "text/plain" }); res.end("done-done-done-done-done-done-done"); return; }
+        res.writeHead(404); res.end("no");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const { executeTool } = await import("./src/lib/tools");
+      const out = await executeTool({ id: "c1", name: "csrf_prove", arguments: JSON.stringify({ url: `http://127.0.0.1:${port}/` }) }, "verify_csrf");
+      if (!out.includes("TANPA TOKEN diterima")) throw new Error(`must prove tokenless acceptance, got: ${out.slice(0, 160)}`);
+      const m = /PoC tersimpan: (.+\.html)/.exec(out);
+      const fsH = await import("node:fs");
+      if (!m || !fsH.existsSync(m[1])) throw new Error("PoC file must really exist");
+      if (!/auto-submit|document\.f\.submit/.test(fsH.readFileSync(m[1], "utf8"))) throw new Error("PoC must auto-submit");
+      const noform = await executeTool({ id: "c2", name: "csrf_prove", arguments: JSON.stringify({ url: `http://127.0.0.1:${port}/do` }) }, "verify_csrf");
+      if (!noform.includes("NO-FORMS")) throw new Error("missing forms must be honest");
+      const scope = await executeTool({ id: "c3", name: "csrf_prove", arguments: JSON.stringify({ url: "https://example.com/" }) }, "verify_csrf");
+      if (!scope.includes("SCOPE")) throw new Error("out-of-scope must be refused");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      const fsH = await import("node:fs");
+      try { fsH.rmSync("apps/web/.data/users/verify_csrf", { recursive: true, force: true }); } catch { /* noop */ }
+    }
+    console.log("csrf_prove: OK (write/confirm, CORE 128, live PROVEN + PoC file + NO-FORMS + scope)");
+  }
+
+  // ── mass_assignment (privileged-field injection + persist check) ──────
+  {
+    const { getTOOLS, requiresConfirmation } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl } = await import("./src/lib/agent");
+    const t = getTOOLS().find((x) => x.function.name === "mass_assignment");
+    if (!t || t.risk !== "write" || !requiresConfirmation(t)) throw new Error("mass_assignment must be write/confirm");
+    if (!CORE_TOOL_NAMES.has("mass_assignment")) throw new Error("mass_assignment must be in CORE");
+    if (CORE_TOOL_NAMES.size !== 128) throw new Error(`CORE must stay 128 (got ${CORE_TOOL_NAMES.size})`);
+    if (!toolsForUrl("https://api.groq.com/openai/v1/chat/completions").some((x) => x.function.name === "mass_assignment")) {
+      throw new Error("groq window must carry mass_assignment");
+    }
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        if (req.url === "/u" && req.method === "POST") {
+          let role = "user";
+          try { if (JSON.parse(body).role === "admin") role = "admin"; } catch { /* noop */ }
+          res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ saved: true, role }));
+          return;
+        }
+        if (req.url === "/me") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ role: "admin" })); return; }
+        res.writeHead(404); res.end("no");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const { executeTool } = await import("./src/lib/tools");
+      const out = await executeTool({ id: "m1", name: "mass_assignment", arguments: JSON.stringify({ url: `http://127.0.0.1:${port}/u`, body: '{"name":"x"}', verify_url: `http://127.0.0.1:${port}/me` }) }, "verify_mass");
+      if (!out.includes("ter-reflect")) throw new Error(`must flag echo, got: ${out.slice(0, 160)}`);
+      if (!out.includes("TERKONFIRMASI PERSISTEN")) throw new Error("persisted elevation must confirm");
+      const neg = await executeTool({ id: "m2", name: "mass_assignment", arguments: JSON.stringify({ url: `http://127.0.0.1:${port}/u`, body: '{"name":"x"}' }) }, "verify_mass");
+      if (!neg.includes("Tidak ada kandidat") && !neg.includes("ter-reflect")) throw new Error("negative path broken");
+      const scope = await executeTool({ id: "m3", name: "mass_assignment", arguments: JSON.stringify({ url: "https://example.com/u", body: "{}" }) }, "verify_mass");
+      if (!scope.includes("SCOPE")) throw new Error("out-of-scope must be refused");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      const fsH = await import("node:fs");
+      try { fsH.rmSync("apps/web/.data/users/verify_mass", { recursive: true, force: true }); } catch { /* noop */ }
+    }
+    console.log("mass_assignment: OK (write/confirm, CORE 128, live echo + persist-confirm + scope)");
+  }
+
+  // ── upload_fuzz (extension-bypass matrix + access verify) ────────────
+  {
+    const { getTOOLS, requiresConfirmation } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl } = await import("./src/lib/agent");
+    const t = getTOOLS().find((x) => x.function.name === "upload_fuzz");
+    if (!t || t.risk !== "write" || !requiresConfirmation(t)) throw new Error("upload_fuzz must be write/confirm");
+    if (!CORE_TOOL_NAMES.has("upload_fuzz")) throw new Error("upload_fuzz must be in CORE");
+    if (CORE_TOOL_NAMES.size !== 128) throw new Error(`CORE must stay 128 (got ${CORE_TOOL_NAMES.size})`);
+    if (!toolsForUrl("https://api.groq.com/openai/v1/chat/completions").some((x) => x.function.name === "upload_fuzz")) {
+      throw new Error("groq window must carry upload_fuzz");
+    }
+    const http = await import("node:http");
+    const store: Record<string, string> = {};
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        if (req.url === "/up" && req.method === "POST") {
+          if (/filename="[^"]*\.phtml"/i.test(body)) {
+            store["/f/x.phtml"] = body;
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end('{"path":"/f/x.phtml"}');
+            return;
+          }
+          res.writeHead(415); res.end("no"); return;
+        }
+        if (req.url === "/f/x.phtml") { res.writeHead(200, { "content-type": "text/plain" }); res.end(store[req.url] || ""); return; }
+        res.writeHead(404); res.end("no");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const { executeTool } = await import("./src/lib/tools");
+      const out = await executeTool({ id: "u1", name: "upload_fuzz", arguments: JSON.stringify({ url: `http://127.0.0.1:${port}/up`, vectors: ["phtml"] }) }, "verify_upload");
+      if (!out.includes("TERAKSES") || !out.includes("1 LEAD")) throw new Error(`must prove bypass, got: ${out.slice(0, 160)}`);
+      const neg = await executeTool({ id: "u2", name: "upload_fuzz", arguments: JSON.stringify({ url: `http://127.0.0.1:${port}/up`, vectors: ["php5"] }) }, "verify_upload");
+      if (!neg.includes("REJECTED") || !neg.includes("Tidak ada bypass terbukti")) throw new Error("rejection must be honest");
+      const scope = await executeTool({ id: "u3", name: "upload_fuzz", arguments: JSON.stringify({ url: "https://example.com/up" }) }, "verify_upload");
+      if (!scope.includes("SCOPE")) throw new Error("out-of-scope must be refused");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      const fsH = await import("node:fs");
+      try { fsH.rmSync("apps/web/.data/users/verify_upload", { recursive: true, force: true }); } catch { /* noop */ }
+    }
+    console.log("upload_fuzz: OK (write/confirm, CORE 128, live LEAD + honest reject + scope)");
+  }
+
+  // ── xss_hunt (reflect + breakout + OAST correlate) ────────────────────
+  {
+    const { getTOOLS, requiresConfirmation } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl } = await import("./src/lib/agent");
+    const t = getTOOLS().find((x) => x.function.name === "xss_hunt");
+    if (!t || t.risk !== "write" || !requiresConfirmation(t)) throw new Error("xss_hunt must be write/confirm");
+    if (!CORE_TOOL_NAMES.has("xss_hunt")) throw new Error("xss_hunt must be in CORE");
+    if (CORE_TOOL_NAMES.size !== 128) throw new Error(`CORE must stay 128 (got ${CORE_TOOL_NAMES.size})`);
+    if (!toolsForUrl("https://api.groq.com/openai/v1/chat/completions").some((x) => x.function.name === "xss_hunt")) {
+      throw new Error("groq window must carry xss_hunt");
+    }
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      const u = new URL(req.url || "/", "http://x");
+      if (u.pathname === "/s") {
+        const q = u.searchParams.get("q") || "";
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(`<html><p>r: ${q}</p></html>`);
+        return;
+      }
+      res.writeHead(404); res.end("no");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const { executeTool } = await import("./src/lib/tools");
+      const out = await executeTool({ id: "x1", name: "xss_hunt", arguments: JSON.stringify({ url: `http://127.0.0.1:${port}/s?q=hi` }) }, "verify_xss");
+      if (!out.includes("REFLECT (html)") || !out.includes("BREAKOUT lolos")) throw new Error(`must prove reflect+breakout, got: ${out.slice(0, 160)}`);
+      if (!out.includes("1 kandidat XSS kuat")) throw new Error("must count the hit");
+      const clean = await executeTool({ id: "x2", name: "xss_hunt", arguments: JSON.stringify({ url: `http://127.0.0.1:${port}/nope` }) }, "verify_xss");
+      if (!clean.includes("Tidak ada titik injeksi") && !clean.includes("Tidak ada kandidat")) throw new Error("clean page must be honest");
+      const scope = await executeTool({ id: "x3", name: "xss_hunt", arguments: JSON.stringify({ url: "https://example.com/" }) }, "verify_xss");
+      if (!scope.includes("SCOPE")) throw new Error("out-of-scope must be refused");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      const fsH = await import("node:fs");
+      try { fsH.rmSync("apps/web/.data/users/verify_xss", { recursive: true, force: true }); } catch { /* noop */ }
+    }
+    console.log("xss_hunt: OK (write/confirm, CORE 128, live reflect+breakout + honest negative + scope)");
+  }
+
+  // ── exploit_chain auto-select (brain intel + setup ranking) ──────────
+  {
+    const { recommendChains, runExploitChain } = await import("./src/lib/exploitChains");
+    const r = recommendChains({ tech: "", endpoints: [{ path: "/d", params: ["id"] }], proofText: "", sessions: ["a", "b"], hasToken: false, hasCreds: false });
+    if (r[0].chain !== "idor" || !r[0].runnable) throw new Error("auto must rank runnable idor first with 2 sessions");
+    if (r.some((x) => x.chain === "session_fixation" && x.runnable)) throw new Error("fixation without creds must not run");
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      const u = new URL(req.url || "/", "http://x");
+      if (u.pathname === "/d") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"d":1,"pad":"qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"}'); return; }
+      res.writeHead(404); res.end("no");
+    });
+    await new Promise<void>((r2) => server.listen(0, "127.0.0.1", () => r2()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const fsH = await import("node:fs");
+      fsH.mkdirSync("apps/web/.data/users/verify_auto", { recursive: true });
+      fsH.writeFileSync("apps/web/.data/users/verify_auto/http-sessions.json", JSON.stringify({ a: { headers: {}, cookies: { s: "1" } }, b: { headers: {}, cookies: { s: "2" } } }));
+      const out = await runExploitChain("verify_auto", "auto", { url: `http://127.0.0.1:${port}/d?id=1`, session_a: "a", session_b: "b" });
+      if (!out.includes("AUTO-SELECT") || !out.includes("▶ idor")) throw new Error(`auto must select idor, got: ${out.slice(0, 160)}`);
+      if (!out.includes("Ringkasan")) throw new Error("auto batch must keep the honest aggregate");
+    } finally {
+      await new Promise<void>((r2) => server.close(() => r2()));
+      const fsH = await import("node:fs");
+      try { fsH.rmSync("apps/web/.data/users/verify_auto", { recursive: true, force: true }); } catch { /* noop */ }
+    }
+    console.log("exploit auto-select: OK (ranking + honest skips + batch aggregate)");
+  }
+
+  // ── target_brain coverage (no-gap hunts) ─────────────────────────────
+  {
+    const { brainCoverage, brainRecordEndpoints, brainRecordProof, coverageTried } = await import("./src/lib/targetBrain");
+    if (![...coverageTried("SSRF via param url + oast_poll")].includes("ssrf")) throw new Error("coverageTried must map ssrf");
+    const u = "verify_coverage";
+    brainRecordEndpoints(u, "https://cov2.tld", ["/api/a?id=1"]);
+    brainRecordProof(u, "https://cov2.tld", { what: "reflected XSS q", how: "param_fuzz", severity: "medium", findingId: "F-9" });
+    const out = await brainCoverage(u, "cov2.tld");
+    if (!out.includes("XSS") || !out.includes("Gap") || !out.includes("SQLi")) {
+      throw new Error(`coverage must show tried + gaps, got: ${out.slice(0, 160)}`);
+    }
+    if (!/endpoint teruji 0\/1/.test(out)) throw new Error("untested endpoint must count honestly");
+    const { executeTool } = await import("./src/lib/tools");
+    const viaTool = await executeTool({ id: "t1", name: "target_brain", arguments: JSON.stringify({ action: "coverage", target: "cov2.tld" }) }, u);
+    if (!viaTool.includes("Gap")) throw new Error("action=coverage must dispatch");
+    const fsH = await import("node:fs");
+    try { fsH.rmSync("apps/web/.data/users/verify_coverage", { recursive: true, force: true }); } catch { /* noop */ }
+    console.log("target_brain coverage: OK (tried/gap classes, honest counts, tool dispatch)");
   }
 
   // ── deterministic PDF delivery helpers ────────────────────────────────

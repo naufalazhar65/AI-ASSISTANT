@@ -14,7 +14,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 
 ## 2. Otak & Provider
 
-- **OpenCode Go (GLM 5.2)** — full-window brain (semua 303 tool); default pindah ke **9router** sejak 2026-09-21 (kuota Go bulanan habis, reset ~15 hari — lihat §21); auto-switch ke `deepseek-v4-flash-vision-exp` saat ada gambar
+- **OpenCode Go (GLM 5.2)** — full-window brain (semua 309 tool); default pindah ke **9router** sejak 2026-09-21 (kuota Go bulanan habis, reset ~15 hari — lihat §21); auto-switch ke `deepseek-v4-flash-vision-exp` saat ada gambar
 - **Multi-provider** — Groq / opencode local / 9router / openrouter / mock, selectable per channel
 - **Spotify sleep timer** — `spotify_sleep_timer`: `after_track=true` (matikan setelah lagu ini selesai) / `minutes=N` / `cancel=true`; timer in-process (hilang saat restart) + push ⏹️ saat dieksekusi
 - **Persona facts**: kunci kanonik + resolusi konflik (nilai terbaru menang, riwayat di `## Superseded` yang TIDAK di-inject ke prompt) + **rahasia/token ditolak** + cap 80 fakta; tool `persona_show` / `persona_set` (`ingat ini: …`) / `persona_forget` (`lupakan …`)
@@ -152,7 +152,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Audit hardening (2026-09-15)** — cakupan subdomain env `PENTEST_LAB_TARGETS`, `netGuard.assertPublicUrl` bersama (IPv6/metadata), ID temuan anti-tabrakan, `engagement_create` write/confirm, `web_audit` anti-SSRF, metadata endpoint diblok, suite pentest masuk `CORE_TOOL_NAMES` (Groq).
 - **Bug-bounty toolkit (2026-09-15)** — `oast_create/poll/stop` (OOB/blind via webhook.site), `http_session` + `http_request session/save_session` (auth), `bola_diff` (BOLA/IDOR dua identitas A/B), `content_discover` (robots/sitemap/JS/path), `param_fuzz` (XSS/SQLi/SSTI/redirect/cmdi per-param), `jwt_attack` (forge/crack), `evidence_capture` (screenshot + raw HTTP), `scope_import` (parse Targets→engagement), `crawl`, `param_discover`, `recon_diff` (aset baru), `recon_screenshot` (visual recon), `js_mine` (endpoint+secret JS), `api_spec`/`graphql_probe`, `request_save`/`request_run`, `platform_severity` (H1/VRT), `cve_intel`, `recon_dnsbrute`, `recon_ports`, `bucket_enum`, `submission_track`, `cors_audit`, `csp_audit`, `http_history`, `race`, `ws_probe`, `browser_eval` (Playwright), DNS-OAST (`oast_dns_create/poll/stop`, interactsh). `recon_subdomains` multi-sumber (crt.sh+certspotter); **scope-watch** heartbeat (`SECURITY_SCOPE_WATCH`) push aset baru. Biner terpasang: searchsploit, semgrep, trivy, gobuster, katana, interactsh-client. RoE-aware: manual + rate-limit default.
 - **`security_hunt` (2026-09-15)** — orkestrasi otonom: satu perintah menjalankan header/cookie+CSP+CORS+content discovery+crawl+JS mining (+param discovery `deep=true`) lalu merangkum **LEADS**. Scope-gated + bounded.
-- **Cheat-sheet** — `SECURITY.md`. **Total tools 303.**
+- **Cheat-sheet** — `SECURITY.md`. **Total tools 309.**
 
 ---
 
@@ -217,16 +217,16 @@ Lima modul pentest "superpower" yang saling menguatkan, terintegrasi ke `bounty_
 - `apps/web/verify.ts` — assertions updated
 - `AGENTS.md` — updated
 
-**Total tools: 303** · **CORE 128** (jendela Groq; 9router membawa 64 chain analisis) · **84 playbook** · **vitest 360**
+**Total tools: 309** · **CORE 128** (jendela Groq; 9router membawa 64 chain analisis) · **84 playbook** · **vitest 401**
 
 ---
 
 ## 21. Security Copilot — lanjutan (2026-09-19 → 2026-09-23)
 
-Semua menambang di atas §19/§20; total naik ke **303 tool** (2026-09-23), CORE tetap **128**, playbook **84**, vitest **360**.
+Semua menambang di atas §19/§20; total naik ke **309 tool** (2026-09-23), CORE tetap **128**, playbook **84**, vitest **395**.
 
 ### 21.1 Exploit Chain Builder (2026-09-19)
-- **`exploit_chain`** (write/confirm, CORE, scope-gated) — satu konfirmasi untuk rantai serangan umum; support **batch koma-terpisah** (`chain="idor,ssrf,race"` → semua dijalankan berurutan, token tak dikenal ditandai `⛔ TIDAK DIJALANKAN` jujur). Chain: `idor` (bola_diff A/B → BOLA/IDOR), `auth_bypass` (JWT alg:none/tamper), `ssrf` (param → OAST), `session_fixation` (login pre/post → session id), + wrapper Tier-1 (`race`, `graphql`, `xxe`, `open_redirect`, `cache_poison`) = **9 chain**.
+- **`exploit_chain`** (write/confirm, CORE, scope-gated) — satu konfirmasi untuk rantai serangan umum; `chain="auto"` memilih + menjalankan ≤5 chain dari intel brain + sesi (ranking jujur, skip beralasan); support **batch koma-terpisah** (`chain="idor,ssrf,race"` → semua dijalankan berurutan, token tak dikenal ditandai `⛔ TIDAK DIJALANKAN` jujur). Chain: `idor` (bola_diff A/B → BOLA/IDOR), `auth_bypass` (JWT alg:none/tamper), `ssrf` (param → OAST), `session_fixation` (login pre/post → session id), + wrapper Tier-1 (`race`, `graphql`, `xxe`, `open_redirect`, `cache_poison`) = **9 chain**.
 - Guard narasi `chainRunClaimSuffix`: reply yang mengklaim sukses padahal output `exploit_chain` menunjukkan 0 chain jalan → catatan jujur ditambahkan.
 
 ### 21.2 Tier-1 Attack Suite (2026-09-20, 8 tool aktif)
@@ -282,7 +282,16 @@ Semua menambang di atas §19/§20; total naik ke **303 tool** (2026-09-23), CORE
 - **Audit post-19-Sep** (2 critical: IDOR per-hop scope + auth_bypass tanpa kontrol; 11 high: secret-evidence, inflasi sinyal→info `ⓘ`, SSRF ingest, digest/digest-default, risk write, confirm re-gate; 12 medium) + round budget dinamis (`PENTEST_MAX_ROUNDS=10` khusus pentest), `sanitizeHttpUrl`, `proofWarning`, link-capture gate `isPentestAsk`, fallback resumable, bounty coverage-note.
 
 ### Gates & catatan (2026-09-21 → 2026-09-23)
-- **Gates (2026-09-23):** typecheck 0 · lint 0 errors · vitest **360/360** · verify.ts EXIT=0 (blok: audit-fix IDOR scope/auth-control/risk/openrouter/SSRF, auth_setup wizard live, Kohona link-gate + fallback resumable, bounty coverage/wildcard) · restart tmux sehat (health ok, `logged in as`=1, 0×409).
+- **Gates (2026-09-23):** typecheck 0 · lint 0 errors · vitest **395/395** · verify.ts EXIT=0 (blok: audit-fix IDOR scope/auth-control/risk/openrouter/SSRF, auth_setup wizard live, Kohona link-gate + fallback resumable, bounty coverage/wildcard) · restart tmux sehat (health ok, `logged in as`=1, 0×409).
 - **Gates (2026-09-22):** typecheck 0 · lint 38 baseline · vitest **291/291** (16 file; +47 `llmHunt`/`mcpHunt`) · verify.ts EXIT=0 (blok live mock LLM leaky + mock MCP server; **tool registry integrity (300 tools)** + CORE invariant 128 + window 9router dikunci) · restart tmux sehat (health ok, `logged in as`=1, 0×409).
 - **Gates (2026-09-21):** typecheck 0 · lint 38 baseline · vitest **244/244** · verify.ts EXIT=0 · restart tmux sehat (health ok, 1 instance, 0×409).
 - **Brain:** opencodego kuota bulanan HABIS (429, reset ~15 hari) → default `9router` (64-tool, chain analisis penuh). Groq free 413 ITPM (payload 37.9k vs limit 7k) = resi lama; pentest penuh butuh opencodego reset / groq paid / 9router chain-analisis.
+
+### 21.9 CSRF prover (2026-09-23)
+- **`csrf_prove`** (write/confirm, CORE slot `domain_audit`): parse form state-changing + field token + posture SameSite → replay aksi TANPA token memakai session → diterima = kandidat (PoC HTML standalone ke evidence, file nyata) / ditolak = terkontrol. Verdict: PROVEN / TOKEN-ENFORCED / NO-FORMS. Scope-gated, bounded (≤8 form × 3 request).
+
+### 21.10 Exposure scanner + mass-assignment prover (2026-09-23)
+- **`exposure_hunt`** (write/confirm, CORE slot `oast_stop`): sapu 24 path predictable (`.git/HEAD`, `.env`, backup, VCS metadata, API docs) GET-only pada satu origin — 200+marker = LEAD, 401/403 = info, 404 = diam; nilai secret TIDAK pernah ditampilkan (keys only). Scope-gated, konkurensi 4.
+- **`mass_assignment`** (write/confirm, CORE slot `csp_audit`): injeksi 7 field privileged (role/admin/verified/user_id/…) ke POST/PUT/PATCH + diff vs baseline sesi yang sama (echo baru / outcome berubah); opsional `verify_url` konfirmasi persistensi (TERKONFIRMASI PERSISTEN vs refleksi sesaat). Verdict: kandidat/terkontrol/diabaikan. Scope-gated, bounded.
+- **`xss_hunt`** (write/confirm, CORE slot `request_save`): marker inert per titik injeksi (param+form) → klasifikasi konteks (html/atribut/script/comment) → 1 breakout confirmer + beacon script-src OAST; refleksi tanpa breakout = kandidat lemah (jujur). Scope-gated, bounded.
+- **`upload_fuzz`** (write/confirm, CORE slot `sast_scan`): 8 vektor bypass upload benign (double-ext/.phtml/.php5/case/mime-confusion/polyglot/traversal/SVG, marker inert — tanpa webshell/.htaccess) + GET verifikasi marker utuh; LEAD / UNVERIFIED / REJECTED. Scope-gated.

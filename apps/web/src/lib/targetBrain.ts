@@ -287,6 +287,79 @@ export function brainBrief(rawUser: unknown, targetRaw: string): string {
   return lines.join("\n");
 }
 
+/** Attack-class taxonomy for coverage: keyword matchers over proof/finding/hunt text. Pure data. */
+export const COVERAGE_CLASSES: Array<{ key: string; label: string; re: RegExp }> = [
+  { key: "recon", label: "Recon", re: /recon|discover|js_mine|subdomain|endpoint|crawl/i },
+  { key: "headers", label: "Headers/CSP/cookies", re: /csp|hsts|header|cookie|samesite|cors/i },
+  { key: "xss", label: "XSS", re: /xss|cross.?site.script|innerhtml|dom\b|taint/i },
+  { key: "sqli", label: "SQLi", re: /sqli|sql.injection|sql.error|union.select/i },
+  { key: "idor", label: "IDOR/BOLA", re: /idor|bola|broken.?access|\bbac\b/i },
+  { key: "mass", label: "Mass assignment", re: /mass.?assignment/i },
+  { key: "auth", label: "Auth/session", re: /auth|session|fixation|login|jwt|bypass|oauth|csrf/i },
+  { key: "ssrf", label: "SSRF", re: /\bssrf\b|server.side.request|\boost\b/i },
+  { key: "xxe", label: "XXE", re: /\bxxe\b|external.entit/i },
+  { key: "ssti", label: "SSTI", re: /ssti|template.injection|jinja|twig/i },
+  { key: "redirect", label: "Open redirect", re: /open.?redirect/i },
+  { key: "upload", label: "Upload", re: /upload|polyglot/i },
+  { key: "race", label: "Race", re: /\brace\b|toctou|nonce|duplicate/i },
+  { key: "graphql", label: "GraphQL", re: /graphql/i },
+  { key: "ws", label: "WebSocket", re: /websocket|cswsh/i },
+  { key: "cache", label: "Cache poisoning", re: /cache.poison/i },
+  { key: "llm", label: "LLM/AI", re: /\bllm\b|prompt.?injection|jailbreak|\bmcp\b/i },
+  { key: "exposure", label: "Exposure (.git/.env)", re: /exposure|\.git|\.env|backup/i },
+];
+
+/** Which classes show evidence in a text blob. Pure. */
+export function coverageTried(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const c of COVERAGE_CLASSES) {
+    c.re.lastIndex = 0;
+    if (c.re.test(text || "")) out.add(c.key);
+  }
+  return out;
+}
+
+/**
+ * Coverage report for one host: endpoint test %, proofs/findings counts, and
+ * per-class TRIED vs GAP so hunts have no blind spots. Honest: GAP means "no
+ * evidence in brain/hunt/findings", not "vulnerable". Read-only, no network.
+ */
+export async function brainCoverage(rawUser: unknown, targetRaw: string): Promise<string> {
+  const host = brainHost(targetRaw);
+  if (!host) return "Error: target tidak valid (pakai host/URL).";
+  const t = read(rawUser)[host];
+  const { readHunt } = await import("./huntLog");
+  const { readFindings } = await import("./security");
+  const hunts = readHunt(rawUser).filter((h) => (h.target || "").toLowerCase().includes(host));
+  const findings = readFindings(rawUser).filter(
+    (f) => f.status !== "resolved" && ((f.target || "").toLowerCase().includes(host))
+  );
+  if (!t && !hunts.length && !findings.length) {
+    return `🧠 Coverage ${host}: kosong — belum ada data brain/hunt/finding. Mulai dengan content_discover.`;
+  }
+  const endpoints = t?.endpoints ?? [];
+  const safe = new Set((t?.safeTested ?? []).map((s) => s.split("?")[0]));
+  const tested = endpoints.filter((e) => e.status.length > 0 || safe.has(e.path.split("?")[0])).length;
+  const pct = endpoints.length ? Math.round((tested / endpoints.length) * 100) : 0;
+  const corpus = [
+    ...(t?.proofs ?? []).map((p) => `${p.what} ${p.how}`),
+    ...findings.map((f) => `${f.title} ${f.owasp} ${f.cwe} ${f.evidence} ${f.steps}`),
+    ...hunts.map((h) => `${h.status} ${h.note} ${h.evidence}`),
+    ...(t?.notes ?? []),
+  ].join("\n");
+  const tried = coverageTried(corpus);
+  // Recon counts as tried when endpoints were discovered at all.
+  if (endpoints.length) tried.add("recon");
+  const gaps = COVERAGE_CLASSES.filter((c) => !tried.has(c.key));
+  const lines: string[] = [`🧭 COVERAGE ${host} — endpoint teruji ${tested}/${endpoints.length} (${pct}%) · terbukti ${t?.proofs.length ?? 0} · temuan open ${findings.length} · aman ${t?.safeTested.length ?? 0}`];
+  const triedLabels = COVERAGE_CLASSES.filter((c) => tried.has(c.key)).map((c) => c.label);
+  lines.push(`✅ Teruji: ${triedLabels.length ? triedLabels.join(", ") : "—"}`);
+  lines.push(gaps.length ? `🕳️ Gap (belum ada bukti uji): ${gaps.map((c) => c.label).join(", ")}` : "🎉 Tidak ada gap kelas — semua teruji minimal sekali.");
+  const untested = endpoints.filter((e) => e.status.length === 0 && !safe.has(e.path.split("?")[0])).slice(0, 8);
+  if (untested.length) lines.push(`Endpoint belum tersentuh: ${untested.map((e) => e.path).join(", ")}${endpoints.length - tested > 8 ? "…" : ""}`);
+  return lines.join("\n");
+}
+
 /** Raw target entry (for joins/tests). */
 export function brainGet(rawUser: unknown, targetRaw: string): BrainTarget | null {
   const host = brainHost(targetRaw);

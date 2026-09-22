@@ -3847,6 +3847,69 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "csrf_prove", description: "Buktikan CSRF end-to-end: parse form state-changing + cek field token + posture SameSite, replay aksi TANPA token memakai session, dan bila diterima tulis PoC HTML standalone ke evidence (file nyata). Verdict jujur: PROVEN / TOKEN-ENFORCED / NO-FORMS. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "halaman/form target lab/engagement" }, session: { type: "string", description: "nama http_session (status korban login)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { csrfProve } = await import("./csrfProve");
+        return await csrfProve(ctx.rawUser, {
+          url: typeof args.url === "string" ? args.url : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "csrf_prove failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "mass_assignment", description: "Buktikan mass assignment: injeksikan field privileged (role/admin/verified/user_id/…) ke POST/PUT/PATCH lalu diff vs baseline sesi yang sama — echo/reflection atau outcome berubah = kandidat; opsional verify_url GET untuk konfirmasi persistensi (role terbaca kembali). Verdict jujur: kandidat/terkontrol/diabaikan. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "endpoint lab/engagement" }, method: { type: "string", enum: ["POST", "PUT", "PATCH"], description: "default POST" }, body: { type: "string", description: "body dasar (JSON)" }, session: { type: "string", description: "nama http_session" }, fields: { type: "array", description: "subset field opsional" }, verify_url: { type: "string", description: "URL GET untuk cek persistensi (mis. /me/profile)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { massAssign } = await import("./massAssign");
+        return await massAssign(ctx.rawUser, {
+          url: typeof args.url === "string" ? args.url : undefined,
+          method: typeof args.method === "string" ? args.method : undefined,
+          body: typeof args.body === "string" ? args.body : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+          fields: Array.isArray(args.fields) ? args.fields.filter((x): x is string => typeof x === "string") : undefined,
+          verify_url: typeof args.verify_url === "string" ? args.verify_url : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "mass_assignment failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "upload_fuzz", description: "Uji upload file: bypass ekstensi (.phtml/.php5/case/double-ext/mime-confusion/polyglot/traversal, marker inert — tanpa webshell, tanpa .htaccess) lalu GET lokasi hasil upload untuk verifikasi akses. Verdict jujur: LEAD / UNVERIFIED / REJECTED. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "endpoint upload lab/engagement" }, field: { type: "string", description: "nama field form (default file)" }, session: { type: "string", description: "nama http_session" }, vectors: { type: "array", description: "subset nama vektor opsional" } }, required: ["url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { uploadFuzz } = await import("./uploadFuzz");
+        return await uploadFuzz(ctx.rawUser, {
+          url: typeof args.url === "string" ? args.url : undefined,
+          field: typeof args.field === "string" ? args.field : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+          vectors: Array.isArray(args.vectors) ? args.vectors.filter((x): x is string => typeof x === "string") : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "upload_fuzz failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "xss_hunt", description: "Buru XSS reflected/stored: semai marker inert per titik injeksi (param+form) → klasifikasi konteks (html/atribut/script/comment) → 1 breakout confirmer + beacon script-src OAST → korelasi. Refleksi tanpa breakout = kandidat lemah (jujur). Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "halaman lab/engagement ber-param/form" }, session: { type: "string", description: "nama http_session" }, callback: { type: "string", description: "URL OAST https (auto-create bila kosong)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { xssHunt } = await import("./xssHunt");
+        return await xssHunt(ctx.rawUser, {
+          url: typeof args.url === "string" ? args.url : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+          callback: typeof args.callback === "string" ? args.callback : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "xss_hunt failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "poc_verify", description: "Buktikan lead sebelum lapor: jalankan request N× (default 3), fingerprint tiap respons (status+body+header), cek determinisme, assertion expect_status/expect_contains/expect_header/expect_header_absent/expect_cookie_missing (atribut cookie per-nama), dan opsional banding baseline (kontrol) → verdict layak-lapor. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] }, headers: { type: "object" }, body: { type: "string" }, session: { type: "string", description: "nama http_session (opsional)" }, times: { type: "number", description: "default 3, maks 8" }, expect_status: { type: "number" }, expect_contains: { type: "string" }, expect_header: { type: "string", description: "substring (case-insensitive) yang HARUS ada di header respons" }, expect_header_absent: { type: "string", description: "substring yang TIDAK boleh ada di header respons" }, expect_cookie: { type: "string", description: "bukti temuan cookie: NAMA cookie yang diperiksa (mis. ASP.NET_SessionId_CROSS_DOM_custom)" }, expect_cookie_missing: { type: "string", description: "flag yang hilang pada cookie itu, dipisah koma (mis. HttpOnly, Secure, SameSite)" }, baseline_url: { type: "string", description: "request kontrol (mis. id/identitas lain)" }, baseline_method: { type: "string" }, baseline_body: { type: "string" }, baseline_session: { type: "string" }, save_evidence: { type: "boolean" } }, required: ["url"] } } },
     execute: async (args, ctx) => {
       try {
@@ -4008,7 +4071,7 @@ const toolRegistry: ToolPlugin[] = [
     execute: async () => { try { const { bountyStatus } = await import("./bounty"); return bountyStatus(); } catch (e) { return `Error: ${e instanceof Error ? e.message : "bounty_status failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "write", function: { name: "exploit_chain", description: "Jalankan exploit chain otomatis: IDOR (bola_diff), auth_bypass (JWT alg:none/claim tampering), SSRF (OAST callback), session_fixation, RACE (paralel + nonce unik), GRAPHQL (introspection/suggestion/batching/depth), XXE (OOB + file-read), OPEN_REDIRECT (matrix bypass), CACHE_POISON (header matrix). chain BISA koma-terpisah untuk beberapa chain sekaligus (mis. \"idor,ssrf,race\") — tiap chain jalan berurutan dan hasilnya per-chain; yang butuh setup (sesi/token/kredensial) di-skip dengan penanda ⛔ CHAIN TIDAK DIJALANKAN (tidak pernah dianggap jalan). Satu konfirmasi = seluruh chain yang diminta. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { chain: { type: "string", description: "jenis chain — satu nama ATAU koma-terpisah (mis. \"idor,ssrf,race\"): idor, auth_bypass, ssrf, session_fixation, race, graphql, xxe, open_redirect, cache_poison" }, url: { type: "string", description: "target URL (lab/engagement)" }, session_a: { type: "string", description: "nama http_session akun A (untuk IDOR)" }, session_b: { type: "string", description: "nama http_session akun B (untuk IDOR)" }, token: { type: "string", description: "JWT token (untuk auth_bypass)" }, session: { type: "string", description: "nama http_session (auth_bypass/race/graphql/xxe/redirect/cache)" }, callback: { type: "string", description: "OAST callback URL (opsional, auto-create jika kosong)" }, params: { type: "array", description: "parameter spesifik (ssrf/open_redirect/cache_poison)" }, login_url: { type: "string", description: "URL login (untuk session_fixation)" }, username: { type: "string", description: "username (untuk session_fixation)" }, password: { type: "string", description: "password (untuk session_fixation)" }, user_field: { type: "string", description: "nama field username di form (default: username)" }, pass_field: { type: "string", description: "nama field password di form (default: password)" }, protected_url: { type: "string", description: "URL terlindungi untuk diuji (untuk session_fixation)" }, body: { type: "string", description: "body POST (race — boleh {{NONCE}})" }, count: { type: "number", description: "jumlah request race 2-30 (default 10)" }, method: { type: "string" }, body_template: { type: "string", description: "template body XML dgn marker {XXE}" }, content_type: { type: "string" }, depth: { type: "number", description: "kedalaman depth probe graphql (default 25, maks 50)" } }, required: ["chain", "url"] } } },
+    definition: { type: "function", risk: "write", function: { name: "exploit_chain", description: "Jalankan exploit chain otomatis: IDOR (bola_diff), auth_bypass (JWT alg:none/claim tampering), SSRF (OAST callback), session_fixation, RACE (paralel + nonce unik), GRAPHQL (introspection/suggestion/batching/depth), XXE (OOB + file-read), OPEN_REDIRECT (matrix bypass), CACHE_POISON (header matrix). chain BISA koma-terpisah untuk beberapa chain sekaligus (mis. \"idor,ssrf,race\") ATAU chain='auto' (rekomendasi + jalan otomatis dari intel target_brain + sesi yang ada, maks 5, skip jujur) — tiap chain jalan berurutan dan hasilnya per-chain; yang butuh setup (sesi/token/kredensial) di-skip dengan penanda ⛔ CHAIN TIDAK DIJALANKAN (tidak pernah dianggap jalan). Satu konfirmasi = seluruh chain yang diminta. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { chain: { type: "string", description: "jenis chain — satu nama ATAU koma-terpisah (mis. \"idor,ssrf,race\"): idor, auth_bypass, ssrf, session_fixation, race, graphql, xxe, open_redirect, cache_poison" }, url: { type: "string", description: "target URL (lab/engagement)" }, session_a: { type: "string", description: "nama http_session akun A (untuk IDOR)" }, session_b: { type: "string", description: "nama http_session akun B (untuk IDOR)" }, token: { type: "string", description: "JWT token (untuk auth_bypass)" }, session: { type: "string", description: "nama http_session (auth_bypass/race/graphql/xxe/redirect/cache)" }, callback: { type: "string", description: "OAST callback URL (opsional, auto-create jika kosong)" }, params: { type: "array", description: "parameter spesifik (ssrf/open_redirect/cache_poison)" }, login_url: { type: "string", description: "URL login (untuk session_fixation)" }, username: { type: "string", description: "username (untuk session_fixation)" }, password: { type: "string", description: "password (untuk session_fixation)" }, user_field: { type: "string", description: "nama field username di form (default: username)" }, pass_field: { type: "string", description: "nama field password di form (default: password)" }, protected_url: { type: "string", description: "URL terlindungi untuk diuji (untuk session_fixation)" }, body: { type: "string", description: "body POST (race — boleh {{NONCE}})" }, count: { type: "number", description: "jumlah request race 2-30 (default 10)" }, method: { type: "string" }, body_template: { type: "string", description: "template body XML dgn marker {XXE}" }, content_type: { type: "string" }, depth: { type: "number", description: "kedalaman depth probe graphql (default 25, maks 50)" } }, required: ["chain", "url"] } } },
     execute: async (args, ctx) => {
       try {
         const { runExploitChain } = await import("./exploitChains");
@@ -4078,14 +4141,15 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { writeupText } = await import("./writeup"); return writeupText(ctx.rawUser, { id: typeof args.id === "string" ? args.id : undefined, platform: typeof args.platform === "string" ? args.platform : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "writeup failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "read", function: { name: "target_brain", description: "Memori persisten PER-TARGET: endpoint/params yang pernah terlihat, tech, auth model, temuan TERBUKTI, dan request yang sudah dites aman — WAJIB dibaca (action=brief) SEBELUM menguji ulang sebuah target supaya lanjut dari titik terakhir, bukan mengulang. content_discover/js_mine/tech_watch/finding_add menulis ke sini OTOMATIS. Read/auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["brief", "list", "forget", "note"], description: "default brief" }, target: { type: "string", description: "host/URL target (untuk brief/forget/note)" }, note: { type: "string", description: "catatan bebas (untuk action=note)" } }, required: [] } } },
+    definition: { type: "function", risk: "read", function: { name: "target_brain", description: "Memori persisten PER-TARGET: endpoint/params yang pernah terlihat, tech, auth model, temuan TERBUKTI, dan request yang sudah dites aman — WAJIB dibaca (action=brief) SEBELUM menguji ulang sebuah target supaya lanjut dari titik terakhir, bukan mengulang. action=coverage untuk peta % teruji + gap kelas serangan. content_discover/js_mine/tech_watch/finding_add menulis ke sini OTOMATIS. Read/auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["brief", "list", "forget", "note", "coverage"], description: "default brief" }, target: { type: "string", description: "host/URL target (untuk brief/forget/note/coverage)" }, note: { type: "string", description: "catatan bebas (untuk action=note)" } }, required: [] } } },
     execute: async (args, ctx) => {
       try {
         const brain = await import("./targetBrain");
         const action = typeof args.action === "string" ? args.action : "brief";
         const target = typeof args.target === "string" ? args.target : "";
-        if (action === "list" || (!target && action !== "list")) return action === "list" ? brain.brainListText(ctx.rawUser) : "Error: target wajib untuk action=brief/forget/note (mis. target=host.tld).";
+        if (action === "list" || (!target && action !== "list")) return action === "list" ? brain.brainListText(ctx.rawUser) : "Error: target wajib untuk action=brief/forget/note/coverage (mis. target=host.tld).";
         if (action === "forget") return brain.brainForget(ctx.rawUser, target) ? `🧠 Target brain ${target} direset.` : `Tidak ada data untuk ${target}.`;
+        if (action === "coverage") return await brain.brainCoverage(ctx.rawUser, target);
         if (action === "note") {
           const note = typeof args.note === "string" ? args.note : "";
           if (!note) return "Error: note wajib untuk action=note.";

@@ -177,3 +177,22 @@ describe("harImport hardening (audit 2026-09-23)", () => {
     expect(a[0]).not.toContain("super");
   });
 });
+
+describe("recommendChains (auto-select ranking)", () => {
+  it("ranks idor top with 2 sessions, flags missing setup honestly", async () => {
+    const { recommendChains } = await import("./exploitChains");
+    const r = recommendChains({ tech: "", endpoints: [{ path: "/api/dokumen", params: ["id"] }], proofText: "", sessions: ["a", "b"], hasToken: false, hasCreds: false });
+    expect(r[0].chain).toBe("idor");
+    expect(r[0].runnable).toBe(true);
+    const fix = r.find((x) => x.chain === "session_fixation")!;
+    expect(fix.runnable).toBe(false);
+    expect(fix.reason).toMatch(/username\+password/);
+  });
+  it("boosts ssrf on URL-ish params and graphql on tech signal", async () => {
+    const { recommendChains } = await import("./exploitChains");
+    const r = recommendChains({ tech: "graphql", endpoints: [{ path: "/g", params: ["next"] }], proofText: "", sessions: [], hasToken: false, hasCreds: false });
+    expect(r.find((x) => x.chain === "ssrf")!.score).toBeGreaterThanOrEqual(3);
+    expect(r.find((x) => x.chain === "graphql")!.score).toBeGreaterThanOrEqual(3);
+    expect(r.find((x) => x.chain === "idor")!.runnable).toBe(false);
+  });
+});

@@ -457,4 +457,11 @@ describe("slim prompt for small providers (audit 2026-09-23)", () => {
     expect(m, "dynamic list present").toBeTruthy();
     expect(m![1].split(", ").sort()).toEqual([...delivered].sort());
   });
+  it("never directs undelivered chains on the capped path (audit 2026-09-23+)", () => {
+    // Regression: slim ordered exploit_chain explicitly while 9router never
+    // delivers it — same contradiction class as Core-M5. The quoted-name test
+    // above is blind to bare mentions, so pin the directive directly.
+    expect(SLIM_SYSTEM_PROMPT).not.toMatch(/exploit_chain chain=/);
+    expect(SLIM_SYSTEM_PROMPT).toContain("lakukan alur manual");
+  });
 });
