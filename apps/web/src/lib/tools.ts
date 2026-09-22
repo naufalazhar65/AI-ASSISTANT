@@ -5992,9 +5992,12 @@ function buildGnLangs(language: string, region?: string): string[] {
 
 /**
  * Fetch one RSS edition into structured items. `withinHours` (0 = off) keeps
- * only items published inside that window. Never throws — returns [] on failure.
+ * only items published inside that window. Never throws — null when the fetch
+ * itself failed (network/HTTP error, e.g. datacenter-IP blocking), [] when it
+ * succeeded but yielded nothing. Callers must not conflate the two: a failed
+ * fetch is an honest Error, an empty one is "no news".
  */
-async function fetchGnEdition(query: string, lang: string, withinHours: number): Promise<GNItem[]> {
+async function fetchGnEdition(query: string, lang: string, withinHours: number): Promise<GNItem[] | null> {
   const [hl, gl] = lang.split("-");
   const params = new URLSearchParams({ hl, gl, ceid: `${gl}:${hl}` });
   if (query.trim()) params.set("q", query.trim().slice(0, 200));
@@ -6004,10 +6007,10 @@ async function fetchGnEdition(query: string, lang: string, withinHours: number):
       headers: { "User-Agent": USER_AGENT, Accept: "application/rss+xml, application/xml, text/xml" },
       signal: AbortSignal.timeout(9000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     xml = await res.text();
   } catch {
-    return [];
+    return null;
   }
   const now = Date.now();
   const out: GNItem[] = [];
@@ -6031,9 +6034,12 @@ async function fetchGnEdition(query: string, lang: string, withinHours: number):
 /**
  * Fetch all editions (primary first), merge, and dedup stories by title
  * similarity so the same story from 6 outlets shows once. Capped at GN_MAX_ITEMS.
+ * Returns null only when EVERY edition failed (partial success still merges).
  */
-async function fetchGnItems(query: string, langs: string[], withinHours: number): Promise<GNItem[]> {
-  const merged = (await Promise.all(langs.map((l) => fetchGnEdition(query, l, withinHours)))).flat();
+async function fetchGnItems(query: string, langs: string[], withinHours: number): Promise<GNItem[] | null> {
+  const results = await Promise.all(langs.map((l) => fetchGnEdition(query, l, withinHours)));
+  if (results.every((r) => r === null)) return null;
+  const merged = (results.filter((r): r is GNItem[] => r !== null)).flat();
   const kept: GNItem[] = [];
   for (const item of merged) {
     if (kept.some((k) => gnSimilar(k.title, item.title))) continue;
@@ -6052,11 +6058,13 @@ async function fetchGnItems(query: string, langs: string[], withinHours: number)
  * (title — source + date · source hostname) deduped across outlets. The RSS
  * `<link>` carries 400+ char base64 redirect URLs that render as ugly link
  * previews, so the article link is embedded as a compact markdown anchor
- * `[host](url)`. "No results" or short "Error: ..." on failure so it degrades.
+ * `[host](url)`. Fetch failure (all editions down/blocked) is a short honest
+ * "Error: ..." — never a fake "No news found." Genuine empty stays "No news".
  */
 async function googleNews(query: string, language: string, region?: string, within?: number): Promise<string> {
   const withinHours = typeof within === "number" && within > 0 ? Math.floor(within) : 0;
   const items = await fetchGnItems(query, buildGnLangs(language, region), withinHours);
+  if (items === null) return "Error: Google News tidak bisa dihubungi sekarang — coba lagi nanti ya.";
   if (!items.length) return withinHours > 0 ? `No news in the last ${withinHours}h.` : "No news found.";
   const rows = items.map((it) => `• ${it.title} (${it.source || "berita"}${it.when})${it.host ? ` — [${it.host}](${it.url})` : ""}`);
   const head = query.trim()
@@ -6077,7 +6085,7 @@ async function research(query: string, language?: string, region?: string, withi
   const q = query.trim().slice(0, 200);
   if (!q) return "Error: empty research query";
   const withinHours = typeof within === "number" && within > 0 ? Math.floor(within) : 0;
-  const items = await fetchGnItems(q, buildGnLangs(language || "id-ID", region), withinHours);
+  const items = (await fetchGnItems(q, buildGnLangs(language || "id-ID", region), withinHours)) ?? [];
   const newsLines = items.map((it) => `• ${it.title} (${it.source || "berita"}${it.when})${it.host ? ` — [${it.host}](${it.url})` : ""}`);
   const webText = await webSearch(q).catch(() => "Error: web search failed");
   // Publisher URLs from web-search rows (indented line holding a single URL).
@@ -6110,6 +6118,9 @@ async function research(query: string, language?: string, region?: string, withi
   if (newsLines.length) parts.push("Berita:", ...newsLines);
   if (webText && !webText.startsWith("Error:") && !webText.startsWith("No results")) parts.push("Web:", webText.slice(0, 1200));
   if (articleLines.length) parts.push("Isi artikel:", ...articleLines);
+  // Every source failed: an content-free digest header would read as a result —
+  // fail honestly instead (same slop class as fake "No news found").
+  if (parts.length === 1) return `Error: riset "${q}" gagal — sumber berita dan web tidak bisa dihubungi, coba lagi nanti ya.`;
   return parts.join("\n").slice(0, 6000);
 }
 
