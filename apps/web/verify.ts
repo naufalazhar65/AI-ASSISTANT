@@ -1457,6 +1457,55 @@ async function main() {
     console.log("oast + http_session + bola_diff + content_discover: OK");
   }
   {
+    // OAST auto-watcher (2026-09-23): dedupe/attribution/merge + the ONE honest
+    // hit-count parser (old `/1 request|request diterima/` regexes matched no
+    // real oast_poll format → SSRF-OOB / blind-XSS beacon confirmation was dead)
+    // + tick paths (test-key filter, unknown user, fake token: never throws,
+    // never pushes on failure, never mutates store) + watcher start guard.
+    const { oastHitId, newHits, attributeCarriers, mergeHits, oastHitCount, runOastTick, startOastWatcher } = await import("./src/lib/oast");
+    if (oastHitId({ uuid: "abc" }) !== "abc") throw new Error("oastHitId uuid");
+    if (newHits([{ uuid: "a" }, { uuid: "b" }], ["a"]).length !== 1) throw new Error("newHits dedupe");
+    const hist = [{ method: "GET", url: "http://lab/fetch?url=https://webhook.site/tok-1", status: 200, bytes: 1, ms: 0, at: "" }];
+    if (attributeCarriers("tok-1", hist).length !== 1) throw new Error("attributeCarriers hit");
+    if (attributeCarriers("nope", hist).length !== 0) throw new Error("attributeCarriers miss");
+    const merged = mergeHits({}, [{ uuid: "h1" }], ["http://lab/x"]);
+    if (merged.hits?.[0]?.id !== "h1" || !merged.seen?.includes("h1") || merged.hits[0].carriers[0] !== "http://lab/x") throw new Error("mergeHits");
+    if (oastHitCount("🎣 OAST https://webhook.site/u — 3 hit (2 BARU sejak cek terakhir):") !== 3) throw new Error("oastHitCount fresh head");
+    if (oastHitCount("🎣 OAST https://webhook.site/u — 7 hit (tidak ada yang baru):") !== 7) throw new Error("oastHitCount no-new head");
+    if (oastHitCount("belum ada interaksi (0 hit).") !== 0) throw new Error("oastHitCount zero-hit");
+    if (oastHitCount("1 request diterima") !== 0 || oastHitCount("🎣 OAST … — 3 interaksi (3 terbaru):") !== 0) throw new Error("oastHitCount must reject the dead formats");
+    // Test keys are excluded from tick (override AND discovery) — flood lesson.
+    if (!/no active tokens/.test(await runOastTick(["verify_oast_nonexistent"]))) throw new Error("tick must filter test keys");
+    // Unknown non-test user: honest loop summary, no network (store read fails first).
+    const ts = Date.now();
+    const ghost = `oastnwghost_${ts}`;
+    if (!/1 token dipoll, 0 hit baru/.test(await runOastTick([ghost]))) throw new Error("tick ghost user summary");
+    // Fake token: webhook.site rejects/fails → NO push, store NOT mutated.
+    const fu = `oastnwfake_${ts}`;
+    const uroot = join(appRoot(), ".data", "users", fu);
+    mkdirSync(uroot, { recursive: true });
+    const fakeUuid = "00000000-0000-4000-8000-000000000000";
+    writeFileSync(join(uroot, "oast.json"), JSON.stringify({ current: { uuid: fakeUuid, url: `https://webhook.site/${fakeUuid}`, createdAt: new Date().toISOString() } }), "utf8");
+    const t1 = await runOastTick([fu]);
+    if (!/1 token dipoll, 0 hit baru/.test(t1)) throw new Error(`tick fake token: ${t1}`);
+    if (JSON.parse(readFileSync(join(uroot, "oast.json"), "utf8")).seen !== undefined) throw new Error("fake token store must not be mutated on failed/empty poll");
+    rmSync(uroot, { recursive: true, force: true });
+    rmSync(join(appRoot(), ".data", "users", ghost), { recursive: true, force: true });
+    // Watcher start guard: disabled (OAST_WATCH_MIN=0) → no timers, idempotent.
+    process.env.OAST_WATCH_MIN = "0";
+    startOastWatcher();
+    startOastWatcher();
+    // Prompt + tool-description sync: Mia must know hits arrive automatically.
+    const { buildSystemPrompt } = await import("./src/lib/agent");
+    if (!/watcher ~5 menit/.test(buildSystemPrompt())) throw new Error("prompt missing OAST watcher clause");
+    const { getTOOLS } = await import("./src/lib/tools");
+    const oc = getTOOLS().find((t) => t.function.name === "oast_create");
+    const op = getTOOLS().find((t) => t.function.name === "oast_poll");
+    if (!oc || !/OTOMATIS/i.test(oc.function.description)) throw new Error("oast_create desc must mention auto-push");
+    if (!op || !/http_history/.test(op.function.description)) throw new Error("oast_poll desc must mention attribution");
+    console.log("oast auto-watch (dedupe + attribution + tick + watcher guard + prompt sync): OK");
+  }
+  {
     const { jwtAttack } = await import("./src/lib/jwt");
     const forged = jwtAttack({ action: "hs256", secret: "secret", claims: '{"role":"admin"}' });
     const tok = (forged.match(/(\S+\.\S+\.\S+)/) || [])[1] || "";
@@ -4206,6 +4255,168 @@ async function main() {
       srv.close();
       rmSync(join(appRoot(), ".data", "users", t4), { recursive: true, force: true });
     }
+  }
+
+  // ── smuggle_probe + dom_xss_prove (desync prover + dynamic DOM-XSS proof) ──
+  {
+    const { requiresConfirmation } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect } = await import("./src/lib/agent");
+    const regNames = getTOOLS().map((t) => t.function.name);
+    for (const n of ["smuggle_probe", "dom_xss_prove"]) {
+      if (!regNames.includes(n)) throw new Error(`${n} not registered`);
+      const def = getTOOLS().find((t) => t.function.name === n);
+      if (!requiresConfirmation(def)) throw new Error(`${n} must require confirmation (risk write)`);
+      if (!CORE_TOOL_NAMES.has(n)) throw new Error(`${n} must be in CORE`);
+      if (!isHeadlessSideEffect(n)) throw new Error(`${n} must be headless-guarded`);
+    }
+    if ([...CORE_TOOL_NAMES].length !== 128) throw new Error(`CORE must stay 128 (got ${[...CORE_TOOL_NAMES].length})`);
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    for (const n of ["smuggle_probe", "dom_xss_prove", "edit_file", "exec_write"]) {
+      const inGroq = groq.has(n);
+      if ((n === "smuggle_probe" || n === "dom_xss_prove") && !inGroq) throw new Error(`groq window missing ${n}`);
+      if ((n === "edit_file" || n === "exec_write") && inGroq) throw new Error(`${n} must stay demoted from the groq window`);
+    }
+
+    // pure classify/builders
+    const sm = await import("./src/lib/smuggleProbe");
+    const can = "mia-smuggle-abc";
+    if (sm.classifySmuggle("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nokHTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\n/mia-smuggle-abc", can).verdict !== "CONFIRMED") throw new Error("classify CONFIRMED");
+    if (sm.classifySmuggle("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nokHTTP/1.1 404 X\r\nContent-Length: 9\r\n\r\n/mia-smuggle-abcHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok", can).verdict !== "SIGNAL") throw new Error("classify SIGNAL");
+    if (sm.classifySmuggle("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n", can).verdict !== "REJECTED") throw new Error("classify REJECTED");
+    if (sm.classifySmuggle("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nokHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok", can).verdict !== "NO-DESYNC") throw new Error("classify NO-DESYNC");
+    const clte = sm.buildProbe("clte", "h", "/", can);
+    if (!/Content-Length: \d+/.test(clte) || !clte.includes("0\r\n\r\nGET /mia-smuggle-abc HTTP/1.1\r\n")) throw new Error("buildProbe clte shape");
+    if (!/SCOPE/.test(await sm.smuggleProbe("verify_smuggle", { url: "https://example.com/" }))) throw new Error("smuggle_probe scope guard");
+    if (!/^Error:/.test(await sm.smuggleProbe("verify_smuggle", { url: "notaurl" }))) throw new Error("smuggle_probe url guard");
+
+    const dx = await import("./src/lib/domXssProve");
+    if (dx.classifyDomXss([{ source: "hash", exec: true, injected: true, note: "" }]).verdict !== "PROVEN") throw new Error("classifyDomXss PROVEN");
+    if (dx.classifyDomXss([{ source: "hash", exec: false, injected: true, note: "" }]).verdict !== "INJECTED_ONLY") throw new Error("classifyDomXss INJECTED_ONLY");
+    if (dx.classifyDomXss([]).verdict !== "NOT_CONFIRMED") throw new Error("classifyDomXss NOT_CONFIRMED");
+    if (!dx.buildAttemptUrl("http://h/app#old", "hash", "<img>").includes("#<img>")) throw new Error("buildAttemptUrl must keep < > raw in hash");
+    if (!/SCOPE/.test(await dx.domXssProve("verify_domxss", { url: "https://example.com/" }))) throw new Error("dom_xss_prove scope guard");
+
+    // live: raw toy servers — one emulates front/back misattribution (must
+    // CONFIRM), one answers consistently (must stay NO-DESYNC).
+    const net = await import("node:net");
+    function startToy(desync: boolean): Promise<{ port: number; close: () => void }> {
+      return new Promise((resolve) => {
+        const srv = net.createServer((sock) => {
+          let buf = "";
+          let probeAnswered = false;
+          let canarySent = false;
+          let ended = false;
+          sock.on("data", (chunk: Buffer) => {
+            buf += chunk.toString("latin1");
+            if (desync && !canarySent) {
+              const cm = /GET \/(mia-smuggle-[a-z0-9]+) HTTP/.exec(buf);
+              if (cm) {
+                canarySent = true;
+                sock.write(`HTTP/1.1 404 Not Found\r\nContent-Length: ${12 + cm[1].length}\r\nConnection: keep-alive\r\n\r\nCannot GET /${cm[1]}`);
+              }
+            }
+            for (;;) {
+              const he = buf.indexOf("\r\n\r\n");
+              if (he < 0) break;
+              const headers = buf.slice(0, he);
+              const clm = /content-length:\s*(\d+)/i.exec(headers);
+              if (clm) {
+                const total = he + 4 + Number(clm[1]);
+                if (buf.length < total) break;
+                buf = buf.slice(total);
+                if (!probeAnswered) {
+                  probeAnswered = true;
+                  sock.write("HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: keep-alive\r\n\r\nprobe-ok");
+                }
+              } else {
+                buf = buf.slice(he + 4);
+                if (!probeAnswered) {
+                  probeAnswered = true;
+                  sock.write("HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: keep-alive\r\n\r\nprobe-ok");
+                } else if (desync) {
+                  if (!ended) {
+                    ended = true;
+                    setTimeout(() => {
+                      try { sock.end(); } catch { /* ignore */ }
+                    }, 100);
+                  }
+                  return;
+                } else {
+                  sock.write("HTTP/1.1 200 OK\r\nContent-Length: 9\r\nConnection: close\r\n\r\nvictim-ok");
+                  try { sock.end(); } catch { /* ignore */ }
+                  return;
+                }
+              }
+            }
+          });
+          sock.on("error", () => { /* ignore */ });
+        });
+        srv.listen(0, "127.0.0.1", () =>
+          resolve({ port: (srv.address() as { port: number }).port, close: () => srv.close() })
+        );
+      });
+    }
+    const pos = await startToy(true);
+    const neg = await startToy(false);
+    try {
+      const outPos = await sm.smuggleProbe("verify_smuggle", { url: `http://127.0.0.1:${pos.port}/` });
+      if (!/DESYNC TERKONFIRMASI \(3\/3/.test(outPos)) throw new Error(`desync toy must CONFIRM all modes: ${outPos.slice(0, 300)}`);
+      const outNeg = await sm.smuggleProbe("verify_smuggle", { url: `http://127.0.0.1:${neg.port}/` });
+      if (!/tidak terkonfirmasi/.test(outNeg) || /TERKONFIRMASI/.test(outNeg)) throw new Error(`consistent toy must NOT confirm: ${outNeg.slice(0, 300)}`);
+      // dispatch path (the one the agent loop uses): arg mapping + plugin wiring
+      const dPos = await executeTool({ id: "t-dpos", name: "smuggle_probe", arguments: JSON.stringify({ url: `http://127.0.0.1:${pos.port}/`, modes: "clte" }) }, "verify_smuggle");
+      if (!/DESYNC TERKONFIRMASI \(1\/1/.test(dPos)) throw new Error(`executeTool smuggle_probe dispatch: ${dPos.slice(0, 300)}`);
+      const dScope = await executeTool({ id: "t-dscope", name: "smuggle_probe", arguments: JSON.stringify({ url: "https://example.com/" }) }, "verify_smuggle");
+      if (!/SCOPE/.test(dScope)) throw new Error("executeTool smuggle_probe scope guard");
+    } finally {
+      pos.close();
+      neg.close();
+    }
+
+    // live: DOM sink pages — hash+postMessage must PROVE, textContent must not.
+    const http = await import("node:http");
+    const domSrv = http.createServer((req, res) => {
+      const u = req.url || "/";
+      res.writeHead(200, { "content-type": "text/html" });
+      if (u.startsWith("/domname")) {
+        res.end(`<html><body><script>document.body.innerHTML = window.name;</script></body></html>`);
+      } else if (u.startsWith("/domneg")) {
+        res.end(`<html><body><script>document.body.textContent = location.hash.slice(1);</script></body></html>`);
+      } else if (u.startsWith("/domref")) {
+        res.end(`<html><body><div id="t"></div><script>document.getElementById("t").innerHTML = document.referrer;</script></body></html>`);
+      } else if (u.startsWith("/domsearch")) {
+        // standard param pattern: URLSearchParams decodes the transit encoding
+        res.end(`<html><body><div id="t"></div><script>document.getElementById("t").innerHTML = new URLSearchParams(location.search).get("mia");</script></body></html>`);
+      } else {
+        // hash sink with decode — the provable class (Chromium percent-encodes
+        // <>/space/quote in fragments in transit; sinks that don't decode are
+        // honestly NOT_CONFIRMED, not a tool failure).
+        res.end(`<html><body><div id="t"></div><script>document.getElementById("t").innerHTML = decodeURIComponent(location.hash.slice(1)); window.addEventListener("message", function(e){ document.getElementById("t").innerHTML = e.data; });</script></body></html>`);
+      }
+    });
+    await new Promise<void>((r) => domSrv.listen(0, "127.0.0.1", () => r()));
+    const dbase = `http://127.0.0.1:${(domSrv.address() as { port: number }).port}`;
+    try {
+      const hp = await dx.domXssProve("verify_domxss", { url: `${dbase}/dom`, sources: "hash,postmessage" });
+      if (!/TERBUKTI/.test(hp)) throw new Error(`hash/postMessage sink must PROVE: ${hp.slice(0, 300)}`);
+      const wn = await dx.domXssProve("verify_domxss", { url: `${dbase}/domname`, sources: "windowname" });
+      if (!/TERBUKTI/.test(wn)) throw new Error(`window.name sink must PROVE: ${wn.slice(0, 300)}`);
+      const sq = await dx.domXssProve("verify_domxss", { url: `${dbase}/domsearch`, sources: "search" });
+      if (!/TERBUKTI/.test(sq)) throw new Error(`URLSearchParams sink must PROVE: ${sq.slice(0, 300)}`);
+      const ng = await dx.domXssProve("verify_domxss", { url: `${dbase}/domneg`, sources: "hash" });
+      if (!/TIDAK TERKONFIRMASI/.test(ng)) throw new Error(`textContent sink must NOT confirm: ${ng.slice(0, 300)}`);
+      // referrer branch runs end-to-end; the transit-encoded payload honestly
+      // yields NOT_CONFIRMED (no execution), not an error.
+      const rf = await dx.domXssProve("verify_domxss", { url: `${dbase}/domref`, sources: "referrer" });
+      if (!/TIDAK TERKONFIRMASI/.test(rf) || /Error: browser/.test(rf)) throw new Error(`referrer branch must run + honest-negative: ${rf.slice(0, 300)}`);
+      const dd = await executeTool({ id: "t-ddom", name: "dom_xss_prove", arguments: JSON.stringify({ url: `${dbase}/dom`, sources: "postmessage" }) }, "verify_domxss");
+      if (!/TERBUKTI/.test(dd)) throw new Error(`executeTool dom_xss_prove dispatch: ${dd.slice(0, 300)}`);
+    } finally {
+      domSrv.close();
+      rmSync(join(appRoot(), ".data", "users", "verify_smuggle"), { recursive: true, force: true });
+      rmSync(join(appRoot(), ".data", "users", "verify_domxss"), { recursive: true, force: true });
+    }
+    console.log("smuggle_probe + dom_xss_prove (registered write/confirm, CORE 128, groq window, scope guards, live desync CONFIRM vs consistent NO-DESYNC, live DOM PROVEN x4 + honest negatives x2, dispatch path): OK");
   }
 }
 

@@ -43,7 +43,7 @@ describe("xssHunt runner", () => {
     };
     const out = await xssHunt("u", {
       url: "http://127.0.0.1:4010/s?q=hi", fetchFn,
-      pollOast: async () => "1 request diterima",
+      pollOast: async () => "🎣 OAST https://webhook.site/tok — 2 hit (1 BARU sejak cek terakhir):",
     });
     expect(out).toContain("REFLECT (html)");
     expect(out).toContain("BREAKOUT lolos");

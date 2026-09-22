@@ -3681,11 +3681,11 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => { try { const { httpRequest } = await import("./security"); return await httpRequest({ url: String(args.url || ""), method: typeof args.method === "string" ? args.method : undefined, headers: (args.headers && typeof args.headers === "object") ? (args.headers as Record<string, string>) : undefined, body: asBodyString(args.body), session: typeof args.session === "string" ? args.session : undefined, saveSession: typeof args.save_session === "string" ? args.save_session : undefined }, ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "http_request failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "read", function: { name: "oast_create", description: "Buat callback URL OAST unik (webhook.site, keyless) untuk konfirmasi BLIND bugs (SSRF/blind XSS/XXE/RCE/SQLi-OOB). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    definition: { type: "function", risk: "read", function: { name: "oast_create", description: "Buat callback URL OAST unik (webhook.site, keyless) untuk konfirmasi BLIND bugs (SSRF/blind XSS/XXE/RCE/SQLi-OOB). Hit didorong OTOMATIS ke channel owner oleh watcher (~5 menit, teratribusi ke http_history) — poll manual hanya untuk cek instan. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
     execute: async (_args, ctx) => { try { const { oastCreate } = await import("./oast"); return await oastCreate(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "oast_create failed"}`; } },
   },
   {
-    definition: { type: "function", risk: "read", function: { name: "oast_poll", description: "Cek interaksi yang masuk ke callback OAST (bukti out-of-band). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    definition: { type: "function", risk: "read", function: { name: "oast_poll", description: "Cek interaksi yang masuk ke callback OAST (bukti out-of-band) — menampilkan hit + atribusi 'kirim via' dari http_history, ditandai baru/lama. Watcher juga mendorong hit otomatis, jadi tool ini untuk cek instan. Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
     execute: async (_args, ctx) => { try { const { oastPoll } = await import("./oast"); return await oastPoll(ctx.rawUser); } catch (e) { return `Error: ${e instanceof Error ? e.message : "oast_poll failed"}`; } },
   },
   {
@@ -3950,6 +3950,37 @@ const toolRegistry: ToolPlugin[] = [
         return await reconFull(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined });
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : "recon_full failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "smuggle_probe", description: "Buktikan HTTP request smuggling (CL.TE/TE.CL/TE-obfuscation) via raw socket: probe berisi hidden request canary + victim request → canary terjawab sebagai respons victim = DESYNC TERKONFIRMASI (CWE-444); satu hop konsisten/parse tegas = bukan temuan (jujur). Scope-gated, bounded ≤3 mode. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL lab/engagement (http/https)" }, modes: { type: "string", description: "subset koma: clte,tecl,teob (default ketiganya)" }, te: { type: "number", description: "indeks varian obfuscation TE untuk mode teob (default 0)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { smuggleProbe } = await import("./smuggleProbe");
+        return await smuggleProbe(ctx.rawUser, {
+          url: typeof args.url === "string" ? args.url : undefined,
+          modes: typeof args.modes === "string" ? args.modes : undefined,
+          te: typeof args.te === "number" ? args.te : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "smuggle_probe failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "dom_xss_prove", description: "Buktikan DOM-XSS secara dinamis di Chromium headless: payload ganda JS+HTML per sumber (hash/search/postMessage/window.name/referrer) → PROVEN bila handler/JS jalan, INJECTED_ONLY bila HTML masuk tanpa eksekusi (cek CSP), NOT_CONFIRMED bila nihil. Melengkapi dom_taint yang statik. Scope-gated, bounded ≤5 sumber. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "halaman lab/engagement" }, sources: { type: "string", description: "subset koma: hash,search,postmessage,windowname,referrer (default semua)" }, param: { type: "string", description: "nama query-param untuk attempt search/referrer (default mia)" }, session: { type: "string", description: "nama http_session (opsional)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { domXssProve } = await import("./domXssProve");
+        return await domXssProve(ctx.rawUser, {
+          url: typeof args.url === "string" ? args.url : undefined,
+          sources: typeof args.sources === "string" ? args.sources : undefined,
+          param: typeof args.param === "string" ? args.param : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "dom_xss_prove failed"}`;
       }
     },
   },
