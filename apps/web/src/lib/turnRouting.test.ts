@@ -31,7 +31,7 @@ import { clockLabel, wibDay, wibDayIndex, wibDailyNext } from "./time";
 import { isSilentAutomationReply } from "./automationRunner";
 import { parseLatLonAnywhere } from "./geo";
 import { resolveFavoriteQuery } from "./spotify";
-import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList, toolRunClaimSuffix, toolResultExecuted, toolActuallyRan, composeBuildClaimSuffix } from "./agent";
+import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList, toolRunClaimSuffix, toolResultExecuted, toolActuallyRan, composeBuildClaimSuffix, SLIM_SYSTEM_PROMPT, buildSlimSystemPrompt, buildSystemPrompt, toolsForUrl } from "./agent";
 import { reminderMessage, isTerseReminder, hasOwnCloser } from "./reminderMessage";
 import { scrubToolMarkup } from "../channels/replyChunk";
 
@@ -422,5 +422,39 @@ describe("tool result executed gate (refusals are not executions)", () => {
       { role: "tool", tool_call_id: "c1", content: "Not selected: ..." },
     ] as never;
     expect(toolActuallyRan(refused, "http_request")).toBe(false);
+  });
+});
+
+describe("slim prompt for small providers (audit 2026-09-23)", () => {
+  const R9 = "http://127.0.0.1:20128/v1/chat/completions";
+  it("stays under 45% of the full prompt", () => {
+    const full = buildSystemPrompt("u", "discord").length;
+    const slim = buildSlimSystemPrompt("u", "discord", R9).length;
+    expect(slim).toBeLessThan(full * 0.45);
+  });
+  it("keeps identity + scope + confirm + honesty + sweep essentials", () => {
+    for (const needle of [
+      "she/her", "SCOPE (pentest", "CONFIRM:", "HONESTY (hard):",
+      "SWEEP:", "FINDING RULES:",
+    ]) expect(SLIM_SYSTEM_PROMPT).toContain(needle);
+    // Dynamic delivered-tool list lives in the builder, not the const.
+    expect(buildSlimSystemPrompt("u", "discord", R9)).toContain("You have tools (ONLY these");
+  });
+  it("every registered tool named in slim is delivered in the 9router window", async () => {
+    const { getTOOLS } = await import("./tools");
+    const delivered = new Set(toolsForUrl(R9).map((t) => t.function.name));
+    const names = getTOOLS().map((t) => t.function.name);
+    expect(names.length).toBeGreaterThan(100);
+    for (const n of names) {
+      const quoted = SLIM_SYSTEM_PROMPT.includes(`\`${n}\``) || SLIM_SYSTEM_PROMPT.includes(`'${n}'`);
+      if (quoted) expect(delivered.has(n), n).toBe(true);
+    }
+  });
+  it("dynamic tool list equals the delivered set exactly", () => {
+    const delivered = toolsForUrl(R9).map((t) => t.function.name);
+    const built = buildSlimSystemPrompt("u", "discord", R9);
+    const m = /You have tools \(ONLY these[^:]*: ([a-z0-9_, ]+)\./.exec(built);
+    expect(m, "dynamic list present").toBeTruthy();
+    expect(m![1].split(", ").sort()).toEqual([...delivered].sort());
   });
 });
