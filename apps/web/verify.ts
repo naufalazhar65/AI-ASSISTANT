@@ -214,16 +214,24 @@ async function main() {
 
   // --- provider tool cap: Groq rejects >128 tools per request ---
   const { toolsForUrl } = await import("./src/lib/agent");
-  const liveTools = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "transcribe", "spotify_play", "spotify_mode", "spotify_queue", "spotify_sleep_timer"];
+  const liveToolsBoth = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "spotify_play", "spotify_mode", "spotify_queue", "spotify_sleep_timer"];
+  // transcribe is groq-128-only since 2026-09-23 (slot traded for auth_setup in
+  // the 9router-64 window: setup friction is the #1 chain-skip cause; the voice
+  // pipeline uses STT directly, never the transcribe tool).
+  const liveToolsGroqOnly = ["transcribe"];
   const groqTools = toolsForUrl("https://api.groq.com/openai/v1/chat/completions");
   if (groqTools.length > 128) throw new Error(`Groq tool cap not applied: ${groqTools.length}`);
   for (const cap of [
-    { name: "groq", names: groqTools.map((t) => t.function.name), max: 128 },
-    { name: "9router", names: toolsForUrl("http://localhost:20128/v1/chat/completions").map((t) => t.function.name), max: 64 },
+    { name: "groq", names: groqTools.map((t) => t.function.name), max: 128, live: [...liveToolsBoth, ...liveToolsGroqOnly] },
+    { name: "9router", names: toolsForUrl("http://localhost:20128/v1/chat/completions").map((t) => t.function.name), max: 64, live: liveToolsBoth },
   ]) {
     if (cap.names.length > cap.max) throw new Error(`${cap.name} tool cap not applied: ${cap.names.length}`);
-    const missing = liveTools.filter((n) => !cap.names.includes(n));
+    const missing = cap.live.filter((n) => !cap.names.includes(n));
     if (missing.length) throw new Error(`${cap.name} cap dropped live tools: ${missing.join(", ")}`);
+  }
+  // auth_setup must ride the 9router-64 window (chain setup on the main channel).
+  if (!toolsForUrl("http://localhost:20128/v1/chat/completions").some((t) => t.function.name === "auth_setup")) {
+    throw new Error("9router window must carry auth_setup");
   }
   // The pentest workflow (score → finding → report) must survive the Groq cap.
   // 9router's 64-slot cap is smaller than CORE and intentionally keeps only the
@@ -3271,6 +3279,29 @@ async function main() {
     console.log("audit round 2: OK (pentest round budget, history sanitize, proof warn)");
   }
 
+  // ── bounty multi-host honesty: no drafts → no PDFs, no coverage note ──
+  {
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("plain");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const { bountyRun } = await import("./src/lib/bounty");
+      const out = await bountyRun("verify_bounty_multi", { targets: [`http://127.0.0.1:${port}`], max_hosts: 1, max_seconds: 60 });
+      if (!/RINGKASAN/.test(out) || !/HANDOFF/.test(out)) throw new Error("bountyRun skeleton broken");
+      if (/📎 /.test(out)) throw new Error("no drafts must mean no PDF lines");
+      if (/Cakupan laporan/.test(out)) throw new Error("no drafts must mean no coverage note");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      const fsH = await import("node:fs");
+      try { fsH.rmSync("apps/web/.data/users/verify_bounty_multi", { recursive: true, force: true }); } catch { /* noop */ }
+    }
+    console.log("bounty multi-host honesty: OK (no drafts → no PDFs, no coverage claims)");
+  }
+
   // ── auth_setup wizard (audit 2026-09-23: 23 chain runs vs ~0 sessions) ──
   {
     const { getTOOLS, requiresConfirmation } = await import("./src/lib/tools");
@@ -3319,6 +3350,45 @@ async function main() {
       try { fsH.rmSync("apps/web/.data/users/verify_authsetup", { recursive: true, force: true }); } catch { /* noop */ }
     }
     console.log("auth_setup wizard: OK (write/confirm, CORE 128, headless-guarded, live login → session, masked, scope)");
+  }
+
+  // ── exposure_hunt (predictable-resource scanner) ─────────────────────
+  {
+    const { getTOOLS, requiresConfirmation } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect } = await import("./src/lib/agent");
+    const t = getTOOLS().find((x) => x.function.name === "exposure_hunt");
+    if (!t || t.risk !== "write" || !requiresConfirmation(t)) throw new Error("exposure_hunt must be write/confirm");
+    if (!CORE_TOOL_NAMES.has("exposure_hunt")) throw new Error("exposure_hunt must be in CORE");
+    if (CORE_TOOL_NAMES.size !== 128) throw new Error(`CORE must stay 128 (got ${CORE_TOOL_NAMES.size})`);
+    if (!toolsForUrl("https://api.groq.com/openai/v1/chat/completions").some((x) => x.function.name === "exposure_hunt")) {
+      throw new Error("groq window must carry exposure_hunt");
+    }
+    if (isHeadlessSideEffect("exposure_hunt")) throw new Error("exposure_hunt is write-gated already; must NOT be headless-listed");
+    const http = await import("node:http");
+    const server = http.createServer((req, res) => {
+      const u = req.url || "/";
+      if (u === "/.git/HEAD") { res.writeHead(200, { "content-type": "text/plain" }); res.end("ref: refs/heads/main\n"); return; }
+      if (u === "/.env") { res.writeHead(200, { "content-type": "text/plain" }); res.end("SECRET_KEY=livezzz123\nDEBUG=true\n"); return; }
+      if (u === "/package.json") { res.writeHead(403); res.end("no"); return; }
+      res.writeHead(404); res.end("no");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const { executeTool } = await import("./src/lib/tools");
+      const out = await executeTool({ id: "e1", name: "exposure_hunt", arguments: JSON.stringify({ url: `http://127.0.0.1:${port}/` }) }, "verify_exposure");
+      if (!out.includes("/.git/HEAD") || !out.includes("LEAD")) throw new Error(`must flag git HEAD, got: ${out.slice(0, 160)}`);
+      if (/livezzz123/.test(out)) throw new Error("live secret value must never print (keys only)");
+      if (!out.includes("SECRET_KEY=[redacted]")) throw new Error("lead should cite the redacted key");
+      if (!out.includes("/package.json") || !out.includes("info")) throw new Error("403 on a known path must be info, not lead");
+      const scope = await executeTool({ id: "e2", name: "exposure_hunt", arguments: JSON.stringify({ url: "https://example.com/" }) }, "verify_exposure");
+      if (!scope.includes("SCOPE")) throw new Error("out-of-scope must be refused");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      const fsH = await import("node:fs");
+      try { fsH.rmSync("apps/web/.data/users/verify_exposure", { recursive: true, force: true }); } catch { /* noop */ }
+    }
+    console.log("exposure_hunt: OK (write/confirm, CORE 128, live LEAD + redact + 403-info + scope)");
   }
 
   // ── deterministic PDF delivery helpers ────────────────────────────────

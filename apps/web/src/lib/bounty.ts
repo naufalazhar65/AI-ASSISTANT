@@ -199,27 +199,30 @@ export async function bountyRun(
     }
   }
 
-  let report = "";
-  let pdfReport = "";
-  if (drafts.some((d) => d.startsWith("📝"))) {
+  // Per-host reports (bounded 3): drafts can span hosts, and a single
+  // ranked[0]-scoped PDF would silently drop the rest (audit 2026-09-23+).
+  const reportHosts = [...new Set(candidates.map((c) => c.host))].slice(0, 3);
+  const reports: string[] = [];
+  const pdfs: string[] = [];
+  for (const h of reportHosts) {
     try {
-      report = generateReport(rawUser, { target: ranked[0] }).split("\n")[0];
+      const r = generateReport(rawUser, { target: h }).split("\n")[0];
+      if (r) reports.push(`📄 [${h}] ${r}`);
     } catch {
       /* best-effort */
     }
     try {
-      pdfReport = await reportPdf(rawUser, { target: ranked[0] });
+      const p = await reportPdf(rawUser, { target: h });
+      if (p) pdfs.push(`📎 [${h}] ${p}`);
     } catch {
       /* best-effort */
     }
   }
-  // Honest coverage (audit 2026-09-23): the report/PDF is scoped to ranked[0]
-  // only — drafts on other hosts are NOT in it. Say so instead of implying
-  // full coverage.
+  // Honest coverage: hosts beyond the bound are NOT in any PDF.
   const draftHosts = [...new Set(candidates.map((c) => c.host))];
-  const uncovered = draftHosts.filter((h) => h !== ranked[0]);
+  const uncovered = draftHosts.slice(3);
   const coverageNote = uncovered.length
-    ? `\n📑 Cakupan laporan: PDF/markdown di atas hanya memuat ${ranked[0]} — draft di ${uncovered.join(", ")} TIDAK termasuk (minta report per host bila perlu).`
+    ? `\n📑 Cakupan laporan: PDF di atas mencakup ${reportHosts.join(", ")} — draft di ${uncovered.join(", ")} TIDAK termasuk (minta report per host bila perlu).`
     : "";
 
   // Persist run state (resumable history).
@@ -241,8 +244,8 @@ export async function bountyRun(
     `\n── RINGKASAN ──`,
     `Host dijalankan: ${outcome.ran} · lead: ${allLeads.length} · kandidat: ${candidates.length} · draft finding: ${drafts.filter((d) => d.startsWith("📝")).length}`,
     drafts.length ? `\nDraft/tindak lanjut:\n${drafts.map((d) => `• ${d}`).join("\n")}` : "\nTidak ada kandidat high-signal (lead lain tetap di hunt_log).",
-    report ? `\n📄 ${report}` : "",
-    pdfReport ? `\n📎 ${pdfReport}` : "",
+    reports.length ? `\nLaporan:\n${reports.join("\n")}` : "",
+    pdfs.length ? `${pdfs.join("\n")}` : "",
     coverageNote,
     `\n── HANDOFF (butuh kamu) ──\n- ${handoff.join("\n- ")}`,
     `\n⚠️ Semua draft belum diverifikasi & TIDAK disubmit. Ini pemetaan otomatis, bukan jaminan temuan.`,

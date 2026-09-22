@@ -3833,6 +3833,20 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "exposure_hunt", description: "Sapu path predictable yang terekspos (.git/HEAD, .env, backup, VCS metadata, API docs — 24 path, GET-only) pada SATU origin. Klasifikasi LEAD (200+marker) vs info (401/403); nilai secret TIDAK pernah ditampilkan (keys only). Sinyal bukan vuln: poc_verify dulu. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dasar lab/engagement (origin-nya yang diuji)" }, paths: { type: "array", description: "subset path opsional (mis. ['/.git/HEAD','/.env'])" } }, required: ["url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { exposureHunt } = await import("./exposureHunt");
+        return await exposureHunt(ctx.rawUser, {
+          url: typeof args.url === "string" ? args.url : undefined,
+          paths: Array.isArray(args.paths) ? args.paths.filter((x): x is string => typeof x === "string") : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "exposure_hunt failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "poc_verify", description: "Buktikan lead sebelum lapor: jalankan request N× (default 3), fingerprint tiap respons (status+body+header), cek determinisme, assertion expect_status/expect_contains/expect_header/expect_header_absent/expect_cookie_missing (atribut cookie per-nama), dan opsional banding baseline (kontrol) → verdict layak-lapor. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] }, headers: { type: "object" }, body: { type: "string" }, session: { type: "string", description: "nama http_session (opsional)" }, times: { type: "number", description: "default 3, maks 8" }, expect_status: { type: "number" }, expect_contains: { type: "string" }, expect_header: { type: "string", description: "substring (case-insensitive) yang HARUS ada di header respons" }, expect_header_absent: { type: "string", description: "substring yang TIDAK boleh ada di header respons" }, expect_cookie: { type: "string", description: "bukti temuan cookie: NAMA cookie yang diperiksa (mis. ASP.NET_SessionId_CROSS_DOM_custom)" }, expect_cookie_missing: { type: "string", description: "flag yang hilang pada cookie itu, dipisah koma (mis. HttpOnly, Secure, SameSite)" }, baseline_url: { type: "string", description: "request kontrol (mis. id/identitas lain)" }, baseline_method: { type: "string" }, baseline_body: { type: "string" }, baseline_session: { type: "string" }, save_evidence: { type: "boolean" } }, required: ["url"] } } },
     execute: async (args, ctx) => {
       try {
