@@ -3150,6 +3150,38 @@ async function main() {
     console.log("vuln_compose + exploit_build: OK (registered write/confirm, CORE 128, groq window, live chain proven + composite filed, cross-host refused, artifact real on disk, honest no-file paths)");
   }
 
+  // ── compose/build honesty guard (slop probe 2026-09-22: fabricated path,
+  // inverted PUTUS/failed verdicts slipped past all older guards) ────────
+  {
+    const { composeBuildClaimSuffix } = await import("./src/lib/agent");
+    const noRun: never[] = [];
+    if (!composeBuildClaimSuffix(noRun, "Artefaknya sudah kubuat di .data/u/exploits/F-abc-exploit.mjs.").includes("exploit_build")) {
+      throw new Error("guard must fire on fabricated artifact path");
+    }
+    const putus = [
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "vuln_compose", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "⚠️ VULN COMPOSE PUTUS DI HOP 1 — tidak ada temuan komposit yang dibuat." },
+    ] as never;
+    if (!composeBuildClaimSuffix(putus, "Chain-nya terbukti penuh, semua hop tersambung.").includes("vuln_compose")) {
+      throw new Error("guard must fire on inverted PUTUS verdict");
+    }
+    const failed = [
+      { role: "assistant", content: null, tool_calls: [{ id: "c2", type: "function", function: { name: "exploit_build", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c2", content: "⛔ exploit_build tidak dibuat — finding tanpa evidence." },
+    ] as never;
+    if (!composeBuildClaimSuffix(failed, "Exploitnya sudah kubuat, file-nya ada.").includes("exploit_build")) {
+      throw new Error("guard must fire on inverted build verdict");
+    }
+    const proven = [
+      { role: "assistant", content: null, tool_calls: [{ id: "c3", type: "function", function: { name: "vuln_compose", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c3", content: "✅ CHAIN TERBUKTI PENUH — temuan komposit critical dicatat" },
+    ] as never;
+    if (composeBuildClaimSuffix(proven, "Chain terbukti penuh, komposit sudah kucatat.") !== "") throw new Error("guard must stay silent on genuine proof");
+    if (composeBuildClaimSuffix(putus, "Chain-nya putus di hop 1, belum terbukti.") !== "") throw new Error("guard must stay silent on honest admission");
+    if (composeBuildClaimSuffix(noRun, "Halo, harimu gimana?") !== "") throw new Error("guard must stay silent on unrelated prose");
+    console.log("compose/build honesty guard: OK (3 lies flagged, proof/admission/prose silent)");
+  }
+
   // ── deterministic PDF delivery helpers ────────────────────────────────
   {
     const { turnRanTool, reportTargetFromMessages, pdfDeliverableSuffix } = await import("./src/lib/agent");

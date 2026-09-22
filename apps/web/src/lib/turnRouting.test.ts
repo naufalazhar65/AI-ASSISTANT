@@ -31,7 +31,7 @@ import { clockLabel, wibDay, wibDayIndex, wibDailyNext } from "./time";
 import { isSilentAutomationReply } from "./automationRunner";
 import { parseLatLonAnywhere } from "./geo";
 import { resolveFavoriteQuery } from "./spotify";
-import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList, toolRunClaimSuffix, toolResultExecuted, toolActuallyRan } from "./agent";
+import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList, toolRunClaimSuffix, toolResultExecuted, toolActuallyRan, composeBuildClaimSuffix } from "./agent";
 import { reminderMessage, isTerseReminder, hasOwnCloser } from "./reminderMessage";
 import { scrubToolMarkup } from "../channels/replyChunk";
 
@@ -342,6 +342,57 @@ describe("tool-run claim honesty (narration must match execution records)", () =
     expect(out).toContain("web_search");
     const listed = out.match(/http_request|poc_verify|web_search/g) ?? [];
     expect(listed.length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("compose/build honesty (verdicts must never invert or fabricate)", () => {
+  const ran = (name: string, content: string) => [
+    { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name, arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "c1", content },
+  ] as never;
+
+  it("flags a fabricated artifact path with no build (live probe 2026-09-22)", () => {
+    const out = composeBuildClaimSuffix([], "Artefaknya sudah kubuat di .data/users/kamu/exploits/F-abc123-exploit.mjs — tinggal jalankan pakai node ya.");
+    expect(out).not.toBe("");
+    expect(out).toContain("exploit_build");
+  });
+
+  it("flags verdict inversion over a PUTUS compose", () => {
+    const messages = ran("vuln_compose", "⛓️ VULN COMPOSE — lab.tld\n⚠️ VULN COMPOSE PUTUS DI HOP 1 — tidak ada temuan komposit yang dibuat.");
+    const out = composeBuildClaimSuffix(messages, "Chain-nya terbukti penuh, semua hop tersambung dengan sempurna.");
+    expect(out).not.toBe("");
+    expect(out).toContain("vuln_compose");
+  });
+
+  it("flags verdict inversion over a failed build", () => {
+    const messages = ran("exploit_build", "⛔ exploit_build tidak dibuat — finding F-x tanpa evidence/steps (belum proven).");
+    const out = composeBuildClaimSuffix(messages, "Exploitnya sudah kubuat, file-nya ada di folder exploits.");
+    expect(out).not.toBe("");
+    expect(out).toContain("exploit_build");
+  });
+
+  it("flags proof narrated with no compose anywhere", () => {
+    const out = composeBuildClaimSuffix([], "Rantai E2E-nya terbukti berhasil, semua hop valid.");
+    expect(out).not.toBe("");
+    expect(out).toContain("vuln_compose");
+  });
+
+  it("is silent when verdicts genuinely prove", () => {
+    const comp = ran("vuln_compose", "✅ CHAIN TERBUKTI PENUH — temuan komposit critical dicatat");
+    expect(composeBuildClaimSuffix(comp, "Chain terbukti penuh, temuan komposit sudah kucatat.")).toBe("");
+    const build = ran("exploit_build", "📄 Artefak exploit dibuat: /x/F-a-exploit.mjs");
+    expect(composeBuildClaimSuffix(build, "Artefaknya sudah kubuat di F-a-exploit.mjs, jalankan pakai node.")).toBe("");
+  });
+
+  it("is silent when the reply admits the gap", () => {
+    const comp = ran("vuln_compose", "⚠️ VULN COMPOSE PUTUS DI HOP 2 — tidak ada temuan komposit yang dibuat.");
+    expect(composeBuildClaimSuffix(comp, "Chain-nya putus di hop 2, belum terbukti — mau aku perbaiki?")).toBe("");
+    expect(composeBuildClaimSuffix([], "Artefaknya belum ada — bilang saja kalau mau kubuatkan.")).toBe("");
+  });
+
+  it("is silent on unrelated prose", () => {
+    expect(composeBuildClaimSuffix([], "Halo Mas Naufal, harimu gimana? 🌸")).toBe("");
+    expect(composeBuildClaimSuffix([], "Nanti kalau ada temuan baru aku compose.")).toBe("");
   });
 });
 

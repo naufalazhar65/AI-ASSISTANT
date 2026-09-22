@@ -2665,6 +2665,62 @@ export function toolRunClaimSuffix(messages: ChatMessage[], text: string): strin
 }
 
 /**
+ * Honest compose/build guard: vuln_compose + exploit_build emit verdicts that
+ * must never be inverted or fabricated in narration (live probe 2026-09-22:
+ * a quoted `F-...-exploit.mjs` path with no build, a "terbukti penuh" narration
+ * over a PUTUS verdict, and a "sudah kubuat" narration over "tidak dibuat" ALL
+ * slipped past toolRunClaimSuffix/chainRunClaimSuffix/pdfDeliverableSuffix).
+ * Three lies, one suffix — last executed verdict wins (history may hold older
+ * runs), and an reply that already admits the gap stays silent. Pure — tested.
+ */
+export function composeBuildClaimSuffix(messages: ChatMessage[], text: string): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  const outsFor = (name: string): string[] => {
+    const outs: string[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.tool_calls && m.tool_calls.some((tc) => tc.function.name === name)) {
+        for (let j = i + 1; j < messages.length; j++) {
+          if (messages[j].role !== "tool") break;
+          const c = messageText(messages[j].content || "");
+          if (c && toolResultExecuted(c)) outs.push(c);
+        }
+      }
+    }
+    return outs;
+  };
+  const admitsGap = /(putus|gagal|belum|tidak\s+(dibuat|tersambung|jalan)|tak\s+tersambung|tidak\s+ada\s+(file|artefak)|belum\s+ada)/i.test(t);
+  if (admitsGap) return "";
+  const claimsProvenChain =
+    /terbukti\s+penuh|chain[^\n]{0,50}terbukti|rantai[^\n]{0,50}terbukti|semua\s+hop[^\n]{0,30}(tersambung|valid|terbukti)|chain\s+e2e[^\n]{0,30}(terbukti|berhasil)/i.test(t);
+  const claimsArtifact =
+    /-exploit\.(mjs|py|sh)\b/i.test(t) ||
+    /(artefak[^\n]{0,60}(sudah|telah|berhasil)[^\n]{0,30}(dibuat|jadi|ada)|sudah[^\n]{0,20}(kubuat|kubikin|kusiapkan)[^\n]{0,30}(artefak|exploit|file)|file-?nya\s+(sudah\s+)?ada|exploit[^\n]{0,30}sudah\s+jadi)/i.test(t);
+  const composeOuts = outsFor("vuln_compose");
+  const buildOuts = outsFor("exploit_build");
+  const composeLast = composeOuts.length ? composeOuts[composeOuts.length - 1] : "";
+  const buildLast = buildOuts.length ? buildOuts[buildOuts.length - 1] : "";
+  // Inverted compose: last verdict proved nothing, reply narrates a proven chain.
+  if (/PUTUS DI HOP|TAK TERSAMBUNG/.test(composeLast) && claimsProvenChain) {
+    return ` (Catatan jujur: vuln_compose giliran ini TIDAK membuktikan chain — verdict-nya putus/tak tersambung (baca hasil tool di atas). Bilang "lanjutkan" kalau mau aku perbaiki hop-nya.)`;
+  }
+  // Inverted build: last verdict wrote nothing, reply narrates a finished artifact.
+  if (/tidak dibuat/i.test(buildLast) && claimsArtifact) {
+    return ` (Catatan jujur: exploit_build giliran ini TIDAK membuat file apa pun (baca hasil tool di atas) — klaim artefak di atas tidak benar. Bilang "coba lagi" kalau mau aku buatkan.)`;
+  }
+  // Fabricated compose: proof narrated with no executed compose anywhere in context.
+  if (!composeOuts.length && claimsProvenChain) {
+    return ` (Catatan jujur: aku belum menjalankan vuln_compose di sini — belum ada chain yang terbukti. Bilang "compose" kalau mau aku susun dari temuan yang tercatat.)`;
+  }
+  // Fabricated artifact: path/creation narrated with no executed build anywhere.
+  if (!buildOuts.length && claimsArtifact) {
+    return ` (Catatan jujur: giliran ini belum menjalankan exploit_build — path artefak di atas belum ada filenya. Bilang "buatkan exploitnya" dan aku buatkan sekarang.)`;
+  }
+  return "";
+}
+
+/**
  * Budget for trying the whole chain. Each member can spend its own
  * same-model rate-limit retry (up to 6s), so a free-tier outage across all
  * members could otherwise stall a voice/chat turn for ~40s — worse than an
@@ -3409,6 +3465,16 @@ async function runAssistantTurnImpl(opts: {
   if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
     const runNote = toolRunClaimSuffix(messages, text);
     if (runNote) text = `${text}${runNote}`;
+  }
+
+  // Honest compose/build guard: vuln_compose + exploit_build verdicts must
+  // never be inverted or fabricated in narration (a quoted -exploit.mjs path
+  // with no build, "terbukti penuh" over a PUTUS verdict, "sudah kubuat" over
+  // "tidak dibuat" — all slipped past the older guards in a 2026-09-22 probe).
+  // Same gates as the tool-run guard; pure, tested.
+  if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
+    const composeNote = composeBuildClaimSuffix(messages, text);
+    if (composeNote) text = `${text}${composeNote}`;
   }
 
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
