@@ -19,6 +19,15 @@ export function startFreerideWatcher(): void {
         const { logInfo } = await import("./appLogger");
         logInfo("freeride", res);
       }
+      // Provider auto-failover watchdog: probe down cheap providers 1×/h and
+      // restore them when alive (billed quota providers restore via cooldown
+      // expiry instead — a probe would spend their monthly quota).
+      const { providerHealthTick } = await import("./providerHealth");
+      const healthRes = await providerHealthTick();
+      if (healthRes) {
+        const { logInfo } = await import("./appLogger");
+        logInfo("providerHealth", healthRes);
+      }
     } catch (e) {
       try {
         const { logError } = await import("./appLogger");

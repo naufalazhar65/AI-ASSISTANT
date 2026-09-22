@@ -46,6 +46,7 @@ import { fixAddressComma } from "./textStyle";
 import { dayRotated } from "./dayRotated";
 import { isProviderRetryable } from "./assistantError";
 import { isInternalTurn } from "./memoryNoise";
+import { providerChain, markProviderFailure, markProviderHealthy } from "./providerHealth";
 
 export type ContentPart =
   | { type: "text"; text: string }
@@ -1346,6 +1347,8 @@ export type TurnResult = {
    * instead of an orphan `tool` message.
    */
   messages?: ChatMessage[];
+  /** Which provider actually answered (after auto-failover), for `provider_status`. */
+  providerUsed?: string;
 };
 
 /**
@@ -2668,6 +2671,25 @@ export function toolRunClaimSuffix(messages: ChatMessage[], text: string): strin
  */
 const CHAIN_DEADLINE_MS = 30_000;
 
+const HINT_UNDELIVERED = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "report_generate", "report_save", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "content_discover", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate"];
+
+/**
+ * Tool-budget honesty hint, per candidate provider (live 2026-09-21: on 9router
+ * the model kept attempting lab_fetch/security_hunt first — advertised by the
+ * static SYSTEM_PROMPT — then burned a round on the delivery guard's honest
+ * refusal before adapting). Capped providers deliver only a toolsForUrl subset,
+ * so name the missing high-profile tools up front and the model plans with what
+ * it actually has. Uncapped providers deliver everything → empty → no bloat.
+ */
+function toolBudgetHint(url: string): string {
+  const deliveredTools = toolsForUrl(url);
+  const missingTools = HINT_UNDELIVERED.filter((n) => !deliveredTools.some((t) => t.function.name === n));
+  if (!missingTools.length) return "";
+  return (
+    `\n\nTOOL BUDGET (provider ini): hanya ${deliveredTools.length} tool yang tersedia. TIDAK tersedia di sini: ${missingTools.join(", ")}. JANGAN memanggilnya — rencanakan dengan tool yang ada (pentest_resources, pentest_scan, http_request, poc_verify, ato_prove, finding_add, finding_list, workflow_fuzz, prompt_injection_hunt, race_attack, graphql_hunt) dan katakan jujur kalau sebuah tahap butuh provider lain. Untuk permintaan pentest/pengujian: LANGSUNG kerjakan alurnya dengan tool yang tersedia mulai giliran ini — jangan minta izin, jangan menawarkan alternatif dulu. SWEEP MENYELURUH: kalau user minta pentest semua bagian/full/menyeluruh, JANGAN bertanya bagian mana yang diuji duluan (arahan sudah jelas) — lakukan sendiri secara sistematis: enumerasi endpoint dari halaman/JS yang ter-fetch, uji satu per satu dengan http_request (+ poc_verify untuk yang mencurigakan), catat tiap temuan dengan finding_add, lanjut ke endpoint berikutnya sampai semua teruji. KONTEKS TEMUAN: sebelum menguji target, panggil finding_list target=<host> — bila findings target itu sudah tercatat, pakai sebagai titik mulai dan sebut dengan benar; DILARANG mengklaim "endpoint/API belum ketemu" bila findings store sudah berisi endpoint itu. Pengujian endpoint pakai http_request — browser_open hanya untuk melihat halaman, jangan loop untuk pengujian. PENGECUALIAN PDF: kalau user minta PDF laporan ("buatkan pdf", "laporan pdf"), TERIMA permintaannya dan jawab positif — sistem provider ini tetap membuat PDF-nya secara otomatis dari temuan tercatat; JANGAN bilang fitur PDF tidak aktif, JANGAN tawarkan file markdown sebagai pengganti, dan JANGAN berkata akan membuatnya "nanti/segera setelah ada temuan" — kalau sistem membuatnya, PDF-nya SUDAH ada saat balasan ini terkirim. PDF adalah PELAPORAN, bukan pengganti pengujian: setelah PDF dibuat, bila user minta full/menyeluruh, LANJUTKAN sweep http_request + finding_add ke endpoint berikutnya — jangan berhenti menguji hanya karena PDF sudah tercetak. Bicara LANGSUNG ke user ("Mas Naufal, ini statusnya…"), bukan menulis instruksi tentang dia (bukan "Beri tahu Mas Naufal …").`
+  );
+}
+
 /**
  * Run one full assistant turn for a user across any provider (mock / opencode /
  * groq / 9router), including server-side read-only tools, risky-tool pausing,
@@ -2747,7 +2769,7 @@ async function runAssistantTurnImpl(opts: {
   // boundary, deterministic fallback). Only the tail stays verbatim, so recent
   // context and tool-call continuations are untouched.
   const { buildSummarizedMessages } = await import("./summarize");
-  const messages: ChatMessage[] = (await buildSummarizedMessages({
+  let messages: ChatMessage[] = (await buildSummarizedMessages({
     messages: inputMessages,
     user: opts.user,
     provider: providerId,
@@ -2760,7 +2782,7 @@ async function runAssistantTurnImpl(opts: {
       "This is a mock reply. No model call was made, so testing the chat UI " +
       "costs no tokens. Just type and watch the bubble, typing dots and smooth " +
       "scroll.";
-    return { text: canned, needsConfirmation: null, messages };
+    return { text: canned, needsConfirmation: null, messages, providerUsed: "mock" };
   }
 
   // Auto-recall: the last user ask is semantically matched against long-term
@@ -2823,29 +2845,21 @@ async function runAssistantTurnImpl(opts: {
         appendDailyMemory(opts.user, snippet);
       }
     } catch { /* best-effort */ }
-    return { text: schedulePlaceCheckFromIntent(messages, opencodeText || "", false), needsConfirmation: null, messages };
+    return { text: schedulePlaceCheckFromIntent(messages, opencodeText || "", false), needsConfirmation: null, messages, providerUsed: "opencode" };
   }
 
   if (providerId === "opencodego") ensureOpenCodeGoKey();
-  const resolved = resolveProvider(providerId);
-  if (!resolved) {
+  // Provider auto-failover (providerHealth): the chain starts at the requested
+  // provider and falls back to the next HEALTHY one — a dead brain (429 quota,
+  // 5xx, retired model) never blanks the turn. Chain built once; each candidate
+  // attempt gets its own messages copy + tool-budget hint.
+  const chain = providerChain(providerId);
+  if (chain.length === 0) {
     throw new Error(`Provider "${providerId}" is not configured`);
   }
-
-  // Tool-budget honesty hint (live 2026-09-21: on 9router the model kept
-  // attempting lab_fetch/security_hunt first — advertised by the static
-  // SYSTEM_PROMPT — then burned a round on the delivery guard's honest
-  // refusal before adapting). Capped providers deliver only a toolsForUrl
-  // subset, so name the missing high-profile tools up front and the model
-  // plans with what it actually has. Uncapped providers deliver everything
-  // → `missing` is empty → no hint, no prompt bloat.
-  const deliveredTools = toolsForUrl(resolved.url);
-  const HINT_UNDELIVERED = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "report_generate", "report_save", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "content_discover", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate"];
-  const missingTools = HINT_UNDELIVERED.filter((n) => !deliveredTools.some((t) => t.function.name === n));
-  if (missingTools.length) {
-    systemPrompt +=
-      `\n\nTOOL BUDGET (provider ini): hanya ${deliveredTools.length} tool yang tersedia. TIDAK tersedia di sini: ${missingTools.join(", ")}. JANGAN memanggilnya — rencanakan dengan tool yang ada (pentest_resources, pentest_scan, http_request, poc_verify, ato_prove, finding_add, finding_list, workflow_fuzz, prompt_injection_hunt, race_attack, graphql_hunt) dan katakan jujur kalau sebuah tahap butuh provider lain. Untuk permintaan pentest/pengujian: LANGSUNG kerjakan alurnya dengan tool yang tersedia mulai giliran ini — jangan minta izin, jangan menawarkan alternatif dulu. SWEEP MENYELURUH: kalau user minta pentest semua bagian/full/menyeluruh, JANGAN bertanya bagian mana yang diuji duluan (arahan sudah jelas) — lakukan sendiri secara sistematis: enumerasi endpoint dari halaman/JS yang ter-fetch, uji satu per satu dengan http_request (+ poc_verify untuk yang mencurigakan), catat tiap temuan dengan finding_add, lanjut ke endpoint berikutnya sampai semua teruji. KONTEKS TEMUAN: sebelum menguji target, panggil finding_list target=<host> — bila findings target itu sudah tercatat, pakai sebagai titik mulai dan sebut dengan benar; DILARANG mengklaim "endpoint/API belum ketemu" bila findings store sudah berisi endpoint itu. Pengujian endpoint pakai http_request — browser_open hanya untuk melihat halaman, jangan loop untuk pengujian. PENGECUALIAN PDF: kalau user minta PDF laporan ("buatkan pdf", "laporan pdf"), TERIMA permintaannya dan jawab positif — sistem provider ini tetap membuat PDF-nya secara otomatis dari temuan tercatat; JANGAN bilang fitur PDF tidak aktif, JANGAN tawarkan file markdown sebagai pengganti, dan JANGAN berkata akan membuatnya "nanti/segera setelah ada temuan" — kalau sistem membuatnya, PDF-nya SUDAH ada saat balasan ini terkirim. PDF adalah PELAPORAN, bukan pengganti pengujian: setelah PDF dibuat, bila user minta full/menyeluruh, LANJUTKAN sweep http_request + finding_add ke endpoint berikutnya — jangan berhenti menguji hanya karena PDF sudah tercetak. Bicara LANGSUNG ke user ("Mas Naufal, ini statusnya…"), bukan menulis instruksi tentang dia (bukan "Beri tahu Mas Naufal …").`;
-  }
+  const resolved = chain[0].resolved; // pre-loop uses (reminder variant enrichment)
+  let activeResolved = resolved;
+  let providerUsed: ProviderId = providerId;
 
   // Fail fast on an invalid model instead of hanging (trust-boundary validation,
   // invariant 5). "Auto" (undefined) is always allowed and uses the default.
@@ -2949,57 +2963,99 @@ async function runAssistantTurnImpl(opts: {
   };
   let result!: { needsConfirmation: ToolCall[] | null };
   try {
-    const freerideChain: (string | undefined)[] = (() => {
-      try {
-        // FreeRide's model IDs (e.g. nvidia/*:free, openrouter/free) only exist
-        // on OpenRouter / the local 9router proxy. Sending them to another
-        // endpoint (Groq, OpenCode Go) 404s — so the chain applies there only.
-        if (!/openrouter\.ai|127\.0\.0\.1:20128|localhost:20128/.test(resolved.url)) return [model];
-        const cfg = freerideGetConfig();
-        const chain: (string | undefined)[] = [model];
-        if (cfg.primary && !chain.includes(cfg.primary)) chain.push(cfg.primary);
-        for (const f of cfg.fallbacks) if (!chain.includes(f)) chain.push(f);
-        return chain.filter((v, i, a) => a.indexOf(v) === i).slice(0, 6);
-      } catch {
-        return [model];
-      }
-    })();
-    let lastErr: unknown = null;
-    let _freerideOk = false;
+    // Provider-level auto-failover: outer loop over HEALTHY providers (chain
+    // starts at the requested one), inner loop = the existing per-endpoint
+    // FreeRide model chain (only applies on OpenRouter/9router endpoints).
+    // A candidate gets a fresh messages copy + per-provider tool-budget hint;
+    // failover happens only when the attempt executed NO tool (chainMayFailover)
+    // and the error is provider-retryable — a tool that ran on provider A must
+    // never re-run on provider B (double side effects).
     const chainStartedAt = Date.now();
-    for (let fi = 0; fi < freerideChain.length; fi++) {
-      const messagesBefore = messages.length;
+    let providerSucceeded = false;
+    let lastErr: unknown = null;
+    const attemptBase: ChatMessage[] = [...messages];
+    const attemptTextStart = text.length;
+    for (let pi = 0; pi < chain.length; pi++) {
+      const cand = chain[pi];
+      activeResolved = cand.resolved;
+      providerUsed = cand.id;
+      const attemptMessages: ChatMessage[] = [...attemptBase];
+      // A model chosen for provider A may not exist on B — let fallbacks use
+      // their own default model (Auto) unless the request pinned one valid there.
+      const attemptModel = pi === 0 ? model : undefined;
+      const attemptPrompt = systemPrompt + toolBudgetHint(cand.resolved.url);
       try {
-        result = await runAgent(
-          messages,
-          resolved.url,
-          resolved.apiKey,
-          resolved.defaultModel,
-          systemPrompt,
-          collector,
-          1,
-          freerideChain[fi],
-          opts.user,
-          Boolean(opts.autoDenyRisky)
-        );
-        _freerideOk = true;
+        const freerideChain: (string | undefined)[] = (() => {
+          try {
+            // FreeRide's model IDs (e.g. nvidia/*:free, openrouter/free) only exist
+            // on OpenRouter / the local 9router proxy. Sending them to another
+            // endpoint (Groq, OpenCode Go) 404s — so the chain applies there only.
+            if (!/openrouter\.ai|127\.0\.0\.1:20128|localhost:20128/.test(cand.resolved.url)) return [attemptModel];
+            const cfg = freerideGetConfig();
+            const chainIds: (string | undefined)[] = [attemptModel];
+            if (cfg.primary && !chainIds.includes(cfg.primary)) chainIds.push(cfg.primary);
+            for (const f of cfg.fallbacks) if (!chainIds.includes(f)) chainIds.push(f);
+            return chainIds.filter((v, i, a) => a.indexOf(v) === i).slice(0, 6);
+          } catch {
+            return [attemptModel];
+          }
+        })();
+        let innerErr: unknown = null;
+        let innerOk = false;
+        for (let fi = 0; fi < freerideChain.length; fi++) {
+          const messagesBefore = attemptMessages.length;
+          try {
+            result = await runAgent(
+              attemptMessages,
+              cand.resolved.url,
+              cand.resolved.apiKey,
+              cand.resolved.defaultModel,
+              attemptPrompt,
+              collector,
+              1,
+              freerideChain[fi],
+              opts.user,
+              Boolean(opts.autoDenyRisky)
+            );
+            innerOk = true;
+            innerErr = null;
+            break;
+          } catch (e) {
+            innerErr = e;
+            // A free model can fail three ways: a thrown HTTP status, an in-band
+            // provider error, or a retired model id. All three mean "try the next
+            // model in the chain" (see isProviderRetryable) — but only while the
+            // attempt has not already executed a tool (chainMayFailover).
+            const outOfTime = Date.now() - chainStartedAt > CHAIN_DEADLINE_MS;
+            if (!isProviderRetryable(e) || !chainMayFailover(messagesBefore, attemptMessages.length) || outOfTime || fi === freerideChain.length - 1) throw e;
+            console.warn(
+              `[freeride] ${String(freerideChain[fi] || "primary")} failed (${e instanceof Error ? e.message : String(e)}), trying ${String(freerideChain[fi + 1])}`
+            );
+            await new Promise((r) => setTimeout(r, 300 * (fi + 1)));
+          }
+        }
+        if (!innerOk && innerErr) throw innerErr;
+        markProviderHealthy(cand.id);
+        messages = attemptMessages;
+        providerSucceeded = true;
         lastErr = null;
         break;
       } catch (e) {
         lastErr = e;
-        // A free model can fail three ways: a thrown HTTP status, an in-band
-        // provider error, or a retired model id. All three mean "try the next
-        // model in the chain" (see isProviderRetryable) — but only while the
-        // attempt has not already executed a tool (chainMayFailover).
+        markProviderFailure(cand.id, e);
+        // Roll back any partial streamed text from this failed candidate.
+        text = text.slice(0, attemptTextStart);
         const outOfTime = Date.now() - chainStartedAt > CHAIN_DEADLINE_MS;
-        if (!isProviderRetryable(e) || !chainMayFailover(messagesBefore, messages.length) || outOfTime || fi === freerideChain.length - 1) throw e;
+        // No tool executed on this candidate → safe to try the next provider.
+        const mayFailover = chainMayFailover(attemptBase.length, attemptMessages.length);
+        if (!isProviderRetryable(e) || !mayFailover || outOfTime || pi === chain.length - 1) throw e;
         console.warn(
-          `[freeride] ${String(freerideChain[fi] || "primary")} failed (${e instanceof Error ? e.message : String(e)}), trying ${String(freerideChain[fi + 1])}`
+          `[provider-failover] ${cand.id} failed (${e instanceof Error ? e.message : String(e)}), trying ${chain[pi + 1].id}`
         );
-        await new Promise((r) => setTimeout(r, 300 * (fi + 1)));
+        await new Promise((r) => setTimeout(r, 300 * (pi + 1)));
       }
     }
-    if (!_freerideOk && lastErr) throw lastErr;
+    if (!providerSucceeded && lastErr) throw lastErr;
   } catch (err) {
     // A confirmed tool (e.g. create_automation) may have already been executed
     // above before the follow-up completion failed (e.g. a transient rate
@@ -3019,11 +3075,13 @@ async function runAssistantTurnImpl(opts: {
         text: `Aksimu sudah dijalankan.${detail}`,
         needsConfirmation: null,
         messages,
+        providerUsed,
       };
     }
     throw err;
   }
   needsConfirmation = result.needsConfirmation;
+  auditLog(opts.user, "turn_provider", providerUsed);
   // A model can re-propose the action it was just told ran (seen live:
   // create_automation asked twice in a row). Drop a re-proposal of the same tool
   // whose arguments are near-identical to a call already confirmed+executed this
@@ -3045,10 +3103,10 @@ async function runAssistantTurnImpl(opts: {
 
   // Automatic memory capture in the background (never delays the turn).
   void captureFactsFromTurn({
-    providerId,
-    url: resolved.url,
-    apiKey: resolved.apiKey,
-    defaultModel: resolved.defaultModel,
+    providerId: providerUsed,
+    url: activeResolved.url,
+    apiKey: activeResolved.apiKey,
+    defaultModel: activeResolved.defaultModel,
     persona: systemPrompt,
     messages,
     rawUser: opts.user,
@@ -3386,7 +3444,7 @@ async function runAssistantTurnImpl(opts: {
     console.error("[agent] empty turn text (debug): user=", JSON.stringify((messages[messages.length - 1]?.content ?? "").slice(0, 80)));
   }
 
-  return { text: stripNonLatinChars(text), needsConfirmation, messages };
+  return { text: stripNonLatinChars(text), needsConfirmation, messages, providerUsed };
 }
 
 /**

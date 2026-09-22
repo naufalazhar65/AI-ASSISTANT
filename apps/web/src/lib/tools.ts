@@ -5041,6 +5041,14 @@ const toolRegistry: ToolPlugin[] = [
       return runAutoUpdate({ force: true, deliver: !(typeof args.deliver === "string" && args.deliver === "false") });
     },
   },
+  // ── Provider health (auto-failover + quota watchdog) ──
+  {
+    definition: { type: "function", risk: "read", function: { name: "provider_status", description: "Provider health + auto-failover — brain default, per-provider OK/DOWN + cooldown + quota-hit, dan chain efektif yang dipakai turn (provider mati di-skip, pulih auto-restore). Read, auto.", parameters: { type: "object", properties: {}, required: [] } } },
+    execute: async () => {
+      const { providerHealthStatus } = await import("./providerHealth");
+      return providerHealthStatus();
+    },
+  },
 ];
 
 // Derived getter (not a static snapshot) so a runtime `registerTool` is always
