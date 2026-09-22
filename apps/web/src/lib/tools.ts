@@ -3965,6 +3965,36 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "vuln_compose", description: "Susun ≥2 temuan PROVEN pada satu host jadi SATU chain E2E lintas-kelas: cari relasi output-A → input-B (endpoint/param/token/object-id konkret), replay tiap hop via pocVerify, verdict jujur (TERBUKTI PENUH → temuan komposit critical; PUTUS DI HOP n / TAK TERSAMBUNG → tanpa temuan baru). Scope-gated, bounded. Write, confirm.", parameters: { type: "object", properties: { target: { type: "string", description: "host target (opsional — default kelompok terbesar satu host)" }, finding_ids: { type: "array", description: "id finding spesifik (opsional, mis. [\"F-abc\",\"F-def\"])" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { vulnCompose } = await import("./vulnCompose");
+        const ids = Array.isArray(args.finding_ids) ? args.finding_ids.filter((x): x is string => typeof x === "string") : undefined;
+        return await vulnCompose(ctx.rawUser, {
+          target: typeof args.target === "string" ? args.target : undefined,
+          finding_ids: ids,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "vuln_compose failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "exploit_build", description: "Bangun artefak exploit STANDALONE dari satu temuan proven sebagai FILE nyata di disk (script replay deterministik + payload + OAST beacon opsional + asserts, exit 0=VULNERABLE / 1=NOT CONFIRMED). Jujur: bila target tak bisa diturunkan/di luar scope, menjawab 'tidak dibuat' dan TIDAK menulis file. language: node|python|curl. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { finding_id: { type: "string", description: "id finding (lihat finding_list)" }, language: { type: "string", enum: ["node", "python", "curl"], description: "default node" }, callback: { type: "string", description: "URL OAST https milikmu untuk beacon (opsional)" } }, required: ["finding_id"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { buildExploitArtifact } = await import("./exploitBuild");
+        return await buildExploitArtifact(ctx.rawUser, {
+          finding_id: typeof args.finding_id === "string" ? args.finding_id : undefined,
+          language: typeof args.language === "string" ? args.language : undefined,
+          callback: typeof args.callback === "string" ? args.callback : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "exploit_build failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "oauth_hunt", description: "Uji OAuth/OIDC (scope-gated): ambil discovery, lalu probe authorization_endpoint dengan varian bypass `redirect_uri` → deteksi open redirect (jalur ATO). Bounded, GET saja. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "issuer / /.well-known/openid-configuration / base host" }, client_id: { type: "string", description: "client_id (opsional)" } }, required: ["url"] } } },
     execute: async (args, ctx) => { try { const { oauthHunt } = await import("./oauth"); return await oauthHunt(ctx.rawUser, { url: String(args.url || ""), client_id: typeof args.client_id === "string" ? args.client_id : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "oauth_hunt failed"}`; } },
   },

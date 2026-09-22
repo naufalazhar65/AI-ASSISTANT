@@ -3073,6 +3073,83 @@ async function main() {
     console.log("exploit-chain: OK (tool registered, 9 chains incl. 5 tier-1 wrappers, scope-gated, helpful errors, SSRF runs, comma-separated batches honest)");
   }
 
+  // ── vuln_compose + exploit_build ────────────────────────────────────
+  {
+    const { getTOOLS } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect } = await import("./src/lib/agent");
+    const { requiresConfirmation } = await import("./src/lib/tools");
+    for (const n of ["vuln_compose", "exploit_build"]) {
+      const tool = getTOOLS().find((t) => t.function.name === n);
+      if (!tool) throw new Error(`${n} tool not registered`);
+      if (tool.risk !== "write") throw new Error(`${n} must be risk write`);
+      if (!requiresConfirmation(tool)) throw new Error(`${n} must require confirmation`);
+      if (!CORE_TOOL_NAMES.has(n)) throw new Error(`${n} must be in CORE`);
+      if (!isHeadlessSideEffect(n)) throw new Error(`${n} must be headless-guarded`);
+    }
+    if (CORE_TOOL_NAMES.size !== 128) throw new Error(`CORE must stay 128 (got ${CORE_TOOL_NAMES.size})`);
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    for (const n of ["vuln_compose", "exploit_build", "exploit_chain"]) {
+      if (!groq.has(n)) throw new Error(`groq window dropped ${n}`);
+    }
+    // Live: two deterministic endpoints on one lab host → compose must prove
+    // the full chain and file a composite critical; cross-host must refuse.
+    const http = await import("node:http");
+    const fs = await import("node:fs");
+    const server = http.createServer((req, res) => {
+      if (req.url === "/a?id=1") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"doc":"alpha"}'); return; }
+      if (req.url === "/b?id=2") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"doc":"beta"}'); return; }
+      res.writeHead(404); res.end("no");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    const user = "verify_vulncompose";
+    try {
+      const { addFinding, readFindings } = await import("./src/lib/security");
+      const { vulnCompose } = await import("./src/lib/vulnCompose");
+      const { buildExploitArtifact } = await import("./src/lib/exploitBuild");
+      const f1 = addFinding(user, { title: "BOLA dokumen A", severity: "high", target: `${base}/a?id=1`, evidence: `[auto from http_history] GET ${base}/a?id=1 → 200 @t`, steps: `GET ${base}/a?id=1` });
+      const f2 = addFinding(user, { title: "BOLA dokumen B", severity: "high", target: `${base}/b?id=2`, evidence: `[auto from http_history] GET ${base}/b?id=2 → 200 @t`, steps: `GET ${base}/b?id=2` });
+      const out = await vulnCompose(user, {});
+      if (!out.includes("CHAIN TERBUKTI PENUH")) throw new Error(`compose should prove full chain, got: ${out.slice(0, 200)}`);
+      if (!out.includes("critical")) throw new Error(`composite finding should be critical: ${out.slice(-160)}`);
+      const comp = readFindings(user).find((f) => f.severity === "critical" && f.title.startsWith("CHAIN E2E"));
+      if (!comp) throw new Error("composite critical finding not filed");
+      if (!comp.evidence.includes(f1.id) || !comp.evidence.includes(f2.id)) throw new Error("composite evidence must cite both hop findings");
+      // Cross-host pair must honestly refuse (no shared host → TAK TERSAMBUNG).
+      const f3 = addFinding("verify_vulncompose2", { title: "XSS lain", severity: "medium", target: "https://other.tld/y", evidence: "GET https://other.tld/y → 200" });
+      void f3;
+      const { composeHop } = await import("./src/lib/vulnCompose");
+      const cross = composeHop(
+        { ...f1, target: `${base}/solo` },
+        { ...f1, id: "F-other", target: "https://other.tld/solo" },
+      );
+      if (cross !== null) throw new Error("composeHop must refuse different hosts");
+      // exploit_build: real file on disk for a proven finding…
+      const built = await buildExploitArtifact(user, { finding_id: f1.id, language: "node" });
+      if (!built.includes("Artefak exploit dibuat")) throw new Error(`exploit_build should write file, got: ${built.slice(0, 160)}`);
+      const m = /^📄 Artefak exploit dibuat: (.+)$/m.exec(built);
+      if (!m || !fs.existsSync(m[1])) throw new Error("exploit_build claimed a file that does not exist (fabrication)");
+      const content = fs.readFileSync(m[1], "utf8");
+      if (!content.includes("VERDICT: VULNERABLE") || !content.includes("NOT CONFIRMED")) throw new Error("artifact must carry both verdict branches");
+      // …honest refusal for unknown id, and for out-of-scope replay URL.
+      const unk = await buildExploitArtifact(user, { finding_id: "F-nope" });
+      if (!unk.includes("tidak dibuat")) throw new Error(`unknown finding must be honest, got: ${unk.slice(0, 120)}`);
+      const fPub = addFinding(user, { title: "PUB", severity: "low", target: "https://example.com/p", evidence: "GET https://example.com/p → 200" });
+      const scoped = await buildExploitArtifact(user, { finding_id: fPub.id });
+      if (!scoped.includes("tidak dibuat") || !scoped.includes("SCOPE")) throw new Error(`out-of-scope must be honest, got: ${scoped.slice(0, 120)}`);
+      // vuln_compose with a single finding must refuse (needs >=2).
+      const single = await vulnCompose("verify_vulncompose2", {});
+      if (!single.includes("≥2")) throw new Error(`single-finding compose must refuse, got: ${single.slice(0, 120)}`);
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      for (const u of [user, "verify_vulncompose2"]) {
+        try { fs.rmSync(`apps/web/.data/users/${u}`, { recursive: true, force: true }); } catch { /* best-effort */ }
+      }
+    }
+    console.log("vuln_compose + exploit_build: OK (registered write/confirm, CORE 128, groq window, live chain proven + composite filed, cross-host refused, artifact real on disk, honest no-file paths)");
+  }
+
   // ── deterministic PDF delivery helpers ────────────────────────────────
   {
     const { turnRanTool, reportTargetFromMessages, pdfDeliverableSuffix } = await import("./src/lib/agent");
