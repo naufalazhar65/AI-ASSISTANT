@@ -1221,6 +1221,10 @@ async function main() {
   if (lsofOk.startsWith("Error:")) throw new Error(`exec lsof -i blocked: ${lsofOk}`);
   const lsofBare = await ex("lsof");
   if (!lsofBare.startsWith("Error:")) throw new Error("exec bare lsof must be blocked");
+  // lsof exits 1 with empty stderr when nothing matches (e.g. zero listeners
+  // on CI) — execSafe maps that to "(no output)", not an error.
+  const lsofEmpty = await ex("lsof -iTCP:59999 -sTCP:LISTEN -P -n");
+  if (lsofEmpty.startsWith("Error:")) throw new Error(`exec lsof empty-result must not error: ${lsofEmpty}`);
   const psOk = await ex("ps aux");
   if (psOk.startsWith("Error:")) throw new Error(`exec ps blocked: ${psOk}`);
   const whoOk = await ex("whoami");

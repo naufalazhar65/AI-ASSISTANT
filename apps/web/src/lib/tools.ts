@@ -5734,6 +5734,13 @@ function execSafe(rawCommand: string, rawCwd = ""): Promise<string> {
       (err, stdout, stderr) => {
         if (err) {
           const code = (err as NodeJS.ErrnoException & { code?: number }).code;
+          // lsof convention (like grep): exit 1 with empty stderr means "no
+          // matches" (e.g. zero TCP listeners on a CI runner) — a legitimate
+          // empty read-only result, not a failure. Real errors print stderr.
+          if (cmd === "lsof" && code === 1 && !stderr?.trim()) {
+            resolvePromise("(no output)");
+            return;
+          }
           const msg = stderr?.trim() || err.message || "command failed";
           rejectPromise(new Error(`${msg}${typeof code === "number" ? ` (exit ${code})` : ""}`));
           return;
