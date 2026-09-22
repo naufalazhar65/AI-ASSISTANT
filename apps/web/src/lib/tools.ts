@@ -3910,6 +3910,51 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
+    definition: { type: "function", risk: "write", function: { name: "idor_enum", description: "Enumerasi ID rentang (default 1..20) sebagai DUA sesi: hit bila A+B 200 + body identik; kontrol anon menurunkan publik jadi info (bukan temuan). Guard: maks 30 request, stop di 5 hit. Output angka dampak konkrit. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dengan {id} atau param ID (mis. /api/dokumen?id=1)" }, session_a: { type: "string" }, session_b: { type: "string" }, id_start: { type: "number" }, id_end: { type: "number" } }, required: ["url", "session_a", "session_b"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { idorEnum } = await import("./idorEnum");
+        return await idorEnum(ctx.rawUser, {
+          url: typeof args.url === "string" ? args.url : undefined,
+          session_a: typeof args.session_a === "string" ? args.session_a : undefined,
+          session_b: typeof args.session_b === "string" ? args.session_b : undefined,
+          id_start: typeof args.id_start === "number" ? args.id_start : undefined,
+          id_end: typeof args.id_end === "number" ? args.id_end : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "idor_enum failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "host_header_hunt", description: "Uji Host-header (8 header: Host/X-Forwarded-Host/Scheme/Forwarded/dll) dengan canary: pantulan di body/Location + jalur reset-poisoning (reset_url + email → link reset ber-host evil). Verdict jujur per vektor. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, reset_url: { type: "string" }, email: { type: "string" }, email_field: { type: "string" }, session: { type: "string" } }, required: ["url"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { hostHeaderHunt } = await import("./hostHeaderHunt");
+        return await hostHeaderHunt(ctx.rawUser, {
+          url: typeof args.url === "string" ? args.url : undefined,
+          reset_url: typeof args.reset_url === "string" ? args.reset_url : undefined,
+          email: typeof args.email === "string" ? args.email : undefined,
+          email_field: typeof args.email_field === "string" ? args.email_field : undefined,
+          session: typeof args.session === "string" ? args.session : undefined,
+        });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "host_header_hunt failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "write", function: { name: "recon_full", description: "Pipeline recon satu-konfirmasi: subdomains (pasif) → httpx → params arsip → tech fingerprint → exposure_hunt → content_discover. Tiap tahap bounded + output dipotong jujur + tahap gagal tak menggugurkan lainnya. Hemat 3-5 round. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { target: { type: "string", description: "URL lab/engagement" } }, required: ["target"] } } },
+    execute: async (args, ctx) => {
+      try {
+        const { reconFull } = await import("./reconFull");
+        return await reconFull(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "recon_full failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "write", function: { name: "poc_verify", description: "Buktikan lead sebelum lapor: jalankan request N× (default 3), fingerprint tiap respons (status+body+header), cek determinisme, assertion expect_status/expect_contains/expect_header/expect_header_absent/expect_cookie_missing (atribut cookie per-nama), dan opsional banding baseline (kontrol) → verdict layak-lapor. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] }, headers: { type: "object" }, body: { type: "string" }, session: { type: "string", description: "nama http_session (opsional)" }, times: { type: "number", description: "default 3, maks 8" }, expect_status: { type: "number" }, expect_contains: { type: "string" }, expect_header: { type: "string", description: "substring (case-insensitive) yang HARUS ada di header respons" }, expect_header_absent: { type: "string", description: "substring yang TIDAK boleh ada di header respons" }, expect_cookie: { type: "string", description: "bukti temuan cookie: NAMA cookie yang diperiksa (mis. ASP.NET_SessionId_CROSS_DOM_custom)" }, expect_cookie_missing: { type: "string", description: "flag yang hilang pada cookie itu, dipisah koma (mis. HttpOnly, Secure, SameSite)" }, baseline_url: { type: "string", description: "request kontrol (mis. id/identitas lain)" }, baseline_method: { type: "string" }, baseline_body: { type: "string" }, baseline_session: { type: "string" }, save_evidence: { type: "boolean" } }, required: ["url"] } } },
     execute: async (args, ctx) => {
       try {

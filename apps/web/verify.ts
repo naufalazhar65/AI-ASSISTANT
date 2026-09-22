@@ -1577,7 +1577,7 @@ async function main() {
     if (unresolved.length) throw new Error(`CORE names not in registry: ${unresolved.join(",")}`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "param_discover", "js_mine", "js_deobfuscate", "api_spec", "xss_hunt", "request_run", "cve_intel", "cors_audit", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "param_discover", "js_mine", "js_deobfuscate", "api_spec", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
@@ -3570,6 +3570,73 @@ async function main() {
       try { fsH.rmSync("apps/web/.data/users/verify_xss", { recursive: true, force: true }); } catch { /* noop */ }
     }
     console.log("xss_hunt: OK (write/confirm, CORE 128, live reflect+breakout + honest negative + scope)");
+  }
+
+  // ── idor_enum + host_header_hunt + recon_full (Tier S/A picks) ───────
+  {
+    const { getTOOLS, requiresConfirmation } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl } = await import("./src/lib/agent");
+    for (const n of ["idor_enum", "host_header_hunt", "recon_full"]) {
+      const t = getTOOLS().find((x) => x.function.name === n);
+      if (!t || t.risk !== "write" || !requiresConfirmation(t)) throw new Error(`${n} must be write/confirm`);
+      if (!CORE_TOOL_NAMES.has(n)) throw new Error(`${n} must be in CORE`);
+    }
+    if (CORE_TOOL_NAMES.size !== 128) throw new Error(`CORE must stay 128 (got ${CORE_TOOL_NAMES.size})`);
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    for (const n of ["idor_enum", "host_header_hunt", "recon_full"]) {
+      if (!groq.has(n)) throw new Error(`groq window must carry ${n}`);
+    }
+    const r9 = new Set(toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name));
+    for (const n of ["idor_enum", "recon_full"]) {
+      if (!r9.has(n)) throw new Error(`9router window must carry ${n}`);
+    }
+    if (r9.has("host_header_hunt")) throw new Error("host_header_hunt must stay groq-only (window budget)");
+    const http = await import("node:http");
+    const fsH = await import("node:fs");
+    const server = http.createServer((req, res) => {
+      const u = new URL(req.url || "/", "http://x");
+      const ck = (req.headers.cookie as string) || "";
+      const xfh = (req.headers["x-forwarded-host"] as string) || "";
+      if (u.pathname === "/" && req.method === "GET") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end('<html><a href="/d?id=1">d</a></html>');
+        return;
+      }
+      if (u.pathname === "/d") {
+        if (xfh) { res.writeHead(200, { "content-type": "text/html" }); res.end(`<html>from ${xfh}</html>`); return; }
+        if (!ck) { res.writeHead(403); res.end("login"); return; }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(`{"doc":${u.searchParams.get("id")},"pad":"${"v".repeat(60)}"}`);
+        return;
+      }
+      if (u.pathname === "/reset" && req.method === "POST") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ msg: `link: https://${xfh}/reset?t=1` }));
+        return;
+      }
+      res.writeHead(404); res.end("no");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    const vu = "verify_trio";
+    try {
+      fsH.mkdirSync(`apps/web/.data/users/${vu}`, { recursive: true });
+      fsH.writeFileSync(`apps/web/.data/users/${vu}/http-sessions.json`, JSON.stringify({ a: { headers: {}, cookies: { s: "1" } }, b: { headers: {}, cookies: { s: "2" } } }));
+      const { executeTool } = await import("./src/lib/tools");
+      const o1 = await executeTool({ id: "t1", name: "idor_enum", arguments: JSON.stringify({ url: `${base}/d?id=1`, session_a: "a", session_b: "b", id_start: 1, id_end: 3 }) }, vu);
+      if (!/3\/3 ID dapat diakses/.test(o1)) throw new Error(`idor_enum must count, got: ${o1.slice(0, 160)}`);
+      const o2 = await executeTool({ id: "t2", name: "host_header_hunt", arguments: JSON.stringify({ url: `${base}/d?id=1`, reset_url: `${base}/reset`, email: "v@lab.tld" }) }, vu);
+      if (!o2.includes("RESET-LINK-POISONED")) throw new Error("host_header must prove reset poisoning");
+      const o3 = await executeTool({ id: "t3", name: "recon_full", arguments: JSON.stringify({ target: `${base}/` }) }, vu);
+      if (!o3.includes("RECON FULL") || !o3.includes("exposure") || !o3.includes("Prioritas lanjut")) {
+        throw new Error(`recon_full shape broken: ${o3.slice(0, 160)}`);
+      }
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+      try { fsH.rmSync(`apps/web/.data/users/${vu}`, { recursive: true, force: true }); } catch { /* noop */ }
+    }
+    console.log("trio S/A: OK (idor_enum count, host reset-poison, recon_full pipeline, windows)");
   }
 
   // ── exploit_chain auto-select (brain intel + setup ranking) ──────────

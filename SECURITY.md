@@ -353,7 +353,7 @@ Lima modul pentest canggih yang terintegrasi ke `bounty_run` untuk alur one-comm
 
 **Live test (Discord, Netlify Lab):** 7 findings (2 Critical: SQLi + no-auth admin-data; 3 High: BOLA, header spoof, IDOR PII; 2 Medium: Stored XSS, missing headers) + **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
 
-**Total tools: 309** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **84 playbook** · **vitest 401** · 2026-09-19→22: `exploit_chain` (9 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt`, **`llm_hunt`**/**`mcp_hunt`** + honesty/delivery guards (lihat §9).
+**Total tools: 312** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **84 playbook** · **vitest 401** · 2026-09-19→22: `exploit_chain` (9 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt`, **`llm_hunt`**/**`mcp_hunt`** + honesty/delivery guards (lihat §9).
 
 ---
 
@@ -444,6 +444,9 @@ Sinyal → `poc_verify` → `finding_add` (OWASP LLM01/02/03/04/05/06/08/11).
 - **`csrf_prove`** (write/confirm, CORE slot `domain_audit`): parse form state-changing + field token + posture SameSite → replay aksi TANPA token memakai session → diterima = kandidat (PoC HTML standalone ke evidence, file nyata) / ditolak = terkontrol; PROVEN / TOKEN-ENFORCED / NO-FORMS; bounded (≤8 form × 3 request).
 - **`mass_assignment`** (write/confirm, CORE slot `csp_audit`): injeksi 7 field privileged ke POST/PUT/PATCH + diff vs baseline sesi yang sama (echo baru / outcome berubah); opsional `verify_url` konfirmasi persistensi (TERKONFIRMASI PERSISTEN vs refleksi sesaat); bounded.
 - **`upload_fuzz`** (write/confirm, CORE slot `sast_scan`): matriks bypass upload benign + verifikasi akses marker; LEAD / UNVERIFIED / REJECTED; tanpa webshell/.htaccess; scope-gated.
+- **`idor_enum`** (write/confirm, 9router-64): enum ID dua-sesi + kontrol anon; guard request/hit.
+- **`host_header_hunt`** (write/confirm, groq-only): 8 header × canary + reset-poisoning.
+- **`recon_full`** (write/confirm, 9router-64): pipeline recon 6-tahap satu konfirmasi.
 
 ---
 
