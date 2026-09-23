@@ -471,7 +471,7 @@ describe("slim prompt for small providers (audit 2026-09-23)", () => {
   });
 });
 
-import { endpointTriageNote, collapseHtmlDumps, summarizeHtmlDump, shortPath, ownerLabScopeLine } from "./agent";
+import { endpointTriageNote, collapseHtmlDumps, summarizeHtmlDump, shortPath, ownerLabScopeLine, pdfFilenameMismatchNote, stripReceiptMimics } from "./agent";
 import { dupWarning } from "./tools";
 import { normalizeOwaspYear } from "./security";
 import { chunkText } from "../channels/replyChunk";
@@ -550,6 +550,127 @@ describe("endpointTriageNote (cek-path-rentan answered with old dump)", () => {
     );
     expect(note).toContain("hanya dari membaca");
     expect(note).toContain("/login");
+  });
+  it("fires completion-claim when reads-only back a 'sudah menguji' verdict", () => {
+    const msgs = [
+      user("lakukan full pentest di https://lab/index.html dan buatkan report pdfnya"),
+      asstCalls("http_request", JSON.stringify({ url: "https://lab/index.html", method: "GET" })),
+      toolRes("HTTP 200 <html>hi</html>"),
+    ] as never[];
+    const note = endpointTriageNote(
+      msgs as never,
+      "Aku sudah selesai memindai dan menguji seluruh halaman serta API di portal ini."
+    );
+    expect(note).toContain("belum didukung pengujian");
+  });
+  it("fires completion-claim on 'sudah selesai melakukan full pentest' over reads-only", () => {
+    const msgs = [
+      user("mia coba lakukan full pentest di https://lab/index.html dan buatkan report pdfnya"),
+      asstCalls("http_request", JSON.stringify({ url: "https://lab/index.html", method: "GET" })),
+      toolRes("HTTP 200 <html>hi</html>"),
+    ] as never[];
+    const note = endpointTriageNote(
+      msgs as never,
+      "Aku sudah selesai melakukan full pentest menyeluruh pada portal tersebut."
+    );
+    expect(note).toContain("belum didukung pengujian");
+  });
+  it("fires completion-claim on 'sudah cek dan uji kembali' over reads-only", () => {
+    const msgs = [
+      user("mia coba lakukan full pentest di https://lab/index.html dan buatkan report pdfnya"),
+      asstCalls("http_request", JSON.stringify({ url: "https://lab/index.html", method: "GET" })),
+      toolRes("HTTP 200 <html>hi</html>"),
+    ] as never[];
+    const note = endpointTriageNote(
+      msgs as never,
+      "Iya, aku sudah cek dan uji kembali portal tersebut."
+    );
+    expect(note).toContain("belum didukung pengujian");
+  });
+  it("fires completion-claim on 'pengujian sudah selesai aku tuntaskan' (live 20:10)", () => {
+    const msgs = [
+      user("mia coba lakukan full pentest di https://lab/index.html dan buatkan report pdfnya"),
+      asstCalls("http_request", JSON.stringify({ url: "https://lab/index.html", method: "GET" })),
+      toolRes("HTTP 200 <html>hi</html>"),
+    ] as never[];
+    const note = endpointTriageNote(
+      msgs as never,
+      "Pengujian keamanan menyeluruh sudah selesai aku tuntaskan."
+    );
+    expect(note).toContain("belum didukung pengujian");
+  });
+  it("fires completion-claim on 'sudah selesai aku kerjakan' (live 19:13)", () => {
+    const msgs = [
+      user("mia coba lakukan full pentest di https://lab/index.html dan buatkan report pdfnya"),
+      asstCalls("http_request", JSON.stringify({ url: "https://lab/index.html", method: "GET" })),
+      toolRes("HTTP 200 <html>hi</html>"),
+    ] as never[];
+    const note = endpointTriageNote(
+      msgs as never,
+      "Pengujian keamanan menyeluruh sudah selesai aku kerjakan dan hasilnya lengkap."
+    );
+    expect(note).toContain("belum didukung pengujian");
+  });
+});
+
+describe("stripReceiptMimics (model fakes the 📎 shape)", () => {
+  it("removes only the exact receipt shape", () => {
+    expect(
+      stripReceiptMimics("Hasilnya bagus. (📎 PDF-nya sudah kubuat: `report-old.pdf` — cek folder ya.) Lanjut!")
+    ).toBe("Hasilnya bagus. Lanjut!");
+    expect(stripReceiptMimics("Lihat 📎 di folder ya")).toBe("Lihat 📎 di folder ya");
+    expect(stripReceiptMimics("")).toBe("");
+  });
+});
+
+describe("pdfFilenameMismatchNote (prose filename vs delivered file)", () => {
+  const real = "report-2026-09-23T10-18-36-107Z.pdf";
+  it("corrects a stale quoted name on a creation claim", () => {
+    expect(
+      pdfFilenameMismatchNote(
+        "Sudah aku rekap ke dalam file report-cozy-kangaroo-42f2e0.pdf agar bisa dilaporkan.",
+        real
+      )
+    ).toContain(real);
+  });
+  it("corrects passive saved-claims over stale names (live 17:28)", () => {
+    expect(
+      pdfFilenameMismatchNote(
+        "PDF laporannya sudah tersimpan otomatis di sistem. Cek file reports/report-cozy-kangaroo-42f2e0.pdf ya.",
+        real
+      )
+    ).toContain(real);
+  });
+  it("corrects access-framed stale names (live 17:34)", () => {
+    expect(
+      pdfFilenameMismatchNote(
+        "Laporan lengkapnya bisa kamu akses di reports/report-2026-09-23T10-33-48-943Z.pdf ya beb!",
+        real
+      )
+    ).toContain(real);
+  });
+  it("stays silent on matching names, references and empty input", () => {
+    expect(pdfFilenameMismatchNote(`Lihat ${real} ya.`, real)).toBe("");
+    expect(pdfFilenameMismatchNote("Laporan kemarin ada di report-2026-09-20T00-00-00-000Z.pdf.", real)).toBe("");
+    expect(pdfFilenameMismatchNote("", real)).toBe("");
+    expect(pdfFilenameMismatchNote("Sudah kubuatkan PDF-nya.", "")).toBe("");
+  });
+  it("gently disambiguates when the stray name is a real old file", () => {
+    const note = pdfFilenameMismatchNote(
+      "Tepatnya report-2026-09-20T00-00-00-000Z.pdf ya.",
+      real,
+      (name) => name === "report-2026-09-20t00-00-00-000z.pdf"
+    );
+    expect(note).toContain("itu file lama");
+  });
+  it("strict mode flags any stray quote next to fresh delivery (live 20:29)", () => {
+    const note = pdfFilenameMismatchNote(
+      "Laporan lengkapnya ada di reports/report-2026-09-23T10-33-48-943Z.pdf ya.",
+      real,
+      () => false,
+      true
+    );
+    expect(note).toContain(real);
   });
 });
 

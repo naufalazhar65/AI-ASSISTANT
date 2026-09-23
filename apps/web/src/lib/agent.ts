@@ -319,7 +319,7 @@ const SYSTEM_PROMPT = [
   "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. Present the returned list as one email per line.",
   "save_note, delete_note, library_remove, memory_hygiene, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan, lab_start, engagement_create, http_request, cua_keys, cua_mouse, clipboard_set, write_file, edit_file, browser_click, browser_type, browser_navigate, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_tab, browser_use_close, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, brv_curate, brv_swarm_curate, brv_review_approve, brv_review_reject, summarize_template, freeride_auto, freeride_switch, freeride_rotate, auto_update, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
-  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, browser_eval, browser_use_open, browser_use_state, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_wait, browser_use_doctor, mac_open, cua_pointer, clipboard_get, cua_desktop, cua_screen, security_scan, secret_scan, tls_check, breach_check, pentest_resources, finding_add, finding_list, report_generate, report_save, report_pdf, lab_status, lab_fetch, recon_subdomains, recon_params, recon_list, recon_takeover, recon_diff, recon_dnsbrute, scope_import, api_spec, cve_intel, request_save, platform_severity, submission_track, csp_audit, http_history, oast_dns_create, oast_dns_poll, oast_dns_stop, oast_create, oast_poll, oast_stop, http_session, tamper_script, hunt_log, engagement_targets, cdp_status, tech_watch, policy_show, flow_list, program_score, dup_check, bounty_status, writeup, persona_show, jwt_attack, encoding, trivy_scan, sast_scan, security_playbook, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, git_status, safe_exec_list, cua_doctor, cua_list_apps, cua_window_state, cua_browser_state, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_review, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_refresh, freeride_watcher, auto_update_status, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away. git_commit, cua_launch, cua_click, cua_type, cua_start_session, cua_browser_click, cua_browser_type, engagement_create, recon_httpx, content_discover, crawl, param_discover, recon_screenshot, recon_ports, bucket_enum, js_mine, graphql_probe, request_run, cors_audit, rapyd_request, security_hunt, suite_hunt, auth_hunt, api_hunt, cloud_misconfig, policy_set, flow_run, campaign_run, bounty_run, exploit_chain, vuln_compose, exploit_build, auth_setup, exposure_hunt, oauth_hunt, persona_set, persona_forget, bola_diff, poc_verify, csrf_prove, mass_assignment, upload_fuzz, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, cdp_request, cdp_eval, cdp_open, param_fuzz, evidence_capture, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan and http_request WILL wait for confirmation.",
+  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, browser_eval, browser_use_open, browser_use_state, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_wait, browser_use_doctor, mac_open, cua_pointer, clipboard_get, cua_desktop, cua_screen, security_scan, secret_scan, tls_check, breach_check, pentest_resources, finding_add, finding_list, report_generate, report_save, report_pdf, lab_status, lab_fetch, recon_subdomains, recon_params, recon_list, recon_takeover, recon_diff, recon_dnsbrute, scope_import, api_spec, cve_intel, request_save, platform_severity, submission_track, csp_audit, http_history, oast_dns_create, oast_dns_poll, oast_dns_stop, oast_create, oast_poll, oast_stop, http_session, tamper_script, hunt_log, engagement_targets, cdp_status, tech_watch, policy_show, flow_list, program_score, dup_check, bounty_status, writeup, persona_show, jwt_attack, encoding, trivy_scan, sast_scan, security_playbook, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, git_status, safe_exec_list, cua_doctor, cua_list_apps, cua_window_state, cua_browser_state, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_review, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_refresh, freeride_watcher, auto_update_status, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away. git_commit, cua_launch, cua_click, cua_type, cua_start_session, cua_browser_click, cua_browser_type, engagement_create, recon_httpx, content_discover, crawl, param_discover, recon_screenshot, recon_ports, bucket_enum, js_mine, graphql_probe, request_run, cors_audit, rapyd_request, security_hunt, suite_hunt, auth_hunt, api_hunt, cloud_misconfig, policy_set, flow_run, campaign_run, bounty_run, exploit_chain, vuln_compose, exploit_build, auth_setup, exposure_hunt, oauth_hunt, persona_set, persona_forget, bola_diff, poc_verify, csrf_prove, mass_assignment, upload_fuzz, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, cdp_request, cdp_eval, cdp_open, param_fuzz, evidence_capture, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan and http_request WILL wait for confirmation. When you propose tool calls (user replies 'ya'/'tidak' next), write ONLY the short proposal + one-line reason each — NEVER a final conclusion, finding verdict, file path, or receipt in the proposing turn; those are narrated AFTER approval, from real results.",
   "Tool results come from the server and should be trusted as fresh information.",
   "If a tool returned an Error, tell the user plainly what failed and what to do — never reply 'Selesai.'/'done' or invent an outcome the tool did not report.",
   "For nuclei_custom: severity default is critical,high,medium — pass severity \"critical,high\" to narrow; tags like \"xss,sqli,cve\"; templates is a sandbox path to a custom .yaml/dir (e.g. labs/pentest/nuclei-templates/cve-2024.yaml). Without templates it runs auto-scan (-as).",
@@ -397,7 +397,7 @@ export const SLIM_SYSTEM_PROMPT = [
   "PERSONA MEMORY: 'apa yang kamu ingat' → persona_show; 'ingat ini: X' → persona_set; facts save automatically, never ask permission; save_note only on explicit 'catat ini'. ",
   "REAL-WORLD mutable facts (open hours, prices, events, status) must be checked via web_search/fetch_url BEFORE answering; if unverifiable, say so honestly. Personal/user facts need no check. ",
   "DAILY TOOLS (schemas self-describe): web_search (current/factual), calculate, save_note/list_notes/delete_note, remind_me/reminders_list, add_task/list_tasks/complete_task, fetch_url (read a linked page), search_memory/memory_get, codebase_search, file_read/exec (repo sandbox), calendar_list/calendar_add, mood_log/mood_recent, spotify_status/search/play/pause (Premium for control), device_list/device_battery, briefing/recap/weekly_insight, waze_route/weather/hotel_search/cinema_showtimes/train_search/bus_search, git_status/git_commit, health/habit_log, gmail_list/search, humanize/summarize, learnings_search. ",
-  "RECON+PROVE (delivered here): pentest_resources, pentest_scan, recon_subdomains, recon_httpx, recon_params, security_playbook, sast_scan, cve_intel, js_mine, js_deobfuscate, api_spec, workflow_fuzz, race_attack, graphql_hunt, prompt_injection_hunt, github_osint, har_import, idor_enum, recon_full, http_request, poc_verify, ato_prove, finding_add, finding_list, oast_create, oast_poll, http_session, tamper_script, cdp_status, upload_fuzz. CVE-2026-63077 (TeamCity RCE, KEV aktif): halaman menyebut TeamCity → ambil versi dari login page via http_request + bandingkan manual (<2026.1.3 / <2025.11.7 = RENTAN; tanpa payload deserialisasi apa pun). ",
+  "RECON+PROVE (delivered here): pentest_resources, pentest_scan, recon_subdomains, recon_httpx, recon_params, security_playbook, sast_scan, cve_intel, js_mine, js_deobfuscate, api_spec, workflow_fuzz, race_attack, graphql_hunt, prompt_injection_hunt, github_osint, har_import, idor_enum, recon_full, http_request, poc_verify, ato_prove, finding_add, finding_list, oast_create, oast_poll, http_session, tamper_script, cdp_status, upload_fuzz. CVE-2026-63077 (TeamCity RCE, KEV aktif): halaman menyebut TeamCity → ambil versi dari login page via http_request + bandingkan manual (<2026.1.3 / <2025.11.7 = RENTAN; tanpa payload deserialisasi apa pun). Saat mengusulkan tool (tunggu 'ya'): tulis usulan + alasan singkat SAJA, jangan kesimpulan final/verdict/nama file/receipt — itu dinarasikan SETELAH approval dari hasil nyata. ",
 ].join("");
 
 /**
@@ -2658,6 +2658,64 @@ async function tryDeliverReportPdf(messages: ChatMessage[], rawUser: unknown, ch
 }
 
 /**
+ * PDF filename consistency: when deterministic delivery just created a file
+ * but the model's own prose quotes a DIFFERENT report-*.pdf name (live
+ * 2026-09-23 17:00: real report-2026-09-23T10-18-36-107Z.pdf, prose claimed
+ * report-cozy-kangaroo-42f2e0.pdf), correct it — otherwise two contradictory
+ * filenames reach the user. Only fires on creation-claims, never on plain
+ * references to old reports. Pure — tested.
+ */
+export function pdfFilenameMismatchNote(
+  text: string,
+  deliveredFile: string,
+  exists?: (name: string) => boolean,
+  strict?: boolean
+): string {
+  const t = (text || "").trim();
+  if (!t || !deliveredFile) return "";
+  const quoted = [...t.matchAll(/`?(report-[0-9A-Za-z:.()+_-]*\.pdf)`?/gi)].map((m) => m[1].toLowerCase());
+  const stray = quoted.filter((q) => q !== deliveredFile.toLowerCase());
+  if (!stray.length) return "";
+  // Deliverable framing (not just creation verbs): the quoted name is
+  // presented as THIS turn's deliverable — "laporan lengkapnya bisa kamu
+  // akses di ..." (live 17:34), "tepatnya report-X" (live 19:20), passive
+  // "sudah tersimpan" (17:28). Plain old-file references ("bandingkan
+  // dengan report-x kemarin") don't match. Strict mode (fresh delivery just
+  // ran — live 20:29: prose guessed a turn-time name next to the real file)
+  // skips framing: any other quoted name is stale or fabricated, and the
+  // existence check below keeps the note truthful either way.
+  const framing =
+    strict ||
+    /sudah (aku |ku)?(siap|siapkan|sediakan|buatkan|buat|kirim|kasih|susun|cetak|rekap).{0,40}\bpdf\b/i.test(t) ||
+    /sudah (tersimpan|kesimpan|disimpan|disiapkan|dibuatkan|terbuat)/i.test(t) ||
+    /\b(pdf|laporan|report)\b.{0,60}\b(bisa kamu akses|silakan|silahkan|tinjau|download|unduh)\b/i.test(t) ||
+    /tepatnya.{0,20}report-[0-9A-Za-z:.()+_-]*\.pdf/i.test(t) ||
+    /dalam (bentuk|file)\b/i.test(t);
+  if (!framing) {
+    return "";
+  }
+  const stale = stray.filter((q) => !(exists ? exists(q) : false));
+  if (!stale.length) {
+    // Every quoted name exists (old reports) — gentle disambiguation, never a
+    // fabrication claim.
+    return ` (Klarifikasi: PDF giliran ini adalah \`${deliveredFile}\` — nama lain yang kusebut itu file lama.)`;
+  }
+  return ` (Koreksi: file PDF giliran ini adalah \`${deliveredFile}\` — abaikan nama file lain yang kusebut di atas.)`;
+}
+
+/**
+ * Strip receipt mimics the model wrote itself. Live 2026-09-23 19:47: the
+ * prose contained "(📎 PDF-nya sudah kubuat: report-...12-13....pdf...)"
+ * while deterministic delivery had just created ...12-49....pdf — the model
+ * imitates the receipt shape with a remembered filename. The real receipt
+ * appended by the caller replaces it. Only the exact receipt shape is
+ * stripped, never other prose. Pure — tested.
+ */
+export function stripReceiptMimics(text: string): string {
+  return (text || "").replace(/\(📎 PDF-nya sudah kubuat:[^)]*\)/gi, "").replace(/[ \t]{2,}/g, " ");
+}
+
+/**
  * Honest exploit-chain guard: when the user asked for pentest/exploit work and
  * this turn's `exploit_chain` result shows NO chain actually ran (Error: /
  * aggregate "TIDAK ADA chain yang benar-benar dijalankan" / all-⛔ skipped with
@@ -2852,6 +2910,10 @@ export function shortPath(p: string): string {
 }
 // Reads that still "touch" an endpoint (vs store reads like finding_list that
 // never leave the process). Used for the zero-contact rule below.
+const COMPLETION_CLAIM_RE =
+  /sudah selesai (memindai|menguji|memeriksa|mengetes|mengaudit|mengscan|melakukan (full )?pentest)|selesai (memindai|menguji|memeriksa|melakukan (full )?pentest)\b|sudah selesai (aku |ku)?(lakukan|kerjakan|tuntaskan|selesaikan)\b|sudah (aku |ku)?(uji|test|periksa|scan|pindai|audit|jalankan|lakukan|eksekusi)\b|pengujian (telah|sudah|tuntas) selesai|(sudah|telah|udah).{0,20}(cek|uji|test|periksa|scan).{0,20}(kembali|ulang|tuntas)|full pentest .{0,20}(selesai|tuntas|sudah)/i;
+// Reads that still "touch" an endpoint (vs store reads like finding_list that
+// never leave the process). Used for the zero-contact rule below.
 const READ_TOUCH_TOOLS = new Set([
   "http_request", "fetch_url", "browser_open", "browser_snapshot",
   "browser_navigate", "browser_click", "browser_type", "cdp_request",
@@ -2905,8 +2967,8 @@ export function endpointTriageNote(messages: ChatMessage[], text: string): strin
   // A pure list ask ("temuan apa aja di /api/x") is legitimate store reading,
   // not an endpoint test — carve it out (unless test verbs are present).
   if (EXPLICIT_LIST_RE.test(userText) && !ENDPOINT_TEST_VERBS.test(userText)) return "";
-  if (!/\b(rentan|cek|uji|tes|audit|vulnerable|vuln|scan|periksa)\b/i.test(userText)) return "";
-  if (!ENDPOINT_CLAIM_RE.test(t)) return "";
+  if (!/\b(rentan|cek|uji|tes|audit|vulnerable|vuln|scan|periksa|pentest)\b/i.test(userText)) return "";
+  if (!ENDPOINT_CLAIM_RE.test(t) && !COMPLETION_CLAIM_RE.test(t)) return "";
   const covered = new Set<string>();
   const touched = new Set<string>();
   for (const m of messages) {
@@ -2947,6 +3009,12 @@ export function endpointTriageNote(messages: ChatMessage[], text: string): strin
   const missing = paths.filter((p) => !covered.has(p)).slice(0, 2);
   if (missing.length && /\b\d+\s+temuan\b|\[(CRITICAL|HIGH|MEDIUM|LOW)\b/i.test(t)) {
     return ` (Catatan jujur: ${missing.join(" + ")} baru dibaca, belum diuji kerentanannya di giliran ini — di atas itu temuan lama + isi halaman. Bilang "uji ${missing[0]}" untuk pengujian auth/injeksi langsung.)`;
+  }
+  // Completion claims without probes (live 2026-09-23 17:00: "sudah selesai
+  // memindai dan menguji" over 9 plain GETs + zero probes). Reads don't count.
+  const untested = paths.filter((p) => !covered.has(p)).slice(0, 2);
+  if (untested.length && COMPLETION_CLAIM_RE.test(t)) {
+    return ` (Catatan jujur: klaim "sudah menguji" di atas belum didukung pengujian — tidak ada probe yang berjalan di giliran ini, hanya baca + temuan lama. Bilang "uji ${untested[0]}" untuk pengujian sungguhan.)`;
   }
   return "";
 }
@@ -3815,8 +3883,26 @@ async function runAssistantTurnImpl(opts: {
         : "";
     if (delivered) {
       // A real file now exists — "(sudah kubuat: <file>)" replaces both the
-      // ".md-only" note and the fabrication note.
-      text = `${text}${delivered}`;
+      // ".md-only" note and the fabrication note. But the model's OWN prose
+      // may still quote a different filename (live 2026-09-23 17:00) — the
+      // delivery receipt alone doesn't correct that, so check consistency
+      // against the user's real reports dir (stale-but-real vs fabricated).
+      // Strip receipt MIMICS first (live 19:47: prose faked the receipt shape
+      // with a stale name next to the real delivery) — the true receipt below
+      // replaces them; other prose quotes still go through the mismatch check.
+      text = stripReceiptMimics(text);
+      const file = (/`([^`]*\.pdf)`/i.exec(delivered) || [])[1] || "";
+      let mismatch = "";
+      try {
+        const { userDataRoot } = await import("./users");
+        const { existsSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const udir = join(userDataRoot(), String(opts.user ?? "shared"), "reports");
+        mismatch = pdfFilenameMismatchNote(text, file, (name) => existsSync(join(udir, name)), true);
+      } catch {
+        mismatch = pdfFilenameMismatchNote(text, file);
+      }
+      text = `${text}${delivered}${mismatch}`;
     } else {
       const pdfNote = pdfDeliverableSuffix(messages, text);
       if (pdfNote) text = `${text}${pdfNote}`;

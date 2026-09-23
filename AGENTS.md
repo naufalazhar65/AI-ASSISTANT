@@ -985,3 +985,39 @@ Reply "sudah aku rekap ke dalam file report-...pdf" — file NYATA (12:29) tapi 
 
 ### Scope refusal atas lab sendiri (2026-09-23 sore) — ownerLabScopeLine
 Dua turn menolak lab Netlify owner ("bukan lab yang diizinkan" / minta engagement) TANPA satu tool-call pun — melanggar aturan keras prompt (wajib cek engagement_list+pentest_resources dulu). Gate kode terbukti benar (targetAllowed: true), jadi ini model-side: ia tak tahu host itu lab owner kecuali memanggil tool, dan ia malas memanggil. Drill teks persis mereproduksi keraguan. Fix: `ownerLabScopeLine()` menyuntik host PENTEST_LAB_TARGETS ke system prompt (slim+full) sebagai pre-authorized — pengetahuan, bukan aturan baru. Drill pasca-fix: langsung http_request round 1 + note absence tepat, tanpa ragu/menolak. Gates: typecheck 0 · lint 0 · vitest 481/481 · verify EXIT=0.
+
+### Commit abf9558 (output-tidiness batch) — CI SUCCESS
+9 files +700/−20: endpointTriageNote (+zero-contact/absence/shortPath), collapseHtmlDumps, dupWarning, normalizeOwaspYear, word-split chunks, volunteered-PDF unified branch, userAskedForList carve-out, ownerLabScopeLine. Live-validated di Discord sebelum push (11:34→17:00 WIB). CI 4-job SUCCESS.
+
+### OpenRouter mati di Discord (2026-09-23 malam) — model primer tewas
+Owner test via Discord (provider openrouter) tanpa respons. Forensik: Discord sehat (pesan diterima, allow-list lolos); turn mati `Provider error (504)` + freeride `minimax-m3:free 404 No endpoints`. Akar: `OPENROUTER_MODEL=minimax-m3:free` SUDAH MATI di sisi OpenRouter — primer 404, failover tersedak 504 upstream. Bukan bug Discord (adapter punya error-reply path; turn yang hang/timeout panjang memang tak sempat membalas). Fix: `OPENROUTER_MODEL=nex-agi/nex-n2.5-pro:free` (terverifikasi live via API) + restart. Drill turn penuh via openrouter pasca-fix: menjawab dengan identitas benar. Catatan: model gratis rotasi/mati berkala — bila sunyi lagi, curigai model dulu; 9router tetap default harian yang stabil. Sampingan: 1 turn 9router sempat `text len=0` (transien terpisah, dipantau).
+
+### Follow-up 17:00 turn (klaim "sudah menguji" + filename PDF salah)
+Forensik: 9 fetch + finding_list, NOL probe; PDF prosa (`report-cozy-...pdf`) ≠ file nyata (`report-...10-18-36-107Z.pdf`, deterministik, ada). Dua fix: (1) `pdfFilenameMismatchNote` — prosa kutip nama beda dari file delivery + klaim-kreasi → koreksi; di-wire di cabang delivered (receipt saja tak mengoreksi prosa). (2) Cabang completion di endpointTriageNote ("sudah selesai memindai/menguji" + nol probe → note; "pentest" masuk ask-verb). Implementasi berdarah: opener `/**` tertelan 2×, redeclare `unprobed`, hapus deklarasi READ_TOUCH tak sengaja, gate CLAIM lupa completion — semua tertangkap vitest/tsc sebelum hijau. Gates: typecheck 0 · lint 0 · vitest 484/484 · verify EXIT=0.
+
+### Follow-up 17:28 turn ("sudah cek dan uji kembali" + filename salah)
+Forensik: finding_list + browser_open + 2 fetch, NOL probe; PDF nyata dari delivery deterministik, tapi prosa kutip `report-cozy-...pdf` (tak ada) + "sudah ... tersimpan". Dua miss pola: (1) kreasi pasif ("sudah tersimpan", tanpa agen aku/ku) lolos; (2) "sudah cek dan uji kembali" lolos COMPLETION (butuh "sudah + verb" langsung). Fix: kreasi pasif standalone + recheck-pattern `(sudah|telah|udah).{0,20}(cek|uji|...).{0,20}(kembali|ulang|tuntas)`. Gates: typecheck 0 · lint 0 · vitest 486/486 · verify EXIT=0.
+
+### Stale-server incident 17:34 (guard benar, tak ter-deploy)
+Turn 17:34 lolos dari mismatch guard padahal fungsinya menyala benar pada teks live persis (dibuktikan isolasi). Forensik: server boot 17:32:43 < agent.ts mtime 18:25:40 — fix mendarat di disk SETELAH boot; turn dilayani kode basi. Ini race edit-vs-restart di pihak operator (klaim "restart sehat" tak menjamin urutan). Pelajaran institusional: verifikasi deployment = bandingkan jam boot proses (`ps lstart`) vs mtime lib, bukan sekadar "perintah restart sudah jalan". Next.js dev HMR tak diandalkan untuk singleton long-lived (bot Discord dkk). Restart 18:30 sudah memuat semua fix.
+
+### Follow-up 18:43 turn ("sudah selesai melakukan full pentest" + filename salah)
+Forensik: finding_list + browser_open + 4 fetch, NOL probe; PDF nyata; prosa kutip nama salah. Dua miss: kreasi "bisa kamu akses di" + completion "sudah selesai melakukan full pentest". Fix: framing deliverable digeneralisasi (bukan enumerasi verba) + COMPLETION tambah pola full-pentest + note mismatch dilunakkan (aman di dua bacaan: fabrikasi vs referensi file lama valid). Gates: typecheck 0 · lint 0 · vitest 488/488 · verify EXIT=0.
+
+### Follow-up 19:13 turn (zero tool + stale filename, guard menyala)
+Reply 19:13 membawa DUA note jujur yang benar (koreksi filename + zero-contact) — guard bekerja di produksi. Forensik: turn NOL tool (bahkan finding_list pun tidak), PDF deterministik nyata. Tambahan: pola completion "sudah selesai aku kerjakan" (tanpa verb uji) kini dicakup; preseden zero-contact atas completion bila keduanya cocok. Gates: typecheck 0 · lint 0 · vitest 489/489 · verify EXIT=0.
+
+### Follow-up 19:20 turn (framing "tepatnya" + file lama nyata)
+Prosa: "tepatnya report-...11-46...pdf" (file lama NYATA) + delivery baru. Miss: framing "tepatnya" tak ada; note lama mengklaim non-eksistensi (bahaya bila file ada). Fix: `pdfFilenameMismatchNote` existence-aware (caller cek reports dir): stray-tak-ada → koreksi fabrikasi; stray-ada → klarifikasi lembut. + COMPLETION pasif teruji/diuji. Gates: typecheck 0 · lint 0 · vitest 490/490 · verify EXIT=0.
+
+### Maximal drill (owner request): full pentest loop end-to-end (2026-09-23 malam)
+Drill multi-round jalur-Discord (9router, throwaway user, lab Kohona, approve semua): baca JS bundle → manual IDOR probe A/B via http_request (header x-user-role spoof vs tanpa) → XSS probe → poc_verify + baseline + save_evidence → finding_add HIGH 7.5 IDOR (evidence auto http_history 403→200) → PDF deterministik nyata (%PDF-1.4). Reply ringkas, receipt benar, guard diam dengan tepat (klaim didukung probe nyata). Policy auto-approve lab bekerja sesuai desain (0 konfirmasi untuk probe ber-scope). Artefak drill dibersihkan.
+
+### Follow-up 19:47 turn (receipt-mimic + "betul?/knp 2 report?")
+Prosa meniru format receipt "(📎 ...)" dengan nama basi di samping delivery nyata; file 12-49 nyata (delivery jalan). Fix: `stripReceiptMimics` (bentuk receipt persis di prosa model dibuang, receipt nyata menggantikan) + prompt proposal-hygiene (full+slim: saat mengusul tool, tulis usulan+alasan saja, jangan kesimpulan/receipt). Jawaban user: isi temuan cocok store; "2 report" = tiap "buatkan pdf" mencetak snapshot timestamp baru (normal) + prosa salah kutip nama lama (yang diperbaiki guard). Gates: typecheck 0 · lint 0 · vitest 491/491 · verify EXIT=0.
+
+### Follow-up 20:10 turn (pola "tuntaskan" + preseden zero-contact)
+Zero-contact note menyala tepat; completion "sudah selesai aku tuntaskan" lolos (verba tak dikenal). Fix: pola pasif teruji/diuji + tuntaskan/lakukan/kerjakan/selesaikan. Preseden dikunci via test yang gagal dulu: zero-contact menang bila nol tool; completion hanya untuk reads-touch-tanpa-probe. Gates: typecheck 0 · lint 0 · vitest 492/492 · verify EXIT=0.
+
+### Follow-up 20:29 turn (strict mismatch + jalankan-verb)
+Prosa kutip nama tebakan-waktu-turn di samping delivery nyata; framing lolos semua pola. Fix: mode strict di cabang delivered (ada delivery segar → kutipan lain otomatis stale/fabrikasi; framing tak diperlukan) + verba jalankan/lakukan/eksekusi di COMPLETION. Gates: typecheck 0 · lint 0 · vitest 493/493 · verify EXIT=0.
