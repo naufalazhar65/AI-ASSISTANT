@@ -149,6 +149,11 @@ describe("verbatim list fast-path gate (no hijacked replies)", () => {
     // not the answer (so a full pentest can chain inside one turn).
     expect(userAskedForList("recon_subdomains", "halo")).toBe(false);
     expect(userAskedForList("suite_hunt", "coba lakukan full pentest di https://lab.example/index.html")).toBe(false);
+    // Endpoint-test asks must never hijack a list verbatim (live 2026-09-23
+    // 11:34: "cek /login rentan?" ended at finding_list, /login untested).
+    expect(userAskedForList("finding_list", "mia cek apakah https://lab.example/login rentan?")).toBe(false);
+    expect(userAskedForList("hunt_log", "cek /login rentan?")).toBe(false);
+    expect(userAskedForList("finding_list", "temuan apa aja di /api/dokumen?")).toBe(true);
     expect(userAskedForList("poc_verify", "verifikasi temuan ini")).toBe(false);
     // ...but an explicit ask still shows the raw result
     expect(userAskedForList("recon_subdomains", "cek subdomain target ini")).toBe(true);
@@ -463,5 +468,220 @@ describe("slim prompt for small providers (audit 2026-09-23)", () => {
     // above is blind to bare mentions, so pin the directive directly.
     expect(SLIM_SYSTEM_PROMPT).not.toMatch(/exploit_chain chain=/);
     expect(SLIM_SYSTEM_PROMPT).toContain("lakukan alur manual");
+  });
+});
+
+import { endpointTriageNote, collapseHtmlDumps, summarizeHtmlDump, shortPath, ownerLabScopeLine } from "./agent";
+import { dupWarning } from "./tools";
+import { normalizeOwaspYear } from "./security";
+import { chunkText } from "../channels/replyChunk";
+
+describe("endpointTriageNote (cek-path-rentan answered with old dump)", () => {
+  const user = (content: string) => ({ role: "user" as const, content });
+  const asstCalls = (name: string, args: string) => ({
+    role: "assistant" as const,
+    content: null,
+    tool_calls: [{ id: "c1", type: "function" as const, function: { name, arguments: args } }],
+  });
+  const toolRes = (content: string) => ({ role: "tool" as const, tool_call_id: "c1", content });
+  const DUMP = "8 temuan:\n• [HIGH CVSS 7.5] Broken Access Control pada /api/dokumen";
+  it("fires on the live shape: /login asked, only fetched, reply is a dump", () => {
+    const msgs = [
+      user("cek apakah /login rentan?"),
+      asstCalls("http_request", JSON.stringify({ url: "https://lab/login", method: "GET" })),
+      toolRes("HTTP 200 <html>...</html>"),
+    ] as never[];
+    expect(endpointTriageNote(msgs as never, DUMP)).toContain("/login");
+  });
+  it("silent when a probe tool tested the path", () => {
+    const msgs = [
+      user("cek /login rentan?"),
+      asstCalls("auth_hunt", JSON.stringify({ url: "https://lab/login" })),
+      toolRes("auth_hunt done"),
+    ] as never[];
+    expect(endpointTriageNote(msgs as never, DUMP)).toBe("");
+  });
+  it("silent when manual http_request carried a payload", () => {
+    const msgs = [
+      user("uji /api/cari-berita rentan?"),
+      asstCalls("http_request", JSON.stringify({ url: "https://lab/api/cari-berita?q=x' UNION SELECT 1--" })),
+      toolRes("200"),
+    ] as never[];
+    expect(endpointTriageNote(msgs as never, DUMP)).toBe("");
+  });
+  it("silent without paths, without ask-verbs, or without a dump reply", () => {
+    const msgs = [user("cek /login rentan?")] as never[];
+    expect(endpointTriageNote(msgs as never, "Halo, ada yang bisa kubantu?")).toBe("");
+    expect(endpointTriageNote([user("reminder apa aja?")] as never, DUMP)).toBe("");
+    expect(endpointTriageNote([user("halo")] as never, DUMP)).toBe("");
+  });
+  it("fires zero-contact when the turn never touched the endpoint", () => {
+    const msgs = [user("mia cek apakah https://lab/login rentan?")] as never[];
+    const note = endpointTriageNote(
+      msgs as never,
+      "Hasil pemeriksaan: ada celah serius, Critical 9.8. Laporannya sudah aku siapkan dalam bentuk PDF ya."
+    );
+    expect(note).toContain("tidak menyentuh");
+    expect(note).toContain("/login");
+  });
+  it("stays silent on a pure list ask even with a path", () => {
+    const msgs = [user("temuan apa aja di /api/dokumen?")] as never[];
+    expect(endpointTriageNote(msgs as never, DUMP)).toBe("");
+  });
+  it("stays silent when a read touched the path and the reply is analysis, not a dump", () => {
+    const msgs = [
+      user("cek apakah https://lab/ rentan CVE-2026-63077?"),
+      asstCalls("http_request", JSON.stringify({ url: "https://lab/login.html", method: "GET" })),
+      toolRes("TeamCity 2026.1.2"),
+    ] as never[];
+    expect(
+      endpointTriageNote(msgs as never, "TeamCity versi 2026.1.2, di bawah 2026.1.3 — jadi rentan.")
+    ).toBe("");
+  });
+  it("fires absence-claim when only reads back a 'tidak ada celah' verdict", () => {
+    const msgs = [
+      user("mia cek apakah https://lab/login rentan?"),
+      asstCalls("http_request", JSON.stringify({ url: "https://lab/login", method: "GET" })),
+      toolRes("HTTP 200 <html>form</html>"),
+    ] as never[];
+    const note = endpointTriageNote(
+      msgs as never,
+      "Di halaman /login ini tidak ada celah keamanan baru yang terlihat."
+    );
+    expect(note).toContain("hanya dari membaca");
+    expect(note).toContain("/login");
+  });
+});
+
+import { pdfDeliverableSuffix } from "./agent";
+
+describe("pdfDeliverableSuffix volunteered claims (no path, no ask)", () => {
+  const noTools: never[] = [{ role: "user", content: "cek apakah https://lab/login rentan?" } as never];
+  it("fires on the live volunteered PDF-ready claim", () => {
+    expect(
+      pdfDeliverableSuffix(noTools, "Laporan lengkapnya sudah aku siapkan dalam bentuk PDF ya beb.")
+    ).toContain("tidak dibuat di giliran ini");
+  });
+  it("fires on creation-claim quoting a stale path (live 12:46)", () => {
+    expect(
+      pdfDeliverableSuffix(noTools, "Sudah aku rekap ke dalam file report-2026-09-23T05-29-33-358Z.pdf agar bisa dilaporkan.")
+    ).toContain("tidak dibuat di giliran ini");
+  });
+  it("stays silent on admissions, offers and delivery receipts", () => {
+    expect(pdfDeliverableSuffix(noTools, "PDF-nya belum kubuat, bilang saja kalau mau.")).toBe("");
+    expect(pdfDeliverableSuffix(noTools, "Mau kubuatkan versi PDF-nya?")).toBe("");
+    expect(pdfDeliverableSuffix(noTools, "Berhasil. (📎 PDF-nya sudah kubuat: `report-1.pdf` — cek folder ya.)")).toBe("");
+  });
+});
+
+describe("shortPath (host glued into the token)", () => {  it("shortens /host.tld/path to /path, leaves plain paths", () => {
+    expect(shortPath("/6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app/login")).toBe("/login");
+    expect(shortPath("/api/dokumen")).toBe("/api/dokumen");
+    expect(shortPath("/login")).toBe("/login");
+  });
+  it("triage note suggests the short command", () => {
+    const msgs = [
+      { role: "user" as const, content: "mia cek apakah https://lab.example.netlify.app/login rentan?" },
+    ] as never[];
+    const note = endpointTriageNote(msgs as never, "Ada celah serius Critical 9.8 di sana.");
+    expect(note).toContain('Bilang "uji /login"');
+    expect(note).not.toContain("netlify.app/login");
+  });
+});
+
+describe("ownerLabScopeLine (authorized hosts in-prompt)", () => {
+  const KEY = "PENTEST_LAB_TARGETS";
+  it("names the hosts with a direct-test directive, empty when unconfigured", () => {
+    const prev = process.env[KEY];
+    try {
+      process.env[KEY] = "cozy-kangaroo-42f2e0.netlify.app, https://6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app/index.html";
+      const line = ownerLabScopeLine();
+      expect(line).toContain("cozy-kangaroo-42f2e0.netlify.app");
+      expect(line).toContain("6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app");
+      expect(line).not.toContain("https://");
+      expect(line).not.toContain("/index.html");
+      expect(line).toContain("test DIRECTLY");
+      delete process.env[KEY];
+      expect(ownerLabScopeLine()).toBe("");
+    } finally {
+      if (prev === undefined) delete process.env[KEY];
+      else process.env[KEY] = prev;
+    }
+  });
+});
+
+describe("collapseHtmlDumps (no verbatim page dumps in chat)", () => {
+  const page = (n: number) =>
+    ["<!DOCTYPE html>", "<html>", "<head><title>Portal Pegawai - Login</title></head>",
+      `<form action="/login"><input name="u"></form>`,
+      ...Array.from({ length: n }, (_, i) => `<p>baris ${i}</p>`),
+      "</html>"].join("\n");
+  it("collapses a full page into a one-line summary", () => {
+    const out = collapseHtmlDumps(`hasil:\n${page(20)}`);
+    expect(out).not.toContain("<!DOCTYPE html>");
+    expect(out).toMatch(/HTML ±\d+ baris disembunyikan/);
+    expect(out).toContain("Portal Pegawai - Login");
+  });
+  it("leaves snippets, PoC evidence and fenced code alone", () => {
+    expect(collapseHtmlDumps("<div><b>x</b></div>")).toBe("<div><b>x</b></div>");
+    const fenced = "contoh:\n```html\n<html>\n<body>\n" + "<p>x</p>\n".repeat(20) + "</body>\n</html>\n```";
+    expect(collapseHtmlDumps(fenced)).toBe(fenced);
+  });
+  it("summarizeHtmlDump extracts title/forms/scripts", () => {
+    const s = summarizeHtmlDump(`<title>T</title><form action="/a"><input><input></form><script src="js/x.js"></script>`);
+    expect(s).toContain('"T"');
+    expect(s).toContain("1 form (/a)");
+    expect(s).toContain("2 input");
+    expect(s).toContain("js/x.js");
+  });
+});
+
+describe("dupWarning (same-host same-endpoint near-dup)", () => {
+  const rows = [
+    { id: "F-keep", title: "Broken Access Control — otorisasi dokumen internal via header x-user-role", target: "https://lab/", status: "open" },
+    { id: "F-other", title: "Broken Access Control tanpa autentikasi pada /api/cek-nik", target: "https://lab/", status: "open" },
+    { id: "F-done", title: "Broken Access Control pada /api/dokumen", target: "https://lab/", status: "resolved" },
+  ];
+  it("warns on the live /api/dokumen dupe with its id", () => {
+    const w = dupWarning("Broken Access Control pada /api/dokumen", "https://lab/", rows);
+    expect(w).toContain("F-keep");
+  });
+  it("ignores other endpoints, resolved rows and other hosts", () => {
+    expect(dupWarning("Stored XSS pada /api/pengaduan", "https://lab/", rows)).toBe("");
+    expect(dupWarning("Broken Access Control pada /api/dokumen", "https://other/", rows)).toBe("");
+    expect(dupWarning("", "https://lab/", rows)).toBe("");
+  });
+});
+
+describe("normalizeOwaspYear (house standard 2025)", () => {
+  it("rewrites Axx:2021, leaves CVE/build numbers alone", () => {
+    expect(normalizeOwaspYear("A01:2021 Broken Access")).toBe("A01:2025 Broken Access");
+    expect(normalizeOwaspYear("CVE-2021-44228 / build 2021")).toBe("CVE-2021-44228 / build 2021");
+    expect(normalizeOwaspYear("")).toBe("");
+  });
+});
+
+describe("chunkText word boundary (no mid-word cuts)", () => {
+  it("breaks long lines exactly at spaces", () => {
+    const src = "kata " + "abcdefghij ".repeat(30);
+    const chunks = chunkText(src, 40);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(40);
+    // every chunk boundary must align with a space in the source
+    let si = 0;
+    const lines = chunks.join("\n").split("\n");
+    for (const line of lines) {
+      expect(src.indexOf(line, si)).toBe(si);
+      si += line.length;
+      if (si < src.length) {
+        expect(src[si]).toBe(" ");
+        si += 1;
+      }
+    }
+  });
+  it("still hard-splits spaceless lines (URLs/JSON)", () => {
+    const blob = "x".repeat(100);
+    const chunks = chunkText(blob, 40);
+    expect(chunks.join("")).toBe(blob);
   });
 });

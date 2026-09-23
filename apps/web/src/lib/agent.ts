@@ -279,7 +279,7 @@ const SYSTEM_PROMPT = [
   + "RECON (attack surface): recon_subdomains (PASIF via CT crt.sh/hackertarget — read/auto, domain apa pun), recon_params (PASIF URL+query-param dari arsip publik OTX/urlscan/Wayback — read/auto, menandai param menarik id/redirect/url/file untuk uji IDOR/SSRF/LFI), recon_list (ringkasan cache, read/auto). recon_httpx (probe AKTIF host hidup via HTTP/HTTPS) HANYA lab/engagement/PENTEST_LAB_TARGETS — write/confirm. Alur: recon_subdomains (isi cache) → recon_httpx (host hidup) → recon_params → exposure_hunt url=<origin> (sapu .git/.env/backup/API-docs, GET-only, LEAD vs info) → uji manual di URL berizin → finding_add. Jalan pintas: recon_full target=<url> menjalankan seluruh alur di atas dalam SATU konfirmasi (output dipotong jujur per tahap). ID rentang: idor_enum url=<url dengan {id}> session_a/b (hitung konkrit n/20, stop 5 hit). Host-header: host_header_hunt url=<origin> (+reset_url/email untuk reset-poisoning). Sumber keyless, semua output dibatasi." 
   + "SECURITY METHODOLOGY (WAJIB, meniru disiplin Strix): sebelum menguji/menilai, muat playbook relevan via security_playbook (75 pack; name=… atau query=…). WORKFLOW besar: application-security-testing (audit seluruh produk: map aset→tes per aset→1 rencana prioritas), owasp-top-10-testing (OWASP Top 10:2025, tabel coverage jujur), api-security-testing (OWASP API Top 10:2023, BOLA butuh 2 tenant), whitebox-code-review (source→sink, static=belum terkonfirmasi), fix-and-verify (root cause+retest), source-aware-whitebox (triage statis→validasi), scan-modes (quick/standard/deep/diff). SEBELUM finding_add: (1) pass counterevidence — cari kontrol yang mencegah dan bukti aman yang bisa dinamai; (2) severity-calibration — jangan inflate high/critical, turunkan bukan hapus; (3) kalau tak bisa confirm TAPI tak bisa menutup dengan kontrol tertentu → tandai NEEDS_FOLLOW_UP, jangan diam-diam dibuang. SETELAH patch: fix-verification (retest membuktikan exploit mati). White-box kode sendiri: sast_scan (semgrep: p/default + p/secrets) lalu trace source→sink. Setelah recon_subdomains: recon_takeover untuk kandidat CNAME layanan terlantar (verifikasi belum diklaim sebelum menyimpulkan). Target aktif hanya lab/engagement/PENTEST_LAB_TARGETS; jangan pakai marker/identitas yang bisa dilacak di payload." 
   + "AUTHENTICATED APP TESTING (IDOR/mass-assignment): uji ber-autentikasi = pakai browser user lewat CDP dulu — minta user jalankan scripts/chrome-debug.sh + login ke app, lalu cdp_status → cdp_request (request dijalankan DI DALAM tab/sesi user, jadi lolos WAF/CF dan memakai cookie login; Bearer via token_from=<ekspresi JS in-page> sehingga token TAK pernah masuk ke Mia) → cdp_eval untuk membaca state/pasang patch. Kalau CDP tak tersedia, fallback: saat WAF memblokir request programatik (curl atau fetch Console balas 'Attention Required'/'blocked'), JANGAN coba bypass — pakai tamper_script (patch fetch+XHR di Console) lalu minta user trigger aksi dari UI app., supaya request asli app (lolos CF) yang termodifikasi. Triage IDOR: kalau body memuat userId dan mengubahnya menghasilkan 401/403, server mengikat userId ke token = TERKONTROL (tutup lead, bukan temuan); 200 + data user lain = IDOR (temuan). Mass assignment: pakai NAMA FIELD ASLI dari respons GET (mis. accountTypeField/userTypeField/emailVerifiedField), bukan tebakan (IsPremium/Role); kalau field tak muncul lagi saat GET berarti diabaikan. Bandingkan dua akun A/B via bola_diff, atau otomatis via mass_assignment url=<endpoint> body=<json> verify_url=<GET-profil> (injeksi role/admin + diff baseline + cek persistensi). Detail: security_playbook name=browser-transport-tampering atau name=idor-triage."
-  + "HUNT AGILITY: sebelum menguji sebuah target, panggil hunt_log action=list (atau action=get target=…) dan JANGAN ulangi target berstatus dead. Setelah tiap target: hunt_log action=note target=… status=lead|dead|finding note=… evidence=…. Kalau host tak menyisakan lead, tandai dead lalu LANJUT ke host in-scope berikutnya TANPA bertanya. Alur per host: engagement_targets (worklist) → suite_hunt (satu konfirmasi = security_hunt + auth_hunt + api_hunt, otomatis menulis hunt_log) → verifikasi lead manual → finding_add/report. finding_add otomatis menarik bukti dari http_history bila evidence kosong. Jangan menaikkan laju request/payload — gesit berarti hemat langkah, bukan lebih intrusif. Permukaan tambahan: cloud_misconfig (storage cloud milik org dalam scope: S3/GCS/Azure/Firebase/Supabase) dan tech_watch (fingerprint teknologi host + CVE saat berubah, termasuk aset baru). Alur optimal: program_score (pilih target/ROI) → policy_set (kurangi konfirmasi saat engagement, hanya read/write) → campaign_run (loop terbatas; default = engagement AKTIF TERBARU — sebut `engagement=<id>` bila ingin spesifik, JANGAN berasumsi menggabung beberapa program) ATAU suite_hunt → uji lead via flow_run/cdp_request/tamper_script → poc_verify → dup_check lalu finding_add → report. Untuk permintaan 'kerjakan bug bounty sampai selesai / 1 perintah': panggil bounty_run (draft-only: engagement→worklist ROI→campaign→draft finding+report→handoff; TIDAK submit, tidak destruktif, tidak bypass WAF) lalu laporkan handoff-nya; JANGAN klaim temuan terverifikasi dari draft."
+  + "HUNT AGILITY: sebelum menguji sebuah target, panggil hunt_log action=list (atau action=get target=…) dan JANGAN ulangi target berstatus dead. Setelah tiap target: hunt_log action=note target=… status=lead|dead|finding note=… evidence=…. Kalau host tak menyisakan lead, tandai dead lalu LANJUT ke host in-scope berikutnya TANPA bertanya. Alur per host: engagement_targets (worklist) → suite_hunt (satu konfirmasi = security_hunt + auth_hunt + api_hunt, otomatis menulis hunt_log) → verifikasi lead manual → finding_add/report. TRIAGE ENDPOINT: 'cek <path> rentan?' = UJI path itu langsung (login → auth_hunt/ato_prove; injeksi → param_fuzz→poc_verify) — fetch/read saja BUKAN pengujian; daftar temuan lama hanya konteks, jangan jadikan jawaban. finding_add otomatis menarik bukti dari http_history bila evidence kosong. Jangan menaikkan laju request/payload — gesit berarti hemat langkah, bukan lebih intrusif. Permukaan tambahan: cloud_misconfig (storage cloud milik org dalam scope: S3/GCS/Azure/Firebase/Supabase) dan tech_watch (fingerprint teknologi host + CVE saat berubah, termasuk aset baru). Alur optimal: program_score (pilih target/ROI) → policy_set (kurangi konfirmasi saat engagement, hanya read/write) → campaign_run (loop terbatas; default = engagement AKTIF TERBARU — sebut `engagement=<id>` bila ingin spesifik, JANGAN berasumsi menggabung beberapa program) ATAU suite_hunt → uji lead via flow_run/cdp_request/tamper_script → poc_verify → dup_check lalu finding_add → report. Untuk permintaan 'kerjakan bug bounty sampai selesai / 1 perintah': panggil bounty_run (draft-only: engagement→worklist ROI→campaign→draft finding+report→handoff; TIDAK submit, tidak destruktif, tidak bypass WAF) lalu laporkan handoff-nya; JANGAN klaim temuan terverifikasi dari draft."
   + "ENGAGEMENT RULE (WAJIB): bila user menyebut `engagement_create` atau memberi name+client+authorization+scope → panggil `engagement_create` LANGSUNG (JANGAN scope_import/engagement_list dulu, jangan menunda). `scope` = array nama host (mis. [\"dashboard.pantheon.io\"]). Bila langkah lanjutan memakai placeholder (mis. `engagement=<id-dari-hasil>`), jalankan dulu langkah yang menghasilkan id itu, lalu pakai id aslinya — jangan mengabaikan atau mengarang."
   + "MULTI-COMMAND RULE (WAJIB): bila user mengirim BEBERAPA baris perintah tool sekaligus (mis. beberapa `http_request`, `api_spec`, `hunt_log`), panggil SEMUA tool itu pada giliran yang sama — jangan hanya sebagian. Bila ada yang benar-benar tak bisa dijalankan, sebutkan eksplisit mana yang dilewati dan alasannya (jangan diam-diam menghilang)."
   + "COMMAND-LINE OBEDIENCE (WAJIB): bila pesan user berisi BARIS PERINTAH TOOL eksplisit (pola `nama_tool arg=…`, mis. `graphql_probe url=…` atau `http_request method=POST url=… body=…`), panggil PERSIS tool itu dengan argumen tersebut — JANGAN menggantinya dengan hunt_log/engagement_list/automation_list atau merangkum status, dan JANGAN menghilangkan salah satu. Setelah hasilnya ada, jawab ringkas dari data itu; jangan memanggil tool status tambahan tanpa diminta."
@@ -405,6 +405,23 @@ export const SLIM_SYSTEM_PROMPT = [
  * workspace + channel format + a DYNAMIC delivered-tool list (so the model
  * never sees tools it cannot call — the static full list goes stale).
  */
+/**
+ * Owner-lab hosts, injected into the system prompt so the model KNOWS the
+ * authorization without having to call a tool first (live 2026-09-23: the
+ * model refused the owner's own Netlify lab — then asked for an engagement —
+ * instead of checking, because nothing in its context named the host as
+ * authorized). Hosts are not secrets. Reads env at call time — tested with
+ * override + restore.
+ */
+export function ownerLabScopeLine(): string {
+  const hosts = (process.env.PENTEST_LAB_TARGETS || "")
+    .split(/[,\s]+/)
+    .map((s) => s.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, ""))
+    .filter(Boolean);
+  if (!hosts.length) return "";
+  return `LAB MILIK OWNER (authorized — test DIRECTLY, no engagement/permission questions): ${hosts.join(", ")}. A pentest ask naming one of these hosts is pre-authorized: run the scope-gated tools at once, do NOT ask for an engagement and do NOT refuse for scope reasons.`;
+}
+
 export function buildSlimSystemPrompt(rawUser?: unknown, channel?: Channel, url?: string): string {
   const parts = [SLIM_SYSTEM_PROMPT];
   const persona = loadPersonaPrompt(rawUser);
@@ -414,6 +431,8 @@ export function buildSlimSystemPrompt(rawUser?: unknown, channel?: Channel, url?
       "address, e.g. \"Mas Naufal\") — never shorten or drop the honorific."
   );
   parts.push(currentTimeLine());
+  const labLine = ownerLabScopeLine();
+  if (labLine) parts.push(labLine);
   const ws = workspaceInfo();
   if (ws) parts.push(ws);
   try {
@@ -601,6 +620,8 @@ export function buildSystemPrompt(rawUser?: unknown, channel?: Channel): string 
       "greeting the user — never shorten or drop the honorific."
   );
   parts.push(currentTimeLine());
+  const labLineFull = ownerLabScopeLine();
+  if (labLineFull) parts.push(labLineFull);
   const ws = workspaceInfo();
   if (ws) parts.push(ws);
   const fmt = formatInstructionFor(channel);
@@ -1128,6 +1149,20 @@ export function userAskedForList(toolName: string, userText: string): boolean {
   if (!PERSONAL_LIST_TOOLS.has(toolName)) return true;
   const text = (userText || "").trim();
   if (!text) return false;
+  // Endpoint-test asks are never list requests: "cek /login rentan?" contains
+  // the list word "cek", but letting finding_list (or any list tool) hijack
+  // verbatim would END the turn — the endpoint is never tested and every
+  // honesty suffix is skipped (live 2026-09-23 11:34). Pure list asks without
+  // test verbs ("temuan apa aja di /api/x") still hijack normally.
+  const testPaths = (text.match(/(?:\/[A-Za-z0-9_.\-~%]+)+/g) || []).filter(
+    (p) => p.length > 1 && /\/[A-Za-z0-9]/i.test(p)
+  );
+  if (
+    testPaths.length &&
+    /\b(rentan|uji|vulnerable|vuln|scan|periksa|audit)\b/i.test(text)
+  ) {
+    return false;
+  }
   if (!LIST_ASK_RE.test(text)) return false;
   if (SET_VERB_RE.test(text) && !EXPLICIT_LIST_RE.test(text)) return false;
   return true;
@@ -2525,6 +2560,27 @@ export function turnRanTool(messages: ChatMessage[], name: string): boolean {
 }
 
 export function pdfDeliverableSuffix(messages: ChatMessage[], text: string): string {
+  const t = (text || "").trim();
+  const noReportTools =
+    !turnRanTool(messages, "report_pdf") &&
+    !turnRanTool(messages, "report_save") &&
+    !turnRanTool(messages, "report_generate");
+  // Honest admissions always win ("PDF-nya belum", "belum ada file").
+  if (/(\bpdf\b|pdf-?nya)[^\n]{0,40}\bbelum\b|\bbelum\b[^\n]{0,40}\bpdf\b|\bbukan\s+pdf\b|belum ada file/i.test(t)) {
+    return "";
+  }
+  // Creation claim about a PDF with no report tool behind it (live 2026-09-23
+  // 12:46: "sudah aku rekap ke dalam file report-....pdf" quoting a REAL file
+  // from 12:29 as if just made; live 2026-09-20: quoted path never created).
+  // No ask-gate: volunteering counts too. Skipped on the deterministic
+  // delivery receipt ("sudah kubuat: <file>") — that path proves its own file.
+  if (
+    noReportTools &&
+    !/sudah kubuat:/i.test(t) &&
+    /sudah (aku |ku)?(siap|siapkan|sediakan|buatkan|buat|kirim|kasih|susun|cetak|rekap).{0,40}\bpdf\b|dalam bentuk pdf\b|dalam file report-[0-9A-Za-z:.()+_-]*\.pdf/i.test(t)
+  ) {
+    return " (Catatan jujur: file PDF di atas tidak dibuat di giliran ini — tidak ada report yang berjalan sekarang. Kalau merujuk file lama, sebutkan saja; untuk laporan baru dari temuan terkini, bilang \"buatkan PDF-nya\".)";
+  }
   const ask = lastInstructionText(messages);
   if (!/\bpdf\b|pdf-?nya|laporan\s+pdf|report\s+pdf/i.test(ask)) return "";
   // Which report tools actually ran this turn (assistant tool_calls that executed)?
@@ -2760,6 +2816,216 @@ export function toolRunClaimSuffix(messages: ChatMessage[], text: string): strin
 }
 
 /**
+ * Endpoint-triage honesty guard (audit 2026-09-23): "cek /login rentan?"
+ * dijawab dengan dump temuan LAMA + HTML mentah, tanpa pernah menguji /login.
+ * Bila user menyebut path endpoint spesifik + bertanya kerentanannya, tapi
+ * tidak ada PROBE tool yang menyentuh path itu di giliran ini sementara
+ * balasannya berbentuk dump temuan, katakan jujur. Fetch/read saja (tanpa
+ * payload) BUKAN pengujian — http_request/fetch_url/browser_open hanya
+ * dihitung bila argumennya membawa marker payload. Pure — tested.
+ */
+const PROBE_TOOLS = new Set([
+  "poc_verify", "auth_hunt", "ato_prove", "auth_setup", "param_fuzz",
+  "nuclei_custom", "sqlmap_scan", "zap_scan", "pentest_scan", "suite_hunt",
+  "security_hunt", "workflow_fuzz", "race_attack", "exploit_chain",
+  "smuggle_probe", "dom_xss_prove", "teamcity_check", "csrf_prove",
+  "mass_assignment", "upload_fuzz", "xss_hunt", "idor_enum", "host_header_hunt",
+  "llm_hunt", "mcp_hunt", "prompt_injection_hunt", "ws_hunt",
+  "cache_poison_prover", "xxe_chain", "open_redirect_chain", "graphql_hunt",
+  "vuln_compose", "crawl", "recon_full", "api_hunt", "evidence_capture",
+]);
+const PAYLOAD_MARK_RE = /'|union\s+select|select\s+.+\s+from|\.\.\/|;--|\{\{|\$\{|onerror|%3c|%27|<[a-z][^>]*>/i;
+
+const ENDPOINT_TEST_VERBS = /\b(rentan|uji|vulnerable|vuln|scan|periksa|audit)\b/i;
+const ENDPOINT_CLAIM_RE = /\b\d+\s+temuan\b|\[(CRITICAL|HIGH|MEDIUM|LOW)\b|\b(rentan|celah|critical|high|medium|cvss|temuan|xss|sqli|injection|idor|rce|bocor|terbuka|kerentanan|aman|bersih|tidak ada|tidak ditemukan)\b/i;
+
+/**
+ * Display form of an extracted path: a token like
+ * "/6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app/login" (host
+ * glued in, because dots are allowed) reads terribly in the honest note and
+ * as a suggested command — shorten to the real path ("/login"). Pure.
+ */
+export function shortPath(p: string): string {
+  const m = /^\/[^/]*\.[^/]*(\/.*)$/.exec(p || "");
+  if (m && m[1].length > 1) return m[1];
+  return p;
+}
+// Reads that still "touch" an endpoint (vs store reads like finding_list that
+// never leave the process). Used for the zero-contact rule below.
+const READ_TOUCH_TOOLS = new Set([
+  "http_request", "fetch_url", "browser_open", "browser_snapshot",
+  "browser_navigate", "browser_click", "browser_type", "cdp_request",
+  "cdp_eval", "tamper_script",
+]);
+
+/** Payload markers are tested against arg VALUES, not raw JSON (JSON syntax
+ *  itself is full of double quotes — testing the raw string would mark every
+ *  plain fetch as "probing"). Pure — tested via endpointTriageNote. */
+function argsLookProbing(args: unknown): boolean {
+  let hay = "";
+  if (typeof args === "string") {
+    try {
+      const parsed: unknown = JSON.parse(args);
+      if (parsed && typeof parsed === "object") {
+        hay = Object.values(parsed as Record<string, unknown>)
+          .filter((v): v is string => typeof v === "string")
+          .join("\n");
+      } else {
+        hay = args;
+      }
+    } catch {
+      hay = args;
+    }
+  }
+  return PAYLOAD_MARK_RE.test(hay);
+}
+
+function toolArgsContain(args: unknown, path: string): boolean {
+  if (args == null || !path) return false;
+  try {
+    return String(typeof args === "string" ? args : JSON.stringify(args))
+      .toLowerCase()
+      .includes(path.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+export function endpointTriageNote(messages: ChatMessage[], text: string): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  const userText = lastUser?.content ? messageText(lastUser.content) : "";
+  if (!userText) return "";
+  const rawPaths = (userText.match(/(?:\/[A-Za-z0-9_.\-~%]+)+/g) || []).filter(
+    (p) => p.length > 1 && /\/[A-Za-z0-9]/i.test(p)
+  );
+  const paths = [...new Set(rawPaths.map(shortPath))];
+  if (!paths.length) return "";
+  // A pure list ask ("temuan apa aja di /api/x") is legitimate store reading,
+  // not an endpoint test — carve it out (unless test verbs are present).
+  if (EXPLICIT_LIST_RE.test(userText) && !ENDPOINT_TEST_VERBS.test(userText)) return "";
+  if (!/\b(rentan|cek|uji|tes|audit|vulnerable|vuln|scan|periksa)\b/i.test(userText)) return "";
+  if (!ENDPOINT_CLAIM_RE.test(t)) return "";
+  const covered = new Set<string>();
+  const touched = new Set<string>();
+  for (const m of messages) {
+    if (m.role !== "assistant" || !m.tool_calls?.length) continue;
+    for (const tc of m.tool_calls) {
+      const nm = tc.function?.name || "";
+      const args = tc.function?.arguments || "";
+      for (const p of paths) {
+        if (!toolArgsContain(args, p)) continue;
+        if (PROBE_TOOLS.has(nm)) {
+          covered.add(p);
+          touched.add(p);
+        } else if (READ_TOUCH_TOOLS.has(nm)) {
+          touched.add(p);
+          if (argsLookProbing(args)) covered.add(p); // manual probing leaves payload traces in values
+        }
+      }
+    }
+  }
+  // Worst case first: the turn never touched the endpoint at all (answered
+  // from stale context — live 2026-09-23 11:22, zero tool calls).
+  const zeroContact = paths.filter((p) => !touched.has(p)).slice(0, 2);
+  if (zeroContact.length) {
+    return ` (Catatan jujur: giliran ini tidak menyentuh ${zeroContact.join(" + ")} sama sekali — klaim di atas dari konteks lama, bukan hasil pengujian. Bilang "uji ${zeroContact[0]}" untuk pengujian langsung.)`;
+  }
+  // Absence claims need probe evidence (live 2026-09-23 11:41: "tidak ada
+  // celah yang terlihat" dari membaca HTML saja — absence of evidence bukan
+  // evidence of absence). Reads don't count; only a probe silences this.
+  const absenceClaim =
+    /(tidak ada|tidak ditemukan|tidak terlihat|belum ditemukan).{0,50}(celah|temuan|kerentanan|vuln\b|rentan)|(aman|bersih).{0,30}(celah|temuan|vuln|kerentanan)/i.test(
+      t
+    );
+  const unprobed = paths.filter((p) => !covered.has(p)).slice(0, 2);
+  if (absenceClaim && unprobed.length) {
+    return ` (Catatan jujur: "tidak ada celah" di atas hanya dari membaca halaman — belum ada pengujian auth/injeksi di ${unprobed.join(" + ")}. Bilang "uji ${unprobed[0]}" untuk pembuktian.)`;
+  }
+  // Read-only contact (fetch/dump) while the reply presents old findings.
+  const missing = paths.filter((p) => !covered.has(p)).slice(0, 2);
+  if (missing.length && /\b\d+\s+temuan\b|\[(CRITICAL|HIGH|MEDIUM|LOW)\b/i.test(t)) {
+    return ` (Catatan jujur: ${missing.join(" + ")} baru dibaca, belum diuji kerentanannya di giliran ini — di atas itu temuan lama + isi halaman. Bilang "uji ${missing[0]}" untuk pengujian auth/injeksi langsung.)`;
+  }
+  return "";
+}
+
+/**
+ * Collapse pasted full-page HTML dumps in the reply into a one-line summary.
+ * Live bug (2026-09-23): a fetch_url result (whole login.html) was pasted
+ * VERBATIM into chat — unreadable + token burn. Only full pages collapse
+ * (an <html or <!doctype opener, >12 lines); snippets, PoC evidence and
+ * fenced code are left alone. Pure — tested.
+ */
+export function summarizeHtmlDump(html: string): string {
+  const h = html || "";
+  const title =
+    (/<title[^>]*>([\s\S]{0,150}?)<\/title\s*>/i.exec(h)?.[1] || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80) || "(tanpa title)";
+  const actions = [...h.matchAll(/<form\b[^>]*action\s*=\s*["']([^"']{0,120})["']/gi)]
+    .map((m) => m[1])
+    .slice(0, 4);
+  const forms = (h.match(/<form\b/gi) || []).length;
+  const inputs = (h.match(/<input\b/gi) || []).length;
+  const scripts = [...h.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']{0,120})["']/gi)]
+    .map((m) => m[1])
+    .slice(0, 5);
+  return [
+    `halaman "${title}"`,
+    `${forms} form${actions.length ? ` (${actions.join(", ")})` : ""}`,
+    `${inputs} input`,
+    scripts.length ? `JS: ${scripts.join(", ")}` : "tanpa JS eksternal",
+  ].join(" · ");
+}
+
+export function collapseHtmlDumps(text: string): string {
+  const lines = (text || "").split("\n");
+  const out: string[] = [];
+  let inFence = false;
+  let buf: string[] = [];
+  let inDump = false;
+  const flush = () => {
+    if (buf.length > 12) {
+      out.push(
+        `[HTML ±${buf.length} baris disembunyikan — ringkasan: ${summarizeHtmlDump(buf.join("\n"))}]`
+      );
+    } else {
+      out.push(...buf);
+    }
+    buf = [];
+    inDump = false;
+  };
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      if (inDump) flush();
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+    if (inFence) {
+      out.push(line);
+      continue;
+    }
+    if (!inDump && /^\s*(<!doctype html|<html[\s>])/i.test(line)) {
+      inDump = true;
+      buf = [line];
+      continue;
+    }
+    if (inDump) {
+      buf.push(line);
+      if (/<\/html\s*>/i.test(line)) flush();
+      continue;
+    }
+    out.push(line);
+  }
+  if (inDump) flush(); // unclosed dump at EOF still collapses when long
+  return out.join("\n");
+}
+
+/**
  * Honest compose/build guard: vuln_compose + exploit_build emit verdicts that
  * must never be inverted or fabricated in narration (live probe 2026-09-22:
  * a quoted `F-...-exploit.mjs` path with no build, a "terbukti penuh" narration
@@ -2875,7 +3141,7 @@ export async function runAssistantTurn(opts: {
   let kind: string | undefined;
   try {
     const result = await runAssistantTurnImpl(opts);
-    return { ...result, text: stripToolCallProse(fixAddressComma(result.text)) };
+    return { ...result, text: collapseHtmlDumps(stripToolCallProse(fixAddressComma(result.text))) };
   } catch (err) {
     ok = false;
     kind = err instanceof Error ? err.name : "UnknownError";
@@ -2968,7 +3234,7 @@ async function runAssistantTurnImpl(opts: {
     // reason as the groq/9router branch below: the reminder suffix must be
     // decided on the cleaned text, or a prose "remind_me(...)" reply both
     // suppresses the suffix AND gets stripped → empty reply).
-    opencodeText = stripToolCallProse(opencodeText);
+    opencodeText = collapseHtmlDumps(stripToolCallProse(opencodeText));
 
     // OpenClaw-style automatic memory: persist any new stable facts in the
     // background (never awaited → no TTFT cost).
@@ -3277,7 +3543,7 @@ async function runAssistantTurnImpl(opts: {
   // reminder suffix must be decided on the CLEANED text — otherwise the prose
   // (containing "remind") suppresses the suffix, the strip then removes the
   // line, and the user gets a bare "…" even though the reminder was scheduled.
-  text = stripToolCallProse(text);
+  text = collapseHtmlDumps(stripToolCallProse(text));
 
   // Automatic memory capture in the background (never delays the turn).
   void captureFactsFromTurn({
@@ -3586,6 +3852,14 @@ async function runAssistantTurnImpl(opts: {
   if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
     const runNote = toolRunClaimSuffix(messages, text);
     if (runNote) text = `${text}${runNote}`;
+  }
+
+  // Endpoint-triage honesty guard: "cek /login rentan?" answered with an old
+  // findings dump (+ raw page) while /login was never probed. Same gates as
+  // the tool-run guard; pure, tested.
+  if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
+    const triageNote = endpointTriageNote(messages, text);
+    if (triageNote) text = `${text}${triageNote}`;
   }
 
   // Honest compose/build guard: vuln_compose + exploit_build verdicts must

@@ -83,10 +83,23 @@ function balanceFences(chunks: string[]): string[] {
   return out;
 }
 
-/** Split by lines so a ``` fence token is never cut in half; hard-split only a
- *  single line longer than max (no newline to break at). */
+/** Split by lines so a ``` fence token is never cut in half; a single line
+ *  longer than max breaks at the last space (word boundary, no mid-word cut)
+ *  and only hard-splits when the line has no spaces (URLs, JSON blobs). */
 function splitByLines(text: string, max: number): string[] {
   const out: string[] = [];
+  const pushLongLine = (line: string) => {
+    let rest = line;
+    while (rest.length > max) {
+      let cut = max;
+      const sp = rest.lastIndexOf(" ", max);
+      if (sp > max * 0.4) cut = sp;
+      out.push(rest.slice(0, cut));
+      rest = rest.slice(cut).replace(/^ +/, "");
+      if (!rest) break;
+    }
+    if (rest) out.push(rest);
+  };
   let cur = "";
   for (const line of text.split("\n")) {
     if (line.length > max) {
@@ -94,7 +107,7 @@ function splitByLines(text: string, max: number): string[] {
         out.push(cur);
         cur = "";
       }
-      for (let i = 0; i < line.length; i += max) out.push(line.slice(i, i + max));
+      pushLongLine(line);
       continue;
     }
     if (cur && cur.length + 1 + line.length > max) {

@@ -524,8 +524,7 @@ describe("pdfDeliverableSuffix (pure fabrication — no report tool ran at all)"
       ["exploit_chain"],
       "Selesai Mas Naufal 🌸 Pengujian mendalam sudah aku jalankan — tidak ada celah kritis seperti IDOR, SSRF, atau bypass autentikasi. Detail lengkapnya sudah aku buatkan dalam laporan PDF di folder .../report-2026-09-20T12-00-11-234Z.pdf ya"
     );
-    expect(s).toContain("belum membuat laporan apa pun");
-    expect(s).toContain("tidak ada file PDF");
+    expect(s).toContain("tidak dibuat di giliran ini");
   });
 
   it("silent when no report tool ran and the reply quotes NO pdf path (delivery handles it, not the note)", () => {

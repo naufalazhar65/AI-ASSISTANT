@@ -8,6 +8,7 @@ import { addReminder, readReminders, type Reminder } from "./reminders";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addOrMergeAutomation, describeSchedule } from "./automations";
+import { similarity } from "./dupes";
 import { searchMemory } from "./rag";
 import { listLearnings, reviewLearnings, searchLearnings, logError } from "./learnings";
 import { guard as safeGuard } from "./safeExec";
@@ -155,6 +156,57 @@ export function proofWarning(severity: string, evidenceSteps: string, retestUrl:
     }
   }
   return "";
+}
+
+function hostOf(target: string): string {
+  return (target || "").replace(/^https?:\/\//i, "").split("/")[0].toLowerCase();
+}
+
+// Security filler shared by almost every finding title — never counts as the
+// "same endpoint" evidence (EN+ID).
+const GENERIC_DUP_WORDS = new Set([
+  "broken", "access", "control", "api", "app", "auth", "authentication",
+  "autentikasi", "authorization", "otorisasi", "injection", "injeksi", "xss",
+  "csrf", "ssrf", "idor", "vulnerability", "kerentanan", "vulnerable",
+  "rentan", "finding", "temuan", "missing", "tanpa", "without", "leak",
+  "bocor", "unsafe", "endpoint", "parameter", "param", "pada", "yang",
+  "dari", "untuk", "dengan", "error", "via", "https", "http", "www", "com",
+  "net", "org", "io", "html",
+]);
+
+function wordTokens(s: string): Set<string> {
+  return new Set((s || "").toLowerCase().match(/[a-z0-9]{4,}/g) || []);
+}
+
+/**
+ * Near-duplicate warning for finding_add (audit 2026-09-23: /api/dokumen
+ * tercatat 3x HIGH nyaris sama). Same host + ≥1 shared DISTINCTIVE word
+ * (endpoint-ish, bukan filler generik — jadi /api/cek-nik vs /api/dokumen
+ * tidak kena meski Jaccard-nya 0.44) + token-Jaccard >= 0.20 (diukur dari
+ * data nyata: dupe 0.22-0.27, unrelated 0.00) → warn, don't block. Pure.
+ */
+export function dupWarning(
+  title: string,
+  target: string,
+  rows: { id: string; title: string; target: string; status?: string }[]
+): string {
+  const host = hostOf(target || "");
+  if (!host || !(title || "").trim()) return "";
+  const mine = wordTokens(`${title} ${target}`);
+  let best: { id: string; score: number } | null = null;
+  for (const r of rows || []) {
+    if (!r || r.status === "resolved") continue;
+    if (hostOf(r.target || "") !== host) continue;
+    const theirs = wordTokens(`${r.title} ${r.target}`);
+    const sharedDistinctive = [...mine].some(
+      (t) => !GENERIC_DUP_WORDS.has(t) && theirs.has(t)
+    );
+    if (!sharedDistinctive) continue;
+    const score = similarity(title, r.title || "");
+    if (score >= 0.2 && (!best || score > best.score)) best = { id: r.id, score };
+  }
+  if (!best) return "";
+  return `\n⚠️ Mirip temuan terbuka ${best.id} (kemiripan ${best.score.toFixed(2)}) — cek via \`dup_check\`, gabung atau pastikan bukan duplikat sebelum menambah.`;
 }
 
 export function requiresConfirmation(tool: ToolDefinition | undefined): boolean {
@@ -3369,7 +3421,7 @@ const toolRegistry: ToolPlugin[] = [
             title: { type: "string" },
             severity: { type: "string", enum: ["critical", "high", "medium", "low", "info"] },
             cvss: { type: "number", description: "Skor CVSS 0.0-10.0 (opsional; default per severity)" },
-            owasp: { type: "string", description: "Kategori OWASP, mis. 'A03:2021 Injection'" },
+            owasp: { type: "string", description: "Kategori OWASP tahun 2025, mis. 'A03:2025 Injection'" },
             cwe: { type: "string", description: "CWE, mis. 'CWE-89'" },
             target: { type: "string" },
             evidence: { type: "string" },
@@ -3435,7 +3487,14 @@ const toolRegistry: ToolPlugin[] = [
         // with no poc/retest evidence get an honest flag — warn, don't block
         // (auto-history fallback + lab flows must keep working).
         const proofNote = proofWarning(f.severity, `${f.evidence}\n${f.steps}`, retestUrl);
-        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title} (${f.id})${retestNote}${proofNote}`;
+        // Near-duplicate warning (audit 2026-09-23: /api/dokumen filed 3x) —
+        // same host + shared endpoint token + Jaccard >= 0.20 → warn only.
+        let dupNote = "";
+        try {
+          const { readFindings } = await import("./security");
+          dupNote = dupWarning(f.title, f.target, readFindings(ctx.rawUser));
+        } catch { /* best-effort */ }
+        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title} (${f.id})${retestNote}${proofNote}${dupNote}`;
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : "finding_add failed"}`;
       }

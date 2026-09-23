@@ -487,8 +487,16 @@ export function platformSeverity(opts: { cvss?: number; vector?: string; severit
   return `📊 Platform severity — CVSS ${score} → HackerOne "${band.h1}" · Bugcrowd VRT ${band.vrt}`;
 }
 
-export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; steps?: string; impact?: string; rootCause?: string; remediation?: string; references?: string }): Finding {
-  const userKey = sanitizeUser(rawUser);
+/**
+ * House standard is OWASP Top 10 2025 (A01:2025); models sometimes write the
+ * 2021 year from older training data (live: "A01:2021" next to "A01:2025" in
+ * one report). Display-level normalization — the store is untouched. Pure.
+ */
+export function normalizeOwaspYear(text: string): string {
+  return (text || "").replace(/\b(A\d{2}):2021\b/g, "$1:2025");
+}
+
+export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; steps?: string; impact?: string; rootCause?: string; remediation?: string; references?: string }): Finding {  const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const title = (f.title || "").trim().slice(0, 200);
   if (!title) throw new Error("judul temuan wajib");
@@ -583,7 +591,7 @@ export function generateReport(rawUser: unknown, opts: { target?: string } = {})
   const body = sorted
     .map(
       (f, i) =>
-        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[f.owasp, f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Platform**: ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n- **Steps to Reproduce**: ${f.steps || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
+        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[normalizeOwaspYear(f.owasp || ""), f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Platform**: ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n- **Steps to Reproduce**: ${f.steps || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
     )
     .join("\n\n");
   return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts}) — rata-rata CVSS ${avg}\n\n${(() => {

@@ -30,8 +30,7 @@ describe("xssHunt runner", () => {
     expect(await xssHunt("u", { url: "ftp://x" })).toMatch(/^Error:/);
     expect(await xssHunt("u", { url: "https://example.com/" })).toMatch(/SCOPE/);
   });
-  it("proves reflected + breakout + OAST via injected fetch", async () => {
-    const fetchFn = async (url: string, init?: { body?: string }) => {
+  it("proves reflected + breakout + OAST via injected fetch", async () => {    const fetchFn = async (url: string, init?: { body?: string }) => {
       const b = typeof init?.body === "string" ? init.body : url;
       if (url.startsWith("http://127.0.0.1:4010/s?q=") || b.includes("q=")) {
         const v = new URL(url.startsWith("http") ? url : "http://x/" + url).searchParams.get("q")
@@ -49,12 +48,14 @@ describe("xssHunt runner", () => {
     expect(out).toContain("BREAKOUT lolos");
     expect(out).toContain("BEACON OAST TERKONFIRMASI");
     expect(out).toContain("1 kandidat XSS kuat");
-  });
+    // Live oastCreate (no callback given → auto-create hits webhook.site):
+    // tolerate slow network, asserts stay strict.
+  }, 20000);
   it("honest negative when nothing reflects", async () => {
     const out = await xssHunt("u", {
       url: "http://127.0.0.1:4010/s?q=hi",
       fetchFn: async () => ({ status: 200, body: "<html>static</html>" }),
     });
     expect(out).toContain("Tidak ada kandidat XSS kuat");
-  });
+  }, 20000);
 });

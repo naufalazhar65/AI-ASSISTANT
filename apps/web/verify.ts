@@ -1295,7 +1295,7 @@ async function main() {
     addFinding(u, { title: "Reflected XSS", severity: "high", cvss: 8.7, owasp: "A03:2021 Injection", cwe: "CWE-79", target: "http://localhost:3001", evidence: "?q=<script>", impact: "session theft", remediation: "encode output" });
     if (!/Reflected XSS/.test(listFindingsText(u))) throw new Error("finding_list missing entry");
     const rep = generateReport(u);
-    if (!/Laporan Pentest/.test(rep) || !/HIGH/.test(rep) || !/CVSS 8\.7/.test(rep) || !/A03:2021/.test(rep)) throw new Error("report_generate malformed");
+    if (!/Laporan Pentest/.test(rep) || !/HIGH/.test(rep) || !/CVSS 8\.7/.test(rep) || !/A03:2025/.test(rep)) throw new Error("report_generate malformed");
     // Per-target scoping: a lab report must not drag in another target's findings.
     addFinding(u, { title: "Old Pulsepoint finding", severity: "medium", cvss: 5.0, target: "exchange.pulsepoint.com", evidence: "x", impact: "y", remediation: "z" });
     const scoped = generateReport(u, { target: "localhost:3001" });
@@ -3820,7 +3820,7 @@ async function main() {
       [{ role: "user", content: "full pentest lab lalu buatkan report pdfnya" }, { role: "user", content: "ya" }, { role: "assistant", content: null, tool_calls: [mkTc("exploit_chain", "{}")] }],
       "Selesai Mas Naufal 🌸 Detail lengkapnya sudah aku buatkan dalam laporan PDF di folder .../report-2026-09-20T12-00-11-234Z.pdf ya"
     );
-    if (!fab.includes("belum membuat laporan apa pun")) throw new Error(`fabricated-PDF note should fire, got: ${fab.slice(0, 80)}`);
+    if (!fab.includes("tidak dibuat di giliran ini")) throw new Error(`fabricated-PDF note should fire, got: ${fab.slice(0, 80)}`);
     // report_pdf ran → real file exists → never a fabrication note
     const real = pdfDeliverableSuffix(
       [{ role: "user", content: "full pentest lab lalu buatkan report pdfnya" }, { role: "assistant", content: null, tool_calls: [mkTc("report_pdf", "{}")] }],
@@ -4489,6 +4489,85 @@ async function main() {
       rmSync(join(appRoot(), ".data", "users", "verify_tc"), { recursive: true, force: true });
     }
     console.log("teamcity_check (read/auto, CORE 128 via reschedule swap, groq window, scope guards, pure matrix, playbook loads, live vuln/patched/plain/no-version + dispatch): OK");
+  }
+
+  // ── output-tidiness guards (audit 2026-09-23: /login turn dumped old
+  // findings + verbatim HTML, 3x /api/dokumen dupes, A01:2021, mid-word cuts)
+  {
+    const ag = await import("./src/lib/agent");
+    const { dupWarning: dw } = await import("./src/lib/tools");
+    const { normalizeOwaspYear, addFinding, generateReport } = await import("./src/lib/security");
+    const { chunkText } = await import("./src/channels/replyChunk");
+    // F1: endpoint triage — asked /login, only fetched, reply is a dump
+    const triMsgs = [
+      { role: "user", content: "cek apakah /login rentan?" },
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: JSON.stringify({ url: "https://lab/login", method: "GET" }) } }] },
+      { role: "tool", tool_call_id: "c1", content: "HTTP 200 <html>hi</html>" },
+    ];
+    if (!ag.endpointTriageNote(triMsgs as never, "8 temuan:\n• [HIGH] x").includes("/login")) throw new Error("endpointTriageNote must fire on unfetched-probe dump");
+    const triProbed = [
+      { role: "user", content: "cek /login rentan?" },
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "auth_hunt", arguments: JSON.stringify({ url: "https://lab/login" }) } }] },
+      { role: "tool", tool_call_id: "c1", content: "done" },
+    ];
+    if (ag.endpointTriageNote(triProbed as never, "8 temuan:\n• [HIGH] x") !== "") throw new Error("endpointTriageNote must stay silent after a probe");
+    // F2: HTML dump collapse (fence-aware, thresholded)
+    const bigPage = ["<!DOCTYPE html>", "<html>", "<head><title>Kohona Login</title></head>", "<form action=\"/login\"><input></form>", ...Array.from({ length: 20 }, (_, i) => `<p>${i}</p>`), "</html>"].join("\n");
+    const collapsed = ag.collapseHtmlDumps(`lihat:\n${bigPage}`);
+    if (collapsed.includes("<!DOCTYPE html>") || !/baris disembunyikan/.test(collapsed) || !/Kohona Login/.test(collapsed)) throw new Error("collapseHtmlDumps must collapse full pages with summary");
+    if (ag.collapseHtmlDumps("<div><b>x</b></div>") !== "<div><b>x</b></div>") throw new Error("collapseHtmlDumps must spare snippets");
+    // F3: dup warning on the live shape (same host + dokumen + Jaccard)
+    const w = dw("Broken Access Control pada /api/dokumen", "https://lab/", [
+      { id: "F-k", title: "Broken Access Control — otorisasi dokumen via header x-user-role", target: "https://lab/", status: "open" },
+      { id: "F-c", title: "Broken Access Control pada /api/cek-nik", target: "https://lab/", status: "open" },
+    ]);
+    if (!w.includes("F-k") || /F-c/.test(w)) throw new Error(`dupWarning must pick the same-endpoint dupe only: ${w.slice(0, 120)}`);
+    // F4a: OWASP year normalization at report render (store untouched)
+    if (normalizeOwaspYear("A01:2021 x") !== "A01:2025 x") throw new Error("normalizeOwaspYear");
+    const tu = "verify_tidy";
+    addFinding(tu, { title: "Tidy probe", severity: "medium", owasp: "A01:2021 Test", target: "https://tidy.example/" });
+    const rep = generateReport(tu, {});
+    if (!/A01:2025/.test(rep) || /A01:2021/.test(rep)) throw new Error("generateReport must render A01:2025");
+    rmSync(join(appRoot(), ".data", "users", tu), { recursive: true, force: true });
+    // F4b: chunk word boundary (no mid-word cuts on long lines)
+    const src = "kata " + "abcdefghij ".repeat(30);
+    const chunks = chunkText(src, 40);
+    if (chunks.some((c) => c.length > 40)) throw new Error("chunkText exceeds max");
+    let si = 0;
+    for (const line of chunks.join("\n").split("\n")) {
+      if (src.indexOf(line, si) !== si) throw new Error("chunkText cut mid-word");
+      si += line.length;
+      if (si < src.length) { if (src[si] !== " ") throw new Error("chunkText cut mid-word"); si += 1; }
+    }
+    // F1-zero-contact: endpoint-check ask, zero tool calls, vuln claims + volunteered PDF
+    const zc = [{ role: "user", content: "mia cek apakah https://lab/login rentan?" }];
+    if (!ag.endpointTriageNote(zc, "Ada celah serius Critical 9.8 di sana.").includes("tidak menyentuh")) {
+      throw new Error("endpointTriageNote must fire on zero-contact claim turns");
+    }
+    // Verbatim hijack closed: an endpoint-test ask is never a list request.
+    const { userAskedForList: askedList } = await import("./src/lib/agent");
+    if (askedList("finding_list", "mia cek apakah https://lab/login rentan?")) {
+      throw new Error("endpoint-test ask must not hijack finding_list verbatim");
+    }
+    if (!askedList("finding_list", "temuan apa aja di /api/dokumen?")) {
+      throw new Error("pure list asks must still hijack");
+    }
+    // F-PDF: volunteered ready-claim without path or ask must be flagged
+    const { pdfDeliverableSuffix: pdfSuf } = await import("./src/lib/agent");
+    if (!pdfSuf(zc, "Laporan lengkapnya sudah aku siapkan dalam bentuk PDF ya.").includes("tidak dibuat di giliran ini")) {
+      throw new Error("pdfDeliverableSuffix must flag volunteered PDF-ready claims");
+    }
+    if (pdfSuf(zc, "PDF-nya belum kubuat, bilang saja kalau mau.") !== "") throw new Error("pdf guard must spare admissions");
+    // F-absence: reads-only + "tidak ada celah" verdict must be qualified
+    const absMsgs = [
+      { role: "user", content: "mia cek apakah https://lab/login rentan?" },
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: JSON.stringify({ url: "https://lab/login" }) } }] },
+      { role: "tool", tool_call_id: "c1", content: "HTTP 200" },
+    ];
+    if (!ag.endpointTriageNote(absMsgs as never, "Di /login tidak ada celah keamanan yang terlihat.").includes("hanya dari membaca")) {
+      throw new Error("endpointTriageNote must qualify read-only absence claims");
+    }
+    console.log("output-tidiness (endpoint triage note, HTML-dump collapse, dup warning, OWASP-2025 render, word-boundary chunks): OK");
   }
 }
 
