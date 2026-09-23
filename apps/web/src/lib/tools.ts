@@ -4432,6 +4432,10 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { cveIntel } = await import("./cveIntel"); return await cveIntel(String(args.query || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "cve_intel failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "teamcity_check", description: "Deteksi CVE-2026-63077 (TeamCity RCE 9.8) TANPA exploit: fetch /login.html → marker TeamCity → versi vs garis patch 2025.11.7/2026.1.3 → RENTAN/AMAN/TAK DIKETAHUI. Version-match = bukti (finding_add CWE-502); TIDAK ada replay payload. Scope-gated. Read, auto.", parameters: { type: "object", properties: { url: { type: "string", description: "URL TeamCity lab/engagement (http/https)" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { teamcityCheck } = await import("./teamcityCheck"); return await teamcityCheck(ctx.rawUser, { url: typeof args.url === "string" ? args.url : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "teamcity_check failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "recon_dnsbrute", description: "DNS brute pasif (native, keyless): ~120 nama subdomain umum → host yang resolve (+ cek wildcard). Read, auto.", parameters: { type: "object", properties: { domain: { type: "string" } }, required: ["domain"] } } },
     execute: async (args, ctx) => { try { const { reconDnsBrute } = await import("./recon"); return await reconDnsBrute(ctx.rawUser, String(args.domain || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "recon_dnsbrute failed"}`; } },
   },

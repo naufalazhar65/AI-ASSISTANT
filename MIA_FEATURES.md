@@ -14,7 +14,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 
 ## 2. Otak & Provider
 
-- **OpenCode Go (GLM 5.2)** — full-window brain (semua 314 tool); default pindah ke **9router** sejak 2026-09-21 (kuota Go bulanan habis, reset ~15 hari — lihat §21); auto-switch ke `deepseek-v4-flash-vision-exp` saat ada gambar
+- **OpenCode Go (GLM 5.2)** — full-window brain (semua 315 tool); default pindah ke **9router** sejak 2026-09-21 (kuota Go bulanan habis, reset ~15 hari — lihat §21); auto-switch ke `deepseek-v4-flash-vision-exp` saat ada gambar
 - **Multi-provider** — Groq / opencode local / 9router / openrouter / mock, selectable per channel
 - **Spotify sleep timer** — `spotify_sleep_timer`: `after_track=true` (matikan setelah lagu ini selesai) / `minutes=N` / `cancel=true`; timer in-process (hilang saat restart) + push ⏹️ saat dieksekusi
 - **Persona facts**: kunci kanonik + resolusi konflik (nilai terbaru menang, riwayat di `## Superseded` yang TIDAK di-inject ke prompt) + **rahasia/token ditolak** + cap 80 fakta; tool `persona_show` / `persona_set` (`ingat ini: …`) / `persona_forget` (`lupakan …`)
@@ -300,6 +300,10 @@ Semua menambang di atas §19/§20; total naik ke **309 tool** (2026-09-23), CORE
 - **`idor_enum`** (write/confirm, CORE slot `calculate` → 9router-64): enum ID 1..20 dua sesi + kontrol anon (publik = info); guard 30 request/stop-5-hit; output angka dampak ("4/4 ID").
 - **`host_header_hunt`** (write/confirm, CORE slot `cors_audit`, groq-only): 8 header × canary + reset-poisoning (link evil di respons); honest per-vektor.
 - **`recon_full`** (write/confirm, CORE slot `codebase_search` → 9router-64): pipeline 6 tahap satu konfirmasi (subdomains→httpx→params→tech→exposure→content), bounded + gagal tak menggugurkan; hemat 3-5 round.
+
+### 21.13 teamcity_check — deteksi CVE-2026-63077 tanpa exploit (2026-09-23)
+- **`teamcity_check`** (read/auto, CORE slot `reschedule_task` — redundan via cancel+add; groq-only): fingerprint versi TeamCity (`/login.html` → marker → `YYYY.M.P`) vs garis patch **2025.11.7 / 2026.1.3** → RENTAN (CVE-2026-63077, CVSS 9.8, CWE-502, CISA KEV) / AMAN / TAK DIKETAHUI / bukan-TeamCity. Version-match = bukti finding_add (tak perlu replay — replay = exploit). Scope-gated, ≤2 fetch. Garis keras repo: rantai RCE full (register agent + HSQLDB SCRIPT → JSP) DITOLAK permanen sebagai tool (weaponisasi CVE yang dieksploitasi aktif).
+- **Intel:** playbook `vulnerabilities/teamcity-cve-2026-63077.md` (prosedur manual http_request untuk provider capped + tabel versi + DILARANG) + pola learning owner terkurasi (`learning_query tech=teamcity`). Catatan: ingest URL mentah Rapid7 menghasilkan nav-junk (tech "aws") — pola harus dikurasi manual pasca-ingest.
 
 ### 21.12 smuggle_probe + dom_xss_prove (2026-09-23)
 - **`smuggle_probe`** (write/confirm, CORE slot `edit_file`, groq-only): HTTP request smuggling CL.TE/TE.CL/TE-obfuscation via RAW socket (fetch tak bisa emit byte CL+TE ambigu) — probe berisi hidden request canary utuh + victim request; canary terjawab dalam ≤2 respons = DESYNC TERKONFIRMASI (CWE-444), canary + ≥3 respons = SIGNAL (pipelining konsisten juga begitu), 400/501 = REJECTED (parser tegas), nihil = NO-DESYNC. Scope-gated, bounded ≤3 mode × ~4s.

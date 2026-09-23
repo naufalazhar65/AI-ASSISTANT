@@ -4418,6 +4418,78 @@ async function main() {
     }
     console.log("smuggle_probe + dom_xss_prove (registered write/confirm, CORE 128, groq window, scope guards, live desync CONFIRM vs consistent NO-DESYNC, live DOM PROVEN x4 + honest negatives x2, dispatch path): OK");
   }
+
+  // ── teamcity_check (CVE-2026-63077 safe version-fingerprint, no exploit) ──
+  {
+    const { requiresConfirmation: reqConf } = await import("./src/lib/tools");
+    const reg = getTOOLS().find((t) => t.function.name === "teamcity_check");
+    if (!reg) throw new Error("teamcity_check not registered");
+    if (reg.risk !== "read") throw new Error("teamcity_check must be risk read (detection only, plain GETs)");
+    if (reqConf(reg)) throw new Error("teamcity_check must NOT require confirmation");
+    const { CORE_TOOL_NAMES: core2, toolsForUrl: tfu2 } = await import("./src/lib/agent");
+    if (!core2.has("teamcity_check")) throw new Error("teamcity_check must be in CORE");
+    if (core2.has("reschedule_task")) throw new Error("reschedule_task must stay demoted (tail swap)");
+    if (core2.size !== 128) throw new Error(`CORE must stay 128 (got ${core2.size})`);
+    const groq2 = new Set(tfu2("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    if (!groq2.has("teamcity_check")) throw new Error("groq window missing teamcity_check");
+
+    const tc = await import("./src/lib/teamcityCheck");
+    // pure assess matrix (fixed lines 2026.1.3 / 2025.11.7)
+    const V = (year: number, minor: number, patch: number) => ({ year, minor, patch, raw: "t" });
+    if (tc.assessTeamCityVersion(V(2026, 1, 2)).verdict !== "VULNERABLE") throw new Error("2026.1.2 must be VULNERABLE");
+    if (tc.assessTeamCityVersion(V(2026, 1, 3)).verdict !== "PATCHED") throw new Error("2026.1.3 must be PATCHED");
+    if (tc.assessTeamCityVersion(V(2025, 11, 6)).verdict !== "VULNERABLE") throw new Error("2025.11.6 must be VULNERABLE");
+    if (tc.assessTeamCityVersion(V(2025, 11, 7)).verdict !== "PATCHED") throw new Error("2025.11.7 must be PATCHED");
+    if (tc.assessTeamCityVersion(V(2024, 12, 0)).verdict !== "VULNERABLE") throw new Error("pre-2025.11 line must be VULNERABLE (no patch line)");
+    if (!tc.isTeamCityPage("<title>TeamCity 2026.1.2 Login</title>/app/agents/v1")) throw new Error("isTeamCityPage positive");
+    if (tc.isTeamCityPage("<h1>nginx</h1>")) throw new Error("isTeamCityPage negative");
+    if (!/SCOPE/.test(await tc.teamcityCheck("verify_tc", { url: "https://example.com/" }))) throw new Error("teamcity_check scope guard");
+    if (!/^Error:/.test(await tc.teamcityCheck("verify_tc", { url: "notaurl" }))) throw new Error("teamcity_check url guard");
+    // playbook pack loads from disk (dir-driven catalog)
+    const { securityPlaybook } = await import("./src/lib/securityPlaybook");
+    const pack = securityPlaybook("teamcity-cve-2026-63077");
+    if (!/CVE-2026-63077/.test(pack) || !/DILARANG/.test(pack)) throw new Error("teamcity playbook missing/gutted");
+
+    // live: local mock pages — vuln, patched, non-TeamCity, no-version.
+    // NOTE: the tool always fingerprints <origin>/login.html (fallback <origin>/),
+    // so the toy serves mutable content at those paths per scenario.
+    const http = await import("node:http");
+    const bodies: Record<string, string> = {
+      vuln: `<html><head><title>TeamCity 2026.1.2 (build 166000) Login</title></head><body><form action="/app/agents/v1/register"></form></body></html>`,
+      fixed: `<html><head><title>TeamCity 2026.1.3 (build 167000) Login</title></head><body><a href="/app/agents/overview">agents</a></body></html>`,
+      plain: `<html><body><h1>hello</h1></body></html>`,
+      noversion: `<html><head><title>TeamCity Login</title></head><body><div class="buildServer">login</div></body></html>`,
+    };
+    let current = "vuln";
+    const srv = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(bodies[current] ?? bodies["plain"]);
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", () => r()));
+    const tbase = `http://127.0.0.1:${(srv.address() as { port: number }).port}`;
+    try {
+      current = "vuln";
+      const vOut = await tc.teamcityCheck("verify_tc", { url: `${tbase}/` });
+      if (!/RENTAN CVE-2026-63077/.test(vOut)) throw new Error(`vuln page must flag RENTAN: ${vOut.slice(0, 200)}`);
+      current = "fixed";
+      const fOut = await tc.teamcityCheck("verify_tc", { url: `${tbase}/` });
+      if (!/AMAN untuk CVE-2026-63077/.test(fOut)) throw new Error(`fixed page must flag AMAN: ${fOut.slice(0, 200)}`);
+      current = "plain";
+      const pOut = await tc.teamcityCheck("verify_tc", { url: `${tbase}/` });
+      if (!/Bukan TeamCity/.test(pOut)) throw new Error(`plain page must be bukan-TeamCity: ${pOut.slice(0, 200)}`);
+      current = "noversion";
+      const nOut = await tc.teamcityCheck("verify_tc", { url: `${tbase}/` });
+      if (!/TAK DIKETAHUI/.test(nOut)) throw new Error(`no-version page must be TAK DIKETAHUI: ${nOut.slice(0, 200)}`);
+      // dispatch path (agent loop shape)
+      current = "vuln";
+      const dOut = await executeTool({ id: "t-tc", name: "teamcity_check", arguments: JSON.stringify({ url: `${tbase}/` }) }, "verify_tc");
+      if (!/RENTAN CVE-2026-63077/.test(dOut)) throw new Error(`executeTool teamcity_check dispatch: ${dOut.slice(0, 200)}`);
+    } finally {
+      srv.close();
+      rmSync(join(appRoot(), ".data", "users", "verify_tc"), { recursive: true, force: true });
+    }
+    console.log("teamcity_check (read/auto, CORE 128 via reschedule swap, groq window, scope guards, pure matrix, playbook loads, live vuln/patched/plain/no-version + dispatch): OK");
+  }
 }
 
 main().catch((err) => {
