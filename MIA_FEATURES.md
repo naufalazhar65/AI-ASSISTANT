@@ -152,7 +152,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Audit hardening (2026-09-15)** — cakupan subdomain env `PENTEST_LAB_TARGETS`, `netGuard.assertPublicUrl` bersama (IPv6/metadata), ID temuan anti-tabrakan, `engagement_create` write/confirm, `web_audit` anti-SSRF, metadata endpoint diblok, suite pentest masuk `CORE_TOOL_NAMES` (Groq).
 - **Bug-bounty toolkit (2026-09-15)** — `oast_create/poll/stop` (OOB/blind via webhook.site), `http_session` + `http_request session/save_session` (auth), `bola_diff` (BOLA/IDOR dua identitas A/B), `content_discover` (robots/sitemap/JS/path), `param_fuzz` (XSS/SQLi/SSTI/redirect/cmdi per-param), `jwt_attack` (forge/crack), `evidence_capture` (screenshot + raw HTTP), `scope_import` (parse Targets→engagement), `crawl`, `param_discover`, `recon_diff` (aset baru), `recon_screenshot` (visual recon), `js_mine` (endpoint+secret JS), `api_spec`/`graphql_probe`, `request_save`/`request_run`, `platform_severity` (H1/VRT), `cve_intel`, `recon_dnsbrute`, `recon_ports`, `bucket_enum`, `submission_track`, `cors_audit`, `csp_audit`, `http_history`, `race`, `ws_probe`, `browser_eval` (Playwright), DNS-OAST (`oast_dns_create/poll/stop`, interactsh). `recon_subdomains` multi-sumber (crt.sh+certspotter); **scope-watch** heartbeat (`SECURITY_SCOPE_WATCH`) push aset baru. Biner terpasang: searchsploit, semgrep, trivy, gobuster, katana, interactsh-client. RoE-aware: manual + rate-limit default.
 - **`security_hunt` (2026-09-15)** — orkestrasi otonom: satu perintah menjalankan header/cookie+CSP+CORS+content discovery+crawl+JS mining (+param discovery `deep=true`) lalu merangkum **LEADS**. Scope-gated + bounded.
-- **Cheat-sheet** — `SECURITY.md`. **Total tools 312.**
+- **Cheat-sheet** — `SECURITY.md`. **Total tools 318.**
 
 ---
 
@@ -217,7 +217,7 @@ Lima modul pentest "superpower" yang saling menguatkan, terintegrasi ke `bounty_
 - `apps/web/verify.ts` — assertions updated
 - `AGENTS.md` — updated
 
-**Total tools: 312** · **CORE 128** (jendela Groq; 9router membawa 64 chain analisis) · **84 playbook** · **vitest 413**
+**Total tools: 318** · **CORE 128** (jendela Groq; 9router membawa 64 chain analisis) · **84 playbook** · **vitest 413**
 
 ---
 
@@ -300,6 +300,13 @@ Semua menambang di atas §19/§20; total naik ke **309 tool** (2026-09-23), CORE
 - **`idor_enum`** (write/confirm, CORE slot `calculate` → 9router-64): enum ID 1..20 dua sesi + kontrol anon (publik = info); guard 30 request/stop-5-hit; output angka dampak ("4/4 ID").
 - **`host_header_hunt`** (write/confirm, CORE slot `cors_audit`, groq-only): 8 header × canary + reset-poisoning (link evil di respons); honest per-vektor.
 - **`recon_full`** (write/confirm, CORE slot `codebase_search` → 9router-64): pipeline 6 tahap satu konfirmasi (subdomains→httpx→params→tech→exposure→content), bounded + gagal tak menggugurkan; hemat 3-5 round.
+
+### 21.14 bypass403 + otp_probe + proto_pollute (2026-09-23)
+- **`bypass403`** (write/confirm, CORE, groq-only): matriks bypass akses-ditolak — baseline DULU (URL harus memang 403/401), lalu trik klasik fetch-sendable (double slash, %2e, /..;/, trailing . dan ;, parent re-entry %2f) + header (X-Original-URL/X-Rewrite-URL, loopback IP, X-Host) + verb override (POST/HEAD/PATCH, X-HTTP-Method-Override) + _method body + Host localhost. Verdict host-based: 2xx + body BEDA dari halaman deny = LEAD; SPA catch-all yang body-nya SAMA TIDAK dihitung; echo path-trik dibuang (CWE-862/863). Bounded 20 attempt. Gotcha: fetch menormalkan dot-segments (/./ dan /../) — varian ekivalen yang benar-benar sampai ke server yang dipakai.
+- **`otp_probe`** (write/confirm, CORE, groq-only): OTP/2FA rate-limit & oracle prover — 1 baseline + N kode SALAH (bounded ≤15, BUKAN brute; kode salah deterministik menghindari cache per-value) → no-rate-limit (tanpa 429/423/throttle-copy; 401 = deny normal, BUKAN sinyal throttle) / oracle pesan (invalid vs expired, normalisasi angka) / success-like (2xx beda dari baseline tanpa copy throttle) / entropy code-space dari `samples` kode milik user sendiri (6 digit ≈ 19.9 bit = feasible tanpa rate-limit; 4 digit = LEMAH; duplikat di sample kecil = rotasi lemah). CWE-307/330.
+- **`proto_pollute`** (write/confirm, CORE, groq-only): prototype pollution 2 permukaan — SERVER: __proto__/constructor.prototype via query (bracket + dot) + JSON body (body dibangun sebagai STRING literal — JSON.stringify({__proto__:…}) MENGHILANGKAN key karena object literal men-set prototype) → STRONG bila marker muncul di respons, WEAK bila error menyebut __proto__ atau 500 baru; cek PERSISTEN via re-fetch bersih (pollution lintas-request). CLIENT: source (location/postMessage) → sink (JSON.parse/merge/assign) di inline+script src JS halaman (CWE-1321). Bounded 5 payload.
+- **Demote CORE 128 (2026-09-23):** `param_discover`/`tech_watch`/`engagement_close` keluar dari CORE (0 referensi backtick di prompt; param_fuzz + pentest_scan menutup perannya) — masih terdaftar penuh di opencodego. CORE tetap 128 unik; jendela Groq membawa 3 tool baru; 9router-64 tetap membawa chain analisis (3 baru groq-only by design); HINT_UNDELIVERED +3.
+- **Verify:** matriks pure ×3 (41 tes unit baru), live bypass lead vs same-body catch-all vs echo, otp no-rate-limit/throttle/oracle + entropy, PP STRONG marker, dispatch executeTool. Gotcha ops: verify WAJIB dijalankan dari repo root (`npx tsx apps/web/verify.ts`) — blok legacy menulis store via path relatif; store user verify (verify_vulncompose dkk) yang berisi port server lama membuat replay compose "GAGAL replay" palsu — bersihkan user verify sebelum run.
 
 ### 21.13 teamcity_check — deteksi CVE-2026-63077 tanpa exploit (2026-09-23)
 - **`teamcity_check`** (read/auto, CORE slot `reschedule_task` — redundan via cancel+add; groq-only): fingerprint versi TeamCity (`/login.html` → marker → `YYYY.M.P`) vs garis patch **2025.11.7 / 2026.1.3** → RENTAN (CVE-2026-63077, CVSS 9.8, CWE-502, CISA KEV) / AMAN / TAK DIKETAHUI / bukan-TeamCity. Version-match = bukti finding_add (tak perlu replay — replay = exploit). Scope-gated, ≤2 fetch. Garis keras repo: rantai RCE full (register agent + HSQLDB SCRIPT → JSP) DITOLAK permanen sebagai tool (weaponisasi CVE yang dieksploitasi aktif).

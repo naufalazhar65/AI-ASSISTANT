@@ -35,8 +35,12 @@ function truncate(s: string): string {
   return t.length > MAX_OUT ? `${t.slice(0, MAX_OUT)}\n…(dipotong)` : t;
 }
 
-/** One `Runtime.evaluate` round-trip over the target page's WebSocket. */
-function evaluate(wsUrl: string, expression: string, timeoutMs = CDP_TIMEOUT): Promise<{ value?: string; error?: string }> {
+/** One `Runtime.evaluate` round-trip over the target page's WebSocket. Exported for cdpProxy (one owner). */
+export function evaluate(
+  wsUrl: string,
+  expression: string,
+  timeoutMs = CDP_TIMEOUT
+): Promise<{ value?: string; error?: string }> {
   return new Promise((resolve) => {
     let done = false;
     const finish = (r: { value?: string; error?: string }) => {
@@ -75,6 +79,11 @@ function evaluate(wsUrl: string, expression: string, timeoutMs = CDP_TIMEOUT): P
   });
 }
 
+/** Resolve a tab by URL substring, scope-gated. Exported for cdpProxy (one owner of WS/eval plumbing). */
+export function resolveTarget(tabUrlContains: string): Promise<{ t: CdpTarget } | { error: string }> {
+  return resolveTargetImpl(tabUrlContains);
+}
+
 function pickTarget(targets: CdpTarget[], match: string): CdpTarget | null {
   const m = (match || "").trim().toLowerCase();
   if (!m) return targets[0] ?? null;
@@ -93,7 +102,7 @@ export async function cdpStatus(): Promise<string> {
   }
 }
 
-async function resolveTarget(tabUrlContains: string): Promise<{ t: CdpTarget } | { error: string }> {
+async function resolveTargetImpl(tabUrlContains: string): Promise<{ t: CdpTarget } | { error: string }> {
   let targets: CdpTarget[];
   try {
     targets = await listTargets();

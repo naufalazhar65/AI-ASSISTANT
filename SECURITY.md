@@ -456,10 +456,13 @@ Sinyal → `poc_verify` → `finding_add` (OWASP LLM01/02/03/04/05/06/08/11).
 `labs/pentest/` · `apps/web/src/lib/exploitChains.ts` · `proAttack.ts` ·
 `graphqlHunt.ts` · `wsHunt.ts` · `githubOsint.ts` · `harImport.ts` ·
 `workflowFuzz.ts` · `jsDeobfuscate.ts` · `promptInjection.ts` · `metaProse.ts` ·
-`llmHunt.ts` · `mcpHunt.ts` · `vulnCompose.ts` · `exploitBuild.ts` · `authSetup.ts` · `exposureHunt.ts` · `csrfProve.ts` · `massAssign.ts` · `smuggleProbe.ts` · `domXssProve.ts` · `teamcityCheck.ts`.
+`llmHunt.ts` · `mcpHunt.ts` · `vulnCompose.ts` · `exploitBuild.ts` · `authSetup.ts` · `exposureHunt.ts` · `csrfProve.ts` · `massAssign.ts` · `smuggleProbe.ts` · `domXssProve.ts` · `teamcityCheck.ts` · `bypass403.ts` · `otpProbe.ts` · `protoPollute.ts`.
 
 ### 9.10 XSS orchestrator + smuggling/DOM provers (2026-09-23)
 - **`xss_hunt`** (write/confirm, CORE slot `request_save`): reflect + konteks + breakout/OAST correlate; refleksi saja bukan bukti. Scope-gated, bounded (≤8 titik × 3 payload).
 - **`smuggle_probe`** (write/confirm, CORE slot `edit_file`, groq-only): request smuggling CL.TE/TE.CL/TE-obfuscation via RAW socket (fetch tak bisa emit byte CL+TE ambigu); hidden canary + victim request → CONFIRMED/SIGNAL/REJECTED/NO-DESYNC (count-based, jujur). Scope-gated, bounded ≤3 mode.
 - **`dom_xss_prove`** (write/confirm, CORE slot `exec_write`, groq-only): bukti dinamis DOM-XSS di Chromium headless per sumber hash/search/postMessage/window.name/referrer → PROVEN/INJECTED_ONLY/NOT_CONFIRMED; melengkapi `dom_taint` (statik). Scope-gated, bounded ≤5 sumber.
 - **`teamcity_check`** (read/auto, CORE slot `reschedule_task`, groq-only): deteksi CVE-2026-63077 TANPA exploit — fingerprint versi vs 2025.11.7/2026.1.3 → version-match = bukti finding_add CWE-502. Rantai RCE full DITOLAK sebagai tool (weaponisasi).
+- **`bypass403`** (write/confirm, CORE, groq-only): matriks bypass 403/401 — path (%2e, //, /..;/, trailing ./;), X-Original-URL/X-Rewrite-URL, loopback headers, verb override, _method body; verdict host-based (2xx + body beda dari deny = LEAD; SPA catch-all body-sama bukan temuan). Bounded 20.
+- **`otp_probe`** (write/confirm, CORE, groq-only): rate-limit + oracle OTP (bounded ≤15 kode salah, BUKAN brute) + entropy code-space dari samples milik user; no-rate-limit + space kecil = HIGH-signal (CWE-307/330).
+- **`proto_pollute`** (write/confirm, CORE, groq-only): prototype pollution server (query+JSON __proto__/constructor.prototype; STRONG bila marker muncul/persisten) + client gadget (source→merge sink) (CWE-1321).

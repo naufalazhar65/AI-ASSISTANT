@@ -250,7 +250,7 @@ async function main() {
   // 9router's 64-slot cap is smaller than CORE and intentionally keeps only the
   // first 64 entries (documented limitation) — assert it there only for the
   // read-side tools that must always be present.
-  const pentestCore = ["cvss_score", "security_playbook", "pentest_scan", "http_request", "finding_add", "report_generate", "poc_verify", "oast_create", "target_brain", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query"];
+  const pentestCore = ["cvss_score", "security_playbook", "pentest_scan", "http_request", "finding_add", "report_generate", "poc_verify", "oast_create", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "cdp_proxy"];
   const groqNames = groqTools.map((t) => t.function.name);
   const pentestMissing = pentestCore.filter((n) => !groqNames.includes(n));
   if (pentestMissing.length) throw new Error(`groq cap dropped pentest tools: ${pentestMissing.join(", ")}`);
@@ -1643,7 +1643,7 @@ async function main() {
     if (unresolved.length) throw new Error(`CORE names not in registry: ${unresolved.join(",")}`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "param_discover", "js_mine", "js_deobfuscate", "api_spec", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "api_spec", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt", "bypass403", "otp_probe", "proto_pollute"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
@@ -3150,11 +3150,11 @@ async function main() {
     if (!chains.includes("auth_bypass")) throw new Error("listChains missing auth_bypass");
     if (!chains.includes("ssrf")) throw new Error("listChains missing ssrf");
     if (!chains.includes("session_fixation")) throw new Error("listChains missing session_fixation");
-    for (const t of ["race", "graphql", "xxe", "open_redirect", "cache_poison"]) {
+    for (const t of ["race", "graphql", "xxe", "open_redirect", "cache_poison", "bypass403", "otp", "proto_pollute"]) {
       if (!chains.includes(t)) throw new Error(`listChains missing tier-1 wrapper: ${t}`);
     }
-    // CHAIN_TYPES has 9 entries (4 original + 5 tier-1 wrappers)
-    if (Object.keys(CHAIN_TYPES).length !== 9) throw new Error(`expected 9 chains, got ${Object.keys(CHAIN_TYPES).length}`);
+    // CHAIN_TYPES has 12 entries (4 original + 5 tier-1 + 3 bypass/otp/pollution wrappers)
+    if (Object.keys(CHAIN_TYPES).length !== 12) throw new Error(`expected 12 chains, got ${Object.keys(CHAIN_TYPES).length}`);
     // Invalid chain type returns error
     const bad = await runExploitChain(null, "nonexistent", { url: "http://127.0.0.1:4010" });
     if (!bad.includes("Error")) throw new Error("expected error for invalid chain");
@@ -3205,7 +3205,47 @@ async function main() {
     const multiBad = await runExploitChain(null, "idor,bogus", { url: "http://127.0.0.1:4010/api/dokumen?id=1" });
     if (!multiBad.includes("⛔ CHAIN TIDAK DIJALANKAN: \"bogus\"")) throw new Error(`unknown chain in batch must be an honest skip marker, got: ${multiBad.slice(0, 120)}`);
     if (!multiBad.includes("0 chain dengan langkah nyata · 2 dilewati")) throw new Error(`mixed batch summary wrong, got: ${multiBad.slice(-160)}`);
-    console.log("exploit-chain: OK (tool registered, 9 chains incl. 5 tier-1 wrappers, scope-gated, helpful errors, SSRF runs, comma-separated batches honest)");
+    // Live: the 3 new wrappers run REAL provers against a toy server.
+    const httpC = await import("node:http");
+    let otpSeen = 0;
+    const toyC = httpC.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        const u = req.url || "/";
+        if (req.headers["x-original-url"] === "/admin" || u.startsWith("//admin")) { res.writeHead(200); res.end("ADMIN PANEL secret"); return; }
+        if (u === "/admin") { res.writeHead(403); res.end("403 deny id 12345678"); return; }
+        if (body.includes("__proto__") || body.includes("prototype") || u.includes("__proto__")) { res.writeHead(200, { "content-type": "application/json" }); res.end('{"user":{"mia_polluted":"x"}}'); return; }
+        if (u.includes("/api/profile")) { res.writeHead(200, { "content-type": "application/json" }); res.end('{"user":{"name":"m"}}'); return; }
+        if (u.includes("/api/otp")) {
+          otpSeen++;
+          const m = /"code"\s*:\s*"(\d+)"/.exec(body);
+          const code = m ? m[1] : "";
+          if (code === "900274") { res.writeHead(200); res.end('{"ok":true}'); return; }
+          if (otpSeen > 4) { res.writeHead(429); res.end("too many attempts"); return; }
+          res.writeHead(401); res.end('{"error":"invalid code"}'); return;
+        }
+        res.writeHead(404); res.end("nope");
+      });
+    });
+    await new Promise<void>((r) => toyC.listen(0, "127.0.0.1", () => r()));
+    const cBase = `http://127.0.0.1:${(toyC.address() as { port: number }).port}`;
+    try {
+      otpSeen = 0;
+      const cb = await runExploitChain(null, "bypass403", { url: `${cBase}/admin` });
+      if (!cb.includes("BYPASS LEAD")) throw new Error(`chain bypass403 must carry the lead: ${cb.slice(0, 200)}`);
+      const co = await runExploitChain(null, "otp", { url: `${cBase}/api/otp`, count: 4 });
+      if (!/NO-RATE-LIMIT|throttle/i.test(co)) throw new Error(`chain otp must carry the verdict: ${co.slice(0, 200)}`);
+      const cp = await runExploitChain(null, "proto_pollute", { url: `${cBase}/api/profile` });
+      if (!cp.includes("STRONG")) throw new Error(`chain proto_pollute must carry STRONG: ${cp.slice(0, 200)}`);
+      // Batch of all three: aggregate header (3), honest summary
+      const batch = await runExploitChain(null, "bypass403,otp,proto_pollute", { url: `${cBase}/admin` });
+      if (!batch.includes("EXPLOIT CHAIN (3)")) throw new Error(`batch header missing: ${batch.slice(0, 80)}`);
+      if (!batch.includes("3 chain dengan langkah nyata")) throw new Error(`batch summary wrong: ${batch.slice(-160)}`);
+    } finally {
+      toyC.close();
+    }
+    console.log("exploit-chain: OK (tool registered, 12 chains incl. 5 tier-1 + 3 bypass/otp/pollution wrappers, scope-gated, helpful errors, SSRF runs, comma-separated batches honest, live wrapper batch 3/3)");
   }
 
   // ── vuln_compose + exploit_build ────────────────────────────────────
@@ -4489,6 +4529,140 @@ async function main() {
       rmSync(join(appRoot(), ".data", "users", "verify_tc"), { recursive: true, force: true });
     }
     console.log("teamcity_check (read/auto, CORE 128 via reschedule swap, groq window, scope guards, pure matrix, playbook loads, live vuln/patched/plain/no-version + dispatch): OK");
+  }
+
+  // ── bypass403 / otp_probe / proto_pollute (2026-09-23 prover batch) ──
+  {
+    const { requiresConfirmation: reqConf3 } = await import("./src/lib/tools");
+    const names3 = ["bypass403", "otp_probe", "proto_pollute"];
+    for (const n of names3) {
+      const reg = getTOOLS().find((t) => t.function.name === n);
+      if (!reg) throw new Error(`${n} not registered`);
+      if (reg.risk !== "write") throw new Error(`${n} must be risk write`);
+      if (!reqConf3(reg)) throw new Error(`${n} must require confirmation`);
+    }
+    const { CORE_TOOL_NAMES: core3, toolsForUrl: tfu3 } = await import("./src/lib/agent");
+    if (core3.size !== 128) throw new Error(`CORE must stay 128 (got ${core3.size})`);
+    for (const n of names3) {
+      if (!core3.has(n)) throw new Error(`${n} must be in CORE`);
+      if (core3.has("param_discover") || core3.has("tech_watch") || core3.has("engagement_close")) throw new Error("demoted tools must stay out of CORE");
+    }
+    const groq3 = new Set(tfu3("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    for (const n of names3) if (!groq3.has(n)) throw new Error(`groq window missing ${n}`);
+    const r93 = new Set(tfu3("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name));
+    for (const n of names3) if (r93.has(n)) throw new Error(`${n} must stay OUT of the 9router-64 window (analysis chain priority)`);
+    for (const n of ["param_discover", "tech_watch", "engagement_close"]) if (groq3.has(n) && !core3.has(n)) throw new Error(`${n} leaked into groq window via rest-fill`);
+
+    const bp = await import("./src/lib/bypass403");
+    const op = await import("./src/lib/otpProbe");
+    const pp = await import("./src/lib/protoPollute");
+    if (!/SCOPE/.test(await bp.bypass403("verify_bp", { url: "https://example.com/admin" }))) throw new Error("bypass403 scope guard");
+    if (!/^Error:/.test(await bp.bypass403("verify_bp", { url: "notaurl" }))) throw new Error("bypass403 url guard");
+    if (!/SCOPE/.test(await op.otpProbe("verify_op", { url: "https://example.com/otp" }))) throw new Error("otp_probe scope guard");
+    if (!/SCOPE/.test(await pp.protoPollute("verify_pp", { url: "https://example.com/api" }))) throw new Error("proto_pollute scope guard");
+
+    const http = await import("node:http");
+    // bypass403 toy: /admin denies (numbered deny page); //admin and
+    // X-Original-URL honor the bypass; trailing-%2e gets the SAME body (SPA
+    // catch-all) and must NOT count.
+    const bSrv = http.createServer((req, res) => {
+      const u = req.url || "/";
+      const denied = () => { res.writeHead(403, { "content-type": "text/html" }); res.end("<html><body>403 Forbidden — policy deny id 12345678</body></html>"); };
+      if (req.headers["x-original-url"] === "/admin") { res.writeHead(200); res.end("<html><body>ADMIN PANEL — secret dashboard</body></html>"); return; }
+      if (u === "/admin" ) { denied(); return; }
+      if (u === "/admin%2e") { res.writeHead(200, { "content-type": "text/html" }); res.end("<html><body>403 Forbidden — policy deny id 12345678</body></html>"); return; }
+      if (u.startsWith("//admin")) { res.writeHead(200); res.end("<html><body>ADMIN PANEL — secret dashboard</body></html>"); return; }
+      res.writeHead(404); res.end("nope");
+    });
+    await new Promise<void>((r) => bSrv.listen(0, "127.0.0.1", () => r()));
+    const bBase = `http://127.0.0.1:${(bSrv.address() as { port: number }).port}`;
+    // otp/proto toy (mutable modes)
+    let otpMode: "deny" | "throttle" | "oracle" = "deny";
+    let seen = 0;
+    const oSrv = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        seen++;
+        const isProto = (req.url || "").includes("__proto__") || body.includes("__proto__") || body.includes("prototype");
+        if (isProto) { res.writeHead(200, { "content-type": "application/json" }); res.end('{"user":{"name":"mia","mia_polluted":"x"}}'); return; }
+        if ((req.url || "").includes("/api/profile")) { res.writeHead(200, { "content-type": "application/json" }); res.end('{"user":{"name":"mia"}}'); return; }
+        const m = /"code"\s*:\s*"(\d+)"/.exec(body);
+        const code = m ? m[1] : "";
+        if (otpMode === "throttle" && seen > 2) { res.writeHead(429); res.end("too many attempts, wait"); return; }
+        if (otpMode === "oracle" && code === "900274") { res.writeHead(200); res.end('{"ok":true,"session":"S"}'); return; }
+        res.writeHead(401); res.end('{"error":"invalid code"}');
+      });
+    });
+    await new Promise<void>((r) => oSrv.listen(0, "127.0.0.1", () => r()));
+    const oBase = `http://127.0.0.1:${(oSrv.address() as { port: number }).port}`;
+    try {
+      const bOut = await bp.bypass403("verify_bp", { url: `${bBase}/admin` });
+      if (!/BYPASS LEAD/.test(bOut)) throw new Error(`bypass403 must find the //admin or X-Original-URL lead: ${bOut.slice(0, 300)}`);
+      // same-body SPA catch-all must produce NO lead
+      const sSrv = http.createServer((req, res) => { res.writeHead(req.url === "/admin" ? 403 : 200, { "content-type": "text/html" }); res.end("<html><body>403 Forbidden — policy deny id 12345678</body></html>"); });
+      await new Promise<void>((r) => sSrv.listen(0, "127.0.0.1", () => r()));
+      const sBase = `http://127.0.0.1:${(sSrv.address() as { port: number }).port}`;
+      const sOut = await bp.bypass403("verify_bp", { url: `${sBase}/admin` });
+      if (/BYPASS LEAD/.test(sOut) || !/Tidak ada bypass/.test(sOut)) throw new Error(`same-body catch-all must NOT lead: ${sOut.slice(0, 300)}`);
+      sSrv.close();
+
+      otpMode = "deny"; seen = 0;
+      const oOut = await op.otpProbe("verify_op", { url: `${oBase}/api/otp`, attempts: 5, samples: ["123456", "654321", "111222"] });
+      if (!/NO-RATE-LIMIT/i.test(oOut) || !/bounded/.test(oOut)) throw new Error(`otp_probe deny mode: ${oOut.slice(0, 300)}`);
+      if (!/feasible/.test(oOut)) throw new Error(`otp_probe entropy line: ${oOut.slice(0, 300)}`);
+      otpMode = "throttle"; seen = 0;
+      const tOut = await op.otpProbe("verify_op", { url: `${oBase}/api/otp`, attempts: 5 });
+      if (!/Rate-limit: sinyal throttle/.test(tOut)) throw new Error(`otp_probe throttle mode: ${tOut.slice(0, 300)}`);
+      otpMode = "oracle"; seen = 0;
+      const oracleOut = await op.otpProbe("verify_op", { url: `${oBase}/api/otp`, attempts: 4 });
+      if (!/BERBEDA \+ 2xx/.test(oracleOut)) throw new Error(`otp_probe oracle mode: ${oracleOut.slice(0, 300)}`);
+
+      const pOut = await pp.protoPollute("verify_pp", { url: `${oBase}/api/profile?x=1` });
+      if (!/STRONG/.test(pOut)) throw new Error(`proto_pollute must flag STRONG marker: ${pOut.slice(0, 300)}`);
+      // dispatch path (agent loop shape) for one of the three
+      const dOut = await executeTool({ id: "t-bp", name: "bypass403", arguments: JSON.stringify({ url: `${bBase}/admin` }) }, "verify_bp");
+      if (!/BYPASS LEAD/.test(dOut)) throw new Error(`executeTool bypass403 dispatch: ${dOut.slice(0, 200)}`);
+    } finally {
+      bSrv.close(); oSrv.close();
+      for (const u of ["verify_bp", "verify_op", "verify_pp"]) rmSync(join(appRoot(), ".data", "users", u), { recursive: true, force: true });
+    }
+    console.log("bypass403/otp_probe/proto_pollute (write/confirm, CORE 128 with 3 demotes, groq in + 9router out + HINT, scope/url guards, live bypass lead vs same-body catch-all, no-rate-limit + throttle + oracle + entropy, PP STRONG marker, dispatch): OK");
+  }
+
+  // ── cdp_proxy (mini-proxy: mine the user's own Chrome live traffic) ──
+  {
+    const { requiresConfirmation } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect } = await import("./src/lib/agent");
+    const cx = await import("./src/lib/cdpProxy");
+    const regNames = getTOOLS().map((t) => t.function.name);
+    if (!regNames.includes("cdp_proxy")) throw new Error("cdp_proxy not registered");
+    const cdef = getTOOLS().find((t) => t.function.name === "cdp_proxy");
+    if (!cdef || !requiresConfirmation(cdef)) throw new Error("cdp_proxy must require confirmation (risk write)");
+    if (!CORE_TOOL_NAMES.has("cdp_proxy")) throw new Error("cdp_proxy must be in CORE");
+    if (CORE_TOOL_NAMES.has("target_brain")) throw new Error("target_brain must be demoted (cdp_proxy balance)");
+    if (!isHeadlessSideEffect("cdp_proxy")) throw new Error("cdp_proxy must be headless-guarded");
+    if ([...CORE_TOOL_NAMES].length !== 128) throw new Error(`CORE must stay 128 (got ${[...CORE_TOOL_NAMES].length})`);
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    if (!groq.has("cdp_proxy")) throw new Error("groq window must carry cdp_proxy");
+    const r9 = new Set(toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name));
+    if (r9.has("cdp_proxy")) throw new Error("9router-64 must NOT carry cdp_proxy (by design)");
+
+    // values must never survive: requestKey + brain recording are names-only
+    if (cx.requestKey("https://x.test/a?token=SECRET&id=7") !== "/a?token&id") throw new Error("requestKey must strip values");
+    const summ = cx.summarizeRequests([{ method: "GET", url: "https://x.test/api/y?q=1", kind: "fetch" }]);
+    if (summ[0]?.host !== "x.test" || !summ[0].lines[0].includes("/api/y?q")) throw new Error("summarizeRequests shape");
+    const ps = cx.patchScript(30, 400);
+    if (!ps.includes("__miaProxy") || !ps.includes("ALREADY-ACTIVE")) throw new Error("patchScript shape");
+    if (!cx.drainScript().includes("active = false")) throw new Error("drainScript shape");
+
+    // tab wajib (diuji tanpa Chrome — guard harus menyala sebelum network).
+    // Catatan: SCOPE di cdp_proxy ditegakkan di DALAM resolveTarget cdp.ts
+    // (tab host targetAllowed) — di sini cukup buktikan error sebelum patch.
+    const noTab = await cx.cdpProxy("verify_cdppx", { tab: "" });
+    if (!/^Error:/.test(noTab)) throw new Error(`cdp_proxy empty-tab guard: ${noTab.slice(0, 120)}`);
+
+    console.log("cdp_proxy (write/confirm, CORE 128 with target_brain demote, groq in + 9router out, headless-guarded, values-never-leave requestKey, patch/drain scripts, tab guard + scope via resolveTarget): OK");
   }
 
   // ── output-tidiness guards (audit 2026-09-23: /login turn dumped old
