@@ -261,4 +261,4 @@ _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
 - [x] **Chain composer + exploit artifact + session wizard (2026-09-22 → 2026-09-23)**: `vuln_compose` (chain lintas-kelas + replay per hop), `exploit_build` (artefak standalone nyata di disk), `auth_setup` (wizard sesi uji → session_a/b) + `composeBuildClaimSuffix` — CORE tetap 128
 - [x] **Chain composer + exploit artifact + session wizard + `csrf_prove`/`mass_assignment`/`exposure_hunt`/`upload_fuzz`/`xss_hunt`/`idor_enum`/`host_header_hunt`/`recon_full`/`smuggle_probe`/`dom_xss_prove`/`teamcity_check` (2026-09-22 → 2026-09-23)**
 - [x] **Audit post-19-Sep + live-turn hardening**: IDOR scope per-hop + anon control, auth_bypass no-token control, secret redaction, sinyal→info, SSRF ingest guard, matrix digest, risk write, confirm re-gate, round budget 10, history sanitize, link-capture gate, fallback resumable, bounty coverage-note
-- Pedoman & scope: `SECURITY.md`. **Total tools 318** · **CORE 128** · **85 playbook** · vitest 534.
+- Pedoman & scope: `SECURITY.md`. **Total tools 324** · **CORE 128** · **85 playbook** · vitest 587.

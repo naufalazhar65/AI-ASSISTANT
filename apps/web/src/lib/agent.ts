@@ -3003,7 +3003,7 @@ export function shortPath(p: string): string {
 // Reads that still "touch" an endpoint (vs store reads like finding_list that
 // never leave the process). Used for the zero-contact rule below.
 const COMPLETION_CLAIM_RE =
-  /sudah selesai (memindai|menguji|memeriksa|mengetes|mengaudit|mengscan|melakukan (full )?pentest)|selesai (memindai|menguji|memeriksa|melakukan (full )?pentest)\b|sudah selesai (aku |ku)?(lakukan|kerjakan|tuntaskan|selesaikan)\b|sudah (aku |ku)?(uji|test|periksa|scan|pindai|audit|jalankan|lakukan|eksekusi)\b|pengujian (telah|sudah|tuntas) selesai|(sudah|telah|udah).{0,20}(cek|uji|test|periksa|scan).{0,20}(kembali|ulang|tuntas)|full pentest .{0,20}(selesai|tuntas|sudah)/i;
+  /sudah selesai (memindai|menguji|memeriksa|mengetes|mengaudit|mengscan|melakukan (full )?pentest)|selesai (memindai|menguji|memeriksa|melakukan (full )?pentest)\b|sudah selesai (aku |ku)?(lakukan|kerjakan|tuntaskan|selesaikan)\b|sudah (aku |ku)?(uji|test|periksa|scan|pindai|audit|jalankan|lakukan|eksekusi)\b|pengujian (telah|sudah|tuntas) selesai|(sudah|telah|udah).{0,20}(cek|uji|test|periksa|scan).{0,20}(kembali|ulang|tuntas)|full pentest .{0,20}(selesai|tuntas|sudah)|(sudah|telah|udah)\s+(di|ter)(uji|tes|test|scan|periksa|cek)\b/i;
 // Reads that still "touch" an endpoint (vs store reads like finding_list that
 // never leave the process). Used for the zero-contact rule below.
 const READ_TOUCH_TOOLS = new Set([
@@ -3051,10 +3051,45 @@ export function endpointTriageNote(messages: ChatMessage[], text: string): strin
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   const userText = lastUser?.content ? messageText(lastUser.content) : "";
   if (!userText) return "";
-  const rawPaths = (userText.match(/(?:\/[A-Za-z0-9_.\-~%]+)+/g) || []).filter(
-    (p) => p.length > 1 && /\/[A-Za-z0-9]/i.test(p)
-  );
-  const paths = [...new Set(rawPaths.map(shortPath))];
+  // Drill 2026-09-24: a slash-group in the ASK ITSELF ("berapa endpoint /
+  // request / temuan?" or "(http_request/poc_verify)") was mined as a fake
+  // path ("/request/temuan") and surfaced in the honest note. Require the
+  // first slash to be path-start (non-word before it): "uji /login" passes,
+  // "(endpoint/request/temuan)" does not. Run 2: an absolute URL quoted by
+  // the model ("https://lab...app") is a HOST, not a local path — mine its
+  // URL in full for the note instead of a glued "/host.tld." token.
+  const rawPaths: string[] = [];
+  for (const m of userText.matchAll(/(?:\/[A-Za-z0-9_.\-~%]+)+/g)) {
+    const p = m[0];
+    if (p.length <= 1 || !/\/[A-Za-z0-9]/i.test(p)) continue;
+    const start = m.index ?? 0;
+    if (/\w$/.test(userText.slice(0, start))) continue;
+    // Absolute URL: capture the full URL. The match consumes the SECOND
+    // scheme slash ("https:" + "/" + "/lab..."), so the prefix lookup must
+    // tolerate that one extra slash ("https:/" right before the match).
+    const schemeM = /(?:https?|ftp):\/?$/.exec(userText.slice(0, start));
+    rawPaths.push(schemeM ? schemeM[0] + p : p);
+  }
+  const stripTrailingPunct = (s: string): string => s.replace(/[.,;:?)\]\}>'"]+$/, "");
+  // Display/match token per extracted path: a plain path keeps shortPath
+  // semantics; an absolute URL with a real path shows just the path (the
+  // 11:55 UX rule: "uji /login", never a glued host+path token), and a
+  // bare-host URL stays in full (unambiguous, no trailing punctuation).
+  const paths = [
+    ...new Set(
+      rawPaths.map((p) => {
+        if (!/^https?:\/\//.test(p)) return shortPath(p);
+        const u = stripTrailingPunct(p);
+        try {
+          const url = new URL(u);
+          if (url.pathname && url.pathname.length > 1) return url.pathname;
+        } catch {
+          /* not parseable — keep the stripped URL */
+        }
+        return u;
+      })
+    ),
+  ];
   if (!paths.length) return "";
   // A pure list ask ("temuan apa aja di /api/x") is legitimate store reading,
   // not an endpoint test — carve it out (unless test verbs are present).
@@ -3109,6 +3144,108 @@ export function endpointTriageNote(messages: ChatMessage[], text: string): strin
     return ` (Catatan jujur: klaim "sudah menguji" di atas belum didukung pengujian — tidak ada probe yang berjalan di giliran ini, hanya baca + temuan lama. Bilang "uji ${untested[0]}" untuk pengujian sungguhan.)`;
   }
   return "";
+}
+
+/** Countable testing-action verbs: a NUMBER next to one of these claims how * many testing actions were performed ("kucek 5 endpoint", "12 request
+ * terkirim", "5 endpoint dites", "3 payload diuji", "**3** endpoint" —
+ * markdown-bold numbers are the model's favorite recounting voice, so the
+ * separator tolerates `*`/backtick/underscore noise). The noun list mirrors
+ *  what a pentest turn actually counts — endpoints, requests, payloads,
+ *  chains, probes, vulnerabilities. Pure — tested via numericClaimSuffix. */
+const NUMERIC_CLAIM_RE =
+  /\b(\d{1,4})[\s*_`]{0,8}(endpoint|path|url|halaman|request|req|payload|chain|probe|pengujian|tes|test|uji|celah|vulnerabilit(?:y|as)|kerentanan|vuln|temuan|subdomain|akun|user|sesi|session)\b/gi;
+const NUMERIC_CLAIM_VERB_RE =
+  /\b(cek|check|uji|tes|test|scan|pindai|probe|kurasi|usul|usulkan|kirim|kirimkan|eksekusi|jalankan|jalanin|audit|periksa|coba)\b/i;
+// Passive di-/ter- framing (drill 2026-09-24: "3 endpoint yang sudah diuji
+// dengan 12 request yang dikirim, 1 temuan tercatat" — invented counts in
+// passive voice slipped past the active-verb window; same class as the
+// passive "sudah tersimpan" miss in the PDF guard). Pure.
+const NUMERIC_CLAIM_PASSIVE_RE =
+  /\b(?:di|ter|se)(?:uji|tes|test|scan|kirim|eksekusi|jalankan|proses|catat|cek|periksa|coba|audit)\b/i;
+const NUMERIC_RESULT_RE =
+  /\b(ditemukan|terkirim|tereksekusi|terbuang|terproses|tercakup|ter-?scan|ter-?uji|ter-?tes|ditelusuri|ditargetkan|teridentifikasi|lolos|dilewati|di-skip|terjawab)\b/i;
+const NUMERIC_QUOTE_RE = /["'«»„“”]/;
+
+/**
+ * Numeric-claim honesty guard (residual dari audit 2026-09-23/24, kelas
+ * "sudah kucek 5 endpoint" yang berulang di forensik 17:00/17:28/18:43/20:10).
+ * endpointTriageNote hanya menyala bila USER menyebut path — sedangkan klaim
+ * angka tanpa path ("aku sudah cek 5 endpoint", "12 request terkirim ke API",
+ * "5 celah kudapatkan") lolos semua guard lama: tidak ada tool-name yang
+ * dikutip (toolRunClaimSuffix butuh nama tool), tidak ada path (triage butuh
+ * path), dan verdict-nya bebas (inflation butuh klaim terkonfirmasi). Guard
+ * ini menyala bila balasan mengklaim JUMLAH aksi pengujian/temuan (angka +
+ * kata benda yang bisa dihitung) TAPI giliran ini tidak menjalankan SATU PUN
+ * tool testing nyata (PROBE_TOOLS/READ_TOUCH non-store, hasil bukan refusal)
+ * — hitungan dianggap karangan. Carve-out ketat: angka di dalam kutip
+ * (mengutip teks luar), angka yang jelas bukan klaim aksi sendiri (list dari
+ * tool — dibawa verbatim), klaim "temuan" yang kini VALID dilindungi guard
+ * lain (dupWarning/poc), dan balasan yang jujur menyebut belum/gagal. Pure —
+ * tested.
+ */
+export function numericClaimSuffix(messages: ChatMessage[], text: string): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  // Collect claimed counts ("5 endpoint", "12 request") with their windows.
+  const claimed: { n: number; noun: string; idx: number }[] = [];
+  let m: RegExpExecArray | null;
+  NUMERIC_CLAIM_RE.lastIndex = 0;
+  while ((m = NUMERIC_CLAIM_RE.exec(t)) !== null) {
+    const before = t.slice(Math.max(0, m.index - 60), m.index);
+    const after = t.slice(m.index + m[0].length, m.index + m[0].length + 40);
+    // Quoted numbers are citation, not claims ("jangan kirim '100 request'").
+    const window = `${before} ${m[0]} ${after}`;
+    if (NUMERIC_QUOTE_RE.test(window)) continue;
+    // A list-presenting reply ("... berikut 5 temuan:") is store output, not a
+    // self-action count — the colon introduces a list.
+    if (/\b(berikut|ini)[^.\n]{0,12}$/.test(before.trim()) || /:\s*$/.test(before)) continue;
+    const n = parseInt(m[1], 10);
+    if (n <= 0) continue;
+    claimed.push({ n, noun: m[2].toLowerCase(), idx: m.index });
+  }
+  if (!claimed.length) return "";
+  // The counts must read as the model's OWN testing actions — active verbs in
+  // the window ("aku cek 5 endpoint") OR passive di-/ter- framing ("3 endpoint
+  // yang sudah diuji", "12 request yang dikirim", "1 temuan tercatat"), which
+  // the drill proved is the model's natural recounting voice. Pure mention
+  // ("ada 4 endpoint") still stays silent.
+  const hasOwnAction =
+    claimed.some(({ idx }) => {
+      const before = t.slice(Math.max(0, idx - 90), idx);
+      const after = t.slice(idx, idx + 120);
+      return NUMERIC_CLAIM_VERB_RE.test(before) || NUMERIC_RESULT_RE.test(after) || NUMERIC_CLAIM_PASSIVE_RE.test(before) || NUMERIC_CLAIM_PASSIVE_RE.test(after);
+    }) ||
+    // Live drill run 4: "pengujian yang mencakup 3 endpoint dengan total 12
+    // request berhasil menemukan 2 temuan" — verbs outside the list carried
+    // THREE simultaneous counts. ≥2 counts in one breath inside a security/
+    // recap context is itself a recounting signature (a neutral sentence
+    // rarely enumerates several totals at once).
+    (claimed.length >= 2 && /\b(pengujian|pentest|temuan|lab|uji|tes|scan|audit)\b/i.test(t));
+  if (!hasOwnAction) return "";
+  // Honest admissions suppress the note.
+  if (/\b(belum|nggak|tidak|gagal|batal|skip)\b[^.\n]{0,40}\b(eksekusi|jalan|jalanin|uji|tes|scan|kirim)\b/i.test(t)) return "";
+  // Real testing work this turn? Any executed PROBE or read-touch tool silences
+  // the guard — the count is then plausibly backed by actual requests.
+  let realTestingWork = false;
+  for (const msg of messages) {
+    if (msg.role !== "assistant" || !msg.tool_calls) continue;
+    for (const tc of msg.tool_calls) {
+      const nm = tc.function?.name || "";
+      if (!PROBE_TOOLS.has(nm) && !READ_TOUCH_TOOLS.has(nm)) continue;
+      const res = messages.find((x) => x.role === "tool" && x.tool_call_id === tc.id);
+      if (res && toolResultExecuted(messageText(res.content))) {
+        realTestingWork = true;
+        break;
+      }
+    }
+    if (realTestingWork) break;
+  }
+  if (realTestingWork) return "";
+  const list = claimed
+    .slice(0, 2)
+    .map((c) => `${c.n} ${c.noun}`)
+    .join(" + ");
+  return ` (Catatan jujur: hitungan "${list}" di atas belum didukung eksekusi nyata di giliran ini — tidak ada request/probe yang berjalan, jadi angkanya masih perkiraan, bukan hasil pengujian. Bilang "uji" + target yang jelas kalau mau aku kerjakan sungguhan.)`;
 }
 
 /**
@@ -4048,6 +4185,12 @@ async function runAssistantTurnImpl(opts: {
   if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
     const triageNote = endpointTriageNote(messages, text);
     if (triageNote) text = `${text}${triageNote}`;
+    // Numeric-claim guard: counts of testing actions ("sudah kucek 5 endpoint",
+    // "12 request terkirim") must be backed by real executed probes this turn
+    // (live forensics 17:00/17:28/18:43/20:10 all showed invented counts over
+    // zero probes). Same gates; pure, tested.
+    const numericNote = numericClaimSuffix(messages, text);
+    if (numericNote) text = `${text}${numericNote}`;
   }
 
   // Honest compose/build guard: vuln_compose + exploit_build verdicts must

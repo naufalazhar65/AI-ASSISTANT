@@ -3928,6 +3928,46 @@ async function main() {
     console.log("tool-run-claim (fabricated narration flagged · real/refused/future/deterministic handled): OK");
   }
 
+  // ── numeric-claim honesty: invented counts over zero probes (residual audit
+  // 2026-09-24 — "sudah kucek 5 endpoint" recurred in forensics 17:00/17:28/
+  // 18:43/20:10 with zero probes; no tool-name quoted, no path named, so the
+  // older guards were all silent) ─────────────────────────────────────────
+  {
+    const { numericClaimSuffix } = await import("./src/lib/agent");
+    const flagged = numericClaimSuffix([], "Sudah aku cek 5 endpoint di target itu, semuanya aman.");
+    if (!flagged || !flagged.includes("5 endpoint") || !flagged.includes("perkiraan")) throw new Error(`invented count must flag, got: ${(flagged || "").slice(0, 100)}`);
+    if (!numericClaimSuffix([], "12 request terkirim ke API, tidak ada yang menarik.").includes("12 request")) throw new Error("request-count claim must flag");
+    // real executed probe → the count is plausibly backed → silent
+    const realProbe = [
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: "{\"url\":\"http://x/api\"}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "200 OK" },
+    ] as never;
+    if (numericClaimSuffix(realProbe, "Sudah aku cek 5 endpoint lewat http_request.") !== "") throw new Error("count backed by a real probe must stay silent");
+    // list-intro / quoted / neutral mention / honest admission → silent
+    if (numericClaimSuffix([], "Berikut 3 temuan di lab:") !== "") throw new Error("list-intro count must stay silent");
+    if (numericClaimSuffix([], "RoE bilang 'jangan kirim 100 request per menit', jadi hati-hati.") !== "") throw new Error("quoted count must stay silent");
+    if (numericClaimSuffix([], "Ada 4 endpoint di halaman itu.") !== "") throw new Error("neutral count must stay silent");
+    if (numericClaimSuffix([], "Belum ada request yang kukirim — baru baca halamannya.") !== "") throw new Error("honest admission must stay silent");
+    console.log("numeric-claim (invented counts flagged · real-probe/list/quote/neutral/admission silent): OK");
+  }
+
+  // drill 2026-09-24: slash-groups in the ASK itself ("endpoint / request /
+  // temuan") must never be mined as fake paths in the triage note, while a
+  // real path ("/login") still is. Locked permanently.
+  {
+    const { endpointTriageNote } = await import("./src/lib/agent");
+    const slashGroupAsk = [{ role: "user", content: "berapa endpoint / request / temuan yang sudah kamu kerjakan? jawab dengan angka" }] as never;
+    if (endpointTriageNote(slashGroupAsk, "ada 3 endpoint yang sudah diuji, 12 request dikirim") !== "") throw new Error("slash-group in ask must not mine a fake path");
+    const realPathAsk = [{ role: "user", content: "cek /login rentan nggak?" }] as never;
+    if (endpointTriageNote(realPathAsk, "sudah kucek /login, aman") === "") throw new Error("real path extraction must keep working");
+    // absolute URL in the ask is a HOST — carried into the note in full (drill
+    // run 2: glued "/6a90ef....netlify.app." token read terribly)
+    const urlAsk = [{ role: "user", content: "uji lab https://lab.example.test sudah selesai?" }] as never;
+    const urlNote = endpointTriageNote(urlAsk, "ada 2 temuan di sana");
+    if (urlNote === "" || !urlNote.includes("https://lab.example.test") || urlNote.includes("/https:")) throw new Error(`absolute URL must be carried in full, got: ${(urlNote || "").slice(0, 120)}`);
+    console.log("numeric-claim + triage path-start rule (slash-group rejected · real path kept): OK");
+  }
+
   // ── tier-1 attack suite: race/graphql/cache/xxe/redirect/ws/github/har ──
   {
     const http = await import("node:http");

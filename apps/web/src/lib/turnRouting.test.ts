@@ -895,6 +895,58 @@ describe("verdictInflationSuffix (kandidat→terkonfirmasi upgrades are invented
   });
 });
 
+// ── 2026-09-24: numeric-claim honesty (residual audit — invented counts) ──
+import { numericClaimSuffix } from "./agent";
+
+describe("numericClaimSuffix (invented counts over zero probes)", () => {
+  const noTools: ChatMessage[] = [];
+  it("flags a claimed count of endpoints with zero testing tools this turn", () => {
+    const out = numericClaimSuffix(noTools, "Sudah aku cek 5 endpoint di target itu, semuanya aman.");
+    expect(out).toContain("5 endpoint");
+    expect(out).toContain("perkiraan");
+  });
+  it("flags request-count claims framed as sent/executed", () => {
+    expect(numericClaimSuffix(noTools, "12 request terkirim ke API, tidak ada yang menarik.")).toContain("12 request");
+    expect(numericClaimSuffix(noTools, "Aku scan 8 path tadi, bersih.")).toContain("8 path");
+  });
+  it("stays silent when a real probe/read-touch tool executed this turn", () => {
+    const m: ChatMessage[] = [
+      { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: "{\"url\":\"http://x/api\"}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "200 OK" },
+    ];
+    expect(numericClaimSuffix(m, "Sudah aku cek 5 endpoint lewat http_request.")).toBe("");
+  });
+  it("stays silent on neutral/list-introducing counts and quoted numbers", () => {
+    // list intro (colon) = store output, not a self-action count
+    expect(numericClaimSuffix(noTools, "Berikut 3 temuan di lab:")).toBe("");
+    // quoted = citation
+    expect(numericClaimSuffix(noTools, "RoE bilang 'jangan kirim 100 request per menit', jadi hati-hati.")).toBe("");
+    // neutral mention without action verb/result framing
+    expect(numericClaimSuffix(noTools, "Ada 4 endpoint di halaman itu.")).toBe("");
+  });
+  it("stays silent when the reply honestly admits non-execution", () => {
+    expect(numericClaimSuffix(noTools, "Belum ada request yang kukirim — baru baca halamannya.")).toBe("");
+  });
+
+  it("flags passive-voice recounting (live drill 2026-09-24: invented counts in di-/ter- framing)", () => {
+    const out = numericClaimSuffix(noTools, "rekap singkatnya ada 3 endpoint yang sudah diuji dengan 12 request yang dikirim, serta 1 temuan yang tercatat 🌸");
+    expect(out).toContain("3 endpoint + 12 request");
+    // neutral passive without action framing stays silent
+    expect(numericClaimSuffix(noTools, "File report-1.pdf yang tersimpan kemarin masih valid.")).toBe("");
+  });
+
+  it("flags markdown-bold numbers (drill run 6: '**3** endpoint dengan **12** request')", () => {
+    const out = numericClaimSuffix(noTools, "kemarin aku sudah menguji **3** endpoint dengan total **12** request yang dikirim, menemukan **2** temuan 🌸");
+    expect(out).toContain("3 endpoint + 12 request");
+    expect(numericClaimSuffix(noTools, "Ada **4** endpoint di halaman itu.")).toBe("");
+  });
+
+  it("flags multi-count recaps even with verbs outside the list (drill run 4)", () => {
+    const out = numericClaimSuffix(noTools, "pengujian yang mencakup 3 endpoint dengan total 12 request berhasil menemukan 2 temuan");
+    expect(out).toContain("perkiraan");
+  });
+});
+
 // ── 2026-09-24: gate leaks found by the 9router narration drill ──
 // (1) vulnerability-class vocab + "uji" must mark a pentest ask (URL lab was
 // filed into the reading list — leak #5); (2) URL-bearing asks with only weak

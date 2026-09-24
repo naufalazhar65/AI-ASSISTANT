@@ -31,6 +31,22 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+  honesty:
+    # Honesty guards smoke suite — adversarial two-way probe (FIRE on live
+    # fabrication patterns, SILENT on honest sentences) + runAgent wiring
+    # checks. Pure/no-network (no LLM, no .env.local needed); the LIVE LLM
+    # drills (drill-*.mts) stay manual via 9router. Failing = PR red.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Honesty guards smoke suite
+        run: npx tsx apps/web/probe-honesty-guards.mts
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
