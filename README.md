@@ -37,7 +37,7 @@ Defensive + **authorized** offensive work.
 - Recon / attack-surface mapping (passive + scoped active)
 - Autonomous **`security_hunt`** → LEADS, not raw dumps
 - OWASP Top 10:2025 / API Top 10:2023 / Bugcrowd VRT
-- 84 playbook packs (Strix-adapted + 8 Mia-authored: web-cache-poisoning, websocket-security, account-takeover, host-header-injection, idor-triage, browser-transport-tampering, authenticated-testing, authorization-matrix)
+- 85 playbook packs (Strix-adapted + 9 Mia-authored: web-cache-poisoning, websocket-security, account-takeover, host-header-injection, idor-triage, browser-transport-tampering, authenticated-testing, authorization-matrix, reading-prover-results)
 - Findings → CVSS/OWASP/CWE → SARIF/PDF report
 - Bug-bounty toolkit (OAST, BOLA, JWT, fuzz, evidence)
 
@@ -127,12 +127,12 @@ Full guide, scope rules, and examples: **[SECURITY.md](./SECURITY.md)**.
 | **Recon (attack surface)** | `recon_subdomains` · `recon_httpx` · `recon_params` · `recon_takeover` · `recon_dnsbrute` · `recon_ports` · `recon_diff` · `recon_screenshot` · `recon_list` · `bucket_enum` |
 | **Autonomous hunt** | `security_hunt` (header/CSP/CORS + discovery + crawl + JS mining + params → **LEADS**) · `suite_hunt` (satu konfirmasi: security + auth + api hunt, auto `hunt_log`) · `auth_hunt` (auth-flow surface) · `api_hunt` (spec-driven unauth probe) |
 | **Web / API** | `web_audit` · `domain_audit` · `cors_audit` · `csp_audit` · `content_discover` · `crawl` · `js_mine` · **`js_deobfuscate`** (string-array/concat/source-map restore) · `api_spec` · `graphql_probe` · **`graphql_hunt`** (introspection/suggestions/batching/depth) · `oauth_hunt` · `param_discover` · `param_fuzz` · **`prompt_injection_hunt`** (LLM prompt-injection) · **`llm_hunt`** (LLM red-team: jailbreak/rag/agency/exfil/pii → OWASP LLM Top 10) · **`mcp_hunt`** (audit server MCP JSON-RPC/SSE) |
-| **Exploit-aid (authorized)** | **`exploit_chain`** (9 chains: idor/auth_bypass/ssrf/session_fixation + race/graphql/xxe/open_redirect/cache_poison) · **`auth_setup`** (wizard sesi uji → session_a/b) · **`vuln_compose`** (chain lintas-kelas E2E) · **`exploit_build`** (artefak replay standalone di disk) · `http_request` · `cdp_status` · `cdp_request` · `cdp_eval` · `cdp_open` · `bola_diff` · `jwt_attack` · **`xss_hunt`** (reflect + breakout + OAST correlate) · **`idor_enum`** (range enum A/B + anon control) · **`host_header_hunt`** (8-header matrix + reset poisoning) · **`recon_full`** (6-stage one-shot pipeline) · **`csrf_prove`** (token-less replay + PoC HTML artifact) · **`mass_assignment`** (privileged-field injection + persist check) · **`exposure_hunt`** (predictable-resource scanner) · **`upload_fuzz`** (upload-bypass matrix + access verify) · **`race_attack`** (N-parallel + NONCE duplicate-creation proof) · **`ws_hunt`** (CSWSH handshake matrix + CDP tab) · **`cache_poison_prover`** (host-header/decompression matrix + fat-GET) · **`xxe_chain`** (auto-OAST file-read/OOB/param-entity) · **`open_redirect_chain`** (19 param × bypass, host-based verdict) · **`ato_prove`** (credential-leak → login → protected URL) · `oast_create/poll` · `oast_dns_create/poll` · `http_session` · `tamper_script` · **`workflow_fuzz`** (business-logic state-transition fuzz: skip/repeat/reorder/value) |
+| **Exploit-aid (authorized)** | **`exploit_chain`** (15 chains: idor/auth_bypass/ssrf/session_fixation + race/graphql/xxe/open_redirect/cache_poison + bypass403/otp/proto_pollute + cache_decep/nosql/blind_ssrf) · **`auth_setup`** (wizard sesi uji → session_a/b) · **`vuln_compose`** (chain lintas-kelas E2E) · **`exploit_build`** (artefak replay standalone di disk) · `http_request` · `cdp_status` · `cdp_request` · `cdp_eval` · `cdp_open` · `bola_diff` · `jwt_attack` · **`xss_hunt`** (reflect + breakout + OAST correlate) · **`idor_enum`** (range enum A/B + anon control) · **`host_header_hunt`** (8-header matrix + reset poisoning) · **`recon_full`** (6-stage one-shot pipeline) · **`csrf_prove`** (token-less replay + PoC HTML artifact) · **`mass_assignment`** (privileged-field injection + persist check) · **`exposure_hunt`** (predictable-resource scanner) · **`upload_fuzz`** (upload-bypass matrix + access verify) · **`race_attack`** (N-parallel + NONCE duplicate-creation proof) · **`ws_hunt`** (CSWSH handshake matrix + CDP tab) · **`cache_poison_prover`** (host-header/decompression matrix + fat-GET) · **`xxe_chain`** (auto-OAST file-read/OOB/param-entity) · **`open_redirect_chain`** (19 param × bypass, host-based verdict) · **`ato_prove`** (credential-leak → login → protected URL) · `oast_create/poll` · `oast_dns_create/poll` · `http_session` · `tamper_script` · **`workflow_fuzz`** (business-logic state-transition fuzz: skip/repeat/reorder/value) |
 | **OSINT & session import** | **`github_osint`** (code dorks + commit-history secret scan, redacted) · **`har_import`** (DevTools HAR → `http_session` ready, credentials masked) |
 | **Scanners (lab/engagement)** | `pentest_scan` (nmap/nuclei/nikto/ffuf) · `nuclei_custom` · `sqlmap_scan` · `zap_scan` · `trivy_scan` |
 | **Analysis** | `password_strength` · `hash_identify` · `jwt_inspect` · `ioc_extract` · `cvss_score` |
 | **Findings & reports** | `finding_add/list/resolve/export` · `poc_verify` · `writeup` · `hardening_plan/pdf` · `report_generate/save/pdf` · `platform_severity` · `submission_track` |
-| **Knowledge & agility** | `security_playbook` (84 packs) · `hunt_log` (per-target hunt memory: dead/lead/finding + auto-pivot) · `engagement_targets` (ready worklist from active engagements) · **`target_brain`** (persistent per-target memory: endpoints, tech, auth, proofs, safe-tested) · **`retest_*`** (regression suite: save → run → verdict) · **`auth_matrix`** (N-role authorization matrix) · **`dom_taint`** (DOM XSS taint analysis) · **`learning_*`** (disclosed report patterns) |
+| **Knowledge & agility** | `security_playbook` (85 packs) · `hunt_log` (per-target hunt memory: dead/lead/finding + auto-pivot) · `engagement_targets` (ready worklist from active engagements) · **`target_brain`** (persistent per-target memory: endpoints, tech, auth, proofs, safe-tested) · **`retest_*`** (regression suite: save → run → verdict) · **`auth_matrix`** (N-role authorization matrix) · **`dom_taint`** (DOM XSS taint analysis) · **`learning_*`** (disclosed report patterns) |
 | **Cloud & tech** | `cloud_misconfig` (S3/GCS/Azure/Firebase/Supabase, keyless) · `tech_watch` (stack fingerprint + CVE on change) |
 | **Autonomy & workflow** | **`bounty_run`** (one command, draft-only: engagement → ROI worklist → campaign → **auto exploit_chain** → **auto browser evidence** → draft findings + **PDF** → handoff) · `program_score` (ROI ranking) · `policy_set`/`policy_show` (scoped auto-approve) · `campaign_run` (bounded hunt loop) · `flow_run`/`flow_list` (multi-step sequences + assertions) · `dup_check` · `bounty_status` |
 | **Lab & practice** | `lab_start` → `http://127.0.0.1:4010` (SQLi/XSS/IDOR/SSRF/JWT/CSRF/…, no Docker) · `pentest_resources` |
@@ -164,7 +164,7 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
 | **Superpower** | `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query` | Per-target memory, regression suite, N-role matrix, DOM XSS taint, disclosed patterns |
 
-**318 tools total.** Full list derives from the registry — see
+**324 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---
@@ -206,7 +206,7 @@ apps/web                  Next.js 15 (UI, hooks, audio, persona, /api/*)
   src/ai                  ConversationManager, GroqStreamingProvider, VAD
   src/lib                 tools, agent, providers, persona, autoMemory, hunt, recon, security, tamper, huntLog, …
   src/channels            telegram.ts, discord.ts, pushTarget.ts, replyChunk.ts
-  security-playbooks/     84 playbook packs (categories: methodology, vulnerabilities, …)
+  security-playbooks/     85 playbook packs (categories: methodology, vulnerabilities, …)
   persona/                IDENTITY.md, SOUL.md, USER.md, DREAMS.md
   verify.ts               offline proofs (tsx)
 packages/state-machine    Explicit state machine

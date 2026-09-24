@@ -806,3 +806,125 @@ describe("chunkText word boundary (no mid-word cuts)", () => {
     expect(chunks.join("")).toBe(blob);
   });
 });
+
+// ── ToolCall dual-shape canonicalization (2026-09-24, from xxe drill forensics)
+// Executor reads top-level name/arguments; gateway replay needs nested
+// function.*. normalizeToolCall fills both on confirm decisions;
+// normalizeMessageToolCalls strips top-level + fills nested on messages.
+import { normalizeToolCall, normalizeMessageToolCalls, type ChatMessage } from "./agent";
+
+describe("normalizeToolCall (confirm decisions, executor-canonical)", () => {
+  it("fills nested function.* from top-level and keeps top-level", () => {
+    const out = normalizeToolCall({ id: "c1", name: "exploit_chain", arguments: '{"chain":"xxe"}' });
+    expect(out.name).toBe("exploit_chain");
+    expect(out.arguments).toBe('{"chain":"xxe"}');
+    expect(out.function?.name).toBe("exploit_chain");
+    expect(out.function?.arguments).toBe('{"chain":"xxe"}');
+  });
+  it("fills top-level from nested (raw provider echo shape)", () => {
+    const out = normalizeToolCall({ id: "c2", name: "", arguments: "", function: { name: "cache_decep", arguments: '{"url":"https://x"}' } } as never);
+    expect(out.name).toBe("cache_decep");
+    expect(out.arguments).toBe('{"url":"https://x"}');
+    expect(out.function?.name).toBe("cache_decep");
+  });
+  it("works on a COPY — caller objects keep their original shape", () => {
+    const original = { id: "c3", name: "nosql_hunt", arguments: "{}" };
+    normalizeToolCall({ ...original });
+    expect((original as { function?: unknown }).function).toBeUndefined();
+  });
+});
+
+describe("normalizeMessageToolCalls (messages, gateway-canonical)", () => {
+  it("strips top-level name/arguments and keeps nested function.*", () => {
+    const msgs: ChatMessage[] = [{
+      role: "assistant", content: null,
+      tool_calls: [{ id: "t1", type: "function", name: "exploit_chain", arguments: '{"chain":"xxe"}', function: { name: "exploit_chain", arguments: '{"chain":"xxe"}' } }],
+    } as never];
+    normalizeMessageToolCalls(msgs);
+    const tc = msgs[0].tool_calls![0] as Record<string, unknown>;
+    expect(tc.name).toBeUndefined();
+    expect(tc.arguments).toBeUndefined();
+    expect((tc.function as { name: string }).name).toBe("exploit_chain");
+  });
+  it("fills nested from top-level-only entries (drill/adapter shape)", () => {
+    const msgs: ChatMessage[] = [{
+      role: "assistant", content: null,
+      tool_calls: [{ id: "t2", type: "function", name: "oast_dns", arguments: '{"action":"poll"}' }],
+    } as never];
+    normalizeMessageToolCalls(msgs);
+    const tc = msgs[0].tool_calls![0] as { function: { name: string; arguments: string } };
+    expect(tc.function.name).toBe("oast_dns");
+    expect(tc.function.arguments).toBe('{"action":"poll"}');
+  });
+  it("leaves non-assistant messages and empty tool_calls untouched", () => {
+    const msgs: ChatMessage[] = [{ role: "user", content: "halo" }];
+    normalizeMessageToolCalls(msgs);
+    expect(msgs[0].content).toBe("halo");
+  });
+});
+
+// ── Verdict-inflation honesty guard (2026-09-24 audit "fool with a tool") ──
+import { verdictInflationSuffix } from "./agent";
+
+describe("verdictInflationSuffix (kandidat→terkonfirmasi upgrades are invented)", () => {
+  const csrfOut = "🔒 CSRF PROVE\n• form#transfer — 🔴 TANPA TOKEN diterima (200) → kandidat CSRF. Bukti penuh: buka PoC di browser korban.";
+  const msgs = (tool: string, out: string): ChatMessage[] => [
+    { role: "user", content: "uji csrf di lab" },
+    { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: tool, arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "c1", content: out },
+  ];
+  it("flags confirmed-claim narration over a kandidat-only tool output", () => {
+    const text = "Uji CSRF selesai — CSRF-nya terkonfirmasi, form transfer tanpa proteksi.";
+    expect(verdictInflationSuffix(msgs("csrf_prove", csrfOut), text)).toContain("masih KANDIDAT/sinyal");
+  });
+  it("stays silent when poc_verify ran in the turn (upgrade was earned)", () => {
+    const m = msgs("csrf_prove", csrfOut);
+    m.splice(2, 0, { role: "assistant", content: null, tool_calls: [{ id: "c2", type: "function", function: { name: "poc_verify", arguments: "{}" } }] } as ChatMessage);
+    m.splice(3, 0, { role: "tool", tool_call_id: "c2", content: "3/3 PASS deterministik" } as ChatMessage);
+    expect(verdictInflationSuffix(m, "CSRF-nya terkonfirmasi setelah poc_verify 3/3.")).toBe("");
+  });
+  it("stays silent when the narration keeps the signal framing (honest)", () => {
+    expect(verdictInflationSuffix(msgs("csrf_prove", csrfOut), "Hasilnya masih kandidat CSRF — butuh PoC browser korban dulu ya.")).toBe("");
+  });
+  it("stays silent when the tool output itself was already confirmed-strength", () => {
+    const proven = "Verdict: DOM-XSS TERBUKTI via hash — payload dieksekusi di DOM.";
+    expect(verdictInflationSuffix(msgs("dom_xss_prove", proven), "DOM-XSS terkonfirmasi via hash.")).toBe("");
+  });
+  it("ignores non-security confirmations (unrelated domains)", () => {
+    expect(verdictInflationSuffix(msgs("csrf_prove", csrfOut), "Reminder-nya terkonfirmasi sudah kusetel.")).toBe("");
+  });
+});
+
+// ── 2026-09-24: gate leaks found by the 9router narration drill ──
+// (1) vulnerability-class vocab + "uji" must mark a pentest ask (URL lab was
+// filed into the reading list — leak #5); (2) URL-bearing asks with only weak
+// move-verbs must never schedule reminders (phantom 18:00 wake).
+import { isPentestAsk } from "./library";
+import { detectReminderIntent, detectReminderCancels } from "./reminderIntent";
+
+describe("pentest-ask gate: vulnerability-class vocab (leak #5)", () => {
+  it("flags 'uji IDOR di <url>' as pentest work", () => {
+    expect(isPentestAsk("uji IDOR di https://lab.example/api/cek-nik?id=1")).toBe(true);
+  });
+  it("flags common vuln-class words even without tool names", () => {
+    for (const w of ["uji xss", "cek ssrf", "sql injection di sini", "request smuggling desync", "coba payload csrf", "no-sql injection test"]) {
+      expect(isPentestAsk(w)).toBe(true);
+    }
+  });
+  it("keeps ordinary reading asks outside the gate", () => {
+    expect(isPentestAsk("baca artikel ini https://example.com/post/1 dong")).toBe(false);
+    expect(isPentestAsk("rangkum https://example.com/guide ya")).toBe(false);
+  });
+});
+
+describe("URL-bearing asks need a strong reminder verb (phantom 18:00)", () => {
+  it("does not schedule from 'uji IDOR di <url> ... ganti id ke angka lain'", () => {
+    expect(detectReminderIntent("uji IDOR di https://lab.example/api/cek-nik?id=1 — ganti id ke angka lain dan bandingkan")).toBeNull();
+  });
+  it("does not cancel from weak-verb URL asks either", () => {
+    expect(detectReminderCancels("pindah ke https://lab.example/api/v2 lalu bandingkan").length).toBe(0);
+  });
+  it("still schedules strong-verb URL asks", () => {
+    expect(detectReminderIntent("ingetin aku cek https://example.com/status jam 9 pagi")).not.toBeNull();
+  });
+});

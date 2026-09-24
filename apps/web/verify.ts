@@ -712,8 +712,19 @@ async function main() {
     const jsMine = getTOOLS().find((t) => t.function.name === "js_mine");
     if (!jsMine || !/js_deobfuscate/.test(jsMine.function.description))
       throw new Error("js_mine description must point to js_deobfuscate for minified bundles");
+    // reading-prover-results pointer: BOTH security-capable prompts must tell
+    // the model to load the playbook the moment a prover yields a signal —
+    // verdict-inflation narration is caught only if the model knows the 5
+    // verdict classes BEFORE narrating (live drill 2026-09-24: model followed
+    // the pointer unprompted and loaded it during the narration turn).
+    if (!/reading-prover-results/.test(sys))
+      throw new Error("full system prompt must point prover-signal narration to security_playbook name=reading-prover-results");
+    const { buildSlimSystemPrompt } = await import("./src/lib/agent");
+    if (!/reading-prover-results/.test(buildSlimSystemPrompt()))
+      throw new Error("slim system prompt (capped providers) must carry the reading-prover-results pointer too");
     console.log("presence honesty (clock is not a last-seen fact) in both prompts: OK");
     console.log("js_deobfuscate default-hint (prompt + js_mine description): OK");
+    console.log("reading-prover-results pointer in full + slim prompts: OK");
   }
 
   // --- empty-answer guard: work ran, so never return a dead-end empty reply ---
@@ -3153,8 +3164,8 @@ async function main() {
     for (const t of ["race", "graphql", "xxe", "open_redirect", "cache_poison", "bypass403", "otp", "proto_pollute"]) {
       if (!chains.includes(t)) throw new Error(`listChains missing tier-1 wrapper: ${t}`);
     }
-    // CHAIN_TYPES has 12 entries (4 original + 5 tier-1 + 3 bypass/otp/pollution wrappers)
-    if (Object.keys(CHAIN_TYPES).length !== 12) throw new Error(`expected 12 chains, got ${Object.keys(CHAIN_TYPES).length}`);
+    // CHAIN_TYPES has 15 entries (4 original + 5 tier-1 + 3 bypass/otp/pollution + 3 batch-2 wrappers)
+    if (Object.keys(CHAIN_TYPES).length !== 15) throw new Error(`expected 15 chains, got ${Object.keys(CHAIN_TYPES).length}`);
     // Invalid chain type returns error
     const bad = await runExploitChain(null, "nonexistent", { url: "http://127.0.0.1:4010" });
     if (!bad.includes("Error")) throw new Error("expected error for invalid chain");
@@ -3245,7 +3256,7 @@ async function main() {
     } finally {
       toyC.close();
     }
-    console.log("exploit-chain: OK (tool registered, 12 chains incl. 5 tier-1 + 3 bypass/otp/pollution wrappers, scope-gated, helpful errors, SSRF runs, comma-separated batches honest, live wrapper batch 3/3)");
+    console.log("exploit-chain: OK (tool registered, 15 chains incl. 5 tier-1 + 3 bypass/otp/pollution + 3 batch-2 wrappers, scope-gated, helpful errors, SSRF runs, comma-separated batches honest, live wrapper batch 3/3)");
   }
 
   // ── vuln_compose + exploit_build ────────────────────────────────────
@@ -4399,7 +4410,7 @@ async function main() {
     const pos = await startToy(true);
     const neg = await startToy(false);
     try {
-      const outPos = await sm.smuggleProbe("verify_smuggle", { url: `http://127.0.0.1:${pos.port}/` });
+      const outPos = await sm.smuggleProbe("verify_smuggle", { url: `http://127.0.0.1:${pos.port}/`, modes: "clte,tecl,teob" });
       if (!/DESYNC TERKONFIRMASI \(3\/3/.test(outPos)) throw new Error(`desync toy must CONFIRM all modes: ${outPos.slice(0, 300)}`);
       const outNeg = await sm.smuggleProbe("verify_smuggle", { url: `http://127.0.0.1:${neg.port}/` });
       if (!/tidak terkonfirmasi/.test(outNeg) || /TERKONFIRMASI/.test(outNeg)) throw new Error(`consistent toy must NOT confirm: ${outNeg.slice(0, 300)}`);
@@ -4466,12 +4477,12 @@ async function main() {
     if (!reg) throw new Error("teamcity_check not registered");
     if (reg.risk !== "read") throw new Error("teamcity_check must be risk read (detection only, plain GETs)");
     if (reqConf(reg)) throw new Error("teamcity_check must NOT require confirmation");
-    const { CORE_TOOL_NAMES: core2, toolsForUrl: tfu2 } = await import("./src/lib/agent");
-    if (!core2.has("teamcity_check")) throw new Error("teamcity_check must be in CORE");
+    const { CORE_TOOL_NAMES: core2 } = await import("./src/lib/agent");
+    // 2026-09-24 batch-2 rebalance: teamcity_check demoted (manual version-check
+    // is taught in the slim prompt) to make room for cache_decep/nosql_hunt.
+    if (core2.has("teamcity_check")) throw new Error("teamcity_check must be demoted (batch-2 balance)");
     if (core2.has("reschedule_task")) throw new Error("reschedule_task must stay demoted (tail swap)");
     if (core2.size !== 128) throw new Error(`CORE must stay 128 (got ${core2.size})`);
-    const groq2 = new Set(tfu2("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
-    if (!groq2.has("teamcity_check")) throw new Error("groq window missing teamcity_check");
 
     const tc = await import("./src/lib/teamcityCheck");
     // pure assess matrix (fixed lines 2026.1.3 / 2025.11.7)
@@ -4528,7 +4539,7 @@ async function main() {
       srv.close();
       rmSync(join(appRoot(), ".data", "users", "verify_tc"), { recursive: true, force: true });
     }
-    console.log("teamcity_check (read/auto, CORE 128 via reschedule swap, groq window, scope guards, pure matrix, playbook loads, live vuln/patched/plain/no-version + dispatch): OK");
+    console.log("teamcity_check (read/auto, registered; demoted from CORE 2026-09-24 — manual version-check taught in slim prompt; scope guards, pure matrix, playbook loads, live vuln/patched/plain/no-version + dispatch): OK");
   }
 
   // ── bypass403 / otp_probe / proto_pollute (2026-09-23 prover batch) ──
@@ -4628,6 +4639,106 @@ async function main() {
       for (const u of ["verify_bp", "verify_op", "verify_pp"]) rmSync(join(appRoot(), ".data", "users", u), { recursive: true, force: true });
     }
     console.log("bypass403/otp_probe/proto_pollute (write/confirm, CORE 128 with 3 demotes, groq in + 9router out + HINT, scope/url guards, live bypass lead vs same-body catch-all, no-rate-limit + throttle + oracle + entropy, PP STRONG marker, dispatch): OK");
+  }
+
+  // ── batch-2 provers (cache_decep / nosql_hunt / blind_ssrf / dns_audit / h2c / jwt kid-jku) ──
+  {
+    const { requiresConfirmation, executeTool, getTOOLS } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect, HINT_UNDELIVERED } = await import("./src/lib/agent");
+    const cd = await import("./src/lib/cacheDecep");
+    const nh = await import("./src/lib/nosqlHunt");
+    const sm = await import("./src/lib/smuggleProbe");
+    const ec = await import("./src/lib/exploitChains");
+    const jwt = await import("./src/lib/jwt");
+
+    // 1) registration + risk + delivery matrix (runtime-truth, not grep)
+    const names = getTOOLS().map((t) => t.function.name);
+    for (const n of ["cache_decep", "nosql_hunt", "blind_ssrf", "dns_audit", "oast_dns"]) {
+      if (!names.includes(n)) throw new Error(`${n} not registered`);
+    }
+    const cdDef = getTOOLS().find((t) => t.function.name === "cache_decep");
+    const nhDef = getTOOLS().find((t) => t.function.name === "nosql_hunt");
+    const bsDef = getTOOLS().find((t) => t.function.name === "blind_ssrf");
+    const daDef = getTOOLS().find((t) => t.function.name === "dns_audit");
+    if (!cdDef || !requiresConfirmation(cdDef)) throw new Error("cache_decep must be write/confirm");
+    if (!nhDef || !requiresConfirmation(nhDef)) throw new Error("nosql_hunt must be write/confirm");
+    if (!bsDef || !requiresConfirmation(bsDef)) throw new Error("blind_ssrf must be write/confirm");
+    if (!daDef || requiresConfirmation(daDef)) throw new Error("dns_audit must be read/auto");
+    const core = [...CORE_TOOL_NAMES];
+    if (core.length !== 128) throw new Error(`CORE must stay 128 (got ${core.length})`);
+    for (const n of ["cache_decep", "nosql_hunt"]) if (!core.includes(n)) throw new Error(`${n} must be in CORE`);
+    for (const n of ["teamcity_check", "finding_resolve", "nuclei_custom"]) if (core.includes(n)) throw new Error(`${n} must be demoted (batch-2 balance)`);
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    for (const n of ["cache_decep", "nosql_hunt"]) if (!groq.has(n)) throw new Error(`groq window must carry ${n}`);
+    const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name);
+    for (const n of ["cache_decep", "nosql_hunt", "blind_ssrf"]) if (r9.includes(n)) throw new Error(`9router-64 must NOT carry ${n} (heavy prover by design)`);
+    for (const n of ["cache_decep", "nosql_hunt", "blind_ssrf"]) {
+      if (!isHeadlessSideEffect(n)) throw new Error(`${n} must be headless-guarded`);
+      if (!HINT_UNDELIVERED.includes(n)) throw new Error(`${n} must be in HINT_UNDELIVERED`);
+    }
+    // chain wrappers registered
+    const CHAIN_TYPES_UNKNOWN = ec.CHAIN_TYPES as unknown as Record<string, { description: string }>; 
+    for (const c of ["cache_decep", "nosql", "blind_ssrf"]) if (!CHAIN_TYPES_UNKNOWN[c]) throw new Error(`chain ${c} missing`);
+
+    // 2) guards (before any network)
+    if (!/^Error: SCOPE/.test(await cd.cacheDecep("verify_b2", { url: "https://example.com/account" }))) throw new Error("cache_decep scope guard");
+    if (!/^Error:/.test(await cd.cacheDecep("verify_b2", { url: "" }))) throw new Error("cache_decep url guard");
+    if (!/^Error: SCOPE/.test(await nh.nosqlHunt("verify_b2", { url: "https://example.com/api/login" }))) throw new Error("nosql_hunt scope guard");
+
+    // 3) LIVE toy server: cache deception + nosql baseline-lead + h2c classify
+    const http = await import("node:http");
+    let decoyHits = 0;
+    const cSrv = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c: Buffer) => { body += c; });
+      req.on("end", () => {
+        const u = req.url || "/";
+        // protected account page (with and without decoy extension once cached)
+        if (/^\/account(\.css|\/test\.css)?(\?|$)/.test(u)) {
+          decoyHits++;
+          res.writeHead(200, { "content-type": "text/html", "x-cache": decoyHits > 1 ? "HIT" : "MISS" });
+          res.end("<html><body>ACCOUNT DASHBOARD — user-7 internal report</body></html>");
+          return;
+        }
+        if (u.startsWith("/api/login")) {
+          const isOperator = body.includes("$ne") || body.includes("$gt") || body.includes("$regex");
+          if (isOperator) { res.writeHead(200, { "content-type": "application/json" }); res.end('{"ok":true,"token":"auth-bypassed"}'); return; }
+          res.writeHead(401, { "content-type": "application/json" }); res.end('{"error":"invalid credentials"}');
+          return;
+        }
+        res.writeHead(404); res.end("nope");
+      });
+    });
+    await new Promise<void>((r) => cSrv.listen(0, "127.0.0.1", () => r()));
+    const cBase = `http://127.0.0.1:${(cSrv.address() as { port: number }).port}`;
+    try {
+      const cdOut = await cd.cacheDecep("verify_b2", { url: `${cBase}/account` });
+      if (!/CACHE-DECEPTION LEAD/.test(cdOut)) throw new Error(`cache_decep must lead on stored decoy: ${cdOut.slice(0, 300)}`);
+      if (!/anon 200/.test(cdOut)) throw new Error(`cache_decep anon re-fetch line: ${cdOut.slice(0, 200)}`);
+      const nhOut = await nh.nosqlHunt("verify_b2", { url: `${cBase}/api/login`, fields: "user,pass" });
+      if (!/NOSQL AUTH-BYPASS LEAD/.test(nhOut)) throw new Error(`nosql_hunt must lead on operator bypass: ${nhOut.slice(0, 300)}`);
+      if (!/\$ne/.test(nhOut)) throw new Error(`nosql_hunt should show the operator body: ${nhOut.slice(0, 200)}`);
+      // h2c probe live: a plain HTTP/1.1 server → honest no-101 verdict path
+      const hOut = await sm.smuggleProbe("verify_b2", { url: `${cBase}/index.html`, modes: "h2c" });
+      if (/DESYNC TERKONFIRMASI/.test(hOut)) throw new Error(`h2c must not confirm on plain http server: ${hOut.slice(0, 200)}`);
+      // dispatch (agent-loop shape) for cache_decep
+      const dOut2 = await executeTool({ id: "t-cd", name: "cache_decep", arguments: JSON.stringify({ url: `${cBase}/account` }) }, "verify_b2");
+      if (!/CACHE-DECEPTION LEAD|Tidak ada deception/.test(dOut2)) throw new Error(`cache_decep dispatch: ${dOut2.slice(0, 200)}`);
+    } finally {
+      cSrv.close();
+      rmSync(join(appRoot(), ".data", "users", "verify_b2"), { recursive: true, force: true });
+    }
+
+    // 4) jwt kid/jku render + dnsAudit pure (no network assertions)
+    const kid = jwt.jwtAttack({ action: "kid", token: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.x", claims: '{"role":"admin"}' });
+    if (!/kid-injection/.test(kid) || !kid.includes("/dev/null")) throw new Error("jwt kid render");
+    const jku = jwt.jwtAttack({ action: "jku", token: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.x" });
+    if (!/jku-injection/.test(jku)) throw new Error("jwt jku render");
+    const axfr = await import("./src/lib/dnsAudit");
+    const ax = axfr.parseAxfrOutput("example.com. 3600 IN SOA a. b. 1 2 3 4 5\nwww.example.com. 300 IN A 1.2.3.4\n;; XFER size: 2");
+    if (ax.dumped) throw new Error("axfr parser: 2 records must not count as dump");
+
+    console.log("batch-2 (cache_decep + nosql_hunt + blind_ssrf + dns_audit + oast_dns + h2c mode + jwt kid/jku; CORE 128 runtime-checked with teamcity/finding_resolve demotes; groq-in/9router-out/HINT/HEADLESS; chain wrappers; live cache-decep lead + nosql baseline-lead + h2c honest; dispatch): OK");
   }
 
   // ── cdp_proxy (mini-proxy: mine the user's own Chrome live traffic) ──

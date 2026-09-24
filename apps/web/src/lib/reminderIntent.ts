@@ -7,6 +7,7 @@
  * same `addReminder` store the `remind_me` tool uses. This keeps the OpenCode
  * turn fast and safe (no tool-permission stalls) while making reminders work.
  */
+import { wibDailyNext } from "./time";
 
 // Imperative reminder verbs only. Bare "ingat" is deliberately EXCLUDED: it's
 // the recall verb ("kamu masih ingat mood aku?") not a command, and matching it
@@ -108,8 +109,6 @@ export function parseClockTime(text: string): ParsedTime | null {
  * single owner wibDailyNext (same today-or-tomorrow semantics).
  */
 export function nextOccurrence(hour: number, minute: number, now = Date.now()): number {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { wibDailyNext } = require("./time") as typeof import("./time");
   return wibDailyNext(hour, minute, now);
 }
 
@@ -184,6 +183,17 @@ export function splitReminderRequests(userText: string): Array<{ text: string; h
   });
 }
 
+/** URL-bearing asks are usually TECHNICAL INSTRUCTIONS to the assistant
+ *  ("uji IDOR di <url> … ganti id ke angka lain") — a WEAK move-verb match
+ *  (ubah/ganti/pindah/geser) there is almost never a reminder; live drill
+ *  2026-09-24 phantom-scheduled an 18:00 wake from "ganti id". Require a
+ *  STRONG reminder verb (ingetin/bangunin/alarm/remind/…) whenever the text
+ *  carries a URL. Pure — tested. */
+const STRONG_INTENT_RE = /\b(bangunin|banguni|bangunkan|ingetkan|ingatkan|ingetin|remind|reminder(?!_list)|set( an)? alarm|alarm|wake( me)? up|jangan lupa|kasih tahu|beritahu)\b/i;
+function urlAskNeedsStrongVerb(userText: string): boolean {
+  return /https?:\/\//i.test(userText) && !STRONG_INTENT_RE.test(userText);
+}
+
 /**
  * Detect a reminder request and ALL its target times in one user message.
  * Returns null unless BOTH an intent keyword and at least one clock time are
@@ -194,7 +204,7 @@ export function splitReminderRequests(userText: string): Array<{ text: string; h
  * differently instead of repeating the user's original sentence verbatim.
  */
 export function detectReminderIntents(userText: string, now = Date.now()): ReminderIntent[] | null {
-  if (!userText || !INTENT_RE.test(userText)) return null;
+  if (!userText || !INTENT_RE.test(userText) || urlAskNeedsStrongVerb(userText)) return null;
   const repeat = REPEAT_RE.test(userText) ? ("daily" as const) : undefined;
   const variants = VARIETY_RE.test(userText) ? WAKE_VARIANTS : undefined;
   const normalized = userText.replace(/\s+/g, " ").trim().slice(0, 200);
@@ -231,7 +241,7 @@ export function detectReminderIntents(userText: string, now = Date.now()): Remin
  * hour/minute when a clock is present}, or [].
  */
 export function detectReminderCancels(userText: string): Array<{ anchor: string; hour?: number; minute?: number }> {
-  if (!userText || !INTENT_RE.test(userText)) return [];
+  if (!userText || !INTENT_RE.test(userText) || urlAskNeedsStrongVerb(userText)) return [];
   const normalized = userText.replace(/\s+/g, " ").trim().slice(0, 200);
   return splitReminderRequests(normalized)
     .filter((s) => s.cancel)

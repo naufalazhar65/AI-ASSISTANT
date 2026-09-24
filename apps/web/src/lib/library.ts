@@ -122,9 +122,11 @@ export function removeLibraryEntry(rawUser: unknown, ref: string): string {
 /** True when the ask is pentest/security work (audit 2026-09-23): a target
  *  URL in such an ask is something to TEST, never reading material — link
  *  capture must not file it (live: the Kohona lab URL + API responses with
- *  PII summaries ended up in the reading list). Pure — tested. */
+ *  PII summaries ended up in the reading list). Pure — tested.
+ *  2026-09-24 (leak #5, live drill): vocab kelas kerentanan + "uji" ditambah —
+ *  "uji IDOR di <url>" lolos gate lama dan URL lab tertelan lagi. */
 export function isPentestAsk(text: string): boolean {
-  return /pentest|exploit|vuln|bug[\s-]*bounty|\bhunt\b|\bsweep\b|endpoint|probe|telusuri|selidiki|poc_verify|finding_add|audit\s+keamanan|menyeluruh|laporan\s+pdf|report\s+pdf|daftar\s+temuan|petakan|pemetaan|\brecon\b|target_brain|content_discover|auth_setup|exploit_chain|vuln_compose|http_session|ato_prove|session_[ab]\b/i.test(text || "");
+  return /pentest|exploit|exploitasi|vuln|bug[\s-]*bounty|\bhunt\b|\bsweep\b|endpoint|probe|telusuri|selidiki|\buji\b|poc_verify|finding_add|audit\s+keamanan|menyeluruh|laporan\s+pdf|report\s+pdf|daftar\s+temuan|petakan|pemetaan|\brecon\b|target_brain|content_discover|auth_setup|exploit_chain|vuln_compose|http_session|ato_prove|session_[ab]\b|\bidor\b|\bxss\b|\bxxe\b|\bssrf\b|\bsqli\b|sql[\s-]*injection|\bnosql\b|\bcsrf\b|\bsmuggl|\bpollut|takeover|\bdesync\b|\bpayload\b/i.test(text || "");
 }
 
 /** Extract the first http(s) URL from a text (strips trailing punctuation/closing brackets). */

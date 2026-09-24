@@ -129,14 +129,14 @@ refused.
 |---|---|
 | `security_playbook` | loads a pentest knowledge pack on demand (`name=` or `query=`, no args = catalog) |
 
-**84 packs across 11 categories** live in
+**85 packs across 11 categories** live in
 `apps/web/security-playbooks/<category>/<name>.md`, **adapted from
 [Strix](https://github.com/usestrix/strix) (Apache-2.0)**:
 
-- `methodology` — application-security-testing (AppSec end-to-end), owasp-top-10-testing (**OWASP Top 10:2025**), api-security-testing (**API Top 10:2023**), whitebox-code-review, fix-and-verify, source-aware-whitebox, browser-transport-tampering (tamper via app transport when a WAF blocks programmatic replay), authenticated-testing (CDP to the user's own browser — real session, secrets never reach the LLM)
+- `methodology` — application-security-testing (AppSec end-to-end), owasp-top-10-testing (**OWASP Top 10:2025**), api-security-testing (**API Top 10:2023**), whitebox-code-review, fix-and-verify, source-aware-whitebox, browser-transport-tampering (tamper via app transport when a WAF blocks programmatic replay), authenticated-testing (CDP to the user's own browser — real session, secrets never reach the LLM), reading-prover-results (**cara membaca output prover — verdict classes, baseline, hukum naik-kelas; anti "a fool with a tool is still a fool"**)
 - `scan_modes` — scan-modes (quick / standard / deep / diff)
 - `analysis` — counterevidence, severity-calibration, fix-verification, source-aware-discovery
-- `vulnerabilities` (×33) — ssrf, idor, xss, sql_injection, ssti, xxe, csrf, race_conditions, http_request_smuggling, authentication_jwt, mass_assignment, path_traversal, nosql_injection, insecure_deserialization, prototype_pollution, business_logic, subdomain-takeover, llm-prompt-injection, web-cache-poisoning (Mia), websocket-security (Mia), account-takeover (Mia), host-header-injection (Mia), authorization-matrix (Mia), …
+- `vulnerabilities` (×34) — ssrf, idor, xss, sql_injection, ssti, xxe, csrf, race_conditions, http_request_smuggling, authentication_jwt, mass_assignment, path_traversal, nosql_injection, insecure_deserialization, prototype_pollution, business_logic, subdomain-takeover, llm-prompt-injection, web-cache-poisoning (Mia), websocket-security (Mia), account-takeover (Mia), host-header-injection (Mia), authorization-matrix (Mia), teamcity-cve-2026-63077 (Mia), …
 - `tooling` — nmap, nuclei, httpx, ffuf, sqlmap, subfinder, katana, naabu, semgrep, hurl, python, agent_browser, hypothesis
 - `protocols` — oauth, graphql
 - `frameworks` — nextjs, django, fastapi, nestjs
@@ -353,7 +353,7 @@ Lima modul pentest canggih yang terintegrasi ke `bounty_run` untuk alur one-comm
 
 **Live test (Discord, Netlify Lab):** 7 findings (2 Critical: SQLi + no-auth admin-data; 3 High: BOLA, header spoof, IDOR PII; 2 Medium: Stored XSS, missing headers) + **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
 
-**Total tools: 312** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **84 playbook** · **vitest 401** · 2026-09-19→22: `exploit_chain` (9 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt`, **`llm_hunt`**/**`mcp_hunt`** + honesty/delivery guards (lihat §9).
+**Total tools: 324** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **85 playbook** · **vitest 546** · 2026-09-19→22: `exploit_chain` (9 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt`, **`llm_hunt`**/**`mcp_hunt`** + honesty/delivery guards (lihat §9).
 
 ---
 
