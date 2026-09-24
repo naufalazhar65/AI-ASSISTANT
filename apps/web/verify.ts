@@ -3530,7 +3530,14 @@ async function main() {
       const u = req.url || "/";
       if (u === "/.git/HEAD") { res.writeHead(200, { "content-type": "text/plain" }); res.end("ref: refs/heads/main\n"); return; }
       if (u === "/.env") { res.writeHead(200, { "content-type": "text/plain" }); res.end("SECRET_KEY=livezzz123\nDEBUG=true\n"); return; }
+      if (u === "/.htpasswd") { res.writeHead(200, { "content-type": "text/plain" }); res.end("admin:$apr1$JZ3M8hU8$abcdefghijklmnopqrstuvwxyz123456\n"); return; }
       if (u === "/package.json") { res.writeHead(403); res.end("no"); return; }
+      if (u === "/actuator/env") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"propertySources":[{"name":"application","properties":{"spring.datasource.password":{"value":"actsecret42"}}}]}'); return; }
+      // RAW BYTES on the wire (no "JAVA PROFILE" text): only the latin1 decode
+      // path preserves 0x1f 0x8b magic — utf8 would U+FFFD it → silent → FAIL.
+      if (u === "/actuator/heapdump") { res.writeHead(200, { "content-type": "application/octet-stream" }); res.end(Buffer.concat([Buffer.from([0x1f, 0x8b, 0x08, 0x00]), Buffer.alloc(30_000, 0x61)])); return; }
+      if (u === "/uploads/") { res.writeHead(200, { "content-type": "text/html" }); res.end('<html><title>Index of /uploads</title><body><a href="../">Parent Directory</a><a href="staff.csv">staff.csv</a></body></html>'); return; }
+      if (u === "/actuator/mappings") { res.writeHead(200, { "content-type": "text/html" }); res.end("<html>SPA index.html catch-all</html>"); return; }
       res.writeHead(404); res.end("no");
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
@@ -3541,7 +3548,14 @@ async function main() {
       if (!out.includes("/.git/HEAD") || !out.includes("LEAD")) throw new Error(`must flag git HEAD, got: ${out.slice(0, 160)}`);
       if (/livezzz123/.test(out)) throw new Error("live secret value must never print (keys only)");
       if (!out.includes("SECRET_KEY=[redacted]")) throw new Error("lead should cite the redacted key");
+      if (!out.includes("/.htpasswd") || !out.includes("LEAD")) throw new Error(`htpasswd hash must be LEAD, got: ${out.slice(0, 160)}`);
+      if (/\$apr1\$/.test(out)) throw new Error("htpasswd hash value must be redacted from the preview");
       if (!out.includes("/package.json") || !out.includes("info")) throw new Error("403 on a known path must be info, not lead");
+      if (!out.includes("/actuator/env") || !out.includes("LEAD")) throw new Error(`actuator/env must be LEAD, got: ${out.slice(0, 160)}`);
+      if (/actsecret42/.test(out)) throw new Error("actuator/env JSON secret value must be redacted from the preview");
+      if (!out.includes("/actuator/heapdump") || !out.includes("LEAD")) throw new Error("actuator heapdump raw-bytes magic must be LEAD (latin1 preserve)");
+      if (!out.includes("/uploads/") || !out.includes("info")) throw new Error("dir-listing must be info, not lead");
+      if (out.includes("/actuator/mappings")) throw new Error("SPA catch-all body must stay silent (marker required)");
       const scope = await executeTool({ id: "e2", name: "exposure_hunt", arguments: JSON.stringify({ url: "https://example.com/" }) }, "verify_exposure");
       if (!scope.includes("SCOPE")) throw new Error("out-of-scope must be refused");
     } finally {
@@ -3549,7 +3563,7 @@ async function main() {
       const fsH = await import("node:fs");
       try { fsH.rmSync("apps/web/.data/users/verify_exposure", { recursive: true, force: true }); } catch { /* noop */ }
     }
-    console.log("exposure_hunt: OK (write/confirm, CORE 128, live LEAD + redact + 403-info + scope)");
+    console.log("exposure_hunt: OK (write/confirm, CORE 128, live LEAD + JSON/PHP/export/dotted redact + 403-info + actuator + raw-byte heapdump (latin1 streaming) + htpasswd + dir-list + scope)");
   }
 
   // ── csrf_prove (CSRF end-to-end + PoC artifact) ───────────────────────

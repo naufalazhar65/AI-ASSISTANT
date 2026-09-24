@@ -1,9 +1,17 @@
 // exposureHunt.ts — predictable-resource exposure scanner (exposure_hunt).
 //
 // Bounded GET-only sweep of well-known sensitive paths (.git/HEAD, .env,
-// backups, VCS metadata, API docs) on ONE origin derived from the given URL.
-// Keyless, scope-gated (base URL must pass targetAllowed; every probe is
-// same-origin by construction). Secret VALUES never printed (keys only).
+// backups, VCS metadata, API docs, Spring Boot Actuator, dir-listing) on ONE
+// origin derived from the given URL. Keyless, scope-gated (base URL must pass
+// targetAllowed; every probe is same-origin by construction). Secret VALUES
+// never printed (keys only) — see redactEnvValues (env lines, JSON value
+// fields like /actuator/env, and PHP define() constants are all masked).
+//
+// Bodies are read with a BYTE BUDGET (defaultProbe streams and cancels at
+// MAX_BODY_BYTES — a live /actuator/heapdump can be 100MB+; never buffer it
+// whole) and decoded latin1 (1:1 byte mapping) so binary magic markers
+// (gzip \x1f\x8b, zip PK\x03\x04, git DIRC) survive. Preview truncation is
+// therefore in bytes-originals, not UTF-8 code units.
 //
 // Verdicts are honest: 200 + content marker = LEAD (poc_verify before
 // finding_add); 401/403 = "exists but forbidden" (info); 404/other = silent.
@@ -17,14 +25,35 @@ export type ExposureHit = { path: string; status: number; level: "lead" | "info"
 export const EXPOSURE_PATHS: Array<{ path: string; match: RegExp; level: "lead" | "info"; note: string }> = [
   { path: "/.git/HEAD", match: /ref:\s*refs\//i, level: "lead", note: "git metadata terekspos (HIGH) — coba /.git/config + object enumeration" },
   { path: "/.git/config", match: /\[(core|remote)\b/i, level: "lead", note: "git config terekspos (remotes/URL bocor)" },
+  { path: "/.git/index", match: /^DIRC/, level: "lead", note: "git index bocor (daftar file + blob hash — feed object enumeration)" },
   { path: "/.env", match: /^[A-Z0-9_]+=.*/m, level: "lead", note: ".env terekspos (CRITICAL bila ada KEY/SECRET — nilai di-redact)" },
   { path: "/.env.bak", match: /^[A-Z0-9_]+=.*/m, level: "lead", note: "backup .env terekspos" },
   { path: "/.env.local", match: /^[A-Z0-9_]+=.*/m, level: "lead", note: ".env.local terekspos" },
+  { path: "/.env.old", match: /^[A-Z0-9_]+=.*/m, level: "lead", note: "backup .env.old terekspos" },
+  { path: "/.env~", match: /^[A-Z0-9_]+=.*/m, level: "lead", note: "editor swap .env~ terekspos" },
+  { path: "/.htpasswd", match: /^[^\s:]+:(?:\$[26ab5]|\$apr1|\{SHA\})/im, level: "lead", note: "htpasswd terbaca (hash kredensial dasar — offline crack saja, jangan uji brute online)" },
+  { path: "/.htaccess", match: /RewriteEngine|Options -Indexes|Order allow,deny/i, level: "info", note: "aturan rewrite/akses terekspos (petunjuk struktur + bypass paths)" },
+  { path: "/wp-config.php", match: /DB_NAME|DB_PASSWORD|define\s*\(/i, level: "lead", note: "wp-config.php tersaji MENTAH (misconfig serve .php statis — normalnya ter-eksekusi jadi kosong); kredensial DB di-redact" },
+  { path: "/wp-config.php.bak", match: /DB_NAME|DB_PASSWORD|define\s*\(/i, level: "lead", note: "config WordPress backup bocor (kredensial DB — nilai di-redact)" },
+  { path: "/actuator/env", match: /"propertySources"|"activeProfiles"|applicationConfig/i, level: "lead", note: "Spring Actuator /env terekspos (CRITICAL — properties/secrets, nilai di-redact); hapus endpoint atau kunci per-role" },
+  { path: "/actuator/heapdump", match: /^JAVA PROFILE|\x1f\x8b/, level: "lead", note: "Spring Actuator heapdump terunduh (CRITICAL — kredensial/token di heap; deteksi saja, jangan simpan)" },
+  { path: "/actuator", match: /_links|"status"/i, level: "info", note: "root Actuator terbuka — enumerasi /env /heapdump /mappings /loggers" },
+  { path: "/actuator/mappings", match: /dispatcherServlet|"handler"/i, level: "info", note: "peta endpoint internal terekspos (surface API lengkap)" },
+  { path: "/actuator/beans", match: /"beans"\s*:/, level: "info", note: "daftar bean Spring terekspos (struktur aplikasi)" },
+  { path: "/actuator/health", match: /"status"\s*:\s*"(UP|DOWN)"/i, level: "info", note: "health check terbuka (info uptime/liveness)" },
+  { path: "/actuator/loggers", match: /configuredLevel|effectiveLevel/i, level: "info", note: "konfigurasi logger terekspos (bisa diubah via POST di beberapa versi)" },
+  { path: "/actuator/httptrace", match: /"traces"|"timestamp"/i, level: "info", note: "HTTP trace terekspos (request header/param terakhir bisa bocor)" },
+  { path: "/actuator/trace", match: /"traces"|"timestamp"/i, level: "info", note: "HTTP trace (boot <2.2) terekspos — header/param terakhir bisa bocor" },
+  { path: "/jolokia", match: /jolokia|"request"\s*:/i, level: "info", note: "Jolokia (JMX-over-HTTP) terekspos — bisa muara RCE via MBean; deteksi saja, jangan dipicu" },
+  { path: "/uploads/", match: /Index of |Parent Directory/i, level: "info", note: "directory listing terbuka (CWE-548 — nama file internal bocor)" },
+  { path: "/static/", match: /Index of |Parent Directory/i, level: "info", note: "directory listing terbuka (CWE-548)" },
+  { path: "/files/", match: /Index of |Parent Directory/i, level: "info", note: "directory listing terbuka (CWE-548)" },
   { path: "/.svn/entries", match: /dir\b|file\b/i, level: "lead", note: "SVN metadata terekspos" },
   { path: "/.hg/requires", match: /revlog|generaldelta/i, level: "lead", note: "Mercurial metadata terekspos" },
   { path: "/.DS_Store", match: /Bud1/, level: "info", note: ".DS_Store terekspos (info disclosure ringan)" },
   { path: "/backup.zip", match: /PK\x03\x04/, level: "lead", note: "arsip backup terunduh (source disclosure)" },
   { path: "/db.sql.gz", match: /CREATE TABLE/i, level: "lead", note: "dump database terekspos (CRITICAL)" },
+  { path: "/db.sql", match: /CREATE TABLE/i, level: "lead", note: "dump database (.sql mentah) terekspos" },
   { path: "/phpinfo.php", match: /PHP Version/i, level: "info", note: "phpinfo terekspos (version disclosure)" },
   { path: "/info.php", match: /PHP Version/i, level: "info", note: "phpinfo terekspos (version disclosure)" },
   { path: "/server-status", match: /Apache Status|requests currently/i, level: "lead", note: "mod_status terbuka (internal visibility)" },
@@ -41,17 +70,28 @@ export const EXPOSURE_PATHS: Array<{ path: string; match: RegExp; level: "lead" 
   { path: "/web.config", match: /<configuration/i, level: "info", note: "web.config terekspos (IIS)" },
 ];
 
-const MAX_PATHS = 24;
+export const MAX_PATHS = 45;
+export const MAX_BODY_BYTES = 12_000; // streaming byte budget per probe (heapdump can be 100MB+)
 const CONCURRENCY = 4;
 
 export type ExposureProbe = (url: string) => Promise<{ status: number; body: string }>;
 
-/** Mask secret VALUES in .env-style bodies, keep key names. Pure. */
+const JSON_SECRET_VALUE_RE = /("(?:password|passwd|secret|token|api[_-]?key|client[_-]?secret|access[_-]?key|refresh[_-]?token|value|authorization|credential)"\s*:\s*")[^"]+/gi;
+const PHP_DEFINE_RE = /(define\(\s*['"][A-Za-z_][A-Za-z0-9_]*['"]\s*,\s*['"])[^'"]+/gi;
+
+/** Mask secret VALUES in exposed bodies, keep key names. Pure.
+ *  Covers: .env-style `KEY=val` lines (incl. `export KEY=val` and dotted
+ *  keys like `spring.datasource.password=root` in plain .properties dumps),
+ *  JSON value fields (Spring /actuator/env, `{"password":"x"}`,
+ *  `{"value":"s3cr3t"}`), and PHP define() constants (wp-config.php.bak).
+ *  Over-masking benign values is acceptable in a preview. */
 export function redactEnvValues(body: string): string {
   return (body || "")
+    .replace(JSON_SECRET_VALUE_RE, "$1[redacted]")
+    .replace(PHP_DEFINE_RE, "$1[redacted]")
     .split("\n")
     .slice(0, 12)
-    .map((l) => (/^\s*[A-Za-z_][A-Za-z0-9_]*\s*[:=]/.test(l) ? l.replace(/([:=]\s*).+$/, "$1[redacted]") : l))
+    .map((l) => (/^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.-]*\s*[:=]/.test(l) ? l.replace(/([:=]\s*).+$/, "$1[redacted]") : l))
     .join("\n")
     .slice(0, 600);
 }
@@ -68,11 +108,32 @@ export function classifyExposure(path: string, status: number, body: string): Ex
   return { path, status, level: spec.level, note: spec.note };
 }
 
-/** Default probe: plain GET with timeout (same-origin URLs only by construction). */
-async function defaultProbe(url: string): Promise<{ status: number; body: string }> {
+/** Default probe: plain GET with timeout + STREAMING byte budget (never
+ *  buffers a whole body — a live /actuator/heapdump can be 100MB+, would OOM
+ *  the server with res.text()). Decoded TRUE latin1 (Buffer#toString("latin1"),
+ *  1:1 byte map) so binary magic markers (gzip \x1f\x8b, zip PK\x03\x04, git
+ *  DIRC) survive the decode — NOTE: TextDecoder("latin1") decodes as
+ *  windows-1252 (WHATWG) and remaps 0x80–0x9F, mangling the 0x8b gzip byte. */
+export async function defaultProbe(url: string): Promise<{ status: number; body: string }> {
   try {
     const res = await fetch(url, { headers: { "User-Agent": "mia-assistant/1.0" }, redirect: "manual", signal: AbortSignal.timeout(12_000) });
-    return { status: res.status, body: (await res.text()).slice(0, 12_000) };
+    if (!res.body) return { status: res.status, body: "" };
+    const reader = res.body.getReader();
+    let out = "";
+    try {
+      while (out.length < MAX_BODY_BYTES) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const need = MAX_BODY_BYTES - out.length;
+        // Buffer latin1 = true 1:1 byte→code-unit map (out.length stays a byte
+        // budget). Concatenation is stateless: each byte maps independently.
+        out += Buffer.from(value.subarray(0, need)).toString("latin1");
+        if (value.length > need) break;
+      }
+    } finally {
+      reader.cancel().catch(() => {});
+    }
+    return { status: res.status, body: out };
   } catch {
     return { status: 0, body: "" };
   }

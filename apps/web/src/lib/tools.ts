@@ -3899,7 +3899,7 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
-    definition: { type: "function", risk: "write", function: { name: "exposure_hunt", description: "Sapu path predictable yang terekspos (.git/HEAD, .env, backup, VCS metadata, API docs — 24 path, GET-only) pada SATU origin. Klasifikasi LEAD (200+marker) vs info (401/403); nilai secret TIDAK pernah ditampilkan (keys only). Sinyal bukan vuln: poc_verify dulu. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dasar lab/engagement (origin-nya yang diuji)" }, paths: { type: "array", description: "subset path opsional (mis. ['/.git/HEAD','/.env'])" } }, required: ["url"] } } },
+    definition: { type: "function", risk: "write", function: { name: "exposure_hunt", description: "Sapu path predictable yang terekspos (.git/HEAD, .env, backup, VCS metadata, API docs, Spring Boot Actuator (/env /heapdump /mappings…), dir-listing, htpasswd/wp-config — 45 path, GET-only) pada SATU origin. Klasifikasi LEAD (200+marker) vs info (401/403); nilai secret TIDAK pernah ditampilkan (keys only). Sinyal bukan vuln: poc_verify dulu. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dasar lab/engagement (origin-nya yang diuji)" }, paths: { type: "array", description: "subset path opsional (mis. ['/.git/HEAD','/.env'])" } }, required: ["url"] } } },
     execute: async (args, ctx) => {
       try {
         const { exposureHunt } = await import("./exposureHunt");
