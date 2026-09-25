@@ -1,4 +1,4 @@
-import { broadcastMiaState } from "@/lib/miaState";
+import { broadcastMiaState } from "../lib/miaState";
 import { COMMAND_EMPTY_FALLBACK, EMPTY_REPLY_FALLBACK, TELEGRAM_MAX, chunkText, clockLabel, parseConfirmReply, pendingConfirmPrompt } from "./replyChunk";
 
 /**
@@ -26,18 +26,18 @@ import { COMMAND_EMPTY_FALLBACK, EMPTY_REPLY_FALLBACK, TELEGRAM_MAX, chunkText, 
  */
 
 import { Bot, Context, InputFile } from "grammy";
-import { runAssistantTurn, ChatMessage } from "@/lib/agent";
-import { ToolCall } from "@/lib/tools";
-import { subscribeReminders, Reminder } from "@/lib/reminders";
-import { reminderMessage } from "@/lib/reminderMessage";
-import { saveUpload } from "@/lib/uploads";
-import { transcribeAudio } from "@/lib/stt";
-import { synthesizeSpeech } from "@/lib/tts";
+import { runAssistantTurn, ChatMessage } from "../lib/agent";
+import { ToolCall } from "../lib/tools";
+import { subscribeReminders, Reminder } from "../lib/reminders";
+import { reminderMessage } from "../lib/reminderMessage";
+import { saveUpload } from "../lib/uploads";
+import { transcribeAudio } from "../lib/stt";
+import { synthesizeSpeech } from "../lib/tts";
 import { registerPushTarget } from "./pushTarget";
-import { classifyAssistantError } from "@/lib/assistantError";
-import { defaultProviderId } from "@/lib/providers";
-import { buildStatusReport } from "@/lib/status";
-import { handleUnifiedCommand, ChatSessionState } from "@/lib/channelMessage";
+import { classifyAssistantError } from "../lib/assistantError";
+import { defaultProviderId } from "../lib/providers";
+import { buildStatusReport } from "../lib/status";
+import { handleUnifiedCommand, ChatSessionState } from "../lib/channelMessage";
 import { alreadyProcessed, alreadyStarted } from "../lib/once";
 
 /**

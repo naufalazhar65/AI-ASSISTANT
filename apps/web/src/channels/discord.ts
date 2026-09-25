@@ -1,4 +1,4 @@
-import { broadcastMiaState } from "@/lib/miaState";
+import { broadcastMiaState } from "../lib/miaState";
 import { COMMAND_EMPTY_FALLBACK, DISCORD_MAX, EMPTY_REPLY_FALLBACK, chunkText, clockLabel, parseConfirmReply, pendingConfirmPrompt } from "./replyChunk";
 
 /**
@@ -28,18 +28,18 @@ import { COMMAND_EMPTY_FALLBACK, DISCORD_MAX, EMPTY_REPLY_FALLBACK, chunkText, c
  */
 
 import { Client, Events, GatewayIntentBits, Message, MessageFlags, Partials, REST, Routes, SlashCommandBuilder} from "discord.js";
-import { runAssistantTurn, ChatMessage } from "@/lib/agent";
-import { ToolCall } from "@/lib/tools";
-import { subscribeReminders, Reminder } from "@/lib/reminders";
-import { reminderMessage } from "@/lib/reminderMessage";
-import { saveUpload } from "@/lib/uploads";
-import { transcribeAudio } from "@/lib/stt";
-import { synthesizeSpeech } from "@/lib/tts";
+import { runAssistantTurn, ChatMessage } from "../lib/agent";
+import { ToolCall } from "../lib/tools";
+import { subscribeReminders, Reminder } from "../lib/reminders";
+import { reminderMessage } from "../lib/reminderMessage";
+import { saveUpload } from "../lib/uploads";
+import { transcribeAudio } from "../lib/stt";
+import { synthesizeSpeech } from "../lib/tts";
 import { registerPushTarget } from "./pushTarget";
-import { classifyAssistantError } from "@/lib/assistantError";
-import { defaultProviderId } from "@/lib/providers";
-import { buildStatusReport } from "@/lib/status";
-import { handleUnifiedCommand, ChatSessionState } from "@/lib/channelMessage";
+import { classifyAssistantError } from "../lib/assistantError";
+import { defaultProviderId } from "../lib/providers";
+import { buildStatusReport } from "../lib/status";
+import { handleUnifiedCommand, ChatSessionState } from "../lib/channelMessage";
 import { alreadyProcessed, alreadyStarted } from "../lib/once";
 
 /** Minimal sendable text surface we rely on (any discord.js text channel). */
@@ -93,6 +93,12 @@ let lastSeenOwnerChannel: SendableChannel | null = null;
 // Set once the client is ready so proactive pushes / send_channel can fall back
 // to the owner's DM when no owner message has been seen since server start.
 let activeClient: Client | null = null;
+/** Drill/inspection hook: the singleton client of THIS process (null before start).
+ *  Used by adapter-path drills that drive the real messageCreate handler with a
+ *  synthetic message (invalid token → login 401 → NO gateway → no 409 risk). */
+export function getActiveDiscordClient(): Client | null {
+  return activeClient;
+}
 
 /**
  * Resolve the owner's DM as a sendable target. Falls back to the first
