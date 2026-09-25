@@ -598,9 +598,11 @@ export function generateReport(rawUser: unknown, opts: { target?: string } = {})
     // NOTE: this MESSAGE must never become a DELIVERABLE — reportSave/reportPdf
     // throw EMPTY_REPORT on it (live 2026-09-25: a 0-finding "report" rendered
     // as a clean 1-page PDF whose cover said it had nothing to report).
+    // English (2026-09-26): deliverables are language-neutral for international
+    // platforms; chat-facing strings elsewhere stay Indonesian.
     return wantHost
-      ? `Belum ada temuan terbuka untuk target "${opts.target}" — belum ada yang bisa dilaporkan.`
-      : "Belum ada temuan terbuka — belum ada yang bisa dilaporkan.";
+      ? `No open findings for target "${opts.target}" — nothing to report yet.`
+      : "No open findings — nothing to report yet.";
   }
   const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
   const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0) || (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
@@ -612,16 +614,16 @@ export function generateReport(rawUser: unknown, opts: { target?: string } = {})
         `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[normalizeOwaspYear(f.owasp || ""), f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Platform**: ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n- **Steps to Reproduce**: ${f.steps || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
     )
     .join("\n\n");
-  return `# Laporan Pentest\n\nDibuat: ${new Date().toISOString()}\nTotal temuan: ${rows.length} (${counts}) — rata-rata CVSS ${avg}\n\n${(() => {
+  return `# Pentest Report\n\nGenerated: ${new Date().toISOString()}\nTotal findings: ${rows.length} (${counts}) — average CVSS ${avg}\n\n${(() => {
     // Attribute the report to the engagement that ACTUALLY covers these
     // findings — never to whichever engagement happens to be active (live bug:
     // a lab report claimed authorization from an unrelated bug-bounty program).
     const hosts = [...new Set(rows.map((f) => normalizeHost(f.target || "")).filter(Boolean))];
     const first = hosts.length ? activeEngagementFor(hosts[0]) : null;
     const eng = first && hosts.every((h) => activeEngagementFor(h)?.id === first.id) ? first : null;
-    if (eng) return `> Engagement: ${eng.id} — ${eng.name} (${eng.client})\n> Izin: ${eng.authorization}\n> Scope: ${eng.scope.join(", ")}${eng.windowEnd ? ` (s/d ${eng.windowEnd})` : ""}`;
-    if (hosts.length && hosts.every((h) => isLabTarget(h))) return "> Scope: LAB MILIK OWNER / aset sendiri (berizin) — laporan untuk perbaikan defensif.";
-    return "> Scope: aset milik sendiri / berizin tertulis. Laporan ini untuk perbaikan defensif.";
+    if (eng) return `> Engagement: ${eng.id} — ${eng.name} (${eng.client})\n> Authorization: ${eng.authorization}\n> Scope: ${eng.scope.join(", ")}${eng.windowEnd ? ` (until ${eng.windowEnd})` : ""}`;
+    if (hosts.length && hosts.every((h) => isLabTarget(h))) return "> Scope: OWNER-OWNED LAB / self-owned authorized assets — report for defensive remediation.";
+    return "> Scope: self-owned / written-authorized assets. This report is for defensive remediation.";
   })()}\n\n${body}`;
 }
 
@@ -919,13 +921,13 @@ export function iocExtract(text: string): string {
  * clean 1-page PDF was delivered for a report whose own body said "Belum ada
  * temuan terbuka"). Callers catch this and answer honestly instead.
  */
-export const EMPTY_REPORT = "EMPTY_REPORT: belum ada temuan terbuka untuk dilaporkan";
+export const EMPTY_REPORT = "EMPTY_REPORT: no open findings to report";
 
 export function reportSave(rawUser: unknown, opts: { target?: string } = {}): string {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const md = generateReport(rawUser, opts);
-  if (md.startsWith("Belum ada temuan terbuka")) throw new Error(EMPTY_REPORT);
+  if (md.startsWith("No open findings")) throw new Error(EMPTY_REPORT);
   const dir = join(userDataRoot(), userKey, "reports");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `report-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
@@ -993,7 +995,7 @@ export async function reportPdf(rawUser: unknown, opts: { target?: string } = {}
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const md = generateReport(rawUser, opts);
-  if (md.startsWith("Belum ada temuan terbuka")) throw new Error(EMPTY_REPORT);
+  if (md.startsWith("No open findings")) throw new Error(EMPTY_REPORT);
   return renderMarkdownPdf(userKey, md, "report");
 }
 
@@ -1239,7 +1241,7 @@ export async function depAudit(dirRel = "", toFindingsUser?: unknown): Promise<s
 /** Prioritized remediation plan derived from the recorded findings (by CVSS). */
 export function hardeningPlan(rawUser: unknown): string {
   const rows = readFindings(rawUser).filter((r) => r.status !== "resolved");
-  if (!rows.length) return "Belum ada temuan terbuka — tidak ada rencana perbaikan.";
+  if (!rows.length) return "No open findings — no remediation plan to build.";
   const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0));
   const summary = SEVERITIES.map((s) => `${s} ${rows.filter((r) => r.severity === s).length}`).join(" | ");
   const lines = sorted.slice(0, 30).map(

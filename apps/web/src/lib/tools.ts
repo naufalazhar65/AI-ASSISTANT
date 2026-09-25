@@ -3418,7 +3418,7 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "finding_add",
-        description: "Catat satu temuan pentest (Title/Severity/CVSS/OWASP/CWE/Evidence/Impact/Remediation). Bila `cvss` diisi, severity DITURUNKAN otomatis dari band CVSS (mis. 6.1→medium, 9.8→critical) — tak perlu menebak. GERBANG BUKTI: temuan HIGH/CRITICAL kelas injection (SQLi/NoSQLi/cmdi/SSTI/LFI/traversal/CRLF/CSV/code injection) DITOLAK bila endpoint itu tidak punya run `poc_verify` berstatus ✅, atau bila run terakhirnya ⛔ (payload identik dengan baseline). Kalau ditolak: jalankan `poc_verify` dulu dengan payload + `baseline_url` (jangan mengulang finding_add, jangan menghapus baseline) — atau sebutkan bukti OOB/browser/socket (oast_poll/dom_xss_prove/smuggle_probe/file-read marker) di evidence. Read, auto.",
+        description: "Catat satu temuan pentest (Title/Severity/CVSS/OWASP/CWE/Evidence/Impact/Remediation). Bila `cvss` diisi, severity DITURUNKAN otomatis dari band CVSS (mis. 6.1→medium, 9.8→critical) — tak perlu menebak. GERBANG BUKTI: temuan HIGH/CRITICAL kelas injection (SQLi/NoSQLi/cmdi/SSTI/LFI/traversal/CRLF/CSV/code injection) DITOLAK bila endpoint itu tidak punya run `poc_verify` berstatus ✅, atau bila run terakhirnya ⛔ (payload identik dengan baseline). Kalau ditolak: jalankan `poc_verify` dulu dengan payload + `baseline_url` (jangan mengulang finding_add, jangan menghapus baseline) — atau sebutkan bukti OOB/browser/socket (oast_poll/dom_xss_prove/smuggle_probe/file-read marker) di evidence. WAJIB ENGLISH: tulis title/steps/evidence/impact/root_cause/remediation/references dalam BAHASA INGGRIS — temuan langsung dipakai laporan markdown/PDF untuk platform internasional (prosa berbahasa Indonesia di field temuan ditolak). Read, auto.",
         parameters: {
           type: "object",
           properties: {
@@ -3428,8 +3428,8 @@ const toolRegistry: ToolPlugin[] = [
             owasp: { type: "string", description: "Kategori OWASP tahun 2025, mis. 'A03:2025 Injection'" },
             cwe: { type: "string", description: "CWE, mis. 'CWE-89'" },
             target: { type: "string" },
-            evidence: { type: "string" },
-            steps: { type: "string", description: "Langkah reproduksi (Steps to Reproduce)" },
+            evidence: { type: "string", description: "Raw evidence (English) — request/response, poc_verify hasil, OAST hit" },
+            steps: { type: "string", description: "Steps to Reproduce (English, numbered)" },
             impact: { type: "string" },
             root_cause: { type: "string", description: "Akar masalah (Root Cause)" },
             remediation: { type: "string" },
@@ -3447,6 +3447,23 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args, ctx) => {
       try {
         const { addFinding, resolveFindingSeverity } = await import("./security");
+        // LANGUAGE GATE (2026-09-26): findings feed the markdown/PDF deliverable,
+        // which must be submission-ready English for international platforms
+        // (owner request). A predominantly-Indonesian prose field is refused with
+        // an honest, actionable error so the model re-writes it. Only the long
+        // prose fields are checked; titles/evidence often carry endpoint names or
+        // quoted Indonesian payloads, so the threshold is deliberately high (5+).
+        try {
+          const { indonesianProseField } = await import("./findingLanguage");
+          const bad = [
+            "title", "steps", "impact", "root_cause", "remediation",
+          ].filter((k) => typeof (args as Record<string, unknown>)[k] === "string" && indonesianProseField((args as Record<string, unknown>)[k] as string));
+          if (bad.length) {
+            return `Error: field ${bad.join(", ")} must be written in ENGLISH (findings feed the Pentest Report deliverable for international platforms). Rewrite ${bad[0]} in English and retry — content is unchanged, only the language.`;
+          }
+        } catch {
+          /* the language gate must never break finding_add */
+        }
         // EVIDENCE GATE (2026-09-25): an injection-class HIGH/CRITICAL claim whose
         // endpoint has no confirming poc_verify — or whose latest run REFUTED it —
         // never reaches the store. A model can ignore a verdict; it cannot ignore a

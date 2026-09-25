@@ -36,6 +36,13 @@ export const RECEIPT_TOOLS: ReadonlySet<string> = new Set([
   "fetch_url", "browser_open", "browser_snapshot", "browser_navigate",
   "browser_click", "browser_type", "cdp_eval", "web_audit", "csp_audit",
   "cors_audit",
+  // Live 2026-09-26 00:37 drill: the compulsory sweep ran js_mine for real
+  // (ledger + http-history prove it) but the receipt rendered only
+  // http_request/web_audit — js_mine/content_discover/exposure_hunt were
+  // missing from this set although they fetch the target's endpoints/bundle.
+  // Same READ_TOUCH class as fetch_url: real network contact the user must
+  // see.
+  "js_mine", "js_deobfuscate", "content_discover", "exposure_hunt",
   // report / record (deliverables)
   "report_generate", "report_save", "report_pdf", "hardening_pdf",
   "finding_add", "finding_resolve",

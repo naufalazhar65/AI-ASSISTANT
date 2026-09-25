@@ -1395,7 +1395,7 @@ async function main() {
     addFinding(u, { title: "Reflected XSS", severity: "high", cvss: 8.7, owasp: "A03:2021 Injection", cwe: "CWE-79", target: "http://localhost:3001", evidence: "?q=<script>", impact: "session theft", remediation: "encode output" });
     if (!/Reflected XSS/.test(listFindingsText(u))) throw new Error("finding_list missing entry");
     const rep = generateReport(u);
-    if (!/Laporan Pentest/.test(rep) || !/HIGH/.test(rep) || !/CVSS 8\.7/.test(rep) || !/A03:2025/.test(rep)) throw new Error("report_generate malformed");
+    if (!/Pentest Report/.test(rep) || !/HIGH/.test(rep) || !/CVSS 8\.7/.test(rep) || !/A03:2025/.test(rep)) throw new Error("report_generate malformed");
     // Per-target scoping: a lab report must not drag in another target's findings.
     addFinding(u, { title: "Old Pulsepoint finding", severity: "medium", cvss: 5.0, target: "exchange.pulsepoint.com", evidence: "x", impact: "y", remediation: "z" });
     const scoped = generateReport(u, { target: "localhost:3001" });
@@ -1404,7 +1404,7 @@ async function main() {
     if (!/Reflected XSS/.test(listFindingsText(u, { target: "localhost:3001" }))) throw new Error("scoped finding_list dropped the host");
     if (/Old Pulsepoint finding/.test(listFindingsText(u, { target: "localhost:3001" }))) throw new Error("scoped finding_list leaked another target");
     const scopedMiss = generateReport(u, { target: "nope.example" });
-    if (!/Belum ada temuan terbuka untuk target/.test(scopedMiss)) throw new Error("scoped report must say when a target has no findings");
+    if (!/No open findings for target/.test(scopedMiss)) throw new Error("scoped report must say when a target has no findings");
     rmSync(appRoot() + "/.data/users/" + u, { recursive: true, force: true });
     console.log("pentest scope guard + findings/report: OK");
   {

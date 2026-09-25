@@ -1394,3 +1394,58 @@ Owner minta cari gap berikutnya di rantai pentest ("sweep berhenti tanpa report 
 **Bukti live (drill konfirmasi ulang, EXIT=0):** round 1 model mengusulkan `report_pdf` SEBELUM menguji → dieksekusi → **ditolak `Error: EMPTY_REPORT`** (receipt menampilkannya — receipt jujur dua arah) → model terkoreksi diri DALAM turn yang sama: probing rounds 2–7 + poc_verify → round 8 `finding_add` tersimpan (auto-approve policy) + usulkan `report_pdf` lagi (kini sah). Dulu PDF kosong lolos sebagai sukses; kini error jujur mengarahkan siklus uji→rekam→report. R6 drill diperbarui: `report_pdf` → PDF nyata di disk XOR catatan jujur empty-report, tak pernah artefak kosong.
 
 **Kontrak diperbarui:** reportDelivery.test.ts (+2 tes EMPTY_REPORT .md/.pdf + tes deliverable-nyata-dengan-temuan), verify `deterministic-pdf` (empty-rejected + addFinding + PDF nyata), prompt. **Gates:** typecheck 0 · vitest **860/860** (+2) · verify EXIT=0 · eslint 0 error (warning baseline) · smoke honesty guards PASS · restart tmux sehat (health ok, 1 login, 0×409, boot > mtime). **Belum commit — menunggu approval owner.**
+
+## Sesi 2026-09-26 — uji rantai live Discord (report markdown) + 2 fix dari forensik turn 00:37
+
+Owner menjalankan uji rantai dari Discord sungguhan: `mia coba lakukan full pentest secara menyeluruh di <lab>/cek-nik dan buatkan report markdown nya`. **Verdict report (terverifikasi disk+store+audit, bukan prosa): SESUAI.** File `report-2026-09-25T17-37-58-919Z.md` ada (15.9KB), meta akurat (7 temuan, 2C/3H/2M, CVSS rata 7.6, header engagement ENG-mu7yl9ol-pips cocok), store↔report cocok 7/7, poc-verified di 3 temuan critical/high (poc_verify 3/3 PASS tercantum), 0 proof-warning ⚠️, temuan #3 (8.2) memang dengan sengaja TIDAK di-poc (redundan dengan #5 — deskripsi keduanya beda, dup_check silent = tepat). Balasan Mia jujur: zero-contact note menyala dengan benar (sweep read-only + finding_list bukan pengujian), receipt tampil, tanpa klaim kontradiktif.
+
+**Forensik receipt vs audit menemukan 2 gap; keduanya diperbaiki (uncommitted, menunggu approval):**
+1. **Sweep paksa tidak ter-audit (audit parity).** Audit `tool:<name>` hanya dipancarkan `executeTool` (tools.ts:5506); sweep paksa (`pentestSweep.runPentestSweep`, jalur internal di agent.ts ~4391) mengeksekusi GET nyata di LUAR executeTool → tercatat di http-history + ledger turn-exec tapi NIHL di audit log. Akibatnya forensik hampir salah menuduh receipt "(dieksekusi)" sebagai fabrikasi — padahal http-history membuktikan GET `/cek-nik → 200 (1299 byte)` jam 17:37:33. Fix: loop sweep-calls di agent.ts kini `auditLog(opts.user, "tool:<nama>", args)` (args = url/method saja, tanpa rahasia by construction; tidak pernah dobel-log karena ops ini tak pernah lewat executeTool). Aturan rumah "proof = audit log" kini berlaku juga untuk kerja wajib sistem.
+2. **RECEIPT_TOOLS kurang 4 READ_TOUCH.** Receipt hanya menampilkan `http_request`+`web_audit` padahal ledger membuktikan `js_mine` ikut jalan. `js_mine`, `js_deobfuscate`, `content_discover`, `exposure_hunt` ditambahkan ke RECEIPT_TOOLS (kelas menyentuh endpoint/bundle — sama seperti fetch_url).
+
+Gates: typecheck 0 · vitest 860/860 · verify EXIT=0 (122 blok OK) · smoke honesty-guards PASS · restart tmux sehat 2× (health ok, 1 login, 0×409). **Uji PDF terisi (tahap akhir rantai pentest → temuan → PDF terisi) belum dieksekusi live — owner minta markdown dulu; cukup ask "buatkan report pdf nya" berikutnya, dengan perlindungan EMPTY_REPORT.**
+
+### Lanjutan (2026-09-26, 00:55) — RANTAI LENGKAP TERBUKTI LIVE + audit-parity fix terbukti di production
+
+Owner kirim ask PDF dari Discord → approve. **Rantai pentest → temuan → PDF terisi SELESAI dan terverifikasi forensik:**
+- **PDF terisi**: `report-2026-09-25T17-53-07-963Z.pdf` = 158.728 byte, `%PDF-1.4`, **7 halaman**, 5 subset font (teks dirender nyata) — ukuran identik dengan PDF terisi sebelumnya (EMPTY_REPORT tidak menyala karena memang 7 temuan ada).
+- **Audit-parity fix LIVE (bukti pertama di production)**: audit log 17:52:24 kini memuat `tool:http_request` + `tool:web_audit` + `tool:js_mine` (sweep paksa) — pada turn 17:37 sebelum fix ketiganya NIHL. Timeline audit utuh: sweep 17:52:24 → finding_list 17:52:33 → report_pdf 17:53:07.
+- **READ_TOUCH fix LIVE**: receipt di reply kini menampilkan `⚙️ js_mine` (sebelumnya hilang), baris sweep diberi tag "(turn sebelumnya)" dengan atribusi benar (sweep jalan di turn proposal, report_pdf di turn konfirmasi).
+- **Kejujuran utuh**: zero-contact note tetap menyala ("belum diuji kerentanannya"), tanpa klaim kontradiktif.
+Sisa: commit seluruh work sesi menunggu approval owner.
+
+### Lanjutan (2026-09-26) — redesign template PDF (Paket B, pilihan owner dari 3 paket)
+
+Owner minta template PDF lebih menarik/rapi/profesional → tawarkan 3 paket (A ringan / B sedang / C penuh), owner pilih **B**. Renderer `reportHtml.ts` ditulis ulang (parser `parseReport` TIDAK berubah — dialek markdown sama), terverifikasi render nyata dari report asli 7 temuan: **7 halaman, 251 KB** (lama 158 KB), Playwright print. Perubahan:
+1. **Header band gelap** (#0f172a): judul + engagement + tanggal kiri, **host target monospace + label RAHASIA — INTERNAL** kanan. Scope non-URL ("LAB MILIK OWNER") tetap callout — deteksi host `hostLooksReal` (tanpa whitespace).
+2. **Ringkasan eksekutif deterministik** (`execSummary` pure — tanpa LLM): "Ditemukan N temuan: … Skor CVSS rata-rata X — tingkat risiko keseluruhan KRITIS/TINGGI/SEDANG/…".
+3. **Prioritas Remediasi** (`topRemediation` pure): 3 temuan tertinggi (rank severity lalu CVSS desc).
+4. **Daftar Temuan (TOC)**: badge severity + judul satu baris per temuan.
+5. **Palet industri**: Critical `#dc2626`, High `#ea580c`, Medium `#d97706`, **Low BIRU `#2563eb`** (lama hijau — terbaca "selesai/baik"), Info abu.
+6. **Steps to Reproduce jadi `<ol>` bernomor** — `splitSteps` pure dengan ANCHOR BERURUTAN (harus mulai "1. " di posisi 0, chain 1→2→3; angka nyasar seperti "200."/"1.240.000" di-skip, lompatan urutan → null = tetap pre). Bug v1 tertangkap test: regex mentah membelah "GET /api → 200." di "200.".
+7. **Panel BUKTI**: Evidence keluar dari grid label jadi panel abu berjudul "BUKTI" dengan chip hijau `✔ poc_verify 3/3 PASS` (diekstrak regex dari teks evidence).
+8. **Kategori jadi tag chips**: `sevTags` split pada "/" dan "," saja (OWASP label ber-spasi selamat), maks 6 tag.
+Gates: vitest **868/868** (reportHtml.test.ts 15 tes — kontrak baru + 4 helper pure), typecheck 0, verify EXIT=0, restart tmux sehat (health ok, 1 login, 0×409). Preview: `/tmp/report-preview.pdf` + `/tmp/report-preview-page1.png` (render dari report asli). **Belum commit — menunggu approval** (gabung dengan work sesi: fix sweep-audit + RECEIPT_TOOLS + EMPTY_REPORT dsb.).
+
+### Lanjutan (2026-09-26) — deliverable laporan FULL ENGLISH (permintaan owner: "full bahasa Inggris, agar lebih general")
+
+Owner minta laporan (markdown + PDF) full English agar universal untuk submission internasional. **Prinsip: deliverable = English; balasan chat/receipt/guard = tetap Indonesia** (lexicon guard tidak tersentuh). Perubahan:
+- **Generator (`generateReport` security.ts)**: judul `# Pentest Report`, meta `Generated:` / `Total findings: N (...) — average CVSS X`, scope `> Authorization:` / `> Scope: OWNER-OWNED LAB...`, empty-message `No open findings...` (EMPTY_REPORT gate menyesuaikan: `md.startsWith("No open findings")`; const `EMPTY_REPORT` kini English).
+- **Renderer (`reportHtml.ts`)**: band `CONFIDENTIAL — INTERNAL` + `Generated <date>`, `Remediation Priority`, `Findings Index`, execSummary English ("Found 7 findings: 2 critical, ... overall risk level CRITICAL"), zero-finding "No open findings in this report.", fallback title/footer "Pentest Report"/"Report", label `Category` ikut dikenali (sevTags match kategori/category).
+- **Parser back-compat**: regex `Total (temuan|findings)` + `(rata-rata CVSS|average CVSS)` + `(Dibuat|Generated)` — file .md lama (Indonesia) tetap ter-parse + ter-render (test kunci ini).
+- **Guard `hasBody` (agent.ts)**: `Total (temuan|findings)` + label `Category` — receipt markdown-blok English tetap dikenali sebagai deliverable, bukan prosa model.
+- **Prompt LAPORAN KOSONG**: kutipan 'Belum ada temuan terbuka' → 'No open findings' (model membaca output tool English).
+- verify.ts: 2 assertion report diperbarui (Pentest Report / No open findings for target).
+Gates: typecheck 0 · vitest **869/869** · verify EXIT=0 (122 blok) · render nyata dari report asli → **7 hlm** preview `/tmp/report-preview-en.pdf` (+page1.png) · restart tmux sehat (health ok, 1 login, 0×409). **Belum commit — menunggu approval.**
+
+### Lanjutan (2026-09-26, 01:40) — isi temuan kini FULL ENGLISH (3 lapis) — akar: teks tersimpan di findings store
+
+Owner paste report baru: kerangka English tapi **isi temuan masih Indonesia** (judul/steps/impact/remediation). Akar BUKAN template — teks itu tersimpan di `findings.json` (ditulis model saat finding_add 17/09). Fix 3 lapis:
+1. **Migrasi data**: 6 temuan open lab Kohona di-translate full English via script (judul/steps/evidence-narasi/impact/rootCause/remediation — evidence: kalimat narasi English, raw request/JSON quoted TIDAK diubah; temuan #3 milik drill user lain dibiarkan). Backup reversible `findings.json.bak-en-migration`. Render ulang dari store: 7 hlm, **0 judul Indonesia** (`/tmp/report-preview-en-migrated.pdf` + md).
+2. **Guard ke depan — language gate di finding_add** (`findingLanguage.ts` + wiring tools.ts): field prose predominantly-Indonesia DITOLAK dengan error actionable ("must be written in ENGLISH — rewrite X and retry"). Detektor konservatif (`idProseStrength`): ≥3 frasa khas / ≥5 marker kata / ≥3 marker+density ≥0.12 — English dengan payload Indonesia ter-quoted (evidence "Dokumen ini bersifat internal…", field catatan_internal) TIDAK false-positive (3 tes dua arah).
+3. **Tool description finding_add**: WAJIB ENGLISH (title/steps/evidence/impact/root_cause/remediation/references) — temuan langsung jadi laporan markdown/PDF internasional; param descriptions ikut English.
+Gates: typecheck 0 · vitest **872/872** (+3 findingLanguage) · verify EXIT=0 · restart tmux sehat (health ok, 1 login, 0×409). **Belum commit — menunggu approval.**
+
+### Lanjutan (2026-09-26, 01:50) — sisa ID di renderer PDF: BUKTI→EVIDENCE, Halaman→Page
+
+Owner: "tinggal BUKTI yg masih bahasa Indonesia". Sweep penuh renderer `reportHtml.ts`: panel `BUKTI` → **`EVIDENCE`**, footer Playwright `Halaman X / Y` → **`Page X / Y`** (+test asersi diperbarui; asersi duplikat BUKTI tertangkap vitest). Sweep kata kunci ID di HTML hasil render dari store bermigrasi: kini NONE — "RAHASIA" yang tersisa di konten adalah **quoted raw evidence milik lab itu sendiri** (`[RAHASIA - INTERNAL]` isi dokumen target), disengaja: menerjemahkan bukti mentah = memalsukan bukti. Gates: vitest 872/872 · verify EXIT=0 · restart sehat (health ok, 1 login, 0×409). **Belum commit — menunggu approval.**

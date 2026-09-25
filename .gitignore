@@ -31,3 +31,6 @@ cyber-security-ethical-hacker-essential-skills-tools.md
 # local env backups (contain secrets)
 .env.local.bak-*
 apps/web/.env.local.bak-*
+
+# one-off preview/probe scripts (hardcode owner user key + absolute report paths)
+apps/web/tmp-*.mts
