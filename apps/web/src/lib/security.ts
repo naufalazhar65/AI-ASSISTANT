@@ -496,16 +496,31 @@ export function normalizeOwaspYear(text: string): string {
   return (text || "").replace(/\b(A\d{2}):2021\b/g, "$1:2025");
 }
 
+/** Normalised severity label (unknown/empty → medium). Pure. */
+export function requestedFindingSeverity(severity?: string): string {
+  return SEVERITIES.includes((severity || "").toLowerCase()) ? (severity as string).toLowerCase() : "medium";
+}
+
+/**
+ * The ONE owner of ''what severity will this finding actually carry?'' — a supplied
+ * CVSS band wins over the requested label (severity-calibration). Exported so the
+ * `finding_add` gate judges the SAME severity that gets stored; two copies of this
+ * rule would let the gate allow what the store records as high, or vice versa.
+ */
+export function resolveFindingSeverity(severity?: string, cvss?: number): string {
+  return typeof cvss === "number" && cvss >= 0 && cvss <= 10 ? severityFromCvss(cvss) : requestedFindingSeverity(severity);
+}
+
 export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; steps?: string; impact?: string; rootCause?: string; remediation?: string; references?: string }): Finding {  const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const title = (f.title || "").trim().slice(0, 200);
   if (!title) throw new Error("judul temuan wajib");
-  const requestedSev = SEVERITIES.includes((f.severity || "").toLowerCase()) ? (f.severity as string).toLowerCase() : "medium";
+  const requestedSev = requestedFindingSeverity(f.severity);
   const hasCvss = typeof f.cvss === "number" && f.cvss >= 0 && f.cvss <= 10;
   const cvss = hasCvss ? Math.round((f.cvss as number) * 10) / 10 : DEFAULT_CVSS[requestedSev] ?? null;
   // Severity must agree with the CVSS band (severity-calibration): a supplied
   // score wins; otherwise the requested severity drives the default score.
-  const sev = hasCvss ? severityFromCvss(cvss as number) : requestedSev;
+  const sev = resolveFindingSeverity(f.severity, f.cvss);
   const target = (f.target || "").slice(0, 200);
   // If no evidence was supplied, attach the most recent matching http_history
   // entry (so report_generate has a raw request/response to cite without the
@@ -580,6 +595,9 @@ export function generateReport(rawUser: unknown, opts: { target?: string } = {})
     // findings showed up in the Kohona lab report).
     .filter((r) => !wantHost || matchesHost(r.target, wantHost));
   if (!rows.length) {
+    // NOTE: this MESSAGE must never become a DELIVERABLE — reportSave/reportPdf
+    // throw EMPTY_REPORT on it (live 2026-09-25: a 0-finding "report" rendered
+    // as a clean 1-page PDF whose cover said it had nothing to report).
     return wantHost
       ? `Belum ada temuan terbuka untuk target "${opts.target}" — belum ada yang bisa dilaporkan.`
       : "Belum ada temuan terbuka — belum ada yang bisa dilaporkan.";
@@ -895,10 +913,19 @@ export function iocExtract(text: string): string {
 }
 
 /** Save the current pentest report to .data/users/<user>/reports/<ts>.md. */
+/**
+ * Thrown by reportSave/reportPdf when there are ZERO open findings: an empty
+ * report is an honest message, not a deliverable (live 2026-09-25 drill — a
+ * clean 1-page PDF was delivered for a report whose own body said "Belum ada
+ * temuan terbuka"). Callers catch this and answer honestly instead.
+ */
+export const EMPTY_REPORT = "EMPTY_REPORT: belum ada temuan terbuka untuk dilaporkan";
+
 export function reportSave(rawUser: unknown, opts: { target?: string } = {}): string {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const md = generateReport(rawUser, opts);
+  if (md.startsWith("Belum ada temuan terbuka")) throw new Error(EMPTY_REPORT);
   const dir = join(userDataRoot(), userKey, "reports");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `report-${new Date().toISOString().replace(/[:.]/g, "-")}.md`);
@@ -965,7 +992,9 @@ async function renderMarkdownPdf(userKey: string, md: string, prefix: string): P
 export async function reportPdf(rawUser: unknown, opts: { target?: string } = {}): Promise<string> {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
-  return renderMarkdownPdf(userKey, generateReport(rawUser, opts), "report");
+  const md = generateReport(rawUser, opts);
+  if (md.startsWith("Belum ada temuan terbuka")) throw new Error(EMPTY_REPORT);
+  return renderMarkdownPdf(userKey, md, "report");
 }
 
 export async function hardeningPdf(rawUser: unknown): Promise<string> {

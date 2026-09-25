@@ -3418,7 +3418,7 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "finding_add",
-        description: "Catat satu temuan pentest (Title/Severity/CVSS/OWASP/CWE/Evidence/Impact/Remediation). Bila `cvss` diisi, severity DITURUNKAN otomatis dari band CVSS (mis. 6.1→medium, 9.8→critical) — tak perlu menebak. Read, auto.",
+        description: "Catat satu temuan pentest (Title/Severity/CVSS/OWASP/CWE/Evidence/Impact/Remediation). Bila `cvss` diisi, severity DITURUNKAN otomatis dari band CVSS (mis. 6.1→medium, 9.8→critical) — tak perlu menebak. GERBANG BUKTI: temuan HIGH/CRITICAL kelas injection (SQLi/NoSQLi/cmdi/SSTI/LFI/traversal/CRLF/CSV/code injection) DITOLAK bila endpoint itu tidak punya run `poc_verify` berstatus ✅, atau bila run terakhirnya ⛔ (payload identik dengan baseline). Kalau ditolak: jalankan `poc_verify` dulu dengan payload + `baseline_url` (jangan mengulang finding_add, jangan menghapus baseline) — atau sebutkan bukti OOB/browser/socket (oast_poll/dom_xss_prove/smuggle_probe/file-read marker) di evidence. Read, auto.",
         parameters: {
           type: "object",
           properties: {
@@ -3446,7 +3446,35 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: async (args, ctx) => {
       try {
-        const { addFinding } = await import("./security");
+        const { addFinding, resolveFindingSeverity } = await import("./security");
+        // EVIDENCE GATE (2026-09-25): an injection-class HIGH/CRITICAL claim whose
+        // endpoint has no confirming poc_verify — or whose latest run REFUTED it —
+        // never reaches the store. A model can ignore a verdict; it cannot ignore a
+        // refusal. Class list is deliberately narrow (see findingGate.ts) so OOB /
+        // browser / raw-socket proofs are not blocked.
+        try {
+          const { findingAddGate } = await import("./findingGate");
+          const { readPocRuns } = await import("./pocRuns");
+          const decision = findingAddGate(
+            {
+              title: typeof args.title === "string" ? args.title : "",
+              severity: resolveFindingSeverity(
+                typeof args.severity === "string" ? args.severity : undefined,
+                asNumber(args.cvss)
+              ),
+              cwe: typeof args.cwe === "string" ? args.cwe : undefined,
+              owasp: typeof args.owasp === "string" ? args.owasp : undefined,
+              target: typeof args.target === "string" ? args.target : undefined,
+              text: [args.title, args.target, args.evidence, args.steps, args.impact, args.root_cause]
+                .filter((v): v is string => typeof v === "string")
+                .join("\n"),
+            },
+            readPocRuns(ctx.rawUser)
+          );
+          if (!decision.allow) return `Error: ${decision.reason}`;
+        } catch {
+          /* the gate must never break finding_add */
+        }
         const f = addFinding(ctx.rawUser, {
           title: String(args.title || ""),
           severity: typeof args.severity === "string" ? args.severity : undefined,
@@ -4052,7 +4080,7 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
-    definition: { type: "function", risk: "write", function: { name: "poc_verify", description: "Buktikan lead sebelum lapor: jalankan request N× (default 3), fingerprint tiap respons (status+body+header), cek determinisme, assertion expect_status/expect_contains/expect_header/expect_header_absent/expect_cookie_missing (atribut cookie per-nama), dan opsional banding baseline (kontrol) → verdict layak-lapor. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] }, headers: { type: "object" }, body: { type: "string" }, session: { type: "string", description: "nama http_session (opsional)" }, times: { type: "number", description: "default 3, maks 8" }, expect_status: { type: "number" }, expect_contains: { type: "string" }, expect_header: { type: "string", description: "substring (case-insensitive) yang HARUS ada di header respons" }, expect_header_absent: { type: "string", description: "substring yang TIDAK boleh ada di header respons" }, expect_cookie: { type: "string", description: "bukti temuan cookie: NAMA cookie yang diperiksa (mis. ASP.NET_SessionId_CROSS_DOM_custom)" }, expect_cookie_missing: { type: "string", description: "flag yang hilang pada cookie itu, dipisah koma (mis. HttpOnly, Secure, SameSite)" }, baseline_url: { type: "string", description: "request kontrol (mis. id/identitas lain)" }, baseline_method: { type: "string" }, baseline_body: { type: "string" }, baseline_session: { type: "string" }, save_evidence: { type: "boolean" } }, required: ["url"] } } },
+    definition: { type: "function", risk: "write", function: { name: "poc_verify", description: "Buktikan lead sebelum lapor: jalankan request N× (default 3), fingerprint tiap respons (status+body+header), cek determinisme, assertion expect_status/expect_contains/expect_header/expect_header_absent/expect_cookie_missing (atribut cookie per-nama), dan banding baseline (kontrol) yang MENGGERBANG verdict: ✅ hanya bila assertion lolos DAN kontrol benar-benar BERBEDA (status atau body) — baca BODY, bukan cuma status (BOLA asli sering 200 di kedua sisi); payload yang IDENTIK dengan baseline = ⛔ TIDAK ADA SINYAL, bukan bukti → jangan finding_add; tanpa assertion maupun kontrol = ⚠️ deterministik saja. Scope-gated. Write, confirm.", parameters: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] }, headers: { type: "object" }, body: { type: "string" }, session: { type: "string", description: "nama http_session (opsional)" }, times: { type: "number", description: "default 3, maks 8" }, expect_status: { type: "number" }, expect_contains: { type: "string" }, expect_header: { type: "string", description: "substring (case-insensitive) yang HARUS ada di header respons" }, expect_header_absent: { type: "string", description: "substring yang TIDAK boleh ada di header respons" }, expect_cookie: { type: "string", description: "bukti temuan cookie: NAMA cookie yang diperiksa (mis. ASP.NET_SessionId_CROSS_DOM_custom)" }, expect_cookie_missing: { type: "string", description: "flag yang hilang pada cookie itu, dipisah koma (mis. HttpOnly, Secure, SameSite)" }, baseline_url: { type: "string", description: "request kontrol (mis. id/identitas lain)" }, baseline_method: { type: "string" }, baseline_body: { type: "string" }, baseline_session: { type: "string" }, save_evidence: { type: "boolean" } }, required: ["url"] } } },
     execute: async (args, ctx) => {
       try {
         const { pocVerify } = await import("./poc");

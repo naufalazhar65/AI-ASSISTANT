@@ -47,10 +47,21 @@ kesimpulanmu = kualitas baseline-mu:
 - `race_attack`: N request 200 dianggap duplikasi HANYA karena outcome-nya
   campur dan final state membuktikan pembuatan ganda. Semua-200 di server
   statis = catch-all, bukan race.
-- `poc_verify`: deterministic verdict dihitung dari **fingerprints N replay**
-  (status + digest body). Angka "3/3" berarti "sistem memberi respons yang
-  sama 3× saat kondisi yang sama" — inilah yang membedakan bukti dari
-  kebetulan jaringan.
+- `poc_verify`: verdict-nya **digerbang oleh KONTROL**, bukan oleh pengulangan.
+  Tiga jalur yang harus kamu bedakan:
+  - **✅ terkonfirmasi** — assertion lolos DAN, kalau kamu memberi `baseline_url`,
+    kontrol benar-benar BERBEDA (status atau digest body).
+  - **⛔ TIDAK ADA SINYAL** — respons payload **IDENTIK** dengan baseline (status
+    DAN digest). Request-nya memang konsisten, tapi payload tidak mengubah apa
+    pun → BUKAN bukti. Jangan `finding_add`, dan JANGAN "memperbaiki" dengan
+    menghapus baseline — cari payload yang benar-benar membedakan. (Pengecualian:
+    bukti blind/OAST/timing memang tak terlihat di respons — pakai `oast_poll` /
+    `blind_cmdi`, bukan kesamaan respons.)
+  - **⚠️ deterministik saja** — tanpa assertion DAN tanpa kontrol, pengulangan
+    bukan bukti. Tambahkan `expect_status`/`expect_contains` atau `baseline_url`.
+  Angka "3/3" berarti "respons sama 3× pada kondisi sama" — itu syarat perlu,
+  bukan bukti. Bandingkan **body** juga: BOLA asli sering berstatus 200 di kedua
+  sisi dan hanya isi body-nya yang berbeda.
 
 **Cara membaca yang benar:** tanyakan selalu — "dibanding apa?" Kalau kamu tak
 bisa menjawab pertanyaan itu dari output, kamu belum paham hasilnya.
@@ -87,8 +98,16 @@ itu kelas 5, baca sebagai negatif, bukan "gagal scan".
 
 - Sinyal → kandidat → temuan: naik kelas WAJIB lewat **`poc_verify`** (replay
   deterministik) atau **`retest_run`** (signature rentan masih cocok).
-  `finding_add` tanpa keduanya diberi ⚠️ warning, bukan ditolak — warning itu
-  TAGIHAN yang harus kamu bayar sebelum report.
+  Di level **medium/low**, `finding_add` tanpa keduanya cuma diberi ⚠️ warning —
+  warning itu TAGIHAN yang harus kamu bayar sebelum report. Di level
+  **HIGH/CRITICAL kelas injection**, warning itu naik jadi **GERBANG** (sejak
+  2026-09-25): temuan DITOLAK kalau endpoint-nya tidak punya run `poc_verify`
+  berstatus ✅, atau kalau run terakhirnya justru ⛔. Setelah ditolak, yang benar
+  adalah menjalankan `poc_verify` lagi dengan payload/kontrol yang benar — BUKAN
+  mengulang `finding_add`, dan BUKAN menghapus baseline supaya lolos.
+  Pengecualiannya bukti yang memang tidak bisa dihasilkan `poc_verify`: sebutkan
+  bukti OOB (`oast_poll`), eksekusi browser (`dom_xss_prove`), raw-socket
+  (`smuggle_probe`), atau marker file-read di evidence — gerbangnya terbuka.
 - **Verdict inflation = kebohongan tersendiri.** Menarasikan "terkonfirmasi"
   di atas output "kandidat" bukanlah kegugupan — guard `verdictInflationSuffix`
   di agent.ts menyalak untuk ini. Kalau narasimu butuh kata
@@ -123,7 +142,8 @@ itu kelas 5, baca sebagai negatif, bukan "gagal scan".
 
 | Tool | Kelas positifnya | Kelas negatifnya | Naik kelas lewat |
 |------|------------------|------------------|------------------|
-| poc_verify | STABIL 3/3 | assertion belum/TIDAK-stabil | (sudah puncak) |
+| poc_verify | ✅ STABIL 3/3 + differential vs baseline | ⛔ IDENTIK dengan baseline = tak ada sinyal / ⚠️ deterministik saja / assertion belum | cari payload yang membedakan (blind → oast_poll) |
+| poc_verify (`reproducible_only`) | 🔄 ULANG STABIL = bukti REPRODUKSI langkah | tidak stabil | (bukan klaim kerentanan) |
 | exploit_chain | per-chain "N langkah dijalankan" | ⛔ TIDAK DIJALANKAN / skip jujur | poc_verify |
 | cache_decep | LEAD decoy HIT | SPA catch-all ditolak | poc_verify + re-fetch |
 | nosql_hunt | LEAD auth-bypass | error fingerprint = info | poc_verify |

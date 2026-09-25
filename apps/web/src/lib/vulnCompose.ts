@@ -122,7 +122,10 @@ export function composeVerdict(hops: ComposeHop[]): { verdict: ComposeVerdict; b
 }
 
 export function isPocStable(report: string): boolean {
-  return /PoC STABIL/.test(report || "");
+  // Accepts the vuln verdict ("✅ PoC STABIL …") and the reproducibility verdict
+  // ("🔄 PoC ULANG STABIL …") — but NEVER the ⛔ identical-to-baseline line, so a
+  // payload that changed nothing can never make a compose hop "proven".
+  return /PoC (?:ULANG )?STABIL/.test(report || "");
 }
 
 /**
@@ -188,7 +191,9 @@ export async function vulnCompose(
       continue;
     }
     try {
-      const rep = await pocVerify(rawUser, { url: h.replayUrl, times: 2 });
+      // reproducible_only: this hop asks whether the chain step reproduces, not
+      // whether a new vulnerability exists (that was proven when it was recorded).
+      const rep = await pocVerify(rawUser, { url: h.replayUrl, times: 2, reproducible_only: true });
       h.proven = isPocStable(rep);
       h.note = h.proven ? "replay STABIL" : "replay tidak stabil";
       lines.push(h.proven ? `   ✅ hop TERBUKTI (replay STABIL ×2)` : `   ❌ hop GAGAL replay — dianggap PUTUS.`);

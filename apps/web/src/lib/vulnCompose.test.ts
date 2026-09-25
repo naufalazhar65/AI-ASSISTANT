@@ -76,4 +76,14 @@ describe("isPocStable", () => {
     expect(isPocStable("❌ PoC TIDAK stabil")).toBe(false);
     expect(isPocStable("⚠️ PoC deterministik tapi assertion belum terpenuhi")).toBe(false);
   });
+
+  it("accepts the reproducibility verdict a hop replay asks for", () => {
+    expect(isPocStable("🔄 PoC ULANG STABIL (2/2 identik) — ini bukti REPRODUKSI langkah, BUKAN bukti kerentanan.")).toBe(true);
+  });
+
+  it("never treats an unchanged payload as a proven hop", () => {
+    expect(
+      isPocStable("⛔ TIDAK ADA SINYAL — respons payload IDENTIK dengan baseline (200, 292b, digest sama).")
+    ).toBe(false);
+  });
 });

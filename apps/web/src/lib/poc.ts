@@ -15,6 +15,7 @@ import { targetAllowed } from "./security";
 import { recordHttp } from "./httpHistory";
 import { sessionHeaders } from "./httpSession";
 import { evidenceCapture } from "./evidence";
+import { recordPocRun, type PocLedgerVerdict } from "./pocRuns";
 
 type Req = { url: string; method?: string; headers?: Record<string, string>; body?: string; session?: string };
 type Run = { status: number; len: number; ms: number; digest: string; headerDigest: string; headers: string; setCookies: string[]; snippet: string; error?: string };
@@ -29,6 +30,150 @@ export function cookieMissingFlags(setCookies: readonly string[], name: string, 
   if (!line) return false;
   const low = line.toLowerCase();
   return flags.every((f) => !new RegExp(`(^|[;,\\s])${f.toLowerCase()}(\\s|;|,|=|$)`, "i").test(low));
+}
+
+/**
+ * Pure: how the payload response compares to the control.
+ *
+ * Status ALONE was the old comparison, which is wrong in both directions:
+ *   • false POSITIVE — a payload that changes nothing returns the same status, so
+ *     "delta status: 200 vs 200 → SAMA (tidak ada sinyal)" printed next to a
+ *     "✅ terkonfirmasi" verdict;
+ *   • false NEGATIVE — a real same-status BOLA differs only in the BODY, so a
+ *     genuine finding was reported as "SAMA (tidak ada sinyal)".
+ * An error/zero-status run is NOT a control (there is nothing to compare).
+ */
+export function baselineComparison(
+  payload: { status: number; len: number; digest: string; error?: string } | undefined,
+  baseline: { status: number; len: number; digest: string; error?: string } | undefined
+): { ran: boolean; statusDiffers: boolean; bodyDiffers: boolean; differs: boolean } {
+  const ran =
+    !!payload && !!baseline && !payload.error && !baseline.error && payload.status > 0 && baseline.status > 0;
+  if (!ran) return { ran: false, statusDiffers: false, bodyDiffers: false, differs: false };
+  const statusDiffers = payload.status !== baseline.status;
+  const bodyDiffers = payload.digest !== baseline.digest;
+  return { ran: true, statusDiffers, bodyDiffers, differs: statusDiffers || bodyDiffers };
+}
+
+export type PocBaseline = {
+  given: boolean;
+  ran: boolean;
+  differs: boolean;
+  status: number;
+  len: number;
+};
+
+/**
+ * Pure: the report-ready verdict.
+ *
+ * The house rule this encodes: DETERMINISM IS NOT PROOF. Running a request three
+ * times only shows it repeats. A ✅ may be earned by
+ *   • a control that actually DIFFERS (status or body) — the payload changed
+ *     something the clean request did not, or
+ *   • without a control, an explicit assertion (`expect_status`/`expect_contains`/
+ *     header/cookie) — the minimum bar, since "it repeated" is not evidence.
+ * A control that is byte-IDENTICAL withholds the ✅ outright: live 2026-09-25 a
+ * `?id=1;-- -` request returned the same 292 bytes as the clean `?id=1`, the tool
+ * still said "terkonfirmasi — layak dilaporkan", and a false HIGH CWE-89 finding
+ * was filed for what is actually an IDOR. Blind/OAST classes are the one case
+ * where identical bytes can still be a real bug — the message points there.
+ */
+export type PocVerdictClass =
+  | "unstable"
+  | "reproducible"
+  | "assertion-failed"
+  | "baseline-failed"
+  | "no-signal"
+  | "deterministic-only"
+  | "confirmed";
+
+export type PocVerdictInput = {
+  stable: boolean;
+  assertsOk: boolean;
+  assertionsGiven: boolean;
+  runs: Array<{ status: number; len: number }>;
+  baseline: PocBaseline | null;
+  /** Body/header bytes vary across runs because of a dynamic token. */
+  dynamicBytes: boolean;
+  /**
+   * The caller wants REPRODUCIBILITY, not a vulnerability verdict (vuln_compose
+   * replays an already-proven chain step). Declaring the claim keeps the two
+   * modes from sharing one line — without this, compose could not be distinguished
+   * from a vuln claim, which is exactly how "it repeated" got mistaken for proof.
+   */
+  reproducibleOnly?: boolean;
+};
+
+/**
+ * Pure: the CLASS of verdict, separated from its wording.
+ *
+ * The class (not the prose) is what downstream write paths act on — `poc_verify`
+ * persists it to the run ledger so `finding_add` can refuse a claim that its own
+ * evidence refutes. Keeping classification here means the ledger can never drift
+ * from the text a human reads.
+ */
+export function pocVerdictClass(input: PocVerdictInput): PocVerdictClass {
+  const { stable, assertsOk, assertionsGiven, baseline } = input;
+  if (!stable) return "unstable";
+  if (input.reproducibleOnly) return "reproducible";
+  if (assertionsGiven && !assertsOk) return "assertion-failed";
+  if (baseline?.given && !baseline.ran) return "baseline-failed";
+  if (baseline?.ran && !baseline.differs) return "no-signal";
+  if (!assertionsGiven && !(baseline?.ran && baseline.differs)) return "deterministic-only";
+  return "confirmed";
+}
+
+/** Ledger vocabulary for a verdict class (pure). */
+export function ledgerVerdictOf(cls: PocVerdictClass): PocLedgerVerdict {
+  switch (cls) {
+    case "confirmed":
+      return "confirmed";
+    case "no-signal":
+      return "no-signal";
+    case "reproducible":
+      return "reproducible";
+    default:
+      return "inconclusive";
+  }
+}
+
+/** Pure: the report-ready verdict text for a class. */
+export function pocVerdict(input: PocVerdictInput): string {
+  const cls = pocVerdictClass(input);
+  const first = input.runs[0];
+  const n = input.runs.length;
+  switch (cls) {
+    case "unstable":
+      return "❌ PoC TIDAK stabil (status/assertion bervariasi) — jangan dilaporkan sebelum dipastikan.";
+    case "reproducible":
+      return (
+        `🔄 PoC ULANG STABIL (${n}/${n} identik) — request ini deterministik; ` +
+        "ini bukti REPRODUKSI langkah, BUKAN bukti kerentanan."
+      );
+    case "assertion-failed":
+      return "⚠️ PoC deterministik tapi assertion belum terpenuhi — perbaiki ekspektasi/target sebelum lapor.";
+    case "baseline-failed":
+      return "⚠️ PoC deterministik, TAPI baseline gagal dijalankan — tanpa kontrol klaim belum terkonfirmasi.";
+    case "no-signal":
+      return (
+        `⛔ TIDAK ADA SINYAL — respons payload IDENTIK dengan baseline (${first?.status ?? "?"}, ${first?.len ?? "?"}b, digest sama). ` +
+        "Request memang konsisten, tapi payload TIDAK mengubah apa pun → ini bukan bukti. " +
+        "Jangan finding_add dari hasil ini; cari payload/differential yang benar-benar membedakan. " +
+        "(Kalau buktinya memang blind — OAST/timing — pakai oast_poll/blind_cmdi, bukan kesamaan respons.)"
+      );
+    case "deterministic-only":
+      return (
+        "⚠️ PoC deterministik saja — belum ada assertion maupun differential; pengulangan BUKAN bukti. " +
+        "Tambah expect_status/expect_contains (atau baseline_url) sebelum lapor."
+      );
+    case "confirmed":
+      return (
+        `✅ PoC STABIL & terkonfirmasi (${n}/${n} assertion PASS` +
+        (input.baseline?.ran && input.baseline.differs ? ", differential vs baseline BERBEDA" : "") +
+        (input.assertionsGiven && input.dynamicBytes ? "; byte body/header bervariasi karena token dinamis — normal" : "") +
+        ") — layak dilaporkan (sertakan langkah + bukti)."
+      );
+  }
 }
 
 const MAX_TIMES = 8;
@@ -127,6 +272,8 @@ export async function pocVerify(
     baseline_headers?: Record<string, string>;
     baseline_body?: string;
     baseline_session?: string;
+    /** Ask only whether the request reproduces (vuln_compose hop replay). */
+    reproducible_only?: boolean;
     save_evidence?: boolean;
   }
 ): Promise<string> {
@@ -165,20 +312,49 @@ export async function pocVerify(
     (!expHA || ok.every((r) => !r.headers.toLowerCase().includes(expHA.toLowerCase()))) &&
     (!expCookie || ok.every((r) => cookieMissingFlags(r.setCookies, expCookie.name, expCookie.flags)));
 
-  let baselineDelta = "";
+  // Baseline differential — the control must gate the verdict below, and it must
+  // compare the BODY too (status alone missed both directions).
+  let baseline: PocBaseline | null = null;
   if (opts.baseline_url) {
     const b = await once(rawUser, { url: opts.baseline_url, method: opts.baseline_method, headers: opts.baseline_headers, body: opts.baseline_body, session: opts.baseline_session });
-    const differs = b.status !== (ok[0]?.status ?? 0);
-    baselineDelta = `\nbaseline: ${(opts.baseline_method || "GET").toUpperCase()} ${opts.baseline_url} → ${b.status}${b.error ? ` (${b.error})` : ""}\n   delta status: ${ok[0]?.status} vs ${b.status} ${differs ? "→ BERBEDA ✓ (indikasi otorisasi/objek)" : "→ SAMA (tidak ada sinyal)"}`;
-    out.push(baselineDelta.trimStart());
+    const cmp = baselineComparison(ok[0], b);
+    baseline = { given: true, ran: cmp.ran, differs: cmp.differs, status: b.status, len: b.len };
+    const lines = [`baseline: ${(opts.baseline_method || "GET").toUpperCase()} ${opts.baseline_url} → ${b.error ? `GAGAL (${b.error})` : `${b.status} (${b.len}b)`}`];
+    if (!cmp.ran) {
+      lines.push("   kontrol TIDAK jalan — tidak ada pembanding, klaim belum bisa dikonfirmasi.");
+    } else {
+      lines.push(`   delta status: ${ok[0]?.status} vs ${b.status} ${cmp.statusDiffers ? "→ BERBEDA ✓" : "→ sama"}`);
+      lines.push(
+        `   delta body  : ${ok[0]?.len}b vs ${b.len}b, digest ${cmp.bodyDiffers ? "BERBEDA ✓" : "IDENTIK"} ` +
+          (cmp.differs ? "→ payload MENGUBAH respons ✓" : "→ payload tidak mengubah apa pun ⛔")
+      );
+    }
+    out.push(lines.join("\n"));
   }
 
-  // Report-ready verdict.
-  const verdict = stable && assertsOk
-    ? `✅ PoC STABIL & terkonfirmasi (${ok.length}/${ok.length} assertion PASS${assertionsGiven && !contentStable ? "; byte body/header bervariasi karena token dinamis — normal" : ""}) — layak dilaporkan (sertakan langkah + bukti).`
-    : stable
-      ? "⚠️ PoC deterministik tapi assertion belum terpenuhi — perbaiki ekspektasi/target sebelum lapor."
-      : "❌ PoC TIDAK stabil (status/assertion bervariasi) — jangan dilaporkan sebelum dipastikan.";
+  const verdictInput: PocVerdictInput = {
+    stable,
+    assertsOk,
+    assertionsGiven,
+    runs: ok.map((r) => ({ status: r.status, len: r.len })),
+    baseline,
+    dynamicBytes: assertionsGiven && !contentStable,
+    reproducibleOnly: opts.reproducible_only === true,
+  };
+  const verdict = pocVerdict(verdictInput);
+  // Persist the CLASS so the write path (finding_add) can act on evidence the
+  // model alone would be free to ignore — the gap that let a refuted SQLi claim
+  // into the store on 2026-09-25.
+  recordPocRun(rawUser, {
+    url,
+    method: (opts.method || "GET").toUpperCase(),
+    baselineUrl: opts.baseline_url,
+    verdict: ledgerVerdictOf(pocVerdictClass(verdictInput)),
+    differs: baseline?.differs === true,
+    status: ok[0]?.status ?? 0,
+    len: ok[0]?.len ?? 0,
+    at: new Date().toISOString(),
+  });
   out.push(`\n${verdict}`);
   out.push("Status sampel: " + (ok[0] ? `${ok[0].status} (${ok[0].len}b) — ${ok[0].snippet}` : "(gagal)"));
 
