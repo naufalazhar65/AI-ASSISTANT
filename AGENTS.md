@@ -1258,3 +1258,139 @@ Pembuktian level terakhir: pengalaman owner end-to-end lewat **handler adapter a
 
 ### Verbatim hijack #4 dari turn live 02:11 (2026-09-25) — "cek" DI DALAM URL target
 Owner mengirim "full pentest … di https://…/cek-nik dan buatkan report pdfnya" → balasan = dump "6 temuan" LAMA tanpa satu pun probe/PDF baru. Forensik audit: turn hanya menjalankan `finding_list` (verbatim), PDF terakhir 7 jam sebelumnya. Akar RANTAI baru: URL target memuat `/cek-nik` → "cek" match `\bcek\b` di LIST_ASK_RE **dan** EXPLICIT_LIST_RE → EXPLICIT meng-override set-verb "buatkAN" → hijack. (Carve-out 11:34 butuh verba uji — "pentest" tidak termasuk, jadi tak menyelamatkan.) **Fix dua lapis di `userAskedForList`:** (1) URL bukan prosa — `https?://\S+` di-strip SEBELUM list-matching (list-word di luar URL tetap sah: "temuan apa aja di https://h/cek-nik" masih hijack); (2) "pentest" masuk verba carve-out endpoint-test. Dikunci 4 assertion baru (turn live persis, "cek /cek-nik rentan", "pentest…buatkan pdf", list jujur tetap jalan) — vitest **698/698**, verify EXIT=0, smoke PASS, replay E2E (`drill-hijack-replay.mts`) membuktikan turn kini BENAR-BENAR bekerja: 10 round sampai `finding_add` + fallback resumable jujur. Restart sehat. **Belum commit — menunggu approval owner.**
+
+## Sesi 2026-09-25 (lanjutan) — drill produksi penuh + false positive `targetDriftNote` tertangkap & diperbaiki
+
+Owner minta bukti guard terbaru di produksi. Urutan eksekusi 4 level, semuanya di provider/kontrak nyata:
+
+**Pre-check:** lab Netlify owner alive (200), 9router proxy alive (200 di 127.0.0.1:20128).
+
+**1. Pure guard replay** (`drill-triagereplay-gap.mts`) — 3/3: `finding_list` tidak hijack ask live (carve-out hijack #4 hidup), `endpointTriageNote` menyala pada turn zero-contact ("tidak menyentuh /cek-nik sama sekali").
+
+**2. Control gate** (`drill-poc-control-gate.mts`) — 12/12, **mengukur ground truth sendiri** (2 raw fetch) lalu assert verdict tool mengikuti relasi yang teramati — tidak hardcode byte lab (lab boleh berubah): payload `?id=1;-- -` vs kontrol `?id=1` = IDENTIK 200/292b → poc_verify kini jujur `⛔ TIDAK ADA SINYAL` (bug asal: verdict cuma bandingkan STATUS → "PoC STABIL" palsu → finding HIGH CWE-89 untuk yang sebenarnya IDOR). Plus: kontrol gagal tidak pernah mengkonfirmasi (`baseline gagal`), determinisme tanpa assertion/kontrol bukan bukti, **ledger poc-runs menolak finding palsu via `findingAddGate`** (refused as `no-signal`, refusal dibaca non-execution oleh honesty guards — klaim "sudah kucatat" setelahnya akan dikoreksi), endpoint lain tidak mewarisi bukti endpoint payload.
+
+**3. Smoke suite honesty guards** (`probe-honesty-guards.mts`) — PASS dua arah + 11 cek wiring runAgent (termasuk 4 guard ledger-fed `collector.executedCalls`).
+
+**4. Turn LLM produksi 9router** (`drill-sweeplive-turn.mts`) — 2 run penuh (ask persis gaya Discord, full pentest + report):
+- Run 1: 8 round (`finding_list` → `http_request` ×4 → `poc_verify` → `finding_add` ×4 → `report_generate`), narasi + receipt `.md` nyata.
+- Run 2 (pasca-fix): 10 round (`poc_verify` ×2 → `finding_add` ×4 → `report_save`) — **IDOR High ditemukan & dilaporkan jujur**, nol catatan palsu, nol klaim kontradiktif.
+
+### False positive `targetDriftNote` (ditemukan OLEH drill run 1) — fixed dua lapis
+
+Gejala: balasan run 1 membawa catatan jujur "target yang diuji turn ini **owasp.org**, BUKAN lab" — padahal forensik audit membuktikan 9/9 `http_request.url` = lab, `finding_add.target` = lab, report = lab. Satu-satunya URL non-lab di seluruh turn: `https://owasp.org/www-project-top-ten` — **link referensi di args `finding_add`**. Akar: guard menambang URL dengan regex atas SEMUA teks args SEMUA tool, jadi sitasi/remediasi/OAST-callback ikut dihitung "target yang diuji".
+
+**Fix di `targetDriftNote` (agent.ts):**
+1. **URL hanya dari argumen by-design pembawa target** — `url`/`target`/`endpoint`/`base_url`, di-parse via `JSON.parse` per tool_call (args malformed di-skip, bukan di-mining). Free-text args (`references`/`text`/`steps`/`callback`) tidak pernah disentuh.
+2. **Gate sentuhan**: host yang user tulis ada di antara host yang dipakai turn ini → silent (tidak ada substitusi senyap). Drift note kini hanya menyala bila host yang diminta TIDAK PERNAH disentuh — kondisi substitusi yang sebenarnya.
+
+Dikunci 4 regression test baru di `targetDrift.test.ts` (file kini 19 tes): sitasi owasp di `finding_add` = silent (kasus live), host beda sungguhan = tetap menyala `BUKAN`, lab + beacon OAST bersamaan = silent, args non-JSON = diabaikan.
+
+**Gates:** typecheck 0 · vitest **829/829** (56 file) · verify **EXIT=0** · lint 0 error (1 warning baseline `writeup.ts`) · smoke PASS · restart tmux sehat (health ok, 1 login, 0×409, 8 runner, boot > mtime fix) · user drill `verify_sweeplive_*` dibersihkan.
+
+**Gotcha restart tambahan (selain insiden 17:34):** race `rm -rf .next` vs server yang sudah start menghasilkan `routes-manifest.json ENOENT` → semua route 500 — urutan benar: kill per port → TUNGGU bebas → clear `.next` → baru start.
+
+**Pelajaran:** guard yang menambang teks bebas dari args tool (bukan field terstruktur) adalah bom waktu — setiap args yang membawa link sitasi akan melicinkan guard-nya. Pola benar: parse JSON args + whitelist field pembawa target. **Belum commit — menunggu approval owner.**
+
+### Turn live 14:09 — tiga guard jujur justru berbohong (re-verification + receipt tool + cross-format)
+
+Owner menjalankan ask yang sama di Discord sungguhan (full pentest + report markdown). Turn-nya SEHAT: `finding_list` → probe A/B → `poc_verify` (STABIL, re-verifikasi temuan lama) → `report_save` (menulis `.md` 14:09:37) → **owner approve `report_pdf`** → PDF nyata 158 KB 14:09:54. Tapi balasannya membawa DUA catatan "jujur" yang keduanya PALSU: "tidak ada file PDF yang dibuat giliran ini" (padahal PDF-nya receipt approve turn ini) dan "temuan ini BELUM masuk daftar — finding_add tidak jalan" (padahal temuan IDOR itu SUDAH open di store dari sesi sebelumnya — poc_verify-nya re-verifikasi, dan report yang disebut memang memuatnya). Prosa model justru yang benar. Tiga akar, semuanya di guard, bukan di model:
+
+1. **`crossFormatArtifactNote` buta terhadap tool** — dia hanya membaca prosa, dan cabang "format lain" menyala meski format yang diminta BARU SAJA ditulis turn ini. Fix: parameter opsional `savedThisTurn: {md,pdf}` — bila format diminta benar-benar ditulis turn ini (tool ATAU delivery deterministik), catatan "tidak ada file X yang dibuat giliran ini" TIDAK PERNAH berbunyi; yang tersisa hanya catatan lembut "dua-duanya valid" (kebenaran: `.md` DAN `.pdf` keduanya dibuat). Tetap menyala penuh bila tidak ada yang disimpan turn ini.
+2. **Receipt `.md` hilang saat `report_save` jalan sebagai TOOL** — delivery deterministik hanya jalan bila tool TIDAK jalan, jadi jalur tool tidak pernah menghasilkan receipt: user yang minta markdown tidak pernah melihat path `.md`-nya (dan guard cross-format tidak melihat format yang diminta). Fix: helper `reportFileFromTurn(messages, extRe)` mengekstrak nama file dari hasil tool `report_save/report_pdf` (baris "📄 Laporan tersimpan: <file>"), dan wiring menambahkan receipt `.md` bila prosa belum menyebut file `.md` mana pun.
+3. **`unrecordedFindingNote` buta terhadap store** — dia hanya cek `finding_add` TIDAK jalan di turn, padahal yang ditanyakan sebenarnya "apakah temuan ini ada di store". Fix: cek store DULU — bila SEMUA URL bukti turn ini (dari args `poc_verify`/prover strength, JSON-parsed) punya host dengan temuan open tercatat (host-level via `hostOfUrl`, karena bentuk target store bervariasi origin vs path), catatan diam; store reader di-inject (`opts.recordedTargets`) + `rawUser` di-thread dari wiring (bukan hardcode owner). Tetap menyala bila host bukti tidak punya temuan tercatat.
+
+Kunci regresi di `reportDelivery.test.ts` (+5, file kini 19) dan `unrecordedFinding.test.ts` (2 case kini inject `recordedTargets: []` — dulu diam-diam membaca store owner nyata dan meloloskan fix karena kebetulan; pelajaran: unit test guard yang membaca store global WAJIB inject store-nya agar deterministik). Replay produksi (`drill-sweeplive-turn`) pasca-fix: narasi jujur (payload 404, temuan LOW header dicatat via `finding_add`, receipt `.md` nyata), **nol kontradiksi**.
+
+**Gates:** typecheck 0 · vitest **834/834** (+5) · verify EXIT=0 · lint 0 error · smoke honesty guards PASS · restart sehat (health ok, 1 login, 0×409, 8 runner) · user drill dibersihkan. **Belum commit — menunggu approval owner.**
+
+### Uji produksi ask yang sama (drill adapter Discord) — dua bug baru tertangkap & diperbaiki
+
+Drill durabel baru **`drill-mdreport-adapter.mts`** — replay ask live 14:09 VERBATIM lewat handler adapter Discord asli (invariant token-invalid: mustahil 409 dengan bot produksi; reply ditangkap monkey-patch; approve "ya" dikirim seperti owner; bukti = audit log + disk). Tiga run, masing-masing menghasilkan perbaikan:
+
+1. **Run 1 (15:53) — residual gap di fix-ku sendiri:** `report_pdf` benar-benar jalan (audit + PDF di disk) tapi catatan "tidak ada file PDF yang dibuat giliran ini" TETAP muncul. Probe bentuk pesan menemukan kesalahan logika: gate-ku mengecek format yang DIMINTA (md), padahal kebohongannya menyangkal format yang DIKUTIP (pdf) — dan saat note dievaluasi, hanya PDF yang sudah tersimpan (receipt `.md` deterministik baru menempel SETELAH catatan). Fix: **gate format-yang-dikutip dulu** (`savedWrong`) — PDF tersimpan → "(PDF yang disebut itu memang dibuat giliran ini)"; keduanya tersimpan → "dua-duanya dibuat"; hanya yang diminta → "dua-duanya valid"; tidak ada → catatan kejujuran penuh. 3 kasus baru di `reportDelivery.test.ts` (file kini 24 tes).
+2. **Run 2 (15:05) — fabrikasi PDF kelas lama dengan bentuk baru:** model tidak menjalankan report tool sama sekali tapi mengutip path **ber-hostname** (`6a90…netlify.app.pdf`) — tidak pernah diproduksi jalur kode mana pun (semua writer menghasilkan `report-<ts>.pdf`). `stripAbsentReportFiles` buta karena cuma kenal prefix `report-`. Fix dua lapis: (a) strip juga nama ber-hostname (dot-segment ≥2, bounded, `.md` tetap dicek exists — ordinary prose aman); (b) `crossFormatArtifactNote` mendeteksi **klaim simpan-berformat** ("sudah aku simpan ke PDF…" — jarak >24 char sebelumnya meleset). 2 tes baru.
+3. **Run 3 (15:11) — CLEAN:** reply tanpa satu pun catatan palsu/klaim kontradiktif; delivery `.md` deterministik bekerja (receipt nyata di disk); B1 drill dilonggarkan dengan benar (receipt `.md` = bukti deliverable sah, bukan cuma tool).
+
+Sampingan: `pentestSweep.test.ts` satu tes live-network jadi merah karena **lab Netlify flap lagi** (3× HTTP 000 dari curl — outage pihak ketiga, bukan regresi; didokumentasikan sejak 2026-09-21) → tes diberi reachability-probe + skip jujur "(skip: lab unreachable — Netlify flap, bukan regresi)" (pola sama dengan xssHunt OAST).
+
+**Gates final:** typecheck 0 · vitest **839/839** (56 file, +6: 5 crossFormat/strip + 1 hostname-fabrik) · verify EXIT=0 · lint 0 error · smoke PASS · restart sehat (boot 15:21 > mtime fix, health ok, 1 login, 0×409, 8 runner). **Belum commit — menunggu approval owner.**
+
+### Turn live 15:25 — catatan zero-contact salah sasaran: LEDGER MATI DI BATAS KONFIRMASI
+
+Ask live yang sama (full pentest + report pdf) → owner approve `report_pdf` → PDF nyata 158 KB + reply berisi rekap temuan lama + catatan "giliran ini tidak menyentuh /cek-nik sama sekali". Forensik: audit = `finding_list` + `report_pdf` saja (turn-2), TAPI http-history menunjukkan sweep WAJIB menembak `GET /cek-nik` → 200 di 08:25:21 (turn-1, 4 detik sebelum finding_list). Kontaknya NYATA — tapi guard buta terhadapnya. **Akar kelas baru: ledger eksekusi mati di batas konfirmasi.** Turn-1 (sweep + pause di `report_pdf`) mencatat kontak di collector in-memory-nya; turn-2 (jalur konfirmasi) mulai dengan collector BARU, dan `pending.messages` tidak pernah memuat sweep (out-of-band, bukan tool call). Semua honesty guard membaca NOL kontak → tuduhan palsu atas turn yang sweep-nya mengenai endpoint beberapa detik sebelumnya.
+
+**Fix: side-ledger lintas-batas** (`pocRuns.ts` + `agent.ts`):
+1. `recordTurnExec(rawUser, name, args)` / `readLedgerForTurn(rawUser)` — per-user `turn-exec.json` (cap 60, atomic), HANYA eksekusi nyata (refusal tidak pernah masuk — kontrak sama dengan `recordExecuted`).
+2. `recordExecuted` kini me-mirror ke side-ledger (rawUser di-thread di SEMUA call-site eksekusi: loop utama, safe-calls pre-confirm, auto-denied, verbatim, spotify, confirm executor, sweep).
+3. Jalur konfirmasi me-replay ledger turn-1 ke collector turn-2 **dengan flag `prior: true`** — replay HANYA di jalur konfirmasi (ask fresh tetap mulai bersih, kalau tidak kontak usang justru mematikan proteksi zero-contact untuk ask baru).
+4. Semantik `prior` di `endpointTriageNote`: rekam prior adalah **BUKTI KONTAK** (membunuh tuduhan zero-contact palsu) tapi TIDAK PERNAH meng-cover endpoint (kewajiban probe ask baru tetap berlaku — flag prior tidak pernah masuk jalur covered).
+
+Drill durabel **`drill-confirm-boundary.mts`**: baseline (teks live VERBATIM — ternyata bentuk pendek tidak menyala; klaim butuh narasi temuan lengkap, dibuktikan probe) → prior membunuh tuduhan → current-turn perilaku lama utuh → round-trip ledger → jalur LLM hidup jujur. **BOUNDARY DRILL OK.** Gotcha kecil: `import { readFileSync as rf }` di .mts memicu bug transform esbuild (`Expected "}" but found "as"`) — hindari alias import di drill.
+
+**Gates:** typecheck 0 · vitest **839/839** · verify EXIT=0 · lint 0 error · smoke PASS · restart sehat (boot 15:59 > mtime fix, health ok, 1 login, 0×409, 8 runner) · user drill dibersihkan. **Belum commit — menunggu approval owner.**
+
+## Sesi 2026-09-25 (lanjutan) — structured action narration: receipt sistem menggantikan klaim bebas model
+
+Menjawab "kenapa susah sekali stabilnya?" dengan **fix struktural**, bukan guard regex ke-N: pola whack-a-mole 17:00→20:10→14:09→15:25 semuanya adalah wording BARU dari kebohongan YANG SAMA ("sudah aku simpan ke PDF" / "sudah selesai aku tuntaskan" / "diuji dengan 12 request" / "sudah selesai aku jalankan") — guard mengejar bahasa tak terbatas dengan regex terbatas. Solusinya: **klaim aksi ditulis SISTEM, bukan model**.
+
+**`actionReceipt.ts` (pure + 11 tes):** satu baris deterministic per tool aksi yang benar-benar dieksekusi per turn.
+- `RECEIPT_TOOLS` (~60 tool): prover/pentest, deliverable (report_*, finding_add/resolve), effector dunia nyata (http_request, cdp_*, exec_write, git_commit, mac_open, bounty_run…). Pure store reads (finding_list, hunt_log, web_search) sengaja di luar.
+- Sumber kebenaran **triple** di `collectActionRecords` (agent.ts, pure + 2 tes): (1) turn window — assistant tool_calls + hasil tool (messageText, aksesor yang sama dengan guard); (2) `collector.executedCalls` — truncation-immune + replay prior dari side ledger; (3) sweep records (sudah masuk #2 via recordExecuted). `mergeReceiptRecords` dedupe name+args; backfill ledger (hasil tool ter-summarize) dirender `(dieksekusi)` — dipercaya karena recordExecuted hanya pernah menyimpan eksekusi NYATA.
+- Format: `⚙️ poc_verify → <url/digest>: <baris-pertama-hasil ≤100 char>` + tag `(turn sebelumnya)` untuk entri prior (atribusi antar-turn tidak pernah blur). Cap 8 baris + `… +N aksi lainnya` (sweep 50 request tetap terbaca). Header turn-neutral. Refusal (Not selected/Not executed/Auto-declined/The user declined/not-delivered) TIDAK PERNAH tampil.
+
+**Wiring (runAgent):** receipt ditempel SETELAH semua honesty guard (tool-run, verdict-inflation, triage, numeric, compose-build, chain) — guard tidak pernah membaca baris receipt sebagai klaim (receipt hanya menyatakan eksekusi, tidak pernah outcome) — tepat sebelum daily memory. Jalur normal + konfirmasi keduanya tercakup via triple-sourcing; double-mirror dihindari karena sisi ledger TIDAK ikut ditempel ulang di jalur konfirmasi (replay prior hanya mengisi collector, receipt dirender sekali).
+
+**Prompt (full + slim):** aturan ACTION NARRATION — model DILARANG menyatakan sendiri bahwa aksi dieksekusi/disimpan/diuji ("sudah aku jalankan/eksekusi/simpan/uji" tentang AKSI; kegagalan/skip tetap boleh diakui jujur dengan kata sendiri). Prosa model = konteks + langkah lanjut; rekaman eksekusi = receipt sistem. Dikunci verify (kedua prompt).
+
+**Anti-regresi:** blok verify baru "structured action receipt" (executed-only, refusal-proof, backfill `(dieksekusi)` + tag prior, aturan prompt full+slim) — fixture pertama sempat salah bentuk (record collectActionRecords selalu bawa result placeholder) dan verify menangkapnya sebelum hijau; tes `turnRouting` +2 (triple-sourcing + backfill). Smoke honesty guards tetap PASS (guard jalan dua arah di atas narasi model, tidak tersentuh receipt).
+
+**Gates:** typecheck 0 · vitest **852/852** (57 file, +13) · verify EXIT=0 (169 blok) · lint 0 error · smoke PASS · restart tmux sehat (health ok, 1 login, 0×409, 8 runner). **Belum commit — menunggu approval owner.**
+
+### Lanjutan: uji live receipt di jalur produksi (drill-fullpentest-discord) — ALL GREEN
+
+`drill-fullpentest-discord.mts` diperluas asersi **M3-R/M4-R**: bila audit membuktikan probe jalan, balasan nyata WAJIB membawa baris receipt sistem "Aksi yang benar-benar dijalankan" + `⚙️ tool → target`, dan refusal tidak pernah boleh dirender sebagai baris receipt. Dua run penuh (9router, user run-unique, auto-cleanup): M1 recon read 2 run → M3 **3 http_request ke lab** dengan receipt nyata `⚙️ http_request → https://…/api/cek-nik?id=1` → M4 **report_pdf dieksekusi sebagai tool, PDF nyata di disk, `report_pdf` masuk receipt** → M5 nol fabrikasi, nol refusal window. M2 diperbaiki jadi soft-check (komentar drill sendiri bilang soft-fail tapi masih fail++ — kontradiksi desain; preseden varians model 2026-09-22/24: free model kadang jalan read dulu; konfirm→execute tetap hard-proven di M3 fallback + policy auto-approve own-lab).
+
+**Gates:** typecheck 0 · vitest 852/852 · verify EXIT=0 · lint 0 error · drill EXIT=0 2× · health ok · user drill dibersihkan. **Belum commit — menunggu approval owner.**
+
+### Lanjutan: turn live 19:30 menangkap 3 defect di receipt barunya (semuanya diperbaiki)
+
+Turn live owner (ask sama, approve `report_pdf`) MEMBUKTIKAN receipt jalan di produksi — `⚙️ report_pdf → <target>: 📄 PDF disimpan…` nyata — TAPI balasannya juga memuat `⚙️ : (dieksekusi)` + probe 3,5 jam lalu berlabel "(turn sebelumnya)". Forensik (ledger + audit + probe replay) → 3 akar, semua diperbaiki:
+
+1. **Sweep args hilang** (`recordExecuted` membaca `call.arguments` bentuk ToolCall, sweep calls berbentuk `{name, args}`) → ledger berisi baris tanpa args → baris receipt degenerate → **model menirukan formatnya di prosa** termasuk baris rusak `⚙️ :`. Fix: `recordExecuted` menerima kedua bentuk + guard nama `/^[a-z][a-z0-9_]*$/` + hanya nama di `RECEIPT_TOOLS` yang boleh dirender (baris ⚙️ = monopoli sistem).
+2. **Tanpa batas recency**: replay ledger memunculkan eksekusi berjam-jam lalu sebagai "(turn sebelumnya)". Fix: `LEDGER_ROW_MAX_AGE_MS` = 10 menit (filter `recentLedgerRow` di replay + `PRIOR_MAX_AGE_MS` di `mergeReceiptRecords`, `at` di-thread penuh).
+3. Ledger owner dibersihkan dari 6 entri cacat (10→4, yang ber-args asli dipertahankan).
+
+**Gates:** typecheck 0 · vitest **854/854** (+2: nama tidak valid di-drop, stale prior di-drop) · verify EXIT=0 · lint 0 error · smoke PASS · restart tmux sehat (health ok, 1 login, 0×409, 8 runner). **Belum commit — menunggu approval owner.**
+
+## Session 2026-09-25 (lanjutan) — uji konfirmasi receipt: replay ask verbatim owner (receipt bersih terbukti di jalur produksi)
+
+Owner minta replay ask persis dari Discord (`mia coba lakukan full pentest secara menyeluruh di <LAB>/cek-nik dan buatkan report pdf nya`) untuk mengonfirmasi receipt sudah bersih setelah 3 defect 19:30 difix. Drill durabel baru **`apps/web/drill-receipt-confirm.mts`** — adapter Discord ASLI (invariant safety drill-mdreport: `DISCORD_BOT_TOKEN` di-override invalid SEBELUM import → login 401 → gateway TIDAK pernah IDENTIFY → produksi utuh tanpa 409; reply di-monkey-patch, nol pesan ke Discord nyata).
+
+**Hasil 2 run (both EXIT=0, user run-unique + auto-cleanup):**
+- Run 1 (dengan approve "ya"): audit `http_request`=3 + `report_pdf`=1 → PDF nyata di disk (`report-2026-09-25T14-50-16-619Z.pdf`); receipt membawa `⚙️ report_pdf → <target>: 📄 PDF disimpan…` + `⚙️ http_request → <url lengkap>: 🌐 HTTP GET …` — args LENGKAP di digest (defect 1 terbukti fix), nol baris `⚙️ :` kosong (defect 3), nol refusal sebagai baris receipt.
+- Run 2 (turn tunggal, model sweep mandiri): 4 `http_request` + `report_generate` dalam 5 round; receipt 5 baris well-formed, `R4-ledger` membuktikan SEMUA ledger row fresh (<10 menit) — invariant stale-prior (defect 2) terkunci langsung dari store.
+
+**Asersi drill:** R-audit (proof = audit log, bukan prosa) · R1 (receipt block muncul bila ada aksi) · R2 (tiap baris ⚙️ well-formed `/⚙️ <tool>(→|:)/`, tanpa `⚙️ :`) · R3 (nama tool receipt = anggota RECEIPT_TOOLS sungguhan) · R4 (prior-line didukung audit + ledger fresh <10 mnt) · R5 (refusal tak pernah jadi baris receipt) · R6 (report_pdf → PDF nyata di disk) · R7 (probe lines bawa digest non-kosong).
+
+**Koreksi asersi drill sendiri (pelajaran):** asersi v1 R4 menuntut NOL baris "(turn sebelumnya)" untuk user baru — SALAH kalibrasi. Tag itu DESAIN untuk jalur konfirmasi: probe read (http_request) dieksekusi di turn proposal sebelum approve, receipt dirender di turn lanjutan → atribusi "(turn sebelumnya)" adalah kejujuran, bukan kebocoran. Defect 19:30 adalah entri BASI >10 menit. Asersi diperbaiki ke invariant benar: prior-line HARUS didukung audit + ledger row fresh.
+
+**Gates:** drill EXIT=0 2× · cleanup 0 sisa user drill · server sehat (health ok, boot 20:05 > mtime lib 20:02 — semua fix live). **Belum commit — menunggu approval owner.**
+
+### Lanjutan 2026-09-25 — perbaikan berikutnya pasca-receipt: coverage READ_TOUCH + memory self-priming ditutup
+
+Setelah receipt stabil, audit gap lanjutan menemukan 2 celah nyata (dari bukti drill, bukan tebakan) — keduanya diperbaiki:
+
+1. **Coverage READ_TOUCH di kwitansi.** `fetch_url` dieksekusi di round 1 drill 2026-09-25 tapi tak pernah dirender — aksi yang menyentuh endpoint tak terlihat user. Prinsip lama "store reads DI LUAR kwitansi" tidak berlaku untuk read yang benar-benar keluar proses. Fix: `RECEIPT_TOOLS` +11 tool kelas READ_TOUCH (`fetch_url`, browser_open/snapshot/navigate/click/type, cdp_eval, web_audit, csp_audit, cors_audit). Bukti live drill ulang: `⚙️ browser_open → <lab>` kini muncul; turn yang sama bahkan jadi sweep terbaik (7 probe + 3 finding_add + report_pdf, approve 1×, receipt 8 baris well-formed + `… +6 aksi lainnya`).
+2. **Kwitansi bocor ke memori harian → self-priming RAG.** Situs penulis daily memory utama (agent.ts ~5061) menulis `text` SETELAH kwitansi ditambahkan — kwitansi sistem (authoritative claim-template) bisa ter-recall ke prompt berikutnya dan ditiru model (gotcha 2026-09-07), plus makan budget snippet 800 char. Fix: `RECEIPT_HEADER` + `stripReceiptBlock()` (pure, satu pemilik marker) di actionReceipt.ts; situs 5061 kini menulis `stripReceiptBlock(text)`. Jalur opencode aman (return sebelum kwitansi). Data lama: 4 blok receipt di `memory/2026-09-25.md` owner di-scrub lewat jalur reversible (backup `.bak-receipt`).
+
+**Gates:** typecheck 0 · vitest **858/858** (+4: coverage READ_TOUCH, stripReceiptBlock ×3 termasuk carve-out prose-mention) · verify EXIT=0 (169 blok) · eslint 0 error (warning baseline) · smoke honesty guards PASS · restart tmux sehat (health ok, `logged in as`=1, 0×409, boot > mtime) · drill-receipt-confirm EXIT=0 dengan cakupan baru. **Belum commit — menunggu approval owner.**
+
+### Lanjutan 2026-09-25 — rantai pentest ditutup: laporan kosong BUKAN deliverable (EMPTY_REPORT)
+
+Owner minta cari gap berikutnya di rantai pentest ("sweep berhenti tanpa report saat ask PDF"). Bukti drill konfirmasi (run 2): model probe `/api/cek-nik?id='` (SQLi probe) TAPI tak pernah `finding_add`, lalu `report_generate` jawab "Belum ada temuan terbuka" — dan `reportPdf` **merender pesan itu jadi PDF 1 halaman bersih** yang suffix delivery klaim "sudah kubuat". Rantai penuh: 0 temuan → generateReport pesan → reportSave/reportPdf menulis deliverable → suffix sukses = **PDF kosong "terkirim sukses"**.
+
+**Fix satu-sumber di security.ts:** `reportSave`/`reportPdf` kini **throw `EMPTY_REPORT`** saat `generateReport` mengembalikan pesan "Belum ada temuan terbuka" (laporan kosong bukan deliverable). Keempat pemakai diaudit: bounty.ts (catch best-effort → tak ada lampiran PDF kosong), tools report_save/report_pdf (catch → `Error:` jujur ke model), delivery deterministik agent (→ catatan jujur). **agent.ts:** `tryDeliverReportPdf`/`tryDeliverReportMarkdown` menangkap EMPTY_REPORT → note jujur bernama langkah yang hilang ("belum ada temuan tercatat … bilang 'lanjut' kalau mau aku uji dulu dan catat temuannya") alih-alih suffix sukses palsu; prompt FULL + aturan **LAPORAN KOSONG** (laporan hanya memuat temuan tercatat — jangan antar laporan kosong: uji dulu → poc_verify → finding_add → baru report).
+
+**Bukti live (drill konfirmasi ulang, EXIT=0):** round 1 model mengusulkan `report_pdf` SEBELUM menguji → dieksekusi → **ditolak `Error: EMPTY_REPORT`** (receipt menampilkannya — receipt jujur dua arah) → model terkoreksi diri DALAM turn yang sama: probing rounds 2–7 + poc_verify → round 8 `finding_add` tersimpan (auto-approve policy) + usulkan `report_pdf` lagi (kini sah). Dulu PDF kosong lolos sebagai sukses; kini error jujur mengarahkan siklus uji→rekam→report. R6 drill diperbarui: `report_pdf` → PDF nyata di disk XOR catatan jujur empty-report, tak pernah artefak kosong.
+
+**Kontrak diperbarui:** reportDelivery.test.ts (+2 tes EMPTY_REPORT .md/.pdf + tes deliverable-nyata-dengan-temuan), verify `deterministic-pdf` (empty-rejected + addFinding + PDF nyata), prompt. **Gates:** typecheck 0 · vitest **860/860** (+2) · verify EXIT=0 · eslint 0 error (warning baseline) · smoke honesty guards PASS · restart tmux sehat (health ok, 1 login, 0×409, boot > mtime). **Belum commit — menunggu approval owner.**
