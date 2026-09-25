@@ -145,6 +145,20 @@ describe("verbatim list fast-path gate (no hijacked replies)", () => {
     expect(userAskedForList("reminders_list", "ingetin aku, reminder apa aja yang aktif?")).toBe(true);
     expect(userAskedForList("list_tasks", "tugas aku apa aja?")).toBe(true);
     expect(userAskedForList("hotel_search", "cari hotel di bandung")).toBe(true);
+    // live 2026-09-25 02:11: the TARGET URL contained "cek" (/cek-nik) — it
+    // matched LIST_ASK_RE AND EXPLICIT_LIST_RE, overrode "buat"kan, and let
+    // finding_list hijack a full-pentest+PDF ask into a stale dump. URLs are
+    // not prose: strip before matching; "pentest" is a work verb.
+    expect(
+      userAskedForList(
+        "finding_list",
+        "mia coba lakukan full pentest secara menyeluruh di https://6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app/cek-nik dan buatkan report pdfnya"
+      )
+    ).toBe(false);
+    expect(userAskedForList("finding_list", "cek /cek-nik rentan gak?")).toBe(false);
+    expect(userAskedForList("finding_list", "pentest https://host/cek-nik lalu buatkan pdf")).toBe(false);
+    // a genuine list ask about that same target still lists
+    expect(userAskedForList("finding_list", "temuan apa aja di https://host/cek-nik?")).toBe(true);
     // security WORK tools are ask-gated too: mid-flow their output is context,
     // not the answer (so a full pentest can chain inside one turn).
     expect(userAskedForList("recon_subdomains", "halo")).toBe(false);

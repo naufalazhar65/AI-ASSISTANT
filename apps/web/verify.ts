@@ -228,10 +228,10 @@ async function main() {
   // --- provider tool cap: Groq rejects >128 tools per request ---
   const { toolsForUrl } = await import("./src/lib/agent");
   const liveToolsBoth = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "spotify_play", "spotify_mode", "spotify_queue", "spotify_sleep_timer"];
-  // transcribe is groq-128-only since 2026-09-23 (slot traded for auth_setup in
-  // the 9router-64 window: setup friction is the #1 chain-skip cause; the voice
-  // pipeline uses STT directly, never the transcribe tool).
-  const liveToolsGroqOnly = ["transcribe"];
+  // transcribe demoted from CORE 2026-09-24 (csv_inject balance): the voice
+  // pipeline calls Groq STT directly, never this tool — and Groq free STT 413s
+  // on big prompts anyway. Tool stays registered for uncapped providers.
+  const liveToolsGroqOnly: string[] = [];
   const groqTools = toolsForUrl("https://api.groq.com/openai/v1/chat/completions");
   if (groqTools.length > 128) throw new Error(`Groq tool cap not applied: ${groqTools.length}`);
   for (const cap of [
@@ -1530,6 +1530,14 @@ async function main() {
     const base = { status: 200, body: "hello", loc: "", ms: 10, err: false };
     if (!classify("<script>x</script>", "xss", { status: 200, body: "echo <script>x</script>", loc: "", ms: 12, err: false }, base).some((s) => /reflection/.test(s))) throw new Error("classify reflection");
     if (!classify("'", "sqli", { status: 500, body: "SQL syntax error near", loc: "", ms: 11, err: false }, base).some((s) => /SQL error/.test(s))) throw new Error("classify sql error");
+    // xpath/ldap/xslt classes (2026-09-24): payloads exist + detectors fire
+    if (!paramFuzz) throw new Error("paramFuzz import");
+    const xp = classify("' or '1'='1", "xpath", { status: 500, body: "libxml xmlXPathEval: Invalid predicate", loc: "", ms: 11, err: false }, base);
+    if (!xp.some((s) => /XPath error/.test(s))) throw new Error("classify xpath error");
+    const ld = classify("*)(uid=*))(|(uid=*", "ldap", { status: 200, body: "filter ((uid=*))(|(uid=*) matched", loc: "", ms: 11, err: false }, base);
+    if (!ld.some((s) => /LDAP/.test(s))) throw new Error("classify ldap echo");
+    const xl = classify("<xsl:stylesheet>", "xslt", { status: 200, body: "result 49 ok", loc: "", ms: 11, err: false }, base);
+    if (!xl.some((s) => /XSLT eval/.test(s))) throw new Error("classify xslt eval");
     const { evidenceCapture } = await import("./src/lib/evidence");
     if (!/SCOPE/.test(await evidenceCapture("verify_ev", { url: "https://google.com" }))) throw new Error("evidence scope guard");
     rmSync(appRoot() + "/.data/users/verify_ev", { recursive: true, force: true });
@@ -1654,7 +1662,7 @@ async function main() {
     if (unresolved.length) throw new Error(`CORE names not in registry: ${unresolved.join(",")}`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "api_spec", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "ws_hunt", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt", "bypass403", "otp_probe", "proto_pollute"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "api_spec", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt", "bypass403", "otp_probe", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
@@ -3165,7 +3173,7 @@ async function main() {
       if (!chains.includes(t)) throw new Error(`listChains missing tier-1 wrapper: ${t}`);
     }
     // CHAIN_TYPES has 15 entries (4 original + 5 tier-1 + 3 bypass/otp/pollution + 3 batch-2 wrappers)
-    if (Object.keys(CHAIN_TYPES).length !== 15) throw new Error(`expected 15 chains, got ${Object.keys(CHAIN_TYPES).length}`);
+    if (Object.keys(CHAIN_TYPES).length !== 21) throw new Error(`expected 21 chains, got ${Object.keys(CHAIN_TYPES).length}`);
     // Invalid chain type returns error
     const bad = await runExploitChain(null, "nonexistent", { url: "http://127.0.0.1:4010" });
     if (!bad.includes("Error")) throw new Error("expected error for invalid chain");
@@ -3256,7 +3264,7 @@ async function main() {
     } finally {
       toyC.close();
     }
-    console.log("exploit-chain: OK (tool registered, 15 chains incl. 5 tier-1 + 3 bypass/otp/pollution + 3 batch-2 wrappers, scope-gated, helpful errors, SSRF runs, comma-separated batches honest, live wrapper batch 3/3)");
+    console.log("exploit-chain: OK (tool registered, 21 chains incl. 5 tier-1 + 3 bypass/otp/pollution + 3 batch-2 wrappers + traversal + otp_hunt + recovery + csv + cmdi_blind + ssti, scope-gated, helpful errors, SSRF runs, comma-separated batches honest, live wrapper batch 3/3)");
   }
 
   // ── vuln_compose + exploit_build ────────────────────────────────────
@@ -3754,15 +3762,22 @@ async function main() {
     for (const n of ["idor_enum", "host_header_hunt", "recon_full"]) {
       const t = getTOOLS().find((x) => x.function.name === n);
       if (!t || t.risk !== "write" || !requiresConfirmation(t)) throw new Error(`${n} must be write/confirm`);
+    }
+    // idor_enum demoted from CORE 2026-09-24 (path_traversal balance): param-level
+    // idor probing stays covered by param_fuzz/recon_params + bola_diff/auth_matrix
+    // sessions; the tool itself remains registered and fully usable on uncapped
+    // providers (assertion above keeps it write/confirm).
+    if (CORE_TOOL_NAMES.has("idor_enum")) throw new Error("idor_enum must be demoted (path_traversal balance)");
+    for (const n of ["host_header_hunt", "recon_full"]) {
       if (!CORE_TOOL_NAMES.has(n)) throw new Error(`${n} must be in CORE`);
     }
     if (CORE_TOOL_NAMES.size !== 128) throw new Error(`CORE must stay 128 (got ${CORE_TOOL_NAMES.size})`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
-    for (const n of ["idor_enum", "host_header_hunt", "recon_full"]) {
+    for (const n of ["host_header_hunt", "recon_full"]) {
       if (!groq.has(n)) throw new Error(`groq window must carry ${n}`);
     }
     const r9 = new Set(toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name));
-    for (const n of ["idor_enum", "recon_full"]) {
+    for (const n of ["recon_full"]) {
       if (!r9.has(n)) throw new Error(`9router window must carry ${n}`);
     }
     if (r9.has("host_header_hunt")) throw new Error("host_header_hunt must stay groq-only (window budget)");
@@ -4793,6 +4808,589 @@ async function main() {
     if (ax.dumped) throw new Error("axfr parser: 2 records must not count as dump");
 
     console.log("batch-2 (cache_decep + nosql_hunt + blind_ssrf + dns_audit + oast_dns + h2c mode + jwt kid/jku; CORE 128 runtime-checked with teamcity/finding_resolve demotes; groq-in/9router-out/HINT/HEADLESS; chain wrappers; live cache-decep lead + nosql baseline-lead + h2c honest; dispatch): OK");
+  }
+
+  // ── path_traversal (two-stage LFI/traversal read-marker prover) ──
+  {
+    const { requiresConfirmation, executeTool, getTOOLS } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect, HINT_UNDELIVERED } = await import("./src/lib/agent");
+    const pt = await import("./src/lib/pathTraversal");
+    const ec = await import("./src/lib/exploitChains");
+
+    // 1) registration + risk + delivery matrix (runtime-truth, not grep)
+    const regNames = getTOOLS().map((t) => t.function.name);
+    if (!regNames.includes("path_traversal")) throw new Error("path_traversal not registered");
+    const ptDef = getTOOLS().find((t) => t.function.name === "path_traversal");
+    if (!ptDef || !requiresConfirmation(ptDef)) throw new Error("path_traversal must be write/confirm");
+    const core = [...CORE_TOOL_NAMES];
+    if (core.length !== 128) throw new Error(`CORE must stay 128 (got ${core.length})`);
+    if (!core.includes("path_traversal")) throw new Error("path_traversal must be in CORE");
+    if (core.includes("idor_enum")) throw new Error("idor_enum must be demoted (traversal balance)");
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    if (!groq.has("path_traversal")) throw new Error("groq window must carry path_traversal");
+    const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name);
+    if (r9.includes("path_traversal")) throw new Error("9router-64 must NOT carry path_traversal (heavy prover by design)");
+    if (!isHeadlessSideEffect("path_traversal")) throw new Error("path_traversal must be headless-guarded");
+    if (!HINT_UNDELIVERED.includes("path_traversal")) throw new Error("path_traversal must be in HINT_UNDELIVERED");
+    const CHAIN_ANY = ec.CHAIN_TYPES as unknown as Record<string, { description: string }>;
+    if (!CHAIN_ANY.traversal) throw new Error("chain traversal missing");
+
+    // 2) guards (before any network)
+    if (!/^Error: SCOPE/.test(await pt.pathTraversal("verify_pt", { url: "https://example.com/view" }))) throw new Error("path_traversal scope guard");
+    if (!/^Error:/.test(await pt.pathTraversal("verify_pt", { url: "" }))) throw new Error("path_traversal url guard");
+    if (!/^Error:/.test(await pt.pathTraversal("verify_pt", { url: "http://127.0.0.1:9/view", callback: "http://insecure.test/a" }))) throw new Error("path_traversal callback must be https");
+
+    // 3) pure helpers: marker + baseline-absent requirement + php-filter latin1
+    const PASSWD = "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin";
+    if (pt.traversalMarker(PASSWD, "") !== "passwd") throw new Error("traversalMarker passwd");
+    if (pt.traversalMarker("<html>root:x:0:0: shown as feature</html>", PASSWD) !== null) throw new Error("traversalMarker must require baseline-absent");
+    const phpB64 = Buffer.from("<?php echo 1;", "utf8").toString("base64");
+    if (pt.traversalMarker(phpB64, "") !== "php") throw new Error("traversalMarker php-filter");
+    if (pt.traversalMarker("<html><body>home</body></html>", "") !== null) throw new Error("traversalMarker html must be null");
+    const win = pt.ESCALATION_PAYLOADS.find((p) => p.note.includes("backslash"));
+    if (!win || !win.p.includes("win.ini")) throw new Error("escalation battery must include windows win.ini");
+    if (pt.TRAVERSAL_PARAMS.length < 10 || new Set(pt.TRAVERSAL_PARAMS).size !== pt.TRAVERSAL_PARAMS.length) throw new Error("TRAVERSAL_PARAMS shape");
+
+    // 4) LIVE toy servers: a file-viewer whose ?page= is joined naively
+    //    (vulnerable) vs one that jails reads to its own root (safe).
+    //    Root lives inside the repo's .data so the payload's 4-level escape
+    //    lands in a writable, fully-cleaned location (OS tmpdirs sit at
+    //    unpredictable depths next to system dirs — EACCES on darwin).
+    const http = await import("node:http");
+    const fsMod = await import("node:fs");
+    const pathMod = await import("node:path");
+    // 5 segments deep so the payload's exact 4-level escape lands at
+    // .data/etc (repo-local, writable, cleaned below) — a 4-segment root
+    // would land the escape in apps/web/etc (repo junk; caught by git status).
+    const root = join(appRoot(), ".data", "users", "verify_pt", "www", "app");
+    fsMod.mkdirSync(root, { recursive: true });
+    fsMod.writeFileSync(pathMod.join(root, "home.html"), "<html><body>selamat datang di portal desa</body></html>");
+    // The prover's payloads climb exactly 4 dot-segments — pre-create a fake
+    // passwd at the EXACT lexical location the payload resolves to
+    // (deterministic; mirrors real traversal semantics, no real files touched).
+    const escaped = pathMod.resolve(root, "../../../../etc/passwd");
+    fsMod.mkdirSync(pathMod.dirname(escaped), { recursive: true });
+    fsMod.writeFileSync(escaped, "root:x:0:0:toypass:/toyroot:/bin/sh\ndaemon:x:1:1:toyd:/:/usr/bin/false\n");
+    const mkServer = (jail: boolean) => http.createServer((req, res) => {
+      const u = new URL(req.url || "/", "http://x");
+      if (u.pathname !== "/view") { res.writeHead(404); res.end("nope"); return; }
+      const page = u.searchParams.get("page") || "home.html";
+      const target = pathMod.resolve(root, page);
+      // jail variant: refuse anything outside the toy root (safe app behavior)
+      if (jail && !target.startsWith(root + pathMod.sep) && target !== root) {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<html><body>selamat datang di portal desa</body></html>");
+        return;
+      }
+      try {
+        const data = fsMod.readFileSync(target);
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end(data);
+      } catch {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<html><body>selamat datang di portal desa</body></html>");
+      }
+    });
+    const vuln = mkServer(false);
+    const safe = mkServer(true);
+    await new Promise<void>((r) => { vuln.listen(0, "127.0.0.1", () => r()); });
+    await new Promise<void>((r) => { safe.listen(0, "127.0.0.1", () => r()); });
+    const vBase = `http://127.0.0.1:${(vuln.address() as { port: number }).port}/view`;
+    const sBase = `http://127.0.0.1:${(safe.address() as { port: number }).port}/view`;
+    try {
+      const hit = await pt.pathTraversal("verify_pt", { url: vBase, params: "page" });
+      // the naive viewer serves whatever exists at the lexical resolve of the
+      // payload — the pre-created toy passwd (see above) is the read proof.
+      if (!/LEAD/.test(hit) || !/passwd/.test(hit) || !/traversal langsung/.test(hit)) throw new Error(`path_traversal must lead on naive viewer: ${hit.slice(0, 300)}`);
+      if (!/root:x:0:0/.test(hit)) throw new Error(`path_traversal lead should quote the passwd preview: ${hit.slice(0, 300)}`);
+      const neg = await pt.pathTraversal("verify_pt", { url: sBase, params: "page" });
+      if (/LEAD/.test(neg)) throw new Error(`jailed server must not lead: ${neg.slice(0, 300)}`);
+      if (!/Tidak ada marker read/.test(neg)) throw new Error(`jailed server must give an honest negative: ${neg.slice(0, 300)}`);
+      // dispatch (agent-loop shape) on the vulnerable viewer
+      const dOut = await executeTool({ id: "t-pt", name: "path_traversal", arguments: JSON.stringify({ url: vBase, params: "page" }) }, "verify_pt");
+      if (!/LEAD/.test(dOut)) throw new Error(`path_traversal dispatch: ${dOut.slice(0, 200)}`);
+    } finally {
+      vuln.close();
+      safe.close();
+      fsMod.rmSync(join(appRoot(), ".data", "users", "verify_pt"), { recursive: true, force: true });
+      // remove the escaped toy passwd tree (.data/etc — repo-local, unique)
+      try { fsMod.rmSync(join(appRoot(), ".data", "etc"), { recursive: true, force: true }); } catch { /* best-effort */ }
+      rmSync(join(appRoot(), ".data", "users", "verify_pt"), { recursive: true, force: true });
+    }
+
+    console.log("path_traversal: OK (write/confirm, CORE 128 with idor_enum demote, groq-in/9router-out/HINT/HEADLESS, chain traversal, guards + https-callback, pure markers + baseline-absent, live naive-viewer LEAD via toy passwd + jailed honest negative + dispatch)");
+  }
+
+  // ── otp_hunt (2FA/OTP bypass suite: leak / reuse-stateless / cross / field) ──
+  {
+    const { requiresConfirmation, executeTool, getTOOLS } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect, HINT_UNDELIVERED } = await import("./src/lib/agent");
+    const oh = await import("./src/lib/otpHunt");
+    const ec = await import("./src/lib/exploitChains");
+
+    // 1) registration + risk + delivery matrix (runtime-truth)
+    const regNames = getTOOLS().map((t) => t.function.name);
+    if (!regNames.includes("otp_hunt")) throw new Error("otp_hunt not registered");
+    const ohDef = getTOOLS().find((t) => t.function.name === "otp_hunt");
+    if (!ohDef || !requiresConfirmation(ohDef)) throw new Error("otp_hunt must be write/confirm");
+    const core = [...CORE_TOOL_NAMES];
+    if (core.length !== 128) throw new Error(`CORE must stay 128 (got ${core.length})`);
+    if (!core.includes("otp_hunt")) throw new Error("otp_hunt must be in CORE");
+    if (core.includes("cdp_status")) throw new Error("cdp_status must be demoted (otp_hunt balance)");
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    if (!groq.has("otp_hunt")) throw new Error("groq window must carry otp_hunt");
+    const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name);
+    if (r9.includes("otp_hunt")) throw new Error("9router-64 must NOT carry otp_hunt (heavy prover by design)");
+    if (!isHeadlessSideEffect("otp_hunt")) throw new Error("otp_hunt must be headless-guarded");
+    if (!HINT_UNDELIVERED.includes("otp_hunt")) throw new Error("otp_hunt must be in HINT_UNDELIVERED");
+    const CHAIN_OH = ec.CHAIN_TYPES as unknown as Record<string, { description: string }>;
+    if (!CHAIN_OH.otp_hunt) throw new Error("chain otp_hunt missing");
+
+    // 2) guards (before any network)
+    if (!/^Error: SCOPE/.test(await oh.otpHunt("verify_oh", { url: "https://example.com/verify", user_value: "a" }))) throw new Error("otp_hunt scope guard");
+    if (!/^Error:/.test(await oh.otpHunt("verify_oh", { url: "", user_value: "a" }))) throw new Error("otp_hunt url guard");
+    if (!/^Error: user_value/.test(await oh.otpHunt("verify_oh", { url: "http://127.0.0.1:9/v" }))) throw new Error("otp_hunt user_value guard");
+
+    // 3) LIVE toy servers: stateless verifier (accepts any 6 digits) vs strict
+    //    verifier (requires the minted code, burns it, binds to the account).
+    const http = await import("node:http");
+    const mkOtpServer = (strict: boolean) => http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c: Buffer) => { body += c; });
+      req.on("end", () => {
+        const u = new URL(req.url || "/", "http://x");
+        if (u.pathname === "/challenge") {
+          // leaky challenge: echoes the code under an UNEXPECTED json key
+          const leaky = strict ? null : true;
+          const code = "7" + String(Math.abs([...body].reduce((a, ch) => a + ch.charCodeAt(0), 0)) % 100000).padStart(5, "0");
+          if (leaky) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, otp_hint: code })); return; }
+          res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, sent: "email" }));
+          return;
+        }
+        if (u.pathname === "/verify") {
+          let code = ""; let user = "";
+          try { const j = JSON.parse(body || "{}"); code = String(j.code || ""); user = String(j.username || ""); } catch { /* form */ }
+          if (!code) { const sp = new URLSearchParams(body); code = sp.get("code") || ""; user = sp.get("username") || ""; }
+          if (strict) {
+            const expected = user === "owner" ? "135790" : "246813"; // per-account minted code
+            if (code === expected && !res.headersSent) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, verified: true })); return; }
+            res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: "invalid code" }));
+            return;
+          }
+          // stateless: ANY 6-digit code is accepted (the bypass itself)
+          if (/^[0-9]{6}$/.test(code)) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, verified: true, user })); return; }
+          res.writeHead(401, { "content-type": "application/json" }); res.end(JSON.stringify({ error: "invalid code" }));
+          return;
+        }
+        res.writeHead(404); res.end("nope");
+      });
+    });
+    const stateless = mkOtpServer(false);
+    const strict = mkOtpServer(true);
+    await new Promise<void>((r) => stateless.listen(0, "127.0.0.1", () => r()));
+    await new Promise<void>((r) => strict.listen(0, "127.0.0.1", () => r()));
+    const slBase = `http://127.0.0.1:${(stateless.address() as { port: number }).port}`;
+    const stBase = `http://127.0.0.1:${(strict.address() as { port: number }).port}`;
+    try {
+      const hit = await oh.otpHunt("verify_oh", { url: `${slBase}/verify`, request_url: `${slBase}/challenge`, placement: "json", user_value: "owner", user_value_b: "victim" });
+      // stateless accept-all: the WRONG-code baseline itself is accepted → the
+      // strongest lead fires first; differential branches are skipped honestly.
+      if (!/NO-VALIDATION/.test(hit)) throw new Error(`otp_hunt must flag accept-all verifier: ${hit.slice(0, 300)}`);
+      if (!/LEAK/.test(hit)) throw new Error(`otp_hunt must flag the leaky challenge: ${hit.slice(0, 400)}`);
+      const neg = await oh.otpHunt("verify_oh", { url: `${stBase}/verify`, request_url: `${stBase}/challenge`, placement: "json", user_value: "owner", user_value_b: "victim" });
+      if (/REUSE|STATELESS|CROSS-ACCOUNT|LEAK —/.test(neg)) throw new Error(`strict verifier must not lead: ${neg.slice(0, 300)}`);
+      if (!/Tidak ada bypass OTP/.test(neg)) throw new Error(`strict verifier must give the honest negative: ${neg.slice(0, 300)}`);
+      const dOut = await executeTool({ id: "t-oh", name: "otp_hunt", arguments: JSON.stringify({ url: `${slBase}/verify`, request_url: `${slBase}/challenge`, placement: "json", user_value: "owner" }) }, "verify_oh");
+      if (!/NO-VALIDATION/.test(dOut)) throw new Error(`otp_hunt dispatch: ${dOut.slice(0, 200)}`);
+    } finally {
+      stateless.close();
+      strict.close();
+      rmSync(join(appRoot(), ".data", "users", "verify_oh"), { recursive: true, force: true });
+    }
+
+    console.log("otp_hunt: OK (write/confirm, CORE 128 with cdp_status demote, groq-in/9router-out/HINT/HEADLESS, chain otp_hunt, guards + user_value guard, live accept-all NO-VALIDATION + LEAK lead vs strict honest negative + dispatch)");
+  }
+
+  // ── account_recovery (reset host-injection / token entropy / enumeration) ──
+  {
+    const { requiresConfirmation, executeTool, getTOOLS } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect, HINT_UNDELIVERED } = await import("./src/lib/agent");
+    const ar = await import("./src/lib/accountRecovery");
+    const ec = await import("./src/lib/exploitChains");
+
+    // 1) registration + risk + delivery matrix (runtime-truth)
+    const regNames = getTOOLS().map((t) => t.function.name);
+    if (!regNames.includes("account_recovery")) throw new Error("account_recovery not registered");
+    const arDef = getTOOLS().find((t) => t.function.name === "account_recovery");
+    if (!arDef || !requiresConfirmation(arDef)) throw new Error("account_recovery must be write/confirm");
+    const core = [...CORE_TOOL_NAMES];
+    if (core.length !== 128) throw new Error(`CORE must stay 128 (got ${core.length})`);
+    if (!core.includes("account_recovery")) throw new Error("account_recovery must be in CORE");
+    if (core.includes("platform_severity")) throw new Error("platform_severity must be demoted (account_recovery balance)");
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    if (!groq.has("account_recovery")) throw new Error("groq window must carry account_recovery");
+    const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name);
+    if (r9.includes("account_recovery")) throw new Error("9router-64 must NOT carry account_recovery (heavy prover by design)");
+    if (!isHeadlessSideEffect("account_recovery")) throw new Error("account_recovery must be headless-guarded");
+    if (!HINT_UNDELIVERED.includes("account_recovery")) throw new Error("account_recovery must be in HINT_UNDELIVERED");
+    const CHAIN_AR = ec.CHAIN_TYPES as unknown as Record<string, { description: string }>;
+    if (!CHAIN_AR.recovery) throw new Error("chain recovery missing");
+
+    // 2) guards (before any network)
+    if (!/^Error: SCOPE/.test(await ar.accountRecovery("verify_ar", { request_url: "https://example.com/forgot" }))) throw new Error("account_recovery scope guard");
+    if (!/^Error:/.test(await ar.accountRecovery("verify_ar", { request_url: "" }))) throw new Error("account_recovery url guard");
+
+    // 3) LIVE toy servers: a forgot endpoint that composes the reset link from
+    //    the incoming Host header (vulnerable) vs one pinned to its own origin.
+    const http = await import("node:http");
+    let tokenCounter = 0;
+    const mkRec = (vuln: boolean, enumLeak: boolean) => http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c: Buffer) => { body += c; });
+      req.on("end", () => {
+        const host = String(req.headers["x-forwarded-host"] || req.headers.host || "app.test").toLowerCase();
+        // fake_account default (nosuchuser.invalid) carries no `@` — compare the
+        // raw body so the enumeration control actually misses.
+        const exists = enumLeak ? true : !body.includes("nosuch");
+        const token = `t${(++tokenCounter).toString().padStart(3, "0")}${Math.random().toString(36).slice(2, 14)}`;
+        if (!exists) { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ error: "account not found" })); return; }
+        const linkHost2 = vuln ? host : "app.test";
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, message: `reset link: https://${linkHost2}/reset?token=${token}`, reset_token: token }));
+      });
+    });
+    const vuln = mkRec(true, false);
+    const strict = mkRec(false, false);
+    await new Promise<void>((r) => vuln.listen(0, "127.0.0.1", () => r()));
+    await new Promise<void>((r) => strict.listen(0, "127.0.0.1", () => r()));
+    const vBase = `http://127.0.0.1:${(vuln.address() as { port: number }).port}/forgot`;
+    const sBase = `http://127.0.0.1:${(strict.address() as { port: number }).port}/forgot`;
+    try {
+      const hit = await ar.accountRecovery("verify_ar", { request_url: vBase, account: "owner@test.local", placement: "json" });
+      if (!/HOST-INJECTION/.test(hit)) throw new Error(`account_recovery must flag host injection: ${hit.slice(0, 300)}`);
+      const neg = await ar.accountRecovery("verify_ar", { request_url: sBase, account: "owner@test.local", placement: "json" });
+      if (/HOST-INJECTION|TOKEN-PREDICTABLE|USER-ENUMERATION/.test(neg)) throw new Error(`pinned reset must not lead: ${neg.slice(0, 300)}`);
+      if (!/Tidak ada kelemahan recovery/.test(neg)) throw new Error(`pinned reset must give the honest negative: ${neg.slice(0, 300)}`);
+      const dOut = await executeTool({ id: "t-ar", name: "account_recovery", arguments: JSON.stringify({ request_url: vBase, placement: "json" }) }, "verify_ar");
+      if (!/HOST-INJECTION/.test(dOut)) throw new Error(`account_recovery dispatch: ${dOut.slice(0, 200)}`);
+    } finally {
+      vuln.close();
+      strict.close();
+      rmSync(join(appRoot(), ".data", "users", "verify_ar"), { recursive: true, force: true });
+    }
+
+    console.log("account_recovery: OK (write/confirm, CORE 128 with platform_severity demote, groq-in/9router-out/HINT/HEADLESS, chain recovery, guards, live host-injection lead via Host-header link + pinned honest negative + dispatch)");
+  }
+
+  // ── csv_inject (formula injection round-trip: store → export) ──
+  {
+    const { requiresConfirmation, executeTool, getTOOLS } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect, HINT_UNDELIVERED } = await import("./src/lib/agent");
+    const ci = await import("./src/lib/csvInject");
+    const ec = await import("./src/lib/exploitChains");
+
+    // 1) registration + risk + delivery matrix (runtime-truth)
+    const regNames = getTOOLS().map((t) => t.function.name);
+    if (!regNames.includes("csv_inject")) throw new Error("csv_inject not registered");
+    const ciDef = getTOOLS().find((t) => t.function.name === "csv_inject");
+    if (!ciDef || !requiresConfirmation(ciDef)) throw new Error("csv_inject must be write/confirm");
+    const core = [...CORE_TOOL_NAMES];
+    if (core.length !== 128) throw new Error(`CORE must stay 128 (got ${core.length})`);
+    if (!core.includes("csv_inject")) throw new Error("csv_inject must be in CORE");
+    if (core.includes("transcribe")) throw new Error("transcribe must be demoted (csv_inject balance)");
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    if (!groq.has("csv_inject")) throw new Error("groq window must carry csv_inject");
+    const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name);
+    if (r9.includes("csv_inject")) throw new Error("9router-64 must NOT carry csv_inject (heavy prover by design)");
+    if (!isHeadlessSideEffect("csv_inject")) throw new Error("csv_inject must be headless-guarded");
+    if (!HINT_UNDELIVERED.includes("csv_inject")) throw new Error("csv_inject must be in HINT_UNDELIVERED");
+    const CHAIN_CI = ec.CHAIN_TYPES as unknown as Record<string, { description: string }>;
+    if (!CHAIN_CI.csv) throw new Error("chain csv missing");
+
+    // 2) guards (before any network)
+    if (!/^Error: SCOPE/.test(await ci.csvInject("verify_ci", { url: "https://example.com/users" }))) throw new Error("csv_inject scope guard");
+    if (!/^Error:/.test(await ci.csvInject("verify_ci", { url: "" }))) throw new Error("csv_inject url guard");
+
+    // 3) LIVE toy apps: an in-memory users store + export endpoint.
+    //    vulnerable: stores raw, exports raw CSV. safe: stores raw, exports
+    //    with the apostrophe escape prefix (defense works). broken: store 404s.
+    const http = await import("node:http");
+    const mkCsvApp = (mode: "vuln" | "safe" | "nostore") => {
+      const store: string[] = [];
+      return http.createServer((req, res) => {
+        let body = "";
+        req.on("data", (c: Buffer) => { body += c; });
+        req.on("end", () => {
+          const u = new URL(req.url || "/", "http://x");
+          if (req.method === "POST" && u.pathname === "/users") {
+            if (mode === "nostore") { res.writeHead(404); res.end("nope"); return; }
+            const name = new URLSearchParams(body).get("name") || "";
+            store.push(name);
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: true, name }));
+            return;
+          }
+          if (req.method === "GET" && u.pathname === "/export") {
+            const rows = store.map((n, i) => `${i + 1},${mode === "safe" ? "'" + n : n}`);
+            res.writeHead(200, { "content-type": "text/csv", "content-disposition": 'attachment; filename="users.csv"' });
+            res.end(`id,name\n${rows.join("\n")}\n`);
+            return;
+          }
+          res.writeHead(404); res.end("nope");
+        });
+      });
+    };
+    const vuln = mkCsvApp("vuln");
+    const safe = mkCsvApp("safe");
+    const nostore = mkCsvApp("nostore");
+    await new Promise<void>((r) => vuln.listen(0, "127.0.0.1", () => r()));
+    await new Promise<void>((r) => safe.listen(0, "127.0.0.1", () => r()));
+    await new Promise<void>((r) => nostore.listen(0, "127.0.0.1", () => r()));
+    const vBase = `http://127.0.0.1:${(vuln.address() as { port: number }).port}/users`;
+    const sBase = `http://127.0.0.1:${(safe.address() as { port: number }).port}/users`;
+    const nBase = `http://127.0.0.1:${(nostore.address() as { port: number }).port}/users`;
+    try {
+      const hit = await ci.csvInject("verify_ci", { url: vBase, field: "name", export_url: `${vBase.replace(/\/users$/, "/export")}` });
+      if (!/CSV\/FORMULA-INJECTION/.test(hit)) throw new Error(`csv_inject must lead on raw export: ${hit.slice(0, 300)}`);
+      if (!/MENTAH/.test(hit)) throw new Error(`csv_inject lead should say raw: ${hit.slice(0, 300)}`);
+      const def = await ci.csvInject("verify_ci", { url: sBase, field: "name", export_url: `${sBase.replace(/\/users$/, "/export")}` });
+      if (/LEAD/i.test(def) && /CSV\/FORMULA-INJECTION/.test(def)) throw new Error(`escaped export must not lead: ${def.slice(0, 300)}`);
+      if (!/di-escape|defense bekerja/.test(def)) throw new Error(`escaped export must honestly credit the defense: ${def.slice(0, 300)}`);
+      const broken = await ci.csvInject("verify_ci", { url: nBase, field: "name", export_url: `${nBase.replace(/\/users$/, "/export")}` });
+      if (/CSV\/FORMULA-INJECTION/.test(broken)) throw new Error(`broken store must not lead: ${broken.slice(0, 300)}`);
+      const dOut = await executeTool({ id: "t-ci", name: "csv_inject", arguments: JSON.stringify({ url: vBase, field: "name", export_url: `${vBase.replace(/\/users$/, "/export")}` }) }, "verify_ci");
+      if (!/CSV\/FORMULA-INJECTION/.test(dOut)) throw new Error(`csv_inject dispatch: ${dOut.slice(0, 200)}`);
+    } finally {
+      vuln.close();
+      safe.close();
+      nostore.close();
+      rmSync(join(appRoot(), ".data", "users", "verify_ci"), { recursive: true, force: true });
+    }
+
+    console.log("csv_inject: OK (write/confirm, CORE 128 with transcribe demote, groq-in/9router-out/HINT/HEADLESS, chain csv, guards, live raw-export LEAD + escaped honest defense + broken-store honest negative + dispatch)");
+  }
+
+  // ── blind_cmdi (OAST canary + time-based differential) ──
+  {
+    const { requiresConfirmation, executeTool, getTOOLS } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect, HINT_UNDELIVERED } = await import("./src/lib/agent");
+    const bc = await import("./src/lib/blindCmdi");
+    const ec = await import("./src/lib/exploitChains");
+
+    // 1) registration + risk + delivery matrix (runtime-truth)
+    const regNames = getTOOLS().map((t) => t.function.name);
+    if (!regNames.includes("blind_cmdi")) throw new Error("blind_cmdi not registered");
+    const bcDef = getTOOLS().find((t) => t.function.name === "blind_cmdi");
+    if (!bcDef || !requiresConfirmation(bcDef)) throw new Error("blind_cmdi must be write/confirm");
+    const core = [...CORE_TOOL_NAMES];
+    if (core.length !== 128) throw new Error(`CORE must stay 128 (got ${core.length})`);
+    if (!core.includes("blind_cmdi")) throw new Error("blind_cmdi must be in CORE");
+    if (core.includes("ws_hunt")) throw new Error("ws_hunt must be demoted (blind_cmdi balance)");
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    if (!groq.has("blind_cmdi")) throw new Error("groq window must carry blind_cmdi");
+    const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name);
+    if (r9.includes("blind_cmdi")) throw new Error("9router-64 must NOT carry blind_cmdi (heavy prover by design)");
+    if (!isHeadlessSideEffect("blind_cmdi")) throw new Error("blind_cmdi must be headless-guarded");
+    if (!HINT_UNDELIVERED.includes("blind_cmdi")) throw new Error("blind_cmdi must be in HINT_UNDELIVERED");
+    const CHAIN_BC = ec.CHAIN_TYPES as unknown as Record<string, { description: string }>;
+    if (!CHAIN_BC.cmdi_blind) throw new Error("chain cmdi_blind missing");
+
+    // 2) guards (before any network)
+    if (!/^Error: SCOPE/.test(await bc.blindCmdi("verify_bc", { url: "https://example.com/ping" }))) throw new Error("blind_cmdi scope guard");
+    if (!/^Error:/.test(await bc.blindCmdi("verify_bc", { url: "" }))) throw new Error("blind_cmdi url guard");
+    if (!/^Error: callback/.test(await bc.blindCmdi("verify_bc", { url: "http://127.0.0.1:9/x", callback: "http://insecure.test" }))) throw new Error("blind_cmdi callback must be https");
+
+    // 3) pure: timing verdict thresholds + payload shapes
+    if (!bc.timingVerdict(120, 135, 6250).lead) throw new Error("timing verdict must lead on sleep-6 shape");
+    if (bc.timingVerdict(1800, 1850, 2200).lead) throw new Error("timing verdict must stay silent on slow-but-flat server");
+    if (!bc.oastPayload("https://oast.test/abc", "p0-file").includes("/abc/p0-file")) throw new Error("oast payload canary");
+
+    // 4) LIVE toy servers: vulnerable host resolves a domain via a shell
+    //    (`getent hosts <domain>` shape) with injected sleep; safe resolves
+    //    without a shell. Time-based only (no real egress in CI).
+    const http = await import("node:http");
+    const { execFile } = await import("node:child_process");
+    const mkPing = (vuln: boolean) => http.createServer((req, res) => {
+      const u = new URL(req.url || "/", "http://x");
+      if (u.pathname !== "/lookup") { res.writeHead(404); res.end("nope"); return; }
+      const host = u.searchParams.get("host") || "localhost";
+      const m = /;?sleep ([0-9]+)/.exec(host);
+      if (vuln && m) {
+        // REAL 6s delay — the prover's jitter-aware threshold (≥5s, >3× jitter)
+        // exists to protect against slow-but-flat servers; anything shorter is
+        // honestly rejected (smoke-tested). Adds ~13s to the verify run total.
+        setTimeout(() => { res.writeHead(200); res.end("resolved"); }, 6_000);
+        return;
+      }
+      execFile("getent", ["hosts", vuln ? "localhost" : host], () => {
+        res.writeHead(200); res.end("resolved");
+      });
+    });
+    const vuln = mkPing(true);
+    const safe = mkPing(false);
+    await new Promise<void>((r) => vuln.listen(0, "127.0.0.1", () => r()));
+    await new Promise<void>((r) => safe.listen(0, "127.0.0.1", () => r()));
+    const vBase = `http://127.0.0.1:${(vuln.address() as { port: number }).port}/lookup`;
+    const sBase = `http://127.0.0.1:${(safe.address() as { port: number }).port}/lookup`;
+    try {
+      const hit = await bc.blindCmdi("verify_bc", { url: vBase, params: "host", time_only: true });
+      if (!/TIME-BASED LEAD/.test(hit)) throw new Error(`blind_cmdi must lead on injected sleep: ${hit.slice(0, 300)}`);
+      const neg = await bc.blindCmdi("verify_bc", { url: sBase, params: "host", time_only: true });
+      if (/TIME-BASED LEAD|RCE/.test(neg)) throw new Error(`safe resolver must not lead: ${neg.slice(0, 300)}`);
+      if (!/Tidak ada eksekusi/.test(neg)) throw new Error(`safe resolver must give the honest negative: ${neg.slice(0, 300)}`);
+      const dOut = await executeTool({ id: "t-bc", name: "blind_cmdi", arguments: JSON.stringify({ url: vBase, params: "host", time_only: true }) }, "verify_bc");
+      if (!/TIME-BASED LEAD/.test(dOut)) throw new Error(`blind_cmdi dispatch: ${dOut.slice(0, 200)}`);
+    } finally {
+      vuln.close();
+      safe.close();
+      rmSync(join(appRoot(), ".data", "users", "verify_bc"), { recursive: true, force: true });
+    }
+
+    console.log("blind_cmdi: OK (write/confirm, CORE 128 with ws_hunt demote, groq-in/9router-out/HINT/HEADLESS, chain cmdi_blind, guards + https-callback, timing thresholds pure, live sleep-injection TIME lead vs safe honest negative + dispatch; OAST confirm path unit-covered)");
+  }
+
+  // ── ssti_enum (template engine fingerprint decision tree) ──
+  {
+    const { requiresConfirmation, executeTool, getTOOLS } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect, HINT_UNDELIVERED } = await import("./src/lib/agent");
+    const se = await import("./src/lib/sstiEnum");
+    const ec = await import("./src/lib/exploitChains");
+
+    // 1) registration + risk + delivery matrix (runtime-truth)
+    const regNames = getTOOLS().map((t) => t.function.name);
+    if (!regNames.includes("ssti_enum")) throw new Error("ssti_enum not registered");
+    const seDef = getTOOLS().find((t) => t.function.name === "ssti_enum");
+    if (!seDef || !requiresConfirmation(seDef)) throw new Error("ssti_enum must be write/confirm");
+    const core = [...CORE_TOOL_NAMES];
+    if (core.length !== 128) throw new Error(`CORE must stay 128 (got ${core.length})`);
+    if (!core.includes("ssti_enum")) throw new Error("ssti_enum must be in CORE");
+    if (core.includes("spotify_previous")) throw new Error("spotify_previous must be demoted (ssti_enum balance)");
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    if (!groq.has("ssti_enum")) throw new Error("groq window must carry ssti_enum");
+    const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name);
+    if (r9.includes("ssti_enum")) throw new Error("9router-64 must NOT carry ssti_enum (heavy prover by design)");
+    if (!isHeadlessSideEffect("ssti_enum")) throw new Error("ssti_enum must be headless-guarded");
+    if (!HINT_UNDELIVERED.includes("ssti_enum")) throw new Error("ssti_enum must be in HINT_UNDELIVERED");
+    const CHAIN_SE = ec.CHAIN_TYPES as unknown as Record<string, { description: string }>;
+    if (!CHAIN_SE.ssti) throw new Error("chain ssti missing");
+
+    // 2) guards (before any network)
+    if (!/^Error: SCOPE/.test(await se.sstiEnum("verify_se", { url: "https://example.com/hello" }))) throw new Error("ssti_enum scope guard");
+    if (!/^Error:/.test(await se.sstiEnum("verify_se", { url: "" }))) throw new Error("ssti_enum url guard");
+
+    // 3) pure: verdict ladder
+    if (se.sstiFinalVerdict([]).confidence !== "none") throw new Error("empty verdict must be none");
+
+    // 4) LIVE toy apps: Jinja-ish renderer (7*7 and 7*'7' both evaluated),
+    //    plain renderer (honest negative), and a baseline-49 page (refused).
+    const http = await import("node:http");
+    const mkTpl = (kind: "jinja" | "plain" | "baseline49") => http.createServer((req, res) => {
+      const u = new URL(req.url || "/", "http://x");
+      if (u.pathname !== "/hello") { res.writeHead(404); res.end("nope"); return; }
+      const name = u.searchParams.get("name") || "guest";
+      if (kind === "baseline49") { res.writeHead(200); res.end("room 49 welcome"); return; }
+      if (kind === "plain") { res.writeHead(200); res.end(`hello ${name}`); return; }
+      // jinja-ish: evaluate {{7*7}}=49 and the teller {{7*'7'}}=7777777
+      const ev = name.replace(/\{\{7\*'7'\}\}/g, "7777777").replace(/\{\{7\*7\}\}/g, "49");
+      res.writeHead(200); res.end(`hello ${ev}`);
+    });
+    const jinja = mkTpl("jinja");
+    const plain = mkTpl("plain");
+    const b49 = mkTpl("baseline49");
+    await new Promise<void>((r) => jinja.listen(0, "127.0.0.1", () => r()));
+    await new Promise<void>((r) => plain.listen(0, "127.0.0.1", () => r()));
+    await new Promise<void>((r) => b49.listen(0, "127.0.0.1", () => r()));
+    const jBase = `http://127.0.0.1:${(jinja.address() as { port: number }).port}/hello`;
+    const pBase = `http://127.0.0.1:${(plain.address() as { port: number }).port}/hello`;
+    const bBase = `http://127.0.0.1:${(b49.address() as { port: number }).port}/hello`;
+    try {
+      const hit = await se.sstiEnum("verify_se", { url: jBase, param: "name" });
+      if (!/Jinja2/.test(hit) || !/confirmed/.test(hit)) throw new Error(`ssti_enum must confirm Jinja2: ${hit.slice(0, 300)}`);
+      if (!/playbook ssti/.test(hit)) throw new Error(`ssti_enum must give the safe next step: ${hit.slice(0, 300)}`);
+      const neg = await se.sstiEnum("verify_se", { url: pBase, param: "name" });
+      if (!/Tidak ada evaluasi/.test(neg) || /Jinja2 \(confirmed\)/.test(neg)) throw new Error(`plain renderer must be an honest negative: ${neg.slice(0, 300)}`);
+      const refused = await se.sstiEnum("verify_se", { url: bBase, param: "name" });
+      if (!/baseline SUDAH mengandung/.test(refused)) throw new Error(`baseline-49 page must be refused: ${refused.slice(0, 200)}`);
+      const dOut = await executeTool({ id: "t-se", name: "ssti_enum", arguments: JSON.stringify({ url: jBase, param: "name" }) }, "verify_se");
+      if (!/Jinja2/.test(dOut)) throw new Error(`ssti_enum dispatch: ${dOut.slice(0, 200)}`);
+    } finally {
+      jinja.close();
+      plain.close();
+      b49.close();
+      rmSync(join(appRoot(), ".data", "users", "verify_se"), { recursive: true, force: true });
+    }
+
+    console.log("ssti_enum: OK (write/confirm, CORE 128 with spotify_previous demote, groq-in/9router-out/HINT/HEADLESS, chain ssti, guards, live Jinja2 CONFIRMED via teller + plain honest negative + baseline-49 refusal + dispatch)");
+  }
+
+  // ── param_miner (unkeyed param/header discovery) ──
+  {
+    const { requiresConfirmation, executeTool, getTOOLS } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES, toolsForUrl, isHeadlessSideEffect, HINT_UNDELIVERED } = await import("./src/lib/agent");
+    const pm = await import("./src/lib/paramMiner");
+
+    // 1) registration + risk + delivery matrix (runtime-truth)
+    const regNames = getTOOLS().map((t) => t.function.name);
+    if (!regNames.includes("param_miner")) throw new Error("param_miner not registered");
+    const pmDef = getTOOLS().find((t) => t.function.name === "param_miner");
+    if (!pmDef || !requiresConfirmation(pmDef)) throw new Error("param_miner must be write/confirm");
+    const core = [...CORE_TOOL_NAMES];
+    if (core.length !== 128) throw new Error(`CORE must stay 128 (got ${core.length})`);
+    if (!core.includes("param_miner")) throw new Error("param_miner must be in CORE");
+    if (core.includes("calendar_add")) throw new Error("calendar_add must be demoted (param_miner balance)");
+    const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    if (!groq.has("param_miner")) throw new Error("groq window must carry param_miner");
+    const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name);
+    if (r9.includes("param_miner")) throw new Error("9router-64 must NOT carry param_miner (heavy prover by design)");
+    if (!isHeadlessSideEffect("param_miner")) throw new Error("param_miner must be headless-guarded");
+    if (!HINT_UNDELIVERED.includes("param_miner")) throw new Error("param_miner must be in HINT_UNDELIVERED");
+
+    // 2) guards (before any network)
+    if (!/^Error: SCOPE/.test(await pm.paramMiner("verify_pm", { url: "https://example.com/page" }))) throw new Error("param_miner scope guard");
+    if (!/^Error:/.test(await pm.paramMiner("verify_pm", { url: "" }))) throw new Error("param_miner url guard");
+
+    // 3) pure: differential verdict + normalization
+    const R = (s: number, b: string, h: Record<string, string> = {}) => ({ status: s, body: b, headers: h });
+    if (!pm.diffVerdict(R(200, "page"), R(200, "page"), R(500, "err")).lead) throw new Error("diff must lead on status change");
+    if (pm.diffVerdict(R(200, "page"), R(200, "page"), R(200, "page")).lead) throw new Error("diff must stay silent when identical");
+    if (pm.normalizeBody("a 550e8400-e29b-41d4-a716-446655440000 b") !== pm.normalizeBody("a ffffffff-ffff-ffff-ffff-ffffffffffff b")) throw new Error("normalizeBody must flatten uuids");
+
+    // 4) LIVE toy apps: a page whose `debug=1` query changes the body (hidden
+    //    param) vs a flat page that ignores everything.
+    const http = await import("node:http");
+    const mk = (debuggy: boolean) => http.createServer((req, res) => {
+      const u = new URL(req.url || "/", "http://x");
+      if (u.pathname !== "/page") { res.writeHead(404); res.end("nope"); return; }
+      if (debuggy && u.searchParams.get("debug") === "mia-probe-1") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<html>DEBUG PANEL — internal routes: /admin, /_heap, /_config —" + "x".repeat(300) + "</html>");
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<html>welcome page</html>");
+    });
+    const hot = mk(true);
+    const flat = mk(false);
+    await new Promise<void>((r) => hot.listen(0, "127.0.0.1", () => r()));
+    await new Promise<void>((r) => flat.listen(0, "127.0.0.1", () => r()));
+    const hBase = `http://127.0.0.1:${(hot.address() as { port: number }).port}/page`;
+    const fBase = `http://127.0.0.1:${(flat.address() as { port: number }).port}/page`;
+    try {
+      const hit = await pm.paramMiner("verify_pm", { url: hBase, params: "debug,stage,foo" });
+      if (!/PARAM "debug"/.test(hit)) throw new Error(`param_miner must find the hidden debug param: ${hit.slice(0, 300)}`);
+      if (!/CACHE|cache/.test(hit)) throw new Error(`param_miner must include the cache-unkeying pointer: ${hit.slice(0, 300)}`);
+      const neg = await pm.paramMiner("verify_pm", { url: fBase, params: "debug,stage,foo", cache_note: false });
+      if (/PARAM "/.test(neg)) throw new Error(`flat page must not lead: ${neg.slice(0, 300)}`);
+      if (!/Tidak ada kandidat/.test(neg)) throw new Error(`flat page must give the honest negative: ${neg.slice(0, 300)}`);
+      const dOut = await executeTool({ id: "t-pm", name: "param_miner", arguments: JSON.stringify({ url: hBase, params: "debug,stage,foo" }) }, "verify_pm");
+      if (!/PARAM "debug"/.test(dOut)) throw new Error(`param_miner dispatch: ${dOut.slice(0, 200)}`);
+    } finally {
+      hot.close();
+      flat.close();
+      rmSync(join(appRoot(), ".data", "users", "verify_pm"), { recursive: true, force: true });
+    }
+
+    console.log("param_miner: OK (write/confirm, CORE 128 with calendar_add demote, groq-in/9router-out/HINT/HEADLESS, guards, live hidden-debug-param LEAD + cache pointer + flat honest negative + dispatch)");
   }
 
   // ── cdp_proxy (mini-proxy: mine the user's own Chrome live traffic) ──
