@@ -349,12 +349,15 @@ async function main() {
 
   // --- poc_verify: scope guard + deterministic PoC against a local server ---
   const { pocVerify } = await import("./src/lib/poc");
+  const { isPocStable } = await import("./src/lib/vulnCompose");
   if (!(await pocVerify("v", { url: "https://evil.example.com" })).startsWith("Error: SCOPE")) throw new Error("pocVerify scope guard failed");
   if (!(await pocVerify("v", { url: "not-a-url" })).startsWith("Error:")) throw new Error("pocVerify url guard failed");
   {
     const http = await import("node:http");
     const server = http.createServer((req, res) => {
       if (req.url === "/ok") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"secret":"hunter2"}'); return; }
+      // Same status, DIFFERENT body per id — the same-status BOLA shape.
+      if (req.url?.startsWith("/obj")) { res.writeHead(200, { "content-type": "application/json" }); res.end(`{"owner":"${new URL(req.url, "http://x").searchParams.get("id")}"}`); return; }
       res.writeHead(403, { "content-type": "text/plain" }); res.end("forbidden");
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
@@ -363,9 +366,95 @@ async function main() {
     if (!good.includes("STABIL") && !good.includes("terkonfirmasi")) throw new Error(`pocVerify should confirm a deterministic 200: ${good.split("\n").slice(0, 4).join(" | ")}`);
     const bad = await pocVerify("v", { url: `http://127.0.0.1:${port}/no`, times: 2, expect_status: 200 });
     if (!bad.includes("assertion belum terpenuhi")) throw new Error("pocVerify should flag a failed assertion");
+
+    // --- live 2026-09-25 regression: an unchanged payload must NOT be confirmed ---
+    // (the drill filed a HIGH CWE-89 finding off `?id=1;-- -` returning the same
+    // bytes as the clean request). Same URL as target and baseline = identical.
+    const noSignal = await pocVerify("v", { url: `http://127.0.0.1:${port}/ok`, times: 3, expect_status: 200, expect_contains: "hunter2", baseline_url: `http://127.0.0.1:${port}/ok` });
+    if (!noSignal.includes("TIDAK ADA SINYAL")) throw new Error(`pocVerify must refuse an unchanged payload: ${noSignal.split("\n").slice(0, 5).join(" | ")}`);
+    if (noSignal.includes("PoC STABIL")) throw new Error("pocVerify must never confirm when the payload changed nothing");
+    if (isPocStable(noSignal)) throw new Error("an unchanged payload must not count as a proven compose hop");
+    if (!noSignal.includes("baseline gagal") && !/delta body\s*:.*IDENTIK/.test(noSignal)) throw new Error("pocVerify must report the body-level delta for an unchanged payload");
+
+    // --- same-status BOLA: body differs while status stays 200 (false-negative fix) ---
+    const bola = await pocVerify("v", { url: `http://127.0.0.1:${port}/obj?id=2`, times: 2, expect_status: 200, baseline_url: `http://127.0.0.1:${port}/obj?id=1` });
+    if (!bola.includes("PoC STABIL") || !bola.includes("differential")) throw new Error(`a same-status body differential must confirm: ${bola.split("\n").slice(0, 5).join(" | ")}`);
+    if (!isPocStable(bola)) throw new Error("a real differential must still count as stable");
+
+    // --- compose contract: reproduction verdict is accepted, claims reproduction only ---
+    const repro = await pocVerify("v", { url: `http://127.0.0.1:${port}/ok`, times: 2, reproducible_only: true });
+    if (!repro.includes("PoC ULANG STABIL")) throw new Error(`reproducible_only must claim reproduction: ${repro.split("\n").slice(0, 4).join(" | ")}`);
+    if (!repro.includes("BUKAN bukti kerentanan")) throw new Error("reproducible_only must not claim a vulnerability");
+    if (!isPocStable(repro)) throw new Error("compose must accept the reproducibility verdict as a stable hop");
+
+    // --- repetition alone is not proof (no assertion, no baseline) ---
+    const bare = await pocVerify("v", { url: `http://127.0.0.1:${port}/ok`, times: 2 });
+    if (bare.includes("PoC STABIL")) throw new Error("determinism without an assertion or control must not be confirmed");
+
     await new Promise<void>((r) => server.close(() => r()));
   }
-  console.log("poc_verify (scope + deterministic PoC + assertion): OK");
+  console.log("poc_verify (scope + control-gated verdict + same-status BOLA + reproducibility contract): OK");
+
+  // --- finding_add evidence gate: a REFUTED injection claim must not reach the store ---
+  // Live 2026-09-25: poc_verify returned ⛔ (payload byte-identical to the clean
+  // request) and a HIGH CWE-89 finding was filed anyway. A verdict the model can
+  // ignore is not a control — this asserts the WRITE PATH itself refuses it, through
+  // the real dispatch path, and that nothing is stored.
+  {
+    const http = await import("node:http");
+    const gateUser = `verify_findgate_${Date.now()}`;
+    const server = http.createServer((req, res) => {
+      if (req.url === "/ok") { res.writeHead(200, { "content-type": "application/json" }); res.end('{"secret":"hunter2"}'); return; }
+      if (req.url?.startsWith("/obj")) { res.writeHead(200, { "content-type": "application/json" }); res.end(`{"owner":"${new URL(req.url, "http://x").searchParams.get("id")}"}`); return; }
+      res.writeHead(403, { "content-type": "text/plain" }); res.end("forbidden");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as { port: number }).port;
+    const { readFindings } = await import("./src/lib/security");
+    const { readPocRuns } = await import("./src/lib/pocRuns");
+    const same = `http://127.0.0.1:${port}/ok`;
+    const diff = `http://127.0.0.1:${port}/obj?id=2`;
+    const control = `http://127.0.0.1:${port}/obj?id=1`;
+    const injectionFinding = (url: string) => ({
+      title: "SQL Injection pada parameter id",
+      cvss: 8.1,
+      cwe: "CWE-89",
+      owasp: "A03:2025 Injection",
+      target: url,
+      steps: `2. Kirim request GET ke ${url} melalui browser atau alat bantu.`,
+      evidence: "Payload menghasilkan data sensitif.",
+    });
+    const addVia = async (args: Record<string, unknown>) =>
+      String(await executeTool({ id: "fg", name: "finding_add", arguments: JSON.stringify(args) }, gateUser));
+
+    // 1. REFUTED — the payload is byte-identical to the control.
+    await pocVerify(gateUser, { url: same, times: 3, expect_status: 200, baseline_url: same });
+    if (!readPocRuns(gateUser).some((r) => r.verdict === "no-signal")) throw new Error("poc ledger did not record the no-signal run");
+    const refused = await addVia(injectionFinding(same));
+    if (!refused.startsWith("Error:") || !refused.includes("DITOLAK")) throw new Error(`finding_add must refuse a refuted injection claim: ${refused.slice(0, 160)}`);
+    if (!/refused to execute/i.test(refused)) throw new Error("the refusal must be recognisable to the honesty guards");
+    if (readFindings(gateUser).length !== 0) throw new Error("a REFUTED finding reached the store");
+
+    // 2. UNBACKED — an injection HIGH on an endpoint with no confirming run.
+    const unproven = `http://127.0.0.1:${port}/never-probed`;
+    const unbacked = await addVia(injectionFinding(unproven));
+    if (!unbacked.startsWith("Error:") || !unbacked.includes("gerbang bukti")) throw new Error(`an unbacked injection claim must be refused: ${unbacked.slice(0, 160)}`);
+    if (readFindings(gateUser).length !== 0) throw new Error("an UNBACKED finding reached the store");
+
+    // 3. PROVEN — a real differential on that endpoint unlocks the write.
+    await pocVerify(gateUser, { url: diff, times: 2, expect_status: 200, baseline_url: control });
+    const stored = await addVia(injectionFinding(diff));
+    if (stored.startsWith("Error:")) throw new Error(`a proven injection finding must be storable: ${stored.slice(0, 160)}`);
+    if (readFindings(gateUser).length !== 1) throw new Error("a PROVEN finding was not stored");
+
+    // 4. Not over-blocking: a non-injection HIGH still passes untouched.
+    const other = await addVia({ title: "Cookie tanpa HttpOnly", cvss: 8.1, cwe: "CWE-1004", target: same, evidence: "Set-Cookie tanpa flag." });
+    if (other.startsWith("Error:")) throw new Error(`a non-injection finding must not be gated: ${other.slice(0, 160)}`);
+
+    await new Promise<void>((r) => server.close(() => r()));
+    rmSync(join(appRoot(), ".data", "users", gateUser), { recursive: true, force: true });
+  }
+  console.log("finding_add evidence gate (refuted + unbacked refused, proven stored, non-injection untouched — real dispatch): OK");
 
   // --- cloud misconfig + tech watch: pure classifiers ---
   const { cloudCandidates, classifyCloud } = await import("./src/lib/cloud");
@@ -3909,9 +3998,20 @@ async function main() {
     if (real !== "") throw new Error(`real report_pdf should suppress the note, got: ${real.slice(0, 80)}`);
     // REAL delivery contract: reportPdf actually writes a report-*.pdf file and the
     // deterministic suffix parses its filename — the deliverable must exist on disk.
-    const { reportPdf } = await import("./src/lib/security");
+    // Empty-findings contract (live 2026-09-25 drill): a 0-finding "report" must
+    // NEVER render as a clean hollow PDF — security throws EMPTY_REPORT and the
+    // deterministic delivery answers honestly instead of shipping an empty artifact.
+    const { reportPdf, addFinding } = await import("./src/lib/security");
     const su2 = "verify_pdfdrill";
     try {
+      let emptyRejected = false;
+      try {
+        await reportPdf(su2, { target: "http://127.0.0.1:4010" });
+      } catch (e) {
+        emptyRejected = e instanceof Error && e.message.includes("EMPTY_REPORT");
+      }
+      if (!emptyRejected) throw new Error("reportPdf must throw EMPTY_REPORT when no findings exist");
+      addFinding(su2, { title: "Drill finding", severity: "medium", cvss: 5.3, target: "http://127.0.0.1:4010", evidence: "verify" });
       const out = await reportPdf(su2, { target: "http://127.0.0.1:4010" });
       const file = (out.match(/report-[0-9A-Za-z:.()+_-]+\.pdf/i) || [])[0] || "";
       if (!file) throw new Error(`reportPdf should return a report-*.pdf filename, got: ${out.slice(0, 80)}`);
@@ -5505,6 +5605,41 @@ async function main() {
       throw new Error("endpointTriageNote must qualify read-only absence claims");
     }
     console.log("output-tidiness (endpoint triage note, HTML-dump collapse, dup warning, OWASP-2025 render, word-boundary chunks): OK");
+  }
+
+  // ── structured action receipt (2026-09-25: one owner for action narration) ──
+  {
+    const { actionReceipt, RECEIPT_TOOLS, mergeReceiptRecords, EXECUTED_PLACEHOLDER } = await import("./src/lib/actionReceipt");
+    const { collectActionRecords } = await import("./src/lib/agent");
+    if (!RECEIPT_TOOLS.has("poc_verify") || !RECEIPT_TOOLS.has("report_pdf") || !RECEIPT_TOOLS.has("http_request")) {
+      throw new Error("RECEIPT_TOOLS must cover probes + deliverables + effectors");
+    }
+    const args = JSON.stringify({ url: "https://lab.example/api/cek-nik?id=1" });
+    const rec = { name: "poc_verify", args, result: "✅ PoC STABIL & terkonfirmasi 3/3 PASS" };
+    const withExec = [
+      { role: "assistant", content: null, tool_calls: [{ id: "t1", function: { name: "poc_verify", arguments: args } }] },
+      { role: "tool", tool_call_id: "t1", content: rec.result },
+    ];
+    const merged = mergeReceiptRecords(collectActionRecords(withExec as never, []), []);
+    const out = actionReceipt(merged);
+    if (!out.includes("Aksi yang benar-benar dijalankan:") || !out.includes("poc_verify → https://lab.example/api/cek-nik?id=1")) {
+      throw new Error("receipt must render executed actions with a target digest");
+    }
+    const refused = actionReceipt(mergeReceiptRecords(collectActionRecords([
+      { role: "assistant", content: null, tool_calls: [{ id: "t2", function: { name: "report_pdf", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "t2", content: "Not selected: the user did not approve this action." },
+    ] as never, []), []));
+    if (refused !== "") throw new Error("refused calls must NEVER appear in the receipt");
+    const backfilled = actionReceipt(mergeReceiptRecords([], [{ name: "pentest_scan", args: "{}", result: EXECUTED_PLACEHOLDER, prior: true }]));
+    if (!backfilled.includes(EXECUTED_PLACEHOLDER) || !backfilled.includes("(turn sebelumnya)")) {
+      throw new Error("ledger backfill must render as (dieksekusi) + prior tag");
+    }
+    // Prompt rules present in both full + slim prompts.
+    const { buildSystemPrompt, buildSlimSystemPrompt } = await import("./src/lib/agent");
+    if (!buildSystemPrompt().includes("ACTION NARRATION RULE") || !buildSlimSystemPrompt("u").includes("ACTION NARRATION")) {
+      throw new Error("action narration rule missing from full/slim prompt");
+    }
+    console.log("structured action receipt (executed-only lines, refusal-proof, ledger backfill, full+slim prompt rule): OK");
   }
 }
 

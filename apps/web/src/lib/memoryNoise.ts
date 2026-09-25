@@ -125,7 +125,7 @@ export function cleanLines(lines: string[]): string[] {
 export function isInternalTurn(text: string): boolean {
   const t = (text || "").trim();
   if (!t) return false;
-  if (/^\[(?:Percakapan sebelumnya|self-correct|superseded|automation|system)\b/i.test(t)) return true;
+  if (/^\[(?:Percakapan sebelumnya|self-correct|superseded|automation|system|sweep-pentest)\b/i.test(t)) return true;
   if (/terjadwal \(automation\)|\[Scheduled automation\]|laporan terjadwal/i.test(t)) return true;
   return false;
 }

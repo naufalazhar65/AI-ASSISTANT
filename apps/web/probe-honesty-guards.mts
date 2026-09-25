@@ -263,19 +263,38 @@ console.log(`${urlOk ? "✓" : "✗"} TRIAGE: URL+path → perintah pendek 'uji 
 if (!urlOk) fail++;
 
 // ── wiring: semua guard terpasang di runAgent (proof of deployment, bukan cuma pure) ──
+// Match the CALL PREFIX without the closing paren: several guards now take a
+// third `collector.executedCalls` argument, and this check must not rot every
+// time a guard gains a parameter (it silently failed once already — 2026-09-25).
 const agentSrc = readFileSync(join(import.meta.dirname, "src/lib/agent.ts"), "utf8");
 for (const w of [
-  "toolRunClaimSuffix(messages, text)",
-  "verdictInflationSuffix(messages, text)",
-  "numericClaimSuffix(messages, text)",
-  "endpointTriageNote(messages, text)",
-  "composeBuildClaimSuffix(messages, text)",
-  "pdfDeliverableSuffix(messages, text)",
-  "chainRunClaimSuffix(messages, text)",
+  "toolRunClaimSuffix(messages, text",
+  "verdictInflationSuffix(messages, text",
+  "numericClaimSuffix(messages, text",
+  "endpointTriageNote(messages, text",
+  "composeBuildClaimSuffix(messages, text",
+  "pdfDeliverableSuffix(messages, text",
+  "chainRunClaimSuffix(messages, text",
+  "inlineDeliveryClaimNote(text",
+  "targetDriftNote(messages, text",
+  "crossFormatArtifactNote(text",
+  "unrecordedFindingNote(messages, text",
 ]) {
   const wired = agentSrc.includes(w);
-  console.log(`${wired ? "✓" : "✗"} WIRING: ${w}${wired ? "" : " — TIDAK TERPASANG di runAgent!"}`);
+  console.log(`${wired ? "✓" : "✗"} WIRING: ${w})${wired ? "" : " — TIDAK TERPASANG di runAgent!"}`);
   if (!wired) fail++;
+}
+// The ledger must be FED to every truncation-sensitive guard, or the guards go
+// blind again on long turns (live 2026-09-25 10:49 false accusation).
+for (const w of [
+  "toolRunClaimSuffix(messages, text, collector.executedCalls)",
+  "verdictInflationSuffix(messages, text, collector.executedCalls)",
+  "numericClaimSuffix(messages, text, collector.executedCalls)",
+  "endpointTriageNote(messages, text, collector.executedCalls)",
+]) {
+  const fed = agentSrc.includes(w);
+  console.log(`${fed ? "✓" : "✗"} LEDGER-FED: ${w.slice(w.indexOf("(") + 1)}${fed ? "" : " — guard tidak menerima ledger!"}`);
+  if (!fed) fail++;
 }
 
 console.log(`\nRESULT: ${fail === 0 ? "PASS — semua guard jujur dua arah" : `FAIL (${fail} kasus)`}`);

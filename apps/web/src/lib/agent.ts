@@ -36,6 +36,10 @@ import { allowedWorkspaces } from "./users";
 import { clockLabel } from "./time";
 import { readReminders } from "./reminders";
 import { appendDailyMemory } from "./dailyMemory";
+import { readFindings } from "./security";
+import { hostOfUrl } from "./findingGate";
+import { readLedgerForTurn, recordTurnExec } from "./pocRuns";
+import { EXECUTED_PLACEHOLDER, mergeReceiptRecords, stripReceiptBlock } from "./actionReceipt";
 import { metaProseNote } from "./metaProse";
 import { recallContext } from "./rag";
 import { scheduleLinkCapture, isPentestAsk } from "./library";
@@ -46,6 +50,16 @@ import { fixAddressComma } from "./textStyle";
 import { dayRotated } from "./dayRotated";
 import { isProviderRetryable } from "./assistantError";
 import { isInternalTurn } from "./memoryNoise";
+import { isEndpointTestAsk, isListAsk } from "./turnGate";
+// STATIC on purpose. `await import("./policy")` produced a lazy webpack chunk
+// that the dev server referenced from the instrumentation entry but frequently
+// never emitted — the live failure was
+//   Cannot find module './_instrument_src_lib_policy_ts.js'
+// which killed Discord turns with a bare "Terjadi kendala" (twice on
+// 2026-09-25: 10:43 and 11:53). Static import bundles it into the entry, so
+// there is no chunk to lose. policy.ts is small and server-only (node:fs), and
+// agent.ts already pulls in node-backed modules via ./tools.
+import { autoApproveAllowed } from "./policy";
 import { providerChain, markProviderFailure, markProviderHealthy } from "./providerHealth";
 
 export type ContentPart =
@@ -274,7 +288,7 @@ const SYSTEM_PROMPT = [
   + "PENTEST TOOLS: pentest_scan (tool nmap/nuclei/nikto/ffuf; HANYA localhost/lab/RFC1918 atau PENTEST_LAB_TARGETS — target publik DITOLAK, write/confirm; ffuf butuh wordlist), nuclei_custom (nuclei dengan severity/tags/template custom — auto-scan atau -t path sandbox .yaml; scope-gated, write/confirm; severity default critical,high,medium), finding_add (catat temuan Title/Severity/Evidence/Impact/Remediation, read/auto), finding_list, report_generate (laporan markdown). Jalankan lab dulu: docker compose -f labs/pentest/docker-compose.yml up -d." 
   + "LAB: lab_status (cek port lab) + lab_start action=start|stop name=vuln-node (nyalakan target rentan lokal TANPA Docker di 127.0.0.1:4010) — jalankan ini dulu sebelum uji dinamis." 
   + "lab_fetch url=... (GET localhost/lab — lihat respons target lokal untuk verifikasi dinamis XSS/redirect; publik ditolak)." 
-  + "ENGAGEMENT (pentest klien): engagement_create (name, client, authorization, scope[] — host di scope boleh diuji; MINTA KONFIRMASI karena ini yang memberi izin scan), engagement_list, engagement_close. dep_audit (CVE dependency via OSV — npm/pypi; opsi to_findings). hardening_plan (rencana perbaikan prioritas CVSS dari temuan). finding_resolve (tutup temuan), finding_export (csv/json/sarif), cvss_score (hitung CVSS v3.1 ATAU v4.0 dari vektor — pakai vektor yang diminta program). LAB MILIK OWNER (latihan mandiri): setelah `policy_set` (mis. tools=[http_request,content_discover,crawl,js_mine,param_fuzz,poc_verify,ato_prove,finding_add,hunt_log]), probe ke host LAB milik owner jalan TANPA konfirmasi berulang; host engagement/ pihak ketiga TETAP minta konfirmasi (RoE default manual). ATO: kalau sebuah temuan membocorkan kredensial, buktikan takeover-nya dengan `ato_prove` (dan JANGAN pernah menulis password/kredensial mentah di balasan chat — sebut usernya saja; output tool-nya sudah dimask) (login → sesi → halaman terlindungi) SEBELUM finding_add. Larangan yang sama berlaku saat MENGUSULKAN tool call: jangan menulis nilai password di prosa (cukup 'pakai kredensial admin yang tadi'), nilai hanya boleh ada di dalam argumen tool yang menunggu konfirmasi. LAPORAN PER TARGET: `report_generate`/`report_save`/`report_pdf` terima `target` (host/URL) — WAJIB pakai `target=<host>` SETIAP KALI user menyebut satu lab/target tertentu (mis. 'lab Kohona', atau URL-nya); tanpa itu laporan menarik temuan semua target supaya temuan lama dari target lain tidak ikut tercampur (jangan menghapus temuan lama hanya demi membereskan laporan). hardening_pdf (PDF rencana perbaikan), verify_patch (INI untuk 'cek patch/mana yang sudah beres' — bandingkan versi terpasang vs fixed; apply=auto-resolve temuan dep). Jangan pakai dep_audit untuk 'cek patch' (dep_audit = daftar CVE + to_findings). Target non-lab HANYA boleh bila ada engagement AKTIF mencakupnya; di luar scope/out-of-scope DITOLAK. Mia tak bisa verifikasi legalitas izin — sebutkan referensinya. TIER-A: encoding (base64/url/hex/html/rot13), http_request (method/headers/body ke target lab/berizin — uji API), trivy_scan (CVE fs), pentest_scan whatweb/gobuster, exec read-only `tcpdump -r pcap`/`nc -zv host port`/`searchsploit <CVE>`. finding_add terima steps/root_cause/references." 
+  + "ENGAGEMENT (pentest klien): engagement_create (name, client, authorization, scope[] — host di scope boleh diuji; MINTA KONFIRMASI karena ini yang memberi izin scan), engagement_list, engagement_close. dep_audit (CVE dependency via OSV — npm/pypi; opsi to_findings). hardening_plan (rencana perbaikan prioritas CVSS dari temuan). finding_resolve (tutup temuan), finding_export (csv/json/sarif), cvss_score (hitung CVSS v3.1 ATAU v4.0 dari vektor — pakai vektor yang diminta program). LAB MILIK OWNER (latihan mandiri): setelah `policy_set` (mis. tools=[http_request,content_discover,crawl,js_mine,param_fuzz,poc_verify,ato_prove,finding_add,hunt_log]), probe ke host LAB milik owner jalan TANPA konfirmasi berulang; host engagement/ pihak ketiga TETAP minta konfirmasi (RoE default manual). ATO: kalau sebuah temuan membocorkan kredensial, buktikan takeover-nya dengan `ato_prove` (dan JANGAN pernah menulis password/kredensial mentah di balasan chat — sebut usernya saja; output tool-nya sudah dimask) (login → sesi → halaman terlindungi) SEBELUM finding_add. Larangan yang sama berlaku saat MENGUSULKAN tool call: jangan menulis nilai password di prosa (cukup 'pakai kredensial admin yang tadi'), nilai hanya boleh ada di dalam argumen tool yang menunggu konfirmasi. LAPORAN PER TARGET: `report_generate`/`report_save`/`report_pdf` terima `target` (host/URL) — WAJIB pakai `target=<host>` SETIAP KALI user menyebut satu lab/target tertentu (mis. 'lab Kohona', atau URL-nya); tanpa itu laporan menarik temuan semua target supaya temuan lama dari target lain tidak ikut tercampur (jangan menghapus temuan lama hanya demi membereskan laporan). LAPORAN KOSONG: laporan hanya memuat temuan yang SUDAH tercatat — kalau `report_generate` menjawab 'Belum ada temuan terbuka', JANGAN cetak/antar laporan kosong (PDF kosong bukan deliverable): lanjutkan pengujian dulu (uji endpoint yang ditemukan sweep, `poc_verify` untuk yang mencurigakan, lalu `finding_add`), baru buat laporannya. Pengujian tanpa `finding_add` = laporan kosong. hardening_pdf (PDF rencana perbaikan), verify_patch (INI untuk 'cek patch/mana yang sudah beres' — bandingkan versi terpasang vs fixed; apply=auto-resolve temuan dep). Jangan pakai dep_audit untuk 'cek patch' (dep_audit = daftar CVE + to_findings). Target non-lab HANYA boleh bila ada engagement AKTIF mencakupnya; di luar scope/out-of-scope DITOLAK. Mia tak bisa verifikasi legalitas izin — sebutkan referensinya. TIER-A: encoding (base64/url/hex/html/rot13), http_request (method/headers/body ke target lab/berizin — uji API), trivy_scan (CVE fs), pentest_scan whatweb/gobuster, exec read-only `tcpdump -r pcap`/`nc -zv host port`/`searchsploit <CVE>`. finding_add terima steps/root_cause/references." 
   + "ZAP: zap_scan (OWASP ZAP baseline via Docker) untuk web target lab (localhost). Recon pasif juga: exec `dig`, `whois`, `nslookup` (keyless)." 
   + "RECON (attack surface): recon_subdomains (PASIF via CT crt.sh/hackertarget — read/auto, domain apa pun), recon_params (PASIF URL+query-param dari arsip publik OTX/urlscan/Wayback — read/auto, menandai param menarik id/redirect/url/file untuk uji IDOR/SSRF/LFI), recon_list (ringkasan cache, read/auto). recon_httpx (probe AKTIF host hidup via HTTP/HTTPS) HANYA lab/engagement/PENTEST_LAB_TARGETS — write/confirm. Alur: recon_subdomains (isi cache) → recon_httpx (host hidup) → recon_params → exposure_hunt url=<origin> (sapu .git/.env/backup/API-docs/Spring-Actuator/dir-listing, GET-only, LEAD vs info) → uji manual di URL berizin → finding_add. Jalan pintas: recon_full target=<url> menjalankan seluruh alur di atas dalam SATU konfirmasi (output dipotong jujur per tahap). ID rentang: idor_enum url=<url dengan {id}> session_a/b (hitung konkrit n/20, stop 5 hit). Host-header: host_header_hunt url=<origin> (+reset_url/email untuk reset-poisoning). Sumber keyless, semua output dibatasi." 
   + "SECURITY METHODOLOGY (WAJIB, meniru disiplin Strix): sebelum menguji/menilai, muat playbook relevan via security_playbook (75 pack; name=… atau query=…). WORKFLOW besar: application-security-testing (audit seluruh produk: map aset→tes per aset→1 rencana prioritas), owasp-top-10-testing (OWASP Top 10:2025, tabel coverage jujur), api-security-testing (OWASP API Top 10:2023, BOLA butuh 2 tenant), whitebox-code-review (source→sink, static=belum terkonfirmasi), fix-and-verify (root cause+retest), source-aware-whitebox (triage statis→validasi), scan-modes (quick/standard/deep/diff). SEBELUM finding_add: (1) pass counterevidence — cari kontrol yang mencegah dan bukti aman yang bisa dinamai; (2) severity-calibration — jangan inflate high/critical, turunkan bukan hapus; (3) kalau tak bisa confirm TAPI tak bisa menutup dengan kontrol tertentu → tandai NEEDS_FOLLOW_UP, jangan diam-diam dibuang. SETELAH patch: fix-verification (retest membuktikan exploit mati). White-box kode sendiri: sast_scan (semgrep: p/default + p/secrets) lalu trace source→sink. Setelah recon_subdomains: recon_takeover untuk kandidat CNAME layanan terlantar (verifikasi belum diklaim sebelum menyimpulkan). Target aktif hanya lab/engagement/PENTEST_LAB_TARGETS; jangan pakai marker/identitas yang bisa dilacak di payload." 
@@ -284,7 +298,7 @@ const SYSTEM_PROMPT = [
   + "MULTI-COMMAND RULE (WAJIB): bila user mengirim BEBERAPA baris perintah tool sekaligus (mis. beberapa `http_request`, `api_spec`, `hunt_log`), panggil SEMUA tool itu pada giliran yang sama — jangan hanya sebagian. Bila ada yang benar-benar tak bisa dijalankan, sebutkan eksplisit mana yang dilewati dan alasannya (jangan diam-diam menghilang)."
   + "COMMAND-LINE OBEDIENCE (WAJIB): bila pesan user berisi BARIS PERINTAH TOOL eksplisit (pola `nama_tool arg=…`, mis. `graphql_probe url=…` atau `http_request method=POST url=… body=…`), panggil PERSIS tool itu dengan argumen tersebut — JANGAN menggantinya dengan hunt_log/engagement_list/automation_list atau merangkum status, dan JANGAN menghilangkan salah satu. Setelah hasilnya ada, jawab ringkas dari data itu; jangan memanggil tool status tambahan tanpa diminta."
   + "PERSONA MEMORY: 'apa yang kamu ingat tentang aku?' → persona_show; 'ingat ini/ingat ya: X' → persona_set (key+value); 'lupakan soal X' → persona_forget. Fakta dikelola kanonik (favorite_food == preference.food; nilai terbaru menang, lama masuk riwayat) dan rahasia/token/OTP DITOLAK — jangan pernah menyimpan kredensial sebagai fakta."
-  + "FINDING RULES (WAJIB): sebelum finding_add untuk lead yang bisa di-replay, jalankan poc_verify (N× + expect_status/expect_contains + baseline kontrol) — jangan laporkan yang tidak stabil/deterministik. permintaan 'catat temuan / simpan finding / finding_add / catat X' → panggil `finding_add` LANGSUNG (bukan finding_list dulu; finding_list hanya bila user minta DAFTAR temuan — pengecualian: SEBELUM menguji target, `finding_list target=<host>` WAJIB diam-diam sebagai konteks, tapi output mentahnya TIDAK boleh menggantikan balasan kecuali user memang minta daftarnya). Tulis `cvss` saja bila tahu — jangan menebak `severity` terpisah (severity diturunkan otomatis dari CVSS). Map kategori ke **OWASP Top 10:2025** (Injection=A05:2025, Broken Access Control=A01:2025, Security Misconfiguration=A02:2025, Authentication Failures=A07:2025) dan labeli edisinya, kecuali user minta edisi lain. 'bikin laporan' → report_generate lalu report_pdf. PENTING: kalau user minta 'pdf'/'pdfnya' → `report_pdf` WAJIB — `report_save` HANYA menulis .md dan TIDAK menggenapi permintaan PDF; jangan antar file .md seolah sudah jadi PDF." 
+  + "FINDING RULES (WAJIB): sebelum finding_add untuk lead yang bisa di-replay, jalankan poc_verify (N× + expect_status/expect_contains + baseline kontrol) — jangan laporkan yang tidak stabil/deterministik. permintaan 'catat temuan / simpan finding / finding_add / catat X' → panggil `finding_add` LANGSUNG (bukan finding_list dulu; finding_list hanya bila user minta DAFTAR temuan — pengecualian: SEBELUM menguji target, `finding_list target=<host>` WAJIB diam-diam sebagai konteks, tapi output mentahnya TIDAK boleh menggantikan balasan kecuali user memang minta daftarnya). Tulis `cvss` saja bila tahu — jangan menebak `severity` terpisah (severity diturunkan otomatis dari CVSS). Map kategori ke **OWASP Top 10:2025** (Injection=A05:2025, Broken Access Control=A01:2025, Security Misconfiguration=A02:2025, Authentication Failures=A07:2025) dan labeli edisinya, kecuali user minta edisi lain. 'bikin laporan' → report_generate lalu report_pdf. PENTING: kalau user minta 'pdf'/'pdfnya' → `report_pdf` WAJIB — `report_save` HANYA menulis .md dan TIDAK menggenapi permintaan PDF; jangan antar file .md seolah sudah jadi PDF. Kalau user minta 'markdown'/'md'/'file laporan' → `report_save` (itu yang BENAR-BENAR menulis file .md dan memberi path); `report_generate` hanya mengembalikan teks panjang di hasil tool yang TIDAK muat di satu pesan channel — jangan lalu bilang 'sudah tercatat di atas' karena isinya tidak pernah terkirim. KONTROL MENGGERBANG VERDICT: kalau poc_verify balas '⛔ TIDAK ADA SINYAL' (respons payload IDENTIK dengan baseline), artinya payload TIDAK mengubah apa pun → BUKAN temuan: jangan finding_add, jangan mengulang poc yang sama, dan JANGAN menghapus baseline untuk 'membuatnya lolos' — cari payload/differential yang benar-benar membedakan (untuk bukti blind, pakai oast_poll/blind_cmdi). '⚠️ deterministik saja' = pengulangan bukan bukti, tambahkan expect_status/expect_contains. '🔄 POC ULANG STABIL' = bukti REPRODUKSI langkah, BUKAN bukti kerentanan. Bandingkan body, bukan cuma status: BOLA asli sering 200 di kedua sisi dengan isi berbeda. GERBANG finding_add: temuan HIGH/CRITICAL kelas injection akan DITOLAK kalau endpoint itu tidak punya run poc_verify berstatus ✅ (atau run terakhirnya justru ⛔) — kalau ditolak, JANGAN mengulang finding_add dan JANGAN menghapus baseline; jalankan poc_verify dulu dengan payload + kontrol yang benar, atau sebutkan bukti OOB/browser/socket-mu (oast_poll/dom_xss_prove/smuggle_probe) di evidence." 
   + "BUG BOUNTY (program publik: Bugcrowd/HackerOne/YesWeHack/Intigriti — aset in-scope BERIZIN lewat safe harbor): MIA BOLEH bekerja di sini. Langkah: (1) minta host **in-scope** + **out-of-scope** + **URL policy/terms**; (2) sarankan `engagement_create` (authorization=URL program, scope=[host in-scope], out_of_scope=[...]) supaya tool aktif (http_request/pentest_scan/nuclei_custom/sqlmap/recon_httpx) boleh jalan ke host itu; (3) PATUHI RoE: HANYA host in-scope, **default MANUAL + rate-limit** — JANGAN pakai scanner otomatis (nmap/nuclei/ffuf/sqlmap/zap_scan) KECUALI RoE/aturan program mengizinkannya (TANYA dulu), DILARANG DoS/stress/destructive, mengakses data user lain, dan social engineering bila RoE melarang; pakai akun uji; (4) alur temuan: recon pasif (recon_subdomains/recon_params) → web_audit/lab_fetch/http_request manual → finding_add (evidence+steps+impact+remediation) → report_generate/report_pdf, dan tulis sesuai format platform (Title/Severity/Steps/Evidence/Impact/Remediation). Kalau user menyebut platform LATIHAN (TryHackMe/HTB/PortSwigger), tetap arahkan ke pentest_resources & jangan diotomasi. PENTING (ATURAN KERAS): SEBELUM menolak/menahan karena alasan scope, WAJIB panggil `engagement_list` DAN `pentest_resources`, lalu cocokkan host target. Host BERIZIN bila: (a) ada di `scope` engagement AKTIF, ATAU (b) terdaftar sebagai LAB MILIK OWNER di `pentest_resources` (env PENTEST_LAB_TARGETS — termasuk lab publik milik owner seperti Netlify; TIDAK butuh engagement), ATAU (c) localhost/RFC1918/`PENTEST_LAB_TARGETS`. Untuk (a)/(b)/(c) LANGSUNG jalankan tool ber-scope (`lab_fetch`, `http_request`, `web_audit`, `content_discover`, `crawl`, `js_mine`, `recon_*`, `param_*`, `browser_open`) TANPA ragu. JANGAN pernah mengarang 'belum ada engagement yang mencakup' bila `engagement_list`/`pentest_resources` menunjukkannya ADA, dan JANGAN menolak lab milik owner (mis. Netlify pribadi) hanya karena tidak ada engagement — cek daftar lab dulu. Status 'pihak ketiga'/'vendor' BUKAN alasan menolak bila host tercantum di scope program (contoh: `checkout.webmd.com` ada di engagement Internet Brands → boleh diuji). Kalau ragu soal aturan vendor/out-of-scope, sebutkan sebagai catatan RoE & tetap lanjut membaca/uji pasif — bukan menolak total. Aturan sandbox-only (mis. Rapyd) hanya membatasi API pembayaran (api.rapyd.net), BUKAN web testing host in-scope." 
   + "HIGH-VALUE BOUNTY TOOLS: (1) BLIND/OOB — `oast_create` (dapat callback URL webhook.site) → sisipkan URL ke payload (SSRF URL param, blind XSS <script src>, XXE entity, RCE/SSTI) → kirim via http_request/lab_fetch → `oast_poll` (hit = bukti out-of-band; hit BARU juga didorong OTOMATIS ke channel owner oleh watcher ~5 menit, teratribusi ke probe pengirim di http_history — callback yang datang belakangan tidak perlu menunggu `oast_poll`). Ini satu-satunya cara membuktikan blind SSRF/RCE. (2) AUTH/BOLA — `http_session action=set name=A cookie=…` (dan B untuk akun kedua); `http_request ... session=A save_session=A` untuk login/authed; `bola_diff url=… session_a=A session_b=B` membandingkan respons dua identitas (identik 200 = indikasi BOLA/IDOR). (3) CONTENT DISCOVERY — `content_discover url=…` (robots/sitemap/link/endpoint JS/path umum). Alur bounty: recon → content_discover → http_session A/B → http_request/bola_diff → oast_create→payload→oast_poll → finding_add → report. (4) `param_fuzz url=…` — inject payload XSS/SQLi/SSTI/redirect/cmdi/xpath/ldap/xslt ke tiap param, flag reflection/error/eval/timing (opsi `callback`=URL OAST untuk kelas ssrf); SSTI kena → `ssti_enum` untuk identifikasi engine. (5) `jwt_attack` — decode/forge alg:none/HS256/alg-confusion/crack secret lemah, lalu uji token via http_request. (6) `evidence_capture url=… request={…}` — simpan screenshot + raw HTTP ke reports/evidence/ untuk lampiran laporan." 
   + "BOUNTY WORKFLOW LENGKAP: (1) saat user menyebut program (Bugcrowd/HackerOne/…), minta/minta-tempel daftar Targets → `scope_import` (text=… atau url=…) → sarankan `engagement_create` (verifikasi manual). (2) `crawl url=…` enumerasi path/form/JS same-origin. (3) `param_discover url=…` cari param tersembunyi → `param_fuzz` kandidatnya. (4) `recon_diff domain=…` tandai aset BARU sejak run terakhir (prioritaskan — aset baru = bug baru). (5) `recon_screenshot domain=…` visual recon host hidup. Urutan rutin: scope_import → engagement_create → recon_subdomains → recon_httpx → recon_diff → crawl → js_mine/api_spec/graphql_probe → param_discover/param_fuzz → http_session/bola_diff/request_save/request_run → oast → jwt_attack → evidence_capture → finding_add → platform_severity → report." 
@@ -319,7 +333,7 @@ const SYSTEM_PROMPT = [
   "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. Present the returned list as one email per line.",
   "save_note, delete_note, library_remove, memory_hygiene, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan, lab_start, engagement_create, http_request, cache_decep, nosql_hunt, blind_ssrf, cua_keys, cua_mouse, clipboard_set, write_file, edit_file, browser_click, browser_type, browser_navigate, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_tab, browser_use_close, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, brv_curate, brv_swarm_curate, brv_review_approve, brv_review_reject, summarize_template, freeride_auto, freeride_switch, freeride_rotate, auto_update, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
-  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, browser_eval, browser_use_open, browser_use_state, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_wait, browser_use_doctor, mac_open, cua_pointer, clipboard_get, cua_desktop, cua_screen, security_scan, secret_scan, tls_check, breach_check, pentest_resources, finding_add, finding_list, report_generate, report_save, report_pdf, lab_status, lab_fetch, recon_subdomains, recon_params, recon_list, recon_takeover, recon_diff, recon_dnsbrute, scope_import, api_spec, cve_intel, request_save, platform_severity, submission_track, csp_audit, http_history, oast_dns_create, oast_dns_poll, oast_dns_stop, oast_dns, oast_create, oast_poll, oast_stop, dns_audit, http_session, tamper_script, hunt_log, engagement_targets, cdp_status, tech_watch, policy_show, flow_list, program_score, dup_check, bounty_status, writeup, persona_show, jwt_attack, encoding, trivy_scan, sast_scan, security_playbook, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, git_status, safe_exec_list, cua_doctor, cua_list_apps, cua_window_state, cua_browser_state, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_review, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_refresh, freeride_watcher, auto_update_status, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away. git_commit, cua_launch, cua_click, cua_type, cua_start_session, cua_browser_click, cua_browser_type, engagement_create, recon_httpx, content_discover, crawl, param_discover, recon_screenshot, recon_ports, bucket_enum, js_mine, graphql_probe, request_run, cors_audit, rapyd_request, security_hunt, suite_hunt, auth_hunt, api_hunt, cloud_misconfig, policy_set, flow_run, campaign_run, bounty_run, exploit_chain, vuln_compose, exploit_build, auth_setup, exposure_hunt, oauth_hunt, persona_set, persona_forget, bola_diff, poc_verify, csrf_prove, mass_assignment, upload_fuzz, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, cdp_proxy, cdp_request, cdp_eval, cdp_open, param_fuzz, evidence_capture, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan and http_request WILL wait for confirmation. When you propose tool calls (user replies 'ya'/'tidak' next), write ONLY the short proposal + one-line reason each — NEVER a final conclusion, finding verdict, file path, or receipt in the proposing turn; those are narrated AFTER approval, from real results.",
+  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, browser_eval, browser_use_open, browser_use_state, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_wait, browser_use_doctor, mac_open, cua_pointer, clipboard_get, cua_desktop, cua_screen, security_scan, secret_scan, tls_check, breach_check, pentest_resources, finding_add, finding_list, report_generate, report_save, report_pdf, lab_status, lab_fetch, recon_subdomains, recon_params, recon_list, recon_takeover, recon_diff, recon_dnsbrute, scope_import, api_spec, cve_intel, request_save, platform_severity, submission_track, csp_audit, http_history, oast_dns_create, oast_dns_poll, oast_dns_stop, oast_dns, oast_create, oast_poll, oast_stop, dns_audit, http_session, tamper_script, hunt_log, engagement_targets, cdp_status, tech_watch, policy_show, flow_list, program_score, dup_check, bounty_status, writeup, persona_show, jwt_attack, encoding, trivy_scan, sast_scan, security_playbook, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, git_status, safe_exec_list, cua_doctor, cua_list_apps, cua_window_state, cua_browser_state, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_review, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_refresh, freeride_watcher, auto_update_status, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away. git_commit, cua_launch, cua_click, cua_type, cua_start_session, cua_browser_click, cua_browser_type, engagement_create, recon_httpx, content_discover, crawl, param_discover, recon_screenshot, recon_ports, bucket_enum, js_mine, graphql_probe, request_run, cors_audit, rapyd_request, security_hunt, suite_hunt, auth_hunt, api_hunt, cloud_misconfig, policy_set, flow_run, campaign_run, bounty_run, exploit_chain, vuln_compose, exploit_build, auth_setup, exposure_hunt, oauth_hunt, persona_set, persona_forget, bola_diff, poc_verify, csrf_prove, mass_assignment, upload_fuzz, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, cdp_proxy, cdp_request, cdp_eval, cdp_open, param_fuzz, evidence_capture, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan and http_request WILL wait for confirmation. When you propose tool calls (user replies 'ya'/'tidak' next), write ONLY the short proposal + one-line reason each — NEVER a final conclusion, finding verdict, file path, or receipt in the proposing turn; those are narrated AFTER approval, from real results. ACTION NARRATION RULE: never state in your own words that an action was executed, saved, run, tested, or sent — never write 'sudah aku jalankan/jalankan/eksekusi/simpan/uji/tes' about an ACTION (not about knowledge or feelings). The system appends an authoritative 'Aksi yang benar-benar dijalankan' receipt listing every executed action; your prose adds context and next steps only. If an action failed or was skipped, say honestly what failed and why — but the execution record itself comes from the receipt, not from you.",
   "Tool results come from the server and should be trusted as fresh information.",
   "If a tool returned an Error, tell the user plainly what failed and what to do — never reply 'Selesai.'/'done' or invent an outcome the tool did not report.",
   "For nuclei_custom: severity default is critical,high,medium — pass severity \"critical,high\" to narrow; tags like \"xss,sqli,cve\"; templates is a sandbox path to a custom .yaml/dir (e.g. labs/pentest/nuclei-templates/cve-2024.yaml). Without templates it runs auto-scan (-as).",
@@ -385,12 +399,12 @@ export const SLIM_SYSTEM_PROMPT = [
   "TIME: you always know the current time (injected below) — phrase schedule talk relative to it; a bare time like 'jam 3 sore' means TODAY (or TOMORROW if passed). Never invent a date. ",
   "For remind_me, ALWAYS use the current date below. NEVER call remind_me unless the user explicitly asks ('ingetin aku jam X', 'bangunin aku'). Casual musings get a natural answer, never an unprompted reminder. ",
   "SCOPE (pentest, ethical, OWN/authorized only): active probing ONLY on (1) an ACTIVE engagement's in-scope hosts, or (2) the owner's lab list, or (3) localhost/RFC1918. Anything else → refuse briefly + suggest engagement_create. Public bug-bounty programs are authorized via safe harbour (ask in-scope/out-of-scope + policy URL first). ",
-  "PENTEST FLOW: recon (recon_subdomains/recon_httpx/js_mine) → hunt (security_hunt/suite_hunt) → probe (http_request, one endpoint at a time) → prove (poc_verify N× + baseline) → record (finding_add with cvss) → report. Never report what is not stable/deterministic. Prover yields a signal/candidate (not PROVEN) → load security_playbook name=reading-prover-results before narrating: 5 verdict classes, narrative must match the verdict class, upgrade only via poc_verify/retest_run, 'no signal' ≠ 'safe'. ",
+  "PENTEST FLOW: recon (recon_subdomains/recon_httpx/js_mine) → hunt (security_hunt/suite_hunt) → probe (http_request, one endpoint at a time) → prove (poc_verify N× + baseline; the control GATES the verdict — payload byte-identical to baseline = ⛔ no signal, never confirmed; an injection-class HIGH/CRITICAL without a confirming run IS refused by finding_add, so re-run poc_verify rather than repeating finding_add) → record (finding_add with cvss) → report. Never report what is not stable/deterministic. Prover yields a signal/candidate (not PROVEN) → load security_playbook name=reading-prover-results before narrating: 5 verdict classes, narrative must match the verdict class, upgrade only via poc_verify/retest_run, 'no signal' ≠ 'safe'. ",
   "SWEEP: user asks full/menyeluruh → do NOT ask which part first; enumerate endpoints from fetched pages/JS, test one by one, poc_verify the suspicious, finding_add each, continue to the next. NEVER end a pentest turn with a direction question when a concrete step exists — execute the first step; ask only for truly missing input (credentials, target choice). ",
   "CONTEXT: before testing a target, call finding_list target=<host> silently for context — but raw list output only replaces the reply when the user actually ASKED for a list. ",
   "FINDING RULES: finding_add LANGSUNG on explicit record asks (never finding_list first); `cvss` only, severity derives automatically. ",
   "CHAINS: di provider ini (window kecil) exploit_chain/auth_setup TIDAK ter-delivery — JANGAN memanggilnya; lakukan alur manual: http_request per endpoint → poc_verify yang mencurigakan → finding_add tiap temuan → finding_list untuk ringkasan. Bila user menyebut chain race/graphql/open_redirect, kerjakan manual setara (race: N http_request paralel + bandingkan digest; redirect: cek header Location eksternal; graphql: introspection via http_request POST). ",
-  "HONESTY (hard): never claim a tool ran unless its result is in this turn; never quote a file path (report-*.pdf, *-exploit.*) that was not created this turn; a skipped/errored chain is NEVER 'tested'; PDFs are made by the system when asked — say so positively, never 'PDF tidak aktif'. ",
+  "HONESTY (hard): never claim a tool ran unless its result is in this turn; never quote a file path (report-*.pdf, *-exploit.*) that was not created this turn; a skipped/errored chain is NEVER 'tested'; PDFs are made by the system when asked — say so positively, never 'PDF tidak aktif'. ACTION NARRATION: never state that an action was executed/saved/run/tested in your own words — the system appends the authoritative 'Aksi yang benar-benar dijalankan' receipt; your prose adds context only. ",
   "CONFIRM: proposing a risky tool pauses for the user's 'ya'/'tidak' — do NOT claim its effect before approval. Batch several calls in ONE turn when independent. ",
   "LISTS: findings/steps/options = one item per line (numbered), never one paragraph. ",
   "ERRORS: a tool Error means plain words about what failed + what to do — never silent, never fabricated success. ",
@@ -1105,6 +1119,50 @@ interface TurnCollector {
   suppressVerbatim?: boolean;
   /** spotify_* tools that already ran this turn (risk `read`) — dedupe key. */
   spotifyCallsExecuted?: Set<string>;
+  /**
+   * Every tool call DECLARED + executed this turn, independent of context
+   * truncation. The honesty guards read `messages`, but on a long turn
+   * buildSummarizedMessages() collapses older messages into a prose summary
+   * that carries no `tool_calls` — so a guard would conclude "the endpoint was
+   * never touched" while browser_open/fetch_url demonstrably ran (live
+   * 2026-09-25 10:49: 8 tools ran, guard still printed "tidak menyentuh /cek-nik
+   * sama sekali"). This ledger is the single source of truth for "did we
+   * actually do it this turn"; pure, truncation-immune, unit-tested.
+   */
+  executedCalls?: Array<{ name: string; args: string; executed: boolean; prior?: boolean; at?: Date }>;
+}
+
+/**
+ * Record that a tool call REALLY ran this turn, in the truncation-immune
+ * ledger. One helper so every execution site records the same shape and no
+ * path can drift. Refusal placeholders (out-of-delivery-window, Not selected,
+ * Auto-declined) are NOT executions and must not be recorded as such.
+ */
+function recordExecuted(
+  collector: TurnCollector,
+  call: { name?: string; arguments?: string; args?: string } | null | undefined,
+  rawUser?: unknown
+): void {
+  if (!call?.name) return;
+  // Two call shapes reach this site: gateway ToolCalls carry `arguments`, the
+  // sweep's internal calls carry `args` (live 19:30: sweep entries landed in
+  // the side ledger with args="" because only `arguments` was read — the
+  // receipt then showed argument-less lines the model went on to imitate).
+  const args = String(call.arguments ?? (call as { args?: string }).args ?? "");
+  (collector.executedCalls ??= []).push({ name: call.name, args, executed: true, prior: false });
+  // Side-ledger mirror: the in-memory ledger dies with its turn, but a turn that
+  // pauses on a confirmation hands the reply to a SECOND runAssistantTurn call
+  // with a fresh collector (live 15:25: the sweep's real contact with /cek-nik
+  // became invisible across that boundary → a false zero-contact accusation).
+  // The mirror lets the next turn replay the truth (only REAL executions get
+  // here — refusals never do). rawUser is threaded by the callers that have it;
+  // when absent the mirror is skipped (pure in-memory behaviour unchanged).
+  // Fire-and-forget: never break the turn on an I/O hiccup.
+  try {
+    if (rawUser !== undefined) recordTurnExec(rawUser, call.name, args);
+  } catch {
+    /* best-effort */
+  }
 }
 
 // ── Verbatim list fast-path gate ──────────────────────────────────────────────
@@ -1116,14 +1174,9 @@ interface TurnCollector {
 // into the next message).
 
 /** Words that make a message a LIST/status question. */
-const LIST_ASK_RE = /\b(apa(?:\s+aja|\s+saja)?|daftar|list|cek|lihat|tampilkan|tunjuk(?:kan)?|show|berapa|gimana|bagaimana|status|reminder|pengingat|tugas|task|todo|catatan|note|jadwal|agenda|calendar|file|upload|dokumen|plan|rencana|automation|otomatis|skill|kemampuan|email|gmail|inbox|berita|news|hotel|film|bioskop|kereta|bus|mood|memory|memori)\b/i;
-
-/** Words that make a message a SET/CHANGE request (not a list request). */
-const SET_VERB_RE = /\b(tambah|tambahin|bikin|buat|set|pasang|jadwalin|ingetin|ingatkan|inget|ingat|schedule|add|simpan|catat|hapus|batal|cancel|ganti|ubah|move|pindah|matiin|matikan)\b/i;
-
-/** "apa aja / daftar / lihat / cek" — an explicit ask to SEE the list, which wins
- *  over a set verb ("ingetin…, reminder apa aja yang aktif?"). */
-const EXPLICIT_LIST_RE = /\b(apa(?:\s+aja|\s+saja)?|daftar|list|lihat|cek|tampilkan|tunjuk(?:kan)?|show)\b/i;
+// LIST_ASK_RE / SET_VERB_RE / EXPLICIT_LIST_RE / ENDPOINT_TEST_VERB_RE now
+// live in ./turnGate (single owner shared with endpointTriageNote) — live
+// 2026-09-25 10:31 showed the two consumers drifting apart.
 
 /**
  * Tools whose raw output only replaces the reply when the user actually ASKED
@@ -1177,32 +1230,14 @@ const PERSONAL_LIST_TOOLS = new Set([
  */
 export function userAskedForList(toolName: string, userText: string): boolean {
   if (!PERSONAL_LIST_TOOLS.has(toolName)) return true;
-  const raw = (userText || "").trim();
-  if (!raw) return false;
+  if (!userText || !userText.trim()) return false;
   // Endpoint-test asks are never list requests: "cek /login rentan?" contains
   // the list word "cek", but letting finding_list (or any list tool) hijack
   // verbatim would END the turn — the endpoint is never tested and every
-  // honesty suffix is skipped (live 2026-09-23 11:34). Pure list asks without
-  // test verbs ("temuan apa aja di /api/x") still hijack normally.
-  const testPaths = (raw.match(/(?:\/[A-Za-z0-9_.\-~%]+)+/g) || []).filter(
-    (p) => p.length > 1 && /\/[A-Za-z0-9]/i.test(p)
-  );
-  if (
-    testPaths.length &&
-    /\b(rentan|uji|vulnerable|vuln|scan|periksa|audit|pentest)\b/i.test(raw)
-  ) {
-    return false;
-  }
-  // URLs are not prose: "cek" inside https://host/cek-nik must not count as a
-  // list word (live 2026-09-25 02:11 — the target URL /cek-nik matched \bcek\b,
-  // ALSO satisfied EXPLICIT_LIST_RE, overrode the set verb "buat"kan, and let
-  // finding_list hijack a full-pentest+PDF ask into a stale findings dump with
-  // zero probes). Strip URLs before list-gate matching; legit list words
-  // outside the URL survive ("temuan apa aja di https://h/cek-nik" still lists).
-  const text = raw.replace(/https?:\/\/\S+/gi, " ").trim();
-  if (!LIST_ASK_RE.test(text)) return false;
-  if (SET_VERB_RE.test(text) && !EXPLICIT_LIST_RE.test(text)) return false;
-  return true;
+  // honesty suffix is skipped (live 2026-09-23 11:34). URLs are stripped and a
+  // single test-verb vocabulary is applied (./turnGate) so the same ask is
+  // classified identically here and in endpointTriageNote.
+  return isListAsk(userText, { askGate: true });
 }
 
 /**
@@ -1332,7 +1367,6 @@ async function runAgent(
   // answer instead of stalling on an unattended confirmation. A per-engagement
   // policy may auto-approve a vetted subset (never delete/transaction/external,
   // and only for URLs inside the active engagement/lab).
-  const { autoApproveAllowed } = await import("./policy");
   const { targetAllowed } = await import("./security");
   const isAutoApproved = (call: ToolCall): boolean => {
     const def = getTOOLS().find((t) => t.function.name === call.name);
@@ -1357,6 +1391,7 @@ async function runAgent(
       const safeCalls = toolCalls2.filter((c) => !risky.includes(c));
       for (const call of safeCalls) {
         const content = await executeTool(call, user, toolCtx);
+        recordExecuted(collector, call, user);
         messages.push({ role: "tool", tool_call_id: call.id, content });
         if (/^error:/i.test(content.trim())) {
           try {
@@ -1382,6 +1417,7 @@ async function runAgent(
     const autoDenied = toolCalls2.filter((c) => !risky.includes(c));
     for (const call of autoDenied) {
       const content = await executeTool(call, user, toolCtx);
+      recordExecuted(collector, call, user);
       messages.push({ role: "tool", tool_call_id: call.id, content });
       if (/^error:/i.test(content.trim())) {
         try { addCorrection(`${call.name} ${call.arguments.slice(0,120)}`, `Error: ${content.slice(0,200)} → use correct tool/args with delivery`, user); appendDailyMemory(user, `[self-correct] ${call.name} failed: ${content.slice(0,200)}`); logError({ skill: call.name, summary: `${call.name} failed in autoDenyRisky`, error: content.slice(0, 800), context: `args ${call.arguments.slice(0,200)}`, relatedFiles: ["apps/web/src/lib/agent.ts"] }); } catch { /* best-effort */ }
@@ -1426,6 +1462,7 @@ const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan",
       if (done.has(vcall.name)) continue;
       done.add(vcall.name);
       const content = await executeTool(vcall, user, toolCtx);
+      recordExecuted(collector, vcall, user);
       if (!/^error:/i.test(content.trim())) {
         collector.verbatimHit = true;
         collector.collect(
@@ -1435,6 +1472,7 @@ const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan",
         );
         for (const other of toolCalls2.filter((c) => !VERBATIM_LIST.has(c.name))) {
           const oc = await executeTool(other, user, toolCtx);
+          recordExecuted(collector, other, user);
           messages.push({ role: "tool", tool_call_id: other.id, content: oc });
           // Surface sibling output too — a list + another read tool (e.g.
           // list_uploads + read_upload) must not silently drop the read result.
@@ -1451,6 +1489,7 @@ const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan",
   }
   for (const call of toolCalls2) {
     let content = await executeTool(call, user, toolCtx);
+    recordExecuted(collector, call, user);
     // When web_search returns "No results found." for a search query, add
     // guidance so the model stops retrying the same tool — otherwise it
     // keeps calling web_search until MAX_TOOL_ROUNDS exhaustion.
@@ -2625,14 +2664,38 @@ export function lastInstructionText(messages: ChatMessage[]): string {
     const t = messageText(m.content || "").trim();
     if (!t) continue;
     if (ACK_ONLY_RE.test(t)) continue;
+    // Internal carriers (rolling summary, [sweep-pentest], self-correct, …) are
+    // NOT the user's instruction. Live 2026-09-25 11:53: the compulsory sweep
+    // appends its findings as a user message, which then shadowed the real ask —
+    // so `askedMd`/`askedPdf` detection failed, no markdown receipt was
+    // delivered, and a fabricated ".pdf" path shipped unchallenged.
+    if (isInternalTurn(t)) continue;
     return t;
   }
   return "";
 }
 
+/**
+ * The messages belonging to the CURRENT logical turn: everything from the last
+ * user message onward. One owner for "what happened in THIS turn", so no guard
+ * can be fooled by older turns sitting in the channel's rolling history.
+ *
+ * Live 2026-09-25 11:37: the guard scanned the whole history, saw the 11:02
+ * turn's `http_request /api/cek-nik`, and stayed silent while the turn itself
+ * ran zero probes. In a confirm continuation the pending transcript still ends
+ * with the original ask (the "ya" arrives as `confirm_calls`, not as a
+ * message), so round-1 tool calls remain inside the window.
+ */
+export function turnWindow<T extends { role?: string }>(messages: T[]): T[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") return messages.slice(i + 1);
+  }
+  return messages;
+}
+
 /** Did an assistant tool_calls message of this turn declare `name`? Pure — tested. */
 export function turnRanTool(messages: ChatMessage[], name: string): boolean {
-  for (const m of messages) {
+  for (const m of turnWindow(messages)) {
     if (m.role === "assistant" && m.tool_calls) {
       for (const tc of m.tool_calls) if (tc.function.name === name) return true;
     }
@@ -2733,9 +2796,393 @@ async function tryDeliverReportPdf(messages: ChatMessage[], rawUser: unknown, ch
     if (!file) return "";
     if (channel === "voice") return " (PDF-nya sudah kubuat — cek folder laporanmu ya.)";
     return ` (📎 PDF-nya sudah kubuat: \`${file}\` — cek folder laporanmu ya.)`;
-  } catch {
+  } catch (e) {
+    // Live 2026-09-25 drill: a 0-finding "report" rendered as a clean 1-page
+    // PDF and the suffix claimed success. An EMPTY report is not a deliverable
+    // — say so honestly and name the missing step (finding_add), instead of
+    // shipping an empty artifact (security.ts throws EMPTY_REPORT for this).
+    if (e instanceof Error && e.message.includes("EMPTY_REPORT")) {
+      return channel === "voice"
+        ? " (Laporannya belum bisa kubuat — belum ada temuan tercatat. Kita uji dulu, nanti kucatat hasilnya ya.)"
+        : " (📎 Laporan PDF belum dibuat — belum ada temuan yang tercatat untuk target ini. Bilang \"lanjut\" kalau mau aku uji dulu dan catat temuannya, baru laporannya dibuat.)";
+    }
     return "";
   }
+}
+
+/**
+ * Deterministic MARKDOWN delivery — the mirror of tryDeliverReportPdf. Live
+ * 2026-09-25 11:05: "buatkan report markdown nya" ran only `report_generate`,
+ * which returns an ephemeral 14.9 KB string that CANNOT fit a Discord message
+ * (2000-char limit → 8 chunks), and the model replied "sudah siap dan
+ * tercatat di atas" while nothing was above. The ask IS the authorization, so
+ * actually write the .md now and return a truthful receipt. "" on failure so
+ * the caller can fall back to the honest gap note.
+ */
+/**
+ * Pure: the provenance clause attached to a delivered report.
+ *
+ * Live 2026-09-25 13:16: "Pentest sudah selesai dilakukan … kerentanan kritis
+ * seperti SQL Injection dan Broken Access Control" sat next to a report that is a
+ * snapshot of findings recorded in EARLIER sessions. That turn ran six plain GETs,
+ * no poc_verify and no finding_add — so a completion claim reads as this turn's
+ * result unless the delivery says otherwise. Silent unless a completion claim is
+ * actually made, so an ordinary "buatkan laporan" turn is not nagged.
+ */
+export function reportProvenanceNote(messages: ChatMessage[], claimText: string): string {
+  if (!hasCompletionClaim(claimText)) return "";
+  if (turnRanTool(messages, "finding_add")) return "";
+  return " (Catatan: laporan ini memuat temuan yang SUDAH tercatat sebelumnya — giliran ini tidak mencatat temuan baru.)";
+}
+
+async function tryDeliverReportMarkdown(messages: ChatMessage[], rawUser: unknown, channel: Channel, claimText = ""): Promise<string> {
+  try {
+    const { reportSave } = await import("./security");
+    const target = reportTargetFromMessages(messages);
+    const out = reportSave(rawUser, target ? { target } : {});
+    const file = (out.match(/report-[0-9A-Za-z:.()+_-]+\.md/i) || [])[0] || "";
+    if (!file) return "";
+    // Provenance: see reportProvenanceNote (pure, tested).
+    const provenance = reportProvenanceNote(messages, claimText);
+    if (channel === "voice") return " (Markdown-nya sudah kusimpan — cek folder laporanmu ya.)";
+    return ` (📄 Markdown-nya sudah kusimpan: \`${file}\` — cek folder laporanmu ya.)${provenance}`;
+  } catch (e) {
+    // Empty findings → honest note (mirror of tryDeliverReportPdf).
+    if (e instanceof Error && e.message.includes("EMPTY_REPORT")) {
+      return channel === "voice"
+        ? " (Laporannya belum bisa kubuat — belum ada temuan tercatat. Kita uji dulu, nanti kucatat hasilnya ya.)"
+        : " (📄 Laporan markdown belum dibuat — belum ada temuan yang tercatat untuk target ini. Bilang \"lanjut\" kalau mau aku uji dulu dan catat temuannya, baru laporannya dibuat.)";
+    }
+    return "";
+  }
+}
+
+/**
+ * Inline-delivery claim guard. A report that is ~15 KB cannot be "tercatat di
+ * atas" in a channel message, and nothing in the reply body actually contains
+ * it. This fires when the model claims the artifact is inline/attached but the
+ * text carries no report body — the claim is then false regardless of whether
+ * a report tool ran. Pure — tested.
+ */
+export function inlineDeliveryClaimNote(text: string, opts: { deliveredFile?: string } = {}): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  // A real delivery receipt (path) already contradicts "it's above".
+  if (opts.deliveredFile) return "";
+  const claimsInline =
+    /(tercatat|tertulis|tercantum|tercantum|terlampir|lampirkan|disertakan|di\s*sisip(kan)?|include[d]?)\s+(di\s+)?(atas|above|ini|pesan\s+ini)/i.test(t) ||
+    /\b(di|see)\s+atas\b/i.test(t) ||
+    /(sudah\s+(aku\s+)?(tulis|buat|siapkan))\s+(di\s+)?atas/i.test(t);
+  if (!claimsInline) return "";
+  // …unless the reply actually carries a report body (a heading + sections).
+  const hasBody = /^#{1,3}\s|\*\*(Total temuan|Kategori|Evidence|Remediation)\*\*/im.test(t);
+  if (hasBody) return "";
+  return ' (Catatan jujur: laporan lengkapnya tidak ikut terkirim di pesan ini — isinya terlalu panjang untuk satu pesan channel. Bilang "kirim sebagai file" atau minta PDF supaya dapet path file yang benar-benar ada.)';
+}
+
+/**
+ * PROVEN-BUT-NOT-RECORDED guard. Live 2026-09-25: the 11:02 turn genuinely
+ * proved IDOR on /api/cek-nik (200 + NIK + address in the body) and ran
+ * poc_verify twice on the SQLi angle — then never called `finding_add`. Two
+ * turns later the report could not show it, because a proven bug that is not in
+ * the store simply does not exist for every downstream consumer (report,
+ * finding_list, bounty dedup, retest). The model even narrated it as
+ * "terkonfirmasi" to the user, so the user reasonably expected it recorded.
+ *
+ * Deliberately narrow, so it cannot nag:
+ *  • needs HARD evidence — a passing `poc_verify`, or a prover whose own output
+ *    is confirmed-strength (PROVEN/TERBUKTI/CONFIRMED/ACCOUNT TAKEOVER/RENTAN
+ *    version-match). A mere LEAD is explicitly NOT enough (house rule: a lead
+ *    still owes poc_verify first).
+ *  • needs `finding_add` absent from the turn.
+ *  • needs the reply to present the result as a conclusion/deliverable.
+ *  • an honest admission ("belum dicatat", "nanti saya catat") silences it.
+ * Pure — tested two directions.
+ */
+const PROOF_RESULT_RE =
+  /\b(3\/3\s*PASS|STABIL|TERKONFIRMASI|CONFIRMED|PROVEN|TERBUKTI|ACCOUNT TAKEOVER|DETERMINISTIK|PASS)\b/i;
+const PROVER_STRENGTH_TOOLS = new Set([
+  "dom_xss_prove", "ato_prove", "teamcity_check", "open_redirect_chain",
+  "smuggle_probe", "csrf_prove", "auth_matrix", "exploit_chain", "vuln_compose",
+]);
+const FINDING_PRESENTED_RE =
+  /(terkonfirmasi|terbukti|terbukti|proven|confirmed|rentan|vulnerable|celah|kerentanan|temuan|漏洞|id\s?or|bola|sqli|sql\s?injection|xss|ssrf|rce|xxe|csrf)/i;
+const CONCLUSION_RE =
+  /(sudah\s+(selesai|complete|done)|berhasil|pengujian\s+(menyeluruh|selesai)|laporan|report|ringkasan|hasil\s+akhir|ditemukan|terverifikasi)/i;
+const RECORD_ADMISSION_RE =
+  /(belum\s+(saya\s+)?(catat|rekam|simpan|tambahkan)|belum\s+di\s*catat|nanti\s+(saya\s+)?(catat|rekam)|belum\s+masuk\s+(daftar|store)|saya\s+belum\s+masukkan)/i;
+
+export function unrecordedFindingNote(messages: ChatMessage[], text: string, opts: { rawUser?: unknown; recordedTargets?: string[] } = {}): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  if (turnRanTool(messages, "finding_add")) return "";
+  if (RECORD_ADMISSION_RE.test(t)) return "";
+  // The reply must present the bug as a result, and conclude something.
+  if (!FINDING_PRESENTED_RE.test(t) || !CONCLUSION_RE.test(t)) return "";
+
+  // Store truth first (live 14:09 false accusation): the IDOR on /cek-nik was
+  // ALREADY in the store from an earlier session; this turn's poc_verify was a
+  // re-verification, yet the note claimed the finding "BELUM masuk daftar" and
+  // pointed at a report that in fact contained it. If the turn's proof URL
+  // already has an open recorded finding, there is nothing unrecorded to
+  // disclose. readFindings never throws (corrupt store → []); tests inject
+  // recordedTargets for determinism.
+  let recordedTargets: string[] = opts.recordedTargets ?? [];
+  if (!opts.recordedTargets) {
+    try {
+      recordedTargets = readFindings(opts.rawUser)
+        .filter((f) => f.status === "open")
+        .map((f) => f.target);
+    } catch {
+      recordedTargets = [];
+    }
+  }
+
+  // Collect this turn's tool RESULTS keyed by tool name (refusals excluded).
+  // Scoped to the CURRENT turn: a `finding_add` from an earlier turn must not
+  // excuse skipping it now (same class as the 11:37 zero-contact miss).
+  const resultsByTool = new Map<string, string[]>();
+  const turnMsgs = turnWindow(messages);
+  for (const m of turnMsgs) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      const res = turnMsgs.find((x) => x.role === "tool" && x.tool_call_id === tc.id);
+      if (!res) continue;
+      const body = messageText(res.content);
+      if (!body) continue;
+      const refused =
+        /^(?:Not selected|Not executed|Auto-declined)/i.test(body.trim()) ||
+        /not available on this provider|refused to execute/i.test(body);
+      if (refused) continue;
+      const bucket = resultsByTool.get(tc.function.name);
+      if (bucket) bucket.push(body);
+      else resultsByTool.set(tc.function.name, [body]);
+    }
+  }
+  const proven = new Set<string>();
+  const results = resultsByTool.get("poc_verify") ?? [];
+  if (results.length) {
+    for (const r of results) {
+      // Only a PASS/stable verdict counts; "tidak stabil"/error does not.
+      if (PROOF_RESULT_RE.test(r) && !/\b(TIDAK STABIL|tidak stabil|assertion-belum|ERROR|scope)\b/i.test(r)) {
+        proven.add("poc_verify");
+        break;
+      }
+    }
+  }
+  for (const name of PROVER_STRENGTH_TOOLS) {
+    for (const r of resultsByTool.get(name) ?? []) {
+      if (PROOF_RESULT_RE.test(r)) {
+        proven.add(name);
+        break;
+      }
+    }
+  }
+  if (!proven.size) return "";
+  // Every proof URL this turn must map to a host that has NO open recorded
+  // finding — otherwise the finding is already in the store and the report
+  // already carries it. Host-level match (findingGate's hostOfUrl) because
+  // stored targets vary between origin and path forms.
+  const proofUrls: string[] = [];
+  for (const m of turnMsgs) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      if (tc.function?.name !== "poc_verify" && !PROVER_STRENGTH_TOOLS.has(tc.function?.name || "")) continue;
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(String(tc.function?.arguments || "{}")) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (typeof args.url === "string") proofUrls.push(args.url);
+    }
+  }
+  const recordedHosts = new Set(recordedTargets.map((tgt) => hostOfUrl(tgt)).filter(Boolean));
+  if (proofUrls.length && proofUrls.every((u) => recordedHosts.has(hostOfUrl(u)))) return "";
+  const what = [...proven].join(" + ");
+  return ` (Catatan jujur: ${what} memberi bukti yang sudah STABIL di giliran ini, tapi temuan ini BELUM masuk daftar — \`finding_add\` tidak jalan. Laporan/finding_list berikutnya tidak akan memuatnya. Bilang "catat temuannya" kalau mau kusimpan sekarang.)`;
+}
+
+/**
+ * A URL whose host has empty labels ("https://6a90...netlify.app/cek-nik") is
+ * not a real address — `new URL()` ACCEPTS it (hostname "6a90...netlify.app"),
+ * so it sails through every parser and only fails later at DNS. Live
+ * 2026-09-25 11:13: the user typed a truncated URL, the model silently
+ * substituted the full one from chat history, and nothing flagged either the
+ * malformed ask or the substitution. Pure — tested.
+ */
+export function isMalformedTargetUrl(raw: string): boolean {
+  const t = String(raw || "").trim();
+  if (!t) return false;
+  let u: URL;
+  try {
+    u = new URL(t);
+  } catch {
+    return false; // unparseable is a different (already-visible) failure
+  }
+  const host = u.hostname;
+  // ".." or leading/trailing/consecutive dots = empty DNS label; also a bare
+  // "https://6a90...netlify.app" style truncation marker.
+  if (host.includes("..") || host.startsWith(".") || host.endsWith(".")) return true;
+  if (/(^|[^a-z0-9])\.\.\.|[.]{3,}/i.test(host)) return true;
+  return false;
+}
+
+/**
+ * Target-drift disclosure. When the URL the tools were pointed at is not the URL
+ * the user actually wrote, the substitution must be surfaced — silently testing
+ * a different host than the one on screen is exactly the "Mia isn't honest"
+ * failure (live 11:13: user wrote `6a90...netlify.app`, model used the full
+ * host from history and never said so). Only fires on a REAL divergence, and
+ * stays silent when the user's URL is merely a prefix/subdomain of the target
+ * or vice versa. Pure — tested.
+ */
+export function targetDriftNote(messages: ChatMessage[], text: string): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  const ask = lastInstructionText(messages);
+  const askedUrls = (ask.match(/https?:\/\/[^\s"'<>)\]]+/gi) || []);
+  if (!askedUrls.length) return "";
+  const asked = askedUrls[askedUrls.length - 1];
+  // URL-bearing args ONLY: these args BY DESIGN carry the tested target, parsed
+  // from JSON (never regex-mined over raw args text). Free-text args
+  // (references, text, steps, remediation) legitimately carry citation links —
+  // live 2026-09-25 13:50: an owasp.org reference inside finding_add args was
+  // mined as "the tested target" while the real lab was probed 9×, producing a
+  // false drift accusation. OAST `callback` beacons are by design foreign too.
+  const URL_ARG_NAMES = new Set(["url", "target", "endpoint", "base_url"]);
+  const hostOf = (s: string): string => {
+    try {
+      return new URL(s).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  };
+  const usedHosts: string[] = [];
+  for (const m of messages) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(String(tc.function?.arguments || "{}")) as Record<string, unknown>;
+      } catch {
+        continue; // malformed args never ran the tool; nothing to mine
+      }
+      for (const [k, v] of Object.entries(args)) {
+        if (!URL_ARG_NAMES.has(k)) continue;
+        const vals: unknown[] = Array.isArray(v) ? v : [v];
+        for (const val of vals) {
+          if (typeof val !== "string") continue;
+          const h = hostOf(val);
+          if (h) usedHosts.push(h);
+        }
+      }
+    }
+  }
+  if (!usedHosts.length) return "";
+  const askedHost = hostOf(asked);
+  const allUsed = [...new Set(usedHosts)];
+  // The user's host WAS touched by this turn → no silent substitution. A
+  // foreign URL in some other arg is then a reference or an OAST callback,
+  // not the target being tested.
+  if (askedHost && allUsed.includes(askedHost)) return "";
+  const unique = allUsed.filter((h) => h !== askedHost);
+  if (!unique.length) return "";
+  // One host is a prefix/suffix of the other (same registrable domain) → not drift.
+  if (unique.length === 1 && (askedHost.endsWith(`.${unique[0]}`) || unique[0].endsWith(`.${askedHost}`))) return "";
+  const usedHost = unique[0];
+  if (isMalformedTargetUrl(asked)) {
+    return ` (Catatan jujur: URL yang kamu tulis terpotong (${asked}). Giliran ini aku pakai ${usedHost} dari riwayat chat — bukan host tersebut. Kalau targetnya keliru, sebut URL lengkapnya ya.)`;
+  }
+  return ` (Catatan jujur: target yang diuji turn ini ${usedHost}, BUKAN ${askedHost} yang kamu tulis. Kalau mau yang lain, sebut URL lengkapnya ya.)`;
+}
+
+/**
+ * Find a report filename written BY THIS TURN's tools (report_save/report_pdf
+ * results carry "📄 Laporan tersimpan: <file>"). Guard helpers need this to
+ * know what the turn ACTUALLY delivered — prose alone has repeatedly lied in
+ * both directions. Exported for tests.
+ */
+export function reportFileFromTurn(messages: ChatMessage[], extRe = "\\.(?:pdf|md)"): string {
+  const turnMsgs = turnWindow(messages);
+  for (const m of turnMsgs) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      if (!/^report_(save|pdf|generate)$/.test(tc.function?.name || "")) continue;
+      const res = turnMsgs.find((x) => x.role === "tool" && x.tool_call_id === tc.id);
+      const body = res ? messageText(res.content) : "";
+      if (!body) continue;
+      const m2 = new RegExp(`(report-[0-9A-Za-z:.()+_-]+${extRe})`, "i").exec(body);
+      if (m2) return m2[1];
+    }
+  }
+  return "";
+}
+
+/**
+ * Cross-format artifact honesty: the user asked for ONE report format and the
+ * reply points at the other. Live 11:13: "buatkan report markdown nya" and Mia
+ * handed over a PDF path from 11 minutes earlier as if it were this turn's
+ * deliverable — the .md WAS delivered, so the PDF quote was pure noise at best
+ * and a stale-artifact pointer at worst. Pure — tested.
+ */
+export function crossFormatArtifactNote(text: string, opts: { asked: "pdf" | "md" | ""; savedThisTurn?: { md?: string; pdf?: string } }): string {
+  const t = (text || "").trim();
+  if (!t || !opts.asked) return "";
+  const wrongExt = opts.asked === "md" ? "pdf" : "md";
+  const rightExt = opts.asked === "md" ? "md" : "pdf";
+  // Keep the ORIGINAL casing for display (a receipt must name the file exactly
+  // as it exists on disk); compare case-insensitively for the decision.
+  const files = t.match(/report-[0-9A-Za-z:.()+_-]+\.(?:pdf|md)/gi) || [];
+  const lower = files.map((f) => f.toLowerCase());
+  const wrong = files.filter((f, i) => lower[i].endsWith(`.${wrongExt}`));
+  // A bare FORMAT claim counts too, with no filename at all. Live 12:02: the
+  // user asked for markdown, the .md really was delivered, and the model still
+  // wrote "Laporan lengkap dalam format PDF sudah tersedia" + "PDF laporan
+  // sudah tersimpan otomatis" — no PDF existed. The old filename-only check
+  // could not see it. NB: the "md" alias must also match the WORD "markdown" —
+  // `md` alone never matches inside it.
+  const word = (ext: string): string => (ext === "md" ? "md|markdown" : "pdf");
+  const wrongWords = new RegExp(
+    `\\b(format|versi|dalam\\s+bentuk|dalam\\s+format)\\s+(?:file\\s+)?(?:${word(wrongExt)})\\b|\\b(?:${word(wrongExt)})\\s+(laporan|report)\\b|\\b(laporan|report)[^.\\n]{0,24}\\b(?:${word(wrongExt)})\\b`
+    // A save/creation CLAIM naming the format (live drill 15:05: "sudah aku
+    // simpan ke PDF di <fake path>" — the distance rule above missed it).
+    + `|(sudah\\s+(?:aku\\s+|sistem\\s+)?(?:simpan|buat)|tersimpan|ke\\s+PDF)[^.\\n]{0,40}\\b(?:${word(wrongExt)})\\b`,
+    "i"
+  ).test(t);
+  const rightWords = new RegExp(
+    `\\b(format|versi|dalam\\s+bentuk|dalam\\s+format)\\s+(?:file\\s+)?(?:${word(rightExt)})\\b|\\b(?:${word(rightExt)})\\s+(laporan|report)\\b`,
+    "i"
+  ).test(t);
+  if (!wrong.length && !wrongWords) return "";
+  // If the REQUESTED format is present too, the user got what they asked for and
+  // the extra format is a bonus, not a lie. Live 11:29 exposed the bug this
+  // fixes: the turn delivered a fresh .md AND a fresh .pdf, and the guard
+  // fired claiming the .md "bukan deliverable giliran ini" — self-contradictory
+  // and wrong on both counts.
+  if (lower.some((f) => f.endsWith(`.${rightExt}`)) || rightWords) return "";
+  // …and if the requested format was WRITTEN BY THIS TURN (tool or deterministic
+  // delivery), claiming "tidak ada file X yang dibuat giliran ini" is factually
+  // wrong — live 14:09 said exactly that while report_save had written the .md
+  // and the approved report_pdf had rendered the .pdf seconds earlier. Only the
+  // soft pointer note remains.
+  //
+  // The DENIAL is about the QUOTED format, so the primary gate is savedWrong
+  // (live drill 15:53: only the PDF was saved at note time — the deterministic
+  // .md receipt appends LATER — and gating on savedRight still let the false
+  // "tidak ada file PDF yang dibuat" through). Gate the quoted format first.
+  const savedWrong = opts.savedThisTurn?.[wrongExt as "md" | "pdf"];
+  const savedRight = opts.savedThisTurn?.[rightExt as "md" | "pdf"];
+  if (savedWrong) {
+    return savedRight
+      ? ` (Catatan: dua-duanya dibuat giliran ini — .${rightExt}: \`${savedRight}\` · ${wrongExt.toUpperCase()}: \`${savedWrong}\`.)`
+      : ` (Catatan: ${wrongExt.toUpperCase()} yang disebut itu memang dibuat giliran ini.)`;
+  }
+  if (savedRight) {
+    return ` (Catatan: file ${rightExt.toUpperCase()}-nya juga sudah dibuat giliran ini: \`${savedRight}\` — dua-duanya valid.)`;
+  }
+  const quoted = wrong[0] || `format ${wrongExt.toUpperCase()}`;
+  return ` (Catatan jujur: yang kamu minta ${opts.asked === "md" ? "Markdown" : "PDF"}, tapi yang aku sebut cuma ${quoted} — itu format yang lain, dan tidak ada file ${wrongExt.toUpperCase()} yang dibuat giliran ini. Yang benar file .${rightExt}-nya.)`;
 }
 
 /**
@@ -2792,6 +3239,57 @@ export function pdfFilenameMismatchNote(
  * appended by the caller replaces it. Only the exact receipt shape is
  * stripped, never other prose. Pure — tested.
  */
+/**
+ * Report filenames in the model's own prose that DO NOT EXIST on disk.
+ *
+ * Live 2026-09-25 13:16: asked for a markdown report, Mia led with "sudah sistem
+ * susun menjadi file PDF" and handed over `report-<host>.pdf` — a name nothing
+ * produces and no file exists for. The format guard appended a correction, but the
+ * fabricated path stayed in the FIRST paragraph, where a user copies it and goes
+ * looking. Notes argue with the body; only removing the token fixes the body.
+ *
+ * Deliberately narrow: existence on disk is the sole test (no pattern guessing), so
+ * a real old report named in prose is never touched, and an unverifiable check
+ * leaves the text alone (fail-open — never destroy prose on a failed lookup).
+ * Pure — tested.
+ */
+export function stripAbsentReportFiles(text: string, exists: (name: string) => boolean): string {
+  const original = String(text || "");
+  let removed = false;
+  const out = original.replace(/`?(report-[0-9A-Za-z:.()+_-]+\.(?:pdf|md))`?/gi, (full, name: string) => {
+    if (exists(name)) return full;
+    removed = true;
+    return "";
+  });
+  // Hostname-fabricated reports (live drill 15:05: "…netlify.app.pdf" — a name
+  // NO code path ever produces: all report writers emit `report-<ts>.pdf/md`).
+  // These never existed, so the existence callback is irrelevant — strip them
+  // like any other phantom. Bounded to a dot-segment tail so ordinary prose
+  // ("…|anjay.com domain") is untouched.
+  const out2 = out.replace(
+    /([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)\.(pdf|md)\b/gi,
+    (full, hostish: string, ext: string) => {
+      if (ext.toLowerCase() === "md" && exists(full)) return full;
+      // A real `report-…` name never reaches here (already handled above).
+      if (/^report-/i.test(hostish)) return full;
+      if (hostish.split(".").length < 2) return full;
+      removed = true;
+      return "";
+    }
+  );
+  // Nothing removed → return the input byte-for-byte; never normalise prose we did
+  // not have to touch (and the fail-open callers stay exact).
+  if (!removed) return original;
+  return out2
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.,!?])/g, "$1")
+    // A separator left with nothing after it ("bisa kamu akses di sini: .") — only
+    // ever runs when something really was removed, so ordinary prose is untouched.
+    .replace(/:[ \t]*(?=[.!?]|$)/gm, "")
+    .replace(/[ \t]+$/gm, "")
+    .trim();
+}
+
 export function stripReceiptMimics(text: string): string {
   return (text || "").replace(/\(📎 PDF-nya sudah kubuat:[^)]*\)/gi, "").replace(/[ \t]{2,}/g, " ");
 }
@@ -2859,7 +3357,11 @@ export function chainRunClaimSuffix(messages: ChatMessage[], text: string): stri
  * inversion slipped past the older guards: the tool DID run, so the run-claim
  * guard is silent — but the verdict was invented. Pure, tested.
  */
-export function verdictInflationSuffix(messages: ChatMessage[], text: string): string {
+export function verdictInflationSuffix(
+  messages: ChatMessage[],
+  text: string,
+  ledger?: Array<{ name: string; executed: boolean }>
+): string {
   if (!/(csrf|xss|idor|sqli|injection|ssrf|xxe|smuggl|redirect|pollut|race|bypass|cache[ _-]?dec|nosql|auth[ _-]?bypass|graphql|otp|takeover|exposure|upload)/i.test(text)) return "";
   // A confirmed-strength claim in the narration…
   const confirmedClaim = /terkonfirmasi|terkonfirm|terbukti|vulnerab(ility|le) confirmed|confirmed vulnerab|rentan\.? (terkonfirm|yacc)|sudah (terbukti|terkonfirmasi)/i.test(text);
@@ -2880,6 +3382,10 @@ export function verdictInflationSuffix(messages: ChatMessage[], text: string): s
       }
     }
   }
+  // A verifier that ran earlier in a long turn may have been summarized away —
+  // the earned upgrade is then real even though its tool_call is no longer in
+  // the visible transcript.
+  if ((ledger ?? []).some((c) => c.executed && (c.name === "poc_verify" || c.name === "retest_run"))) return "";
   if (!proverOuts.length || ranVerifier.length) return "";
   return " (Catatan jujur: hasil tool tadi masih KANDIDAT/sinyal — belum terkonfirmasi. Jalankan poc_verify dulu, baru layak disebut temuan terkonfirmasi.)";
 }
@@ -2920,16 +3426,67 @@ export function toolResultExecuted(content: string): boolean {
 }
 
 /** Did an assistant tool_call for `name` actually execute (non-refused result)? Pure — tested. */
-export function toolActuallyRan(messages: ChatMessage[], name: string): boolean {
-  for (const m of messages) {
+export function toolActuallyRan(
+  messages: ChatMessage[],
+  name: string,
+  ledger?: Array<{ name: string; executed: boolean }>
+): boolean {
+  // Current turn only: a probe from an earlier turn in the channel history does
+  // not make THIS turn's "sudah kujalankan X" true.
+  const turn = turnWindow(messages);
+  for (const m of turn) {
     if (m.role !== "assistant" || !m.tool_calls) continue;
     for (const tc of m.tool_calls) {
       if (tc.function.name !== name) continue;
-      const res = messages.find((x) => x.role === "tool" && x.tool_call_id === tc.id);
+      const res = turn.find((x) => x.role === "tool" && x.tool_call_id === tc.id);
       if (res && toolResultExecuted(messageText(res.content))) return true;
     }
   }
-  return false;
+  // Truncation-immune fallback: a summarized-away call still really ran.
+  return (ledger ?? []).some((c) => c.name === name && c.executed);
+}
+
+/** Ledger rows older than the receipt's prior-window are history, not "the previous turn" — dropped from replay. */
+const LEDGER_ROW_MAX_AGE_MS = 10 * 60 * 1000;
+function recentLedgerRow(row: { at?: string }): boolean {
+  if (!row?.at) return false;
+  const t = Date.parse(row.at);
+  return Number.isFinite(t) && Date.now() - t <= LEDGER_ROW_MAX_AGE_MS;
+}
+
+/**
+ * Triple-sourced execution records for the structured receipt (actionReceipt).
+ * One owner for "what did this turn actually execute":
+ *   1. turn window: assistant tool_calls + their tool results (messageText,
+ *      same accessors the honesty guards use — never crashes on null content);  
+ *   2. collector.executedCalls: truncation-immune, incl. prior:true entries
+ *      replayed from the side ledger on the confirm path;
+ *   3. sweep records (already recorded via recordExecuted → #2 covers them).
+ * mergeReceiptRecords dedupes by name+args; a ledger backfill (no tool result
+ * survives) renders as "(dieksekusi)". Pure — tested.
+ */
+export function collectActionRecords(
+  messages: ChatMessage[],
+  ledger?: Array<{ name: string; args?: string; executed?: boolean; prior?: boolean; at?: Date }>
+): import("./actionReceipt").ReceiptRecord[] {
+  const records: import("./actionReceipt").ReceiptRecord[] = [];
+  const turn = turnWindow(messages);
+  for (const m of turn) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      const res = turn.find((x) => x.role === "tool" && x.tool_call_id === tc.id);
+      records.push({
+        name: tc.function.name,
+        args: tc.function.arguments,
+        result: res ? messageText(res.content) : undefined,
+        prior: false,
+      });
+    }
+  }
+  const side: import("./actionReceipt").ReceiptRecord[] = (ledger ?? [])
+    .filter((c) => c.executed)
+    .map((c) => ({ name: c.name, args: c.args, result: EXECUTED_PLACEHOLDER, prior: !!c.prior, at: c.at }));
+  return mergeReceiptRecords(records, side);
 }
 
 const TOOL_CLAIM_KU_RE = /\bku[-\s]?(?:pakai|pake|gunakan|jalankan|jalanin|eksekusi|uji|tes|test|scan|coba)\b/i;
@@ -2951,7 +3508,11 @@ const TOOL_CLAIM_PAST_MARK_RE = /\b(?:sudah|telah|berhasil|barusan|tadi)\b/i;
  * outside the tool loop, so the claim can be true with no tool_call on record.
  * Mirrors pdf/chain guards; pure — unit-tested. Returns "" when nothing to say.
  */
-export function toolRunClaimSuffix(messages: ChatMessage[], text: string): string {
+export function toolRunClaimSuffix(
+  messages: ChatMessage[],
+  text: string,
+  ledger?: Array<{ name: string; executed: boolean }>
+): string {
   const t = (text || "").trim();
   if (!t) return "";
   const names = getTOOLS()
@@ -2968,7 +3529,7 @@ export function toolRunClaimSuffix(messages: ChatMessage[], text: string): strin
     const after = t.slice(start + name.length, start + name.length + 70);
     const window = `${before} ${after}`;
     if (TOOL_CLAIM_EXEMPT.has(name)) continue;
-    if (toolActuallyRan(messages, name)) continue;
+    if (toolActuallyRan(messages, name, ledger)) continue;
     // Already admits non-execution ("belum", "gagal", "tidak jadi") — no suffix.
     if (TOOL_CLAIM_ADMISSION_RE.test(window)) continue;
     const claimed =
@@ -3010,7 +3571,8 @@ const PROBE_TOOLS = new Set([
 ]);
 const PAYLOAD_MARK_RE = /'|union\s+select|select\s+.+\s+from|\.\.\/|;--|\{\{|\$\{|onerror|%3c|%27|<[a-z][^>]*>/i;
 
-const ENDPOINT_TEST_VERBS = /\b(rentan|uji|vulnerable|vuln|scan|periksa|audit)\b/i;
+// ENDPOINT_TEST_VERB_RE moved to ./turnGate (lives 2026-09-25 10:31: this copy
+// lacked `pentest`, so a full-pentest ask fell through the list carve-out).
 const ENDPOINT_CLAIM_RE = /\b\d+\s+temuan\b|\[(CRITICAL|HIGH|MEDIUM|LOW)\b|\b(rentan|celah|critical|high|medium|cvss|temuan|xss|sqli|injection|idor|rce|bocor|terbuka|kerentanan|aman|bersih|tidak ada|tidak ditemukan)\b/i;
 
 /**
@@ -3027,7 +3589,20 @@ export function shortPath(p: string): string {
 // Reads that still "touch" an endpoint (vs store reads like finding_list that
 // never leave the process). Used for the zero-contact rule below.
 const COMPLETION_CLAIM_RE =
-  /sudah selesai (memindai|menguji|memeriksa|mengetes|mengaudit|mengscan|melakukan (full )?pentest)|selesai (memindai|menguji|memeriksa|melakukan (full )?pentest)\b|sudah selesai (aku |ku)?(lakukan|kerjakan|tuntaskan|selesaikan)\b|sudah (aku |ku)?(uji|test|periksa|scan|pindai|audit|jalankan|lakukan|eksekusi)\b|pengujian (telah|sudah|tuntas) selesai|(sudah|telah|udah).{0,20}(cek|uji|test|periksa|scan).{0,20}(kembali|ulang|tuntas)|full pentest .{0,20}(selesai|tuntas|sudah)|(sudah|telah|udah)\s+(di|ter)(uji|tes|test|scan|periksa|cek)\b/i;
+  /sudah selesai (memindai|menguji|memeriksa|mengetes|mengaudit|mengscan|melakukan (full )?pentest)|selesai (memindai|menguji|memeriksa|melakukan (full )?pentest)\b|sudah selesai (aku |ku)?(?:di)?(lakukan|kerjakan|tuntaskan|selesaikan)\b|sudah (aku |ku)?(uji|test|periksa|scan|pindai|audit|jalankan|lakukan|eksekusi)\b|pengujian (telah|sudah|tuntas) selesai|(sudah|telah|udah).{0,20}(cek|uji|test|periksa|scan).{0,20}(kembali|ulang|tuntas)|full pentest .{0,20}(selesai|tuntas|sudah)|(sudah|telah|udah)\s+(di|ter)(uji|tes|test|scan|periksa|cek)\b|pengujian[^.!?]{0,45}\b(sudah|telah|tuntas|berhasil)\s+selesai|(sudah|telah)\s+selesai[^.!?]{0,50}(pengujian|menguji|mengaudit|memindai|scan|uji)\b/i;
+
+/**
+ * A completion claim, minus honest negations. "pengujian menyeluruh … sudah
+ * selesai" inserts a modifier between noun and copula, so the strict adjacency
+ * in COMPLETION_CLAIM_RE missed it (live 2026-09-25 10:31: a full-pentest ask
+ * with ZERO probes claimed "pengujian menyeluruh … sudah selesai" and shipped
+ * clean). The word-order-tolerant alternatives above close that; this wrapper
+ * keeps an honest admission ("pengujian belum selesai") from tripping it.
+ */
+function hasCompletionClaim(t: string): boolean {
+  if (/\bbelum\s+(?:sudah\s+|telah\s+|berhasil\s+)?selesai\b/i.test(t)) return false;
+  return COMPLETION_CLAIM_RE.test(t);
+}
 // Reads that still "touch" an endpoint (vs store reads like finding_list that
 // never leave the process). Used for the zero-contact rule below.
 const READ_TOUCH_TOOLS = new Set([
@@ -3035,6 +3610,34 @@ const READ_TOUCH_TOOLS = new Set([
   "browser_navigate", "browser_click", "browser_type", "cdp_request",
   "cdp_eval", "tamper_script",
 ]);
+
+/**
+ * Signature of the VALUES inside a tool's arguments, so two calls can be
+ * compared for actual variation. Key=value pairs only — a `method:"GET"`
+ * default does not count as a different test, but `id=1` vs `id=2` does.
+ */
+function argValueSignature(args: unknown): string {
+  const s = typeof args === "string" ? args : JSON.stringify(args ?? {});
+  const out: string[] = [];
+  for (const m of String(s).matchAll(/([A-Za-z0-9_]+)\s*[=:]\s*"?([^",&}\]]+)"?/g)) {
+    out.push(`${m[1].toLowerCase()}=${m[2]}`);
+  }
+  return out.sort().join("|");
+}
+
+/**
+ * Enumeration is testing. For IDOR the "payload" IS the changing identifier —
+ * there is no marker to grep for — so the old marker-only rule called
+ * `?id=1`, `?id=2`, `?id=3` "merely a read" (live 12:02: the model ran exactly
+ * that sequence and the guard still told the user "/cek-nik belum diuji").
+ * Two calls against the same endpoint with DIFFERENT values = deliberate
+ * probing; repeated identical calls (polling/baseline) do not qualify.
+ * Pure — tested.
+ */
+export function isEnumerationProbe(argsList: unknown[]): boolean {
+  if (argsList.length < 2) return false;
+  return new Set(argsList.map((a) => argValueSignature(a))).size >= 2;
+}
 
 /** Payload markers are tested against arg VALUES, not raw JSON (JSON syntax
  *  itself is full of double quotes — testing the raw string would mark every
@@ -3069,7 +3672,11 @@ function toolArgsContain(args: unknown, path: string): boolean {
   }
 }
 
-export function endpointTriageNote(messages: ChatMessage[], text: string): string {
+export function endpointTriageNote(
+  messages: ChatMessage[],
+  text: string,
+  ledger?: Array<{ name: string; args: string; executed: boolean; prior?: boolean }>
+): string {
   const t = (text || "").trim();
   if (!t) return "";
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
@@ -3115,14 +3722,31 @@ export function endpointTriageNote(messages: ChatMessage[], text: string): strin
     ),
   ];
   if (!paths.length) return "";
-  // A pure list ask ("temuan apa aja di /api/x") is legitimate store reading,
-  // not an endpoint test — carve it out (unless test verbs are present).
-  if (EXPLICIT_LIST_RE.test(userText) && !ENDPOINT_TEST_VERBS.test(userText)) return "";
-  if (!/\b(rentan|cek|uji|tes|audit|vulnerable|vuln|scan|periksa|pentest)\b/i.test(userText)) return "";
-  if (!ENDPOINT_CLAIM_RE.test(t) && !COMPLETION_CLAIM_RE.test(t)) return "";
+  // Ask classification comes from ./turnGate (URL-stripped + one test-verb
+  // vocabulary). Live 2026-09-25 10:31: this gate matched the RAW text, so "cek"
+  // inside the target URL /cek-nik satisfied EXPLICIT_LIST_RE while the local
+  // test-verb copy had no `pentest` → the guard returned "" before it could
+  // reach the completion-claim check, and "pengujian menyeluruh sudah selesai"
+  // with ZERO probes shipped without an honesty note. Now a pure list ask
+  // ("temuan apa aja di /api/x") carves out via the shared predicate, while a
+  // test ask — even one whose path contains a list word — proceeds to triage.
+  if (isListAsk(userText, { askGate: true })) return "";
+  if (!isEndpointTestAsk(userText)) return "";
+  if (!ENDPOINT_CLAIM_RE.test(t) && !hasCompletionClaim(t)) return "";
   const covered = new Set<string>();
   const touched = new Set<string>();
-  for (const m of messages) {
+  // TURN SCOPE, not history scope. Live 2026-09-25 11:37: the channel handed us
+  // the whole rolling history, which still contained the 11:02 turn's
+  // `http_request /api/cek-nik` — so the guard saw the endpoint "touched" and
+  // stayed silent while the turn itself ran ZERO probes. Scan only from the
+  // LAST user message onward: in a confirm continuation the pending transcript
+  // ends with the original ask (the "ya" arrives as confirm_calls, not as a
+  // message), so round-1 calls are still inside the window, while older turns
+  // are correctly excluded.
+  const turn = turnWindow(messages);
+  // Per (tool, path) argument history → enumeration detection (IDOR etc.).
+  const readArgs = new Map<string, unknown[]>();
+  for (const m of turn) {
     if (m.role !== "assistant" || !m.tool_calls?.length) continue;
     for (const tc of m.tool_calls) {
       const nm = tc.function?.name || "";
@@ -3135,9 +3759,53 @@ export function endpointTriageNote(messages: ChatMessage[], text: string): strin
         } else if (READ_TOUCH_TOOLS.has(nm)) {
           touched.add(p);
           if (argsLookProbing(args)) covered.add(p); // manual probing leaves payload traces in values
+          const k = `${nm}|${p}`;
+          const list = readArgs.get(k);
+          if (list) list.push(args);
+          else readArgs.set(k, [args]);
         }
       }
     }
+  }
+  for (const [k, list] of readArgs) {
+    if (!isEnumerationProbe(list)) continue;
+    covered.add(k.slice(k.indexOf("|") + 1));
+  }
+  // The turn-local ledger is the TRUNCURATION-IMMUNE source: on a long turn
+  // buildSummarizedMessages() replaces older messages with a prose summary that
+  // carries no tool_calls, so the scan above can miss work that really ran
+  // (live 2026-09-25 10:49: browser_open + fetch_url hit /cek-nik, yet the
+  // guard still printed "tidak menyentuh /cek-nik sama sekali"). Ledger entries
+  // count only REAL executions, so this can silence a false accusation without
+  // ever permitting a fabricated one.
+  const ledgerArgs = new Map<string, unknown[]>();
+  for (const c of ledger ?? []) {
+    if (!c.executed) continue;
+    for (const p of paths) {
+      if (!toolArgsContain(c.args, p)) continue;
+      // A replayed PRIOR-BOUNDARY record (turn-1's sweep/read before the user
+      // approved the write) is CONTACT EVIDENCE, not this turn's probe: it
+      // kills a zero-contact accusation but never "covers" the endpoint —
+      // the user's fresh ask still deserves real probing (live 15:25). Same
+      // for the whole ledger when the ask is FRESH: turn-1 evidence could
+      // otherwise silence a true zero-contact note on a new request.
+      if (!c.prior) {
+        touched.add(p);
+        if (PROBE_TOOLS.has(c.name) || argsLookProbing(c.args)) covered.add(p);
+      } else if (READ_TOUCH_TOOLS.has(c.name) || PROBE_TOOLS.has(c.name)) {
+        touched.add(p);
+      }
+      if (READ_TOUCH_TOOLS.has(c.name)) {
+        const k = `${c.name}|${p}`;
+        const list = ledgerArgs.get(k);
+        if (list) list.push(c.args);
+        else ledgerArgs.set(k, [c.args]);
+      }
+    }
+  }
+  for (const [k, list] of ledgerArgs) {
+    if (!isEnumerationProbe(list)) continue;
+    covered.add(k.slice(k.indexOf("|") + 1));
   }
   // Worst case first: the turn never touched the endpoint at all (answered
   // from stale context — live 2026-09-23 11:22, zero tool calls).
@@ -3145,13 +3813,29 @@ export function endpointTriageNote(messages: ChatMessage[], text: string): strin
   if (zeroContact.length) {
     return ` (Catatan jujur: giliran ini tidak menyentuh ${zeroContact.join(" + ")} sama sekali — klaim di atas dari konteks lama, bukan hasil pengujian. Bilang "uji ${zeroContact[0]}" untuk pengujian langsung.)`;
   }
+  // Completion claims without probes (live 2026-09-23 17:00: "sudah selesai
+  // memindai dan menguji" over 9 plain GETs + zero probes). Reads don't count.
+  // Checked BEFORE the absence branch: when a reply says both "sudah selesai
+  // menguji" and "aman", the completion note is the more precise correction
+  // (it names the unsupported claim and offers the test), and it stops the
+  // softer "tidak ada celah" wording from shadowing it.
+  const untested = paths.filter((p) => !covered.has(p)).slice(0, 2);
+  if (untested.length && hasCompletionClaim(t)) {
+    return ` (Catatan jujur: klaim "sudah menguji" di atas belum didukung pengujian — tidak ada probe yang berjalan di giliran ini, hanya baca + temuan lama. Bilang "uji ${untested[0]}" untuk pengujian sungguhan.)`;
+  }
   // Absence claims need probe evidence (live 2026-09-23 11:41: "tidak ada
   // celah yang terlihat" dari membaca HTML saja — absence of evidence bukan
   // evidence of absence). Reads don't count; only a probe silences this.
+  // The bare-safety form ("sudah aman", "aman dari SQL injection", "tidak
+  // rentan") is included: it is the SAME absence claim in softer words, and
+  // without it a single GET + "endpoint sudah aman" sailed through.
   const absenceClaim =
     /(tidak ada|tidak ditemukan|tidak terlihat|belum ditemukan).{0,50}(celah|temuan|kerentanan|vuln\b|rentan)|(aman|bersih).{0,30}(celah|temuan|vuln|kerentanan)/i.test(
       t
-    );
+    ) ||
+    /\b(sudah|terlihat|tampak)?\s*(aman|bersih)\b/i.test(t) ||
+    /\b(tidak\s+(rentan|berbahaya|bermasalah|vulnerable))\b/i.test(t) ||
+    /\baman\s+dari\b/i.test(t);
   const unprobed = paths.filter((p) => !covered.has(p)).slice(0, 2);
   if (absenceClaim && unprobed.length) {
     return ` (Catatan jujur: "tidak ada celah" di atas hanya dari membaca halaman — belum ada pengujian auth/injeksi di ${unprobed.join(" + ")}. Bilang "uji ${unprobed[0]}" untuk pembuktian.)`;
@@ -3160,12 +3844,6 @@ export function endpointTriageNote(messages: ChatMessage[], text: string): strin
   const missing = paths.filter((p) => !covered.has(p)).slice(0, 2);
   if (missing.length && /\b\d+\s+temuan\b|\[(CRITICAL|HIGH|MEDIUM|LOW)\b/i.test(t)) {
     return ` (Catatan jujur: ${missing.join(" + ")} baru dibaca, belum diuji kerentanannya di giliran ini — di atas itu temuan lama + isi halaman. Bilang "uji ${missing[0]}" untuk pengujian auth/injeksi langsung.)`;
-  }
-  // Completion claims without probes (live 2026-09-23 17:00: "sudah selesai
-  // memindai dan menguji" over 9 plain GETs + zero probes). Reads don't count.
-  const untested = paths.filter((p) => !covered.has(p)).slice(0, 2);
-  if (untested.length && COMPLETION_CLAIM_RE.test(t)) {
-    return ` (Catatan jujur: klaim "sudah menguji" di atas belum didukung pengujian — tidak ada probe yang berjalan di giliran ini, hanya baca + temuan lama. Bilang "uji ${untested[0]}" untuk pengujian sungguhan.)`;
   }
   return "";
 }
@@ -3207,7 +3885,11 @@ const NUMERIC_QUOTE_RE = /["'«»„“”]/;
  * lain (dupWarning/poc), dan balasan yang jujur menyebut belum/gagal. Pure —
  * tested.
  */
-export function numericClaimSuffix(messages: ChatMessage[], text: string): string {
+export function numericClaimSuffix(
+  messages: ChatMessage[],
+  text: string,
+  ledger?: Array<{ name: string; executed: boolean }>
+): string {
   const t = (text || "").trim();
   if (!t) return "";
   // Collect claimed counts ("5 endpoint", "12 request") with their windows.
@@ -3251,18 +3933,26 @@ export function numericClaimSuffix(messages: ChatMessage[], text: string): strin
   // Real testing work this turn? Any executed PROBE or read-touch tool silences
   // the guard — the count is then plausibly backed by actual requests.
   let realTestingWork = false;
-  for (const msg of messages) {
+  // Current turn only — an older turn's probe must not legitimise a count
+  // invented in THIS turn (same class as the 11:37 zero-contact miss).
+  const numericTurn = turnWindow(messages);
+  for (const msg of numericTurn) {
     if (msg.role !== "assistant" || !msg.tool_calls) continue;
     for (const tc of msg.tool_calls) {
       const nm = tc.function?.name || "";
       if (!PROBE_TOOLS.has(nm) && !READ_TOUCH_TOOLS.has(nm)) continue;
-      const res = messages.find((x) => x.role === "tool" && x.tool_call_id === tc.id);
+      const res = numericTurn.find((x) => x.role === "tool" && x.tool_call_id === tc.id);
       if (res && toolResultExecuted(messageText(res.content))) {
         realTestingWork = true;
         break;
       }
     }
     if (realTestingWork) break;
+  }
+  // Truncation-immune: probes that ran early in a long turn were summarized out
+  // of the visible transcript, but their execution really happened.
+  if ((ledger ?? []).some((c) => c.executed && (PROBE_TOOLS.has(c.name) || READ_TOUCH_TOOLS.has(c.name)))) {
+    return "";
   }
   if (realTestingWork) return "";
   const list = claimed
@@ -3529,6 +4219,33 @@ async function runAssistantTurnImpl(opts: {
   // downstream (anchor lookup, request payload, summarize) reads messages.
   normalizeMessageToolCalls(messages);
 
+  // Compulsory read-only sweep for pentest asks. Live 2026-09-25: five turns in
+  // a row answered "full pentest menyeluruh" with ZERO probes — the model jumped
+  // to finding_list + report and presented days-old findings as the result. The
+  // ask itself is the authorization for a read-only GET + header audit + JS
+  // mining on an in-scope target, so the system runs it and injects the REAL
+  // observations as context instead of hoping the model remembers to probe.
+  // Skipped when: not a pentest ask, no URL, out of scope (returns a one-liner),
+  // headless turn, a confirmation continuation, or a sweep already ran this turn.
+  const isConfirmContinuation = !!(opts.confirm_call || (opts.confirm_calls?.length ?? 0) > 0);
+  const sweepAsk = !opts.autoDenyRisky && !isConfirmContinuation ? lastInstructionText(messages) : "";
+  const sweepEligible = !!sweepAsk && isPentestAsk(sweepAsk);
+  let sweepCalls: Array<{ name: string; args: string }> = [];
+  if (sweepEligible) {
+    try {
+      const { runPentestSweep } = await import("./pentestSweep");
+      const sweep = await runPentestSweep(opts.user, sweepAsk);
+      // Into the SYSTEM PROMPT, never into `messages`: 26 call-sites read the
+      // last user message to recover the ask, and injecting a synthetic user
+      // turn would shadow it — silently disabling the markdown/PDF delivery
+      // detection and the endpoint-triage guard (observed live 11:53).
+      if (sweep.text) systemPrompt = `${systemPrompt}\n\n${sweep.text}`;
+      sweepCalls = sweep.calls;
+    } catch {
+      /* sweep is best-effort: never block the turn on its own failure */
+    }
+  }
+
   // Mock provider: no network, canned reply (token-free UI/channel testing).
   if (providerId === "mock") {
     const canned =
@@ -3631,6 +4348,47 @@ async function runAssistantTurnImpl(opts: {
   // singular `confirm_call` (web UI) normalize to one list: every approved call
   // runs, every un-approved one stays un-executed.
   const confirmations = confirmDecisions(opts);
+  // Declared here (before the confirm executor) so BOTH the approved-call path
+  // and the agent loop below can record into the same truncation-immune
+  // `executedCalls` ledger the honesty guards read.
+  let text = "";
+  let needsConfirmation: ToolCall[] | null = null;
+  const collector: TurnCollector = {
+    collect: (t: string) => (text += t),
+    // A confirmation continuation answers an action, not a list request.
+    suppressVerbatim: confirmations.length > 0,
+  };
+  // Confirmation-boundary ledger bridge (live 2026-09-25 15:25): turn-1 ran the
+  // compulsory sweep (GET /cek-nik → 200, recorded via recordHttp) and paused
+  // on `report_pdf`. Turn-2 (the confirmation continuation) starts a FRESH
+  // collector and `pending.messages` never contained the sweep, so every
+  // honesty guard read ZERO contact and falsely accused "tidak menyentuh
+  // /cek-nik sama sekali" of a turn whose sweep hit the endpoint 4 seconds
+  // earlier. Replay turn-1's REAL executions into this turn's ledger — same
+  // class as the sweep recording above: proof must cross the confirmation
+  // boundary, not die with the collector that made it.
+  if (confirmations.length > 0) {
+    // Replay ONLY on the confirmation continuation: a fresh ask must start with
+    // a clean ledger, or an old turn's contact could silence a legitimate
+    // zero-contact accusation for an unrelated endpoint. Entries are marked
+    // prior:true — they are CONTACT evidence for the guards (kills the false
+    // "tidak menyentuh X" after an approval) but never "cover" the endpoint
+    // for this turn's own probing obligation (live 15:25).
+    try {
+      // Recency-bounded: the ledger exists to carry proof across the CONFIRMATION
+      // boundary (seconds), not to replay hours-old history (live 19:30: a probe
+      // from 3.5h earlier surfaced as "(turn sebelumnya)").
+      const prior = readLedgerForTurn(opts.user).filter(recentLedgerRow);
+      for (const c of prior) (collector.executedCalls ??= []).push({ name: c.name, args: c.args, executed: true, prior: true, at: new Date(c.at) });
+    } catch {
+      /* best-effort: a missing/corrupt side ledger must never break the turn */
+    }
+  }
+  // The compulsory sweep already did real work — record it so the honesty
+  // guards see it. Without this the sweep was a phantom: live 12:13
+  // numericClaimSuffix told the user "tidak ada request/probe yang berjalan"
+  // seconds after the sweep had sent three. Proof must be recorded, not asserted.
+  for (const c of sweepCalls) recordExecuted(collector, c, opts.user);
   if (confirmations.length > 0) {
     const seen = new Set<string>();
     for (const { call, allow } of confirmations) {
@@ -3663,15 +4421,15 @@ async function runAssistantTurnImpl(opts: {
         const deliveredNow = toolsForUrl(resolved.url).some((t) => t.function.name === call.name);
         let confirmArgs: Record<string, unknown> = {};
         try { confirmArgs = JSON.parse(call.arguments || "{}") as Record<string, unknown>; } catch { confirmArgs = {}; }
-        const { autoApproveAllowed: policyAllows } = await import("./policy");
         const { targetAllowed: scopeAllows } = await import("./security");
-        const autoOk = !!defNow && requiresConfirmation(defNow) && policyAllows(call.name, defNow.risk, confirmArgs, { urlAllowed: (u) => scopeAllows(u) });
+        const autoOk = !!defNow && requiresConfirmation(defNow) && autoApproveAllowed(call.name, defNow.risk, confirmArgs, { urlAllowed: (u) => scopeAllows(u) });
         if (!defNow || !deliveredNow) {
           toolResult = `Not executed: "${call.name}" is not available on this provider (tool budget). Do NOT claim it ran; offer a delivered alternative.`;
         } else if (opts.autoDenyRisky && (requiresConfirmation(defNow) || isHeadlessSideEffect(call.name)) && !autoOk) {
           toolResult = "Auto-declined (headless turn). Do NOT execute it; briefly tell the user this needs an attended approval.";
         } else {
           toolResult = isDedup ? cached!.content : await executeTool(call, opts.user, { lastUserText: lastUserTextFrom(messages) });
+          if (!isDedup) recordExecuted(collector, call, opts.user);
           confirmExecuted.set(cacheKey, { at: Date.now(), content: toolResult });
         }
       } else {
@@ -3724,13 +4482,6 @@ async function runAssistantTurnImpl(opts: {
     }
   }
 
-  let text = "";
-  let needsConfirmation: ToolCall[] | null = null;
-  const collector: TurnCollector = {
-    collect: (t: string) => (text += t),
-    // A confirmation continuation answers an action, not a list request.
-    suppressVerbatim: confirmations.length > 0,
-  };
   let result!: { needsConfirmation: ToolCall[] | null };
   try {
     // Provider-level auto-failover: outer loop over HEALTHY providers (chain
@@ -4051,6 +4802,7 @@ async function runAssistantTurnImpl(opts: {
         }
         try {
           const r = await executeTool(c, opts.user, { lastUserText: lastUserTextFrom(messages) });
+          recordExecuted(collector, c, opts.user);
           text = appendTurnResult(text, r);
         } catch {
           /* tool plugins surface errors in their own result text */
@@ -4135,11 +4887,80 @@ async function runAssistantTurnImpl(opts: {
   if (!collector.verbatimHit) {
     const ask = lastInstructionText(messages);
     const askedPdf = !!ask && /\bpdf\b|pdf-?nya|laporan\s+pdf|report\s+pdf/i.test(ask);
-    const delivered =
-      askedPdf && !needsConfirmation?.length && !opts.autoDenyRisky && !turnRanTool(messages, "report_pdf")
-        ? await tryDeliverReportPdf(messages, opts.user, channel)
+  // Markdown has the same delivery contract as PDF (live 11:05: a 15 KB
+  // report can never be "tercatat di atas" in a channel message).
+  //
+  // A `report_save` that RAN AS A TOOL this turn is a real .md delivery too
+  // (live 14:09: user asked for markdown, the tool wrote report-…md, but no
+  // receipt was appended — the user never saw the path, and downstream guards
+  // treated markdown as never-delivered). Mirrors the report_pdf receipt.
+  const mdToolFile = turnRanTool(messages, "report_save")
+    ? reportFileFromTurn(messages, "\\.md")
+    : "";
+  if (mdToolFile && !/report-[0-9A-Za-z:.()+_-]+\.md/i.test(text)) {
+    text = `${text} (📄 Markdown-nya sudah kusimpan: \`${mdToolFile}\` — cek folder laporanmu ya.)`;
+  }
+    //
+    // FIRST, neutralise fabricated report filenames in the model's own prose: a
+    // name that does not exist on disk must never reach the user (live 13:16 —
+    // "bisa kamu akses di sini: report-<host>.pdf"). Done BEFORE the honest notes
+    // are appended so a note can still quote what was claimed, and before the real
+    // delivery receipt, which names a file that does exist.
+    try {
+      const { userDataRoot } = await import("./users");
+      const { existsSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const udir = join(userDataRoot(), String(opts.user ?? "shared"), "reports");
+      text = stripAbsentReportFiles(text, (name) => existsSync(join(udir, name)));
+    } catch {
+      /* fail-open: never strip prose when the existence check cannot run */
+    }
+    const askedMd =
+      !!ask &&
+      /\bmarkdown\b|\bmd\b|laporan\s+md|report\s+md|file\s+md|sesuai\s+format\s+markdown/i.test(ask) &&
+      !askedPdf;
+    const canDeliver = !needsConfirmation?.length && !opts.autoDenyRisky;
+    const mdDelivered =
+      askedMd && canDeliver && !turnRanTool(messages, "report_save")
+        ? await tryDeliverReportMarkdown(messages, opts.user, channel, text)
         : "";
-    if (delivered) {
+    const delivered =
+      askedPdf && canDeliver && !turnRanTool(messages, "report_pdf")
+        ? await tryDeliverReportPdf(messages, opts.user, channel)
+        : mdDelivered;
+    // A real markdown/PDF receipt makes any "it's recorded above" claim moot.
+    const inlineNote = inlineDeliveryClaimNote(text, {
+      deliveredFile: mdDelivered ? "md" : delivered ? "pdf" : "",
+    });
+    if (inlineNote) text = `${text}${inlineNote}`;
+    // Cross-format pointer: a markdown request answered with a .pdf path (or the
+    // reverse) is a stale/foreign artifact, not this turn's deliverable. The
+    // guard must know what THIS TURN actually wrote (tool or deterministic
+    // delivery) — live 14:09 it falsely claimed "tidak ada file PDF yang dibuat
+    // giliran ini" while the approved report_pdf had rendered the PDF seconds
+    // earlier, because it could only see the model's prose.
+    const fmtNote = crossFormatArtifactNote(text, {
+      asked: askedMd ? "md" : askedPdf ? "pdf" : "",
+      savedThisTurn: {
+        md: mdToolFile || (turnRanTool(messages, "report_save") ? reportFileFromTurn(messages, "\\.md") : ""),
+        pdf: turnRanTool(messages, "report_pdf") ? reportFileFromTurn(messages, "\\.pdf") : "",
+      },
+    });
+    if (fmtNote) text = `${text}${fmtNote}`;
+    // Target drift: the tools ran against a host the user never wrote (live
+    // 11:13 — a truncated URL was silently replaced from chat history).
+    if (!collector.verbatimHit && !needsConfirmation?.length) {
+      const drift = targetDriftNote(messages, text);
+      if (drift) text = `${text}${drift}`;
+      // Proven-but-not-recorded: a hard proof landed this turn but nothing was
+      // written to the store, so every later report loses it (live 11:02 →
+      // 11:13: the IDOR on /api/cek-nik vanished from the report).
+      const unrecorded = unrecordedFindingNote(messages, text, { rawUser: opts.user });
+      if (unrecorded) text = `${text}${unrecorded}`;
+    }
+    if (delivered && delivered === mdDelivered) {
+      text = `${text}${delivered}`;
+    } else if (delivered) {
       // A real file now exists — "(sudah kubuat: <file>)" replaces both the
       // ".md-only" note and the fabrication note. But the model's OWN prose
       // may still quote a different filename (live 2026-09-23 17:00) — the
@@ -4161,6 +4982,9 @@ async function runAssistantTurnImpl(opts: {
         mismatch = pdfFilenameMismatchNote(text, file);
       }
       text = `${text}${delivered}${mismatch}`;
+    } else if (delivered === mdDelivered && mdDelivered) {
+      // Markdown delivery already appended above; the PDF-only filename checks
+      // do not apply to a .md artifact.
     } else {
       const pdfNote = pdfDeliverableSuffix(messages, text);
       if (pdfNote) text = `${text}${pdfNote}`;
@@ -4194,12 +5018,12 @@ async function runAssistantTurnImpl(opts: {
   // — their post-processors run them outside the tool loop, so the claim can be
   // true with no tool_call on record. Mirrors the chain/pdf guards; pure, tested.
   if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
-    const runNote = toolRunClaimSuffix(messages, text);
+    const runNote = toolRunClaimSuffix(messages, text, collector.executedCalls);
     if (runNote) text = `${text}${runNote}`;
     // Verdict-inflation guard: "kandidat → terkonfirmasi" upgrades are invented
     // verdicts (the tool ran; the CLAIM is the lie). Same gates as the run-claim
     // guard; pure, tested.
-    const verdictNote = verdictInflationSuffix(messages, text);
+    const verdictNote = verdictInflationSuffix(messages, text, collector.executedCalls);
     if (verdictNote) text = `${text}${verdictNote}`;
   }
 
@@ -4207,13 +5031,13 @@ async function runAssistantTurnImpl(opts: {
   // findings dump (+ raw page) while /login was never probed. Same gates as
   // the tool-run guard; pure, tested.
   if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
-    const triageNote = endpointTriageNote(messages, text);
+    const triageNote = endpointTriageNote(messages, text, collector.executedCalls);
     if (triageNote) text = `${text}${triageNote}`;
     // Numeric-claim guard: counts of testing actions ("sudah kucek 5 endpoint",
     // "12 request terkirim") must be backed by real executed probes this turn
     // (live forensics 17:00/17:28/18:43/20:10 all showed invented counts over
     // zero probes). Same gates; pure, tested.
-    const numericNote = numericClaimSuffix(messages, text);
+    const numericNote = numericClaimSuffix(messages, text, collector.executedCalls);
     if (numericNote) text = `${text}${numericNote}`;
   }
 
@@ -4227,12 +5051,31 @@ async function runAssistantTurnImpl(opts: {
     if (composeNote) text = `${text}${composeNote}`;
   }
 
+  // STRUCTURED ACTION NARRATION (2026-09-25): the receipt is the AUTHORITATIVE
+  // record of what executed — appended AFTER every honesty guard so they never
+  // read the receipt as a claim (it states only execution, never outcome).
+  // This is the structural fix for the whack-a-mole narration pattern (live
+  // 17:00→20:10→14:09→15:25 were all NEW wordings of the SAME fabrication): the
+  // model no longer narrates actions at all — the system writes the claim, the
+  // model adds context only. On the confirm path the prior turn's real
+  // executions (side ledger) merge in, tagged "(turn sebelumnya)".
+  try {
+    const { actionReceipt } = await import("./actionReceipt");
+    const receipt = actionReceipt(collectActionRecords(messages, collector.executedCalls));
+    if (receipt) text = `${text}${receipt}`;
+  } catch {
+    /* best-effort: narration must never break the turn */
+  }
+
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
   // This provides the YYYY-MM-DD.md files that memory_get reads and that
   // search_memory indexes via rag.ts.
   try {
     const lastUser = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content).trim() || "";
-    const lastAssistant = text.trim();
+    // The receipt is SYSTEM-authored narration — never store it: in memory files
+    // it self-primes later prompts via RAG recall (gotcha 2026-09-07: small
+    // models imitate what gets recalled) and eats the 800-char snippet budget.
+    const lastAssistant = stripReceiptBlock(text).trim();
     if (!isInternalUserTurn(lastUser) && (lastUser || lastAssistant)) {
       const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", lastAssistant ? `Mia: ${lastAssistant.slice(0, 800)}` : ""].filter(Boolean).join("\n");
       appendDailyMemory(opts.user, snippet);

@@ -31,7 +31,8 @@ import { clockLabel, wibDay, wibDayIndex, wibDailyNext } from "./time";
 import { isSilentAutomationReply } from "./automationRunner";
 import { parseLatLonAnywhere } from "./geo";
 import { resolveFavoriteQuery } from "./spotify";
-import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList, toolRunClaimSuffix, toolResultExecuted, toolActuallyRan, composeBuildClaimSuffix, SLIM_SYSTEM_PROMPT, buildSlimSystemPrompt, buildSystemPrompt, toolsForUrl } from "./agent";
+import { EXECUTED_PLACEHOLDER } from "./actionReceipt";
+import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList, toolRunClaimSuffix, toolResultExecuted, toolActuallyRan, composeBuildClaimSuffix, SLIM_SYSTEM_PROMPT, buildSlimSystemPrompt, buildSystemPrompt, toolsForUrl, collectActionRecords } from "./agent";
 import { reminderMessage, isTerseReminder, hasOwnCloser } from "./reminderMessage";
 import { scrubToolMarkup } from "../channels/replyChunk";
 
@@ -992,5 +993,25 @@ describe("URL-bearing asks need a strong reminder verb (phantom 18:00)", () => {
   });
   it("still schedules strong-verb URL asks", () => {
     expect(detectReminderIntent("ingetin aku cek https://example.com/status jam 9 pagi")).not.toBeNull();
+  });
+});
+
+describe("structured action receipt (collectActionRecords triple-sourcing)", () => {
+  it("builds records from turn-window tool_calls + results", () => {
+    const msgs = [
+      { role: "user", content: "uji" },
+      { role: "assistant", content: null, tool_calls: [{ id: "a1", function: { name: "poc_verify", arguments: '{"url":"https://lab/x"}' } }] },
+      { role: "tool", tool_call_id: "a1", content: "✅ PoC STABIL 3/3" },
+    ] as never;
+    const recs = collectActionRecords(msgs, []);
+    expect(recs.length).toBe(1);
+    expect(recs[0].name).toBe("poc_verify");
+    expect(recs[0].result).toContain("PoC STABIL");
+  });
+  it("backfills summarized-away executions from the ledger with a placeholder", () => {
+    const recs = collectActionRecords([] as never, [{ name: "pentest_scan", args: "{}", executed: true, prior: true }]);
+    expect(recs.length).toBe(1);
+    expect(recs[0].result).toBe(EXECUTED_PLACEHOLDER);
+    expect(recs[0].prior).toBe(true);
   });
 });
