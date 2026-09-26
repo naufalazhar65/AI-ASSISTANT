@@ -76,17 +76,84 @@ function firstLine(s: string): string {
 
 export type ReceiptRecord = { name: string; args?: string; result?: string; prior?: boolean; at?: Date };
 
-/** Short human summary of what the call was pointed at (path/query), bounded. */
+/**
+ * Compact a long URL for receipt rendering: the host is usually IDENTICAL on
+ * every line of one turn's receipt (live 2026-09-26 10:10: the same 56-char
+ * lab URL rendered 4× ≈ 28 visual lines on mobile). A URL longer than
+ * URL_HOST_COMPACT_MAX renders as its pathname+query ("/cek-nik?id=1") —
+ * unambiguous in a receipt where the tool already names the target, while
+ * short URLs stay verbatim (the verify.ts digest assertion and any URL a
+ * human would still want to see whole). Without a parseable path, the input
+ * is returned trimmed. Pure. Tested.
+ */
+export const URL_HOST_COMPACT_MAX = 40;
+
+export function compactReceiptUrl(url: string): string {
+  const t = (url || "").trim();
+  if (!t || t.length <= URL_HOST_COMPACT_MAX) return t;
+  try {
+    const u = new URL(t);
+    const tail = `${u.pathname || ""}${u.search || ""}`;
+    // Pathless (or root-only) long URLs fall back to the bare origin host —
+    // no scheme, nothing else to show.
+    if (!tail || tail === "/") return u.hostname;
+    return tail;
+  } catch {
+    /* not a parseable URL — keep as-is */
+  }
+  return t;
+}
+
+/**
+ * Collapse a deliverable tool result ("📄 PDF disimpan: <long path>") to the
+ * bare filename. The tool output carries an absolute path that is useful in a
+ * single narration line but wasteful in a receipt line (and pointless twice —
+ * once in prose, once here; live 2026-09-26 10:10 receipt). GATED on the
+ * deliverable prefix so ordinary results with slashes stay untouched (a PoC
+ * verdict "✅ PoC STABIL 3/3 PASS" must NEVER degrade — caught by the
+ * two-way test). Collapse runs BEFORE firstLine() truncation, so the filename
+ * now always renders complete instead of cut mid-path. Pure. Tested.
+ */
+export function collapsePdfResult(result: string): string {
+  const t = (result || "").trim();
+  const m = t.match(/^📄\s*PDF disimpan:\s*/i);
+  if (!m) return t;
+  const path = t.slice(m[0].length);
+  // Tail after the LAST separator (the filename) — firstIndex would cut at the
+  // first slash of the absolute path (the 7 failing tests that caught this).
+  const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  if (i === -1) return path;
+  // Trim a leading separator variant that survived a "…" truncation (live
+  // 10:10: an already-truncated record's tail started with "/naufalazhar…").
+  return path.slice(i + 1).replace(/^[/\\]/, "");
+}
+
+/**
+ * Short human summary of what the call was pointed at (path/query), bounded.
+ * Digest pipeline: URLs are compacted FIRST (compactReceiptUrl), then bounded
+ * to one line. Pure. Tested.
+ */
 function argDigest(args: string): string {
   if (!args) return "";
   try {
     const j = JSON.parse(args) as Record<string, unknown>;
     const v = j.url ?? j.target ?? j.endpoint ?? j.base_url ?? j.path ?? j.query ?? "";
-    if (typeof v === "string" && v) return firstLine(v);
+    if (typeof v === "string" && v) return firstLine(compactReceiptUrl(v));
   } catch {
     /* non-JSON args — fall through */
   }
   return "";
+}
+
+/**
+ * Compact EVERY long URL inside a result summary — the digest already names
+ * the target, so the result line repeating the full 56-char host just eats
+ * the 100-char budget (live 2026-09-26 12:40: 4 of 8 receipt lines ended in
+ * a dead "→ …" tail after the URL consumed ~90 chars). Short URLs stay
+ * verbatim. Pure. Tested.
+ */
+function compactUrlsInText(text: string): string {
+  return (text || "").replace(/https?:\/\/[^\s]+/g, (u) => compactReceiptUrl(u));
 }
 
 /**
@@ -111,7 +178,8 @@ export function actionReceipt(records: ReceiptRecord[]): string {
     seen.add(key);
     const digest = argDigest(r.args ?? "");
     const head = digest ? `${r.name} → ${digest}` : r.name;
-    lines.push(`⚙️ ${head}${r.prior ? " (turn sebelumnya)" : ""}: ${firstLine(r.result ?? "")}`);
+    const result = compactUrlsInText(collapsePdfResult(r.result ?? ""));
+    lines.push(`⚙️ ${head}${r.prior ? " (turn sebelumnya)" : ""}: ${firstLine(result)}`);
   }
   // Header stays turn-neutral: on the confirm path prior-turn lines are merged
   // in and attributed per-line via the "(turn sebelumnya)" tag.

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { findingAddGate, findingIsInjectionClass, pocRunWitnesses } from "./findingGate";
 import { toolResultExecuted } from "./agent";
 import type { PocRun } from "./pocRuns";
+import { addFinding, listFindingsText } from "./security";
 
 const LAB = "https://6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app";
 const PAYLOAD_URL = `${LAB}/api/cek-nik?id=1;-- -`;
@@ -147,5 +148,38 @@ describe("findingAddGate — deliberately narrow", () => {
       const d = findingAddGate({ ...LIVE_FINDING, text: `${LIVE_FINDING.text}\n${proof}` }, []);
       expect(d.allow, proof).toBe(true);
     }
+  });
+});
+
+describe("addFinding — exact-duplicate write-layer guard (live 2026-09-26 12:47: same confirmed IDOR recorded 2×)", () => {
+  const DUP_TITLE = "IDOR on /api/cek-nik exposes sensitive NIK data";
+
+  it("FIRE: an exact-title re-find on the same host UPDATES the existing open row instead of adding a second", () => {
+    const first = addFinding("verify_dupgate", { title: DUP_TITLE, severity: "high", cvss: 8.2, target: `${LAB}/cek-nik`, evidence: "day one evidence" });
+    const second = addFinding("verify_dupgate", { title: `  ${DUP_TITLE}  `, severity: "high", cvss: 8.1, target: `${LAB}/api/cek-nik?id=1`, evidence: "re-verified via poc_verify 3/3 PASS 2026-09-26" });
+    expect(second.id).toBe(first.id);
+    expect(second.evidence).toContain("re-verified via poc_verify");
+    expect(listFindingsText("verify_dupgate", { target: LAB })).not.toMatch(/2\s*temuan|2\s+temuan/);
+  });
+
+  it("FIRE: case/punctuation/whitespace title variants collapse too (host taken from the full target)", () => {
+    const first = addFinding("verify_dupgate2", { title: "Stored XSS in the complaints feature", severity: "medium", target: `${LAB}/api/pengaduan` });
+    const second = addFinding("verify_dupgate2", { title: "Stored XSS in the complaints feature!", severity: "medium", target: `${LAB}` });
+    expect(second.id).toBe(first.id);
+  });
+
+  it("SILENT: a different issue on the same host still creates its own finding", () => {
+    addFinding("verify_dupgate3", { title: "Missing HTTP security headers", severity: "medium", target: `${LAB}/cek-nik` });
+    const other = addFinding("verify_dupgate3", { title: "SQL Injection in /api/cari-berita", severity: "critical", target: `${LAB}/api/cari-berita` });
+    expect(other.id).toMatch(/^F-/); // created fresh, not merged
+    expect(other.title).toBe("SQL Injection in /api/cari-berita");
+  });
+
+  it("SILENT: the same title on a DIFFERENT host is a separate finding", () => {
+    const a = addFinding("verify_dupgate4", { title: "Open redirect on login", severity: "medium", target: "https://lab-a.example/login", evidence: "first host" });
+    const b = addFinding("verify_dupgate4", { title: "Open redirect on login", severity: "medium", target: "https://lab-b.example/login", evidence: "second host" });
+    expect(b.id).not.toBe(a.id); // different hosts never merge
+    const a2 = addFinding("verify_dupgate4", { title: "Open redirect on login", severity: "medium", target: "https://lab-a.example/other", evidence: "re-find on host A" });
+    expect(a2.id).toBe(a.id); // ...while a same-host re-find still merges
   });
 });

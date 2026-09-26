@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { EXECUTED_PLACEHOLDER, RECEIPT_TOOLS, RECEIPT_HEADER, actionReceipt, mergeReceiptRecords, stripReceiptBlock } from "./actionReceipt";
+import {
+  EXECUTED_PLACEHOLDER,
+  RECEIPT_TOOLS,
+  RECEIPT_HEADER,
+  URL_HOST_COMPACT_MAX,
+  actionReceipt,
+  collapsePdfResult,
+  compactReceiptUrl,
+  mergeReceiptRecords,
+  stripReceiptBlock,
+} from "./actionReceipt";
 
 const POC_OK = "✅ PoC STABIL & terkonfirmasi 3/3 PASS";
 const POC_NEG = "Tidak ada sinyal — bukan klaim aman";
@@ -132,5 +142,77 @@ describe("mergeReceiptRecords", () => {
     ]);
     expect(merged.some((r) => r.name === "http_request")).toBe(false);
     expect(merged.some((r) => r.name === "poc_verify")).toBe(true);
+  });
+});
+
+describe("compactReceiptUrl (tidiness 2026-09-26: same lab URL 4× per receipt ≈ 28 visual lines on mobile)", () => {
+  const LAB = "https://6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app";
+
+  it("FIRE: a long URL (>40) renders as pathname+query, not the host — receipt stays one line", () => {
+    expect(`${LAB}/cek-nik`.length).toBeGreaterThan(URL_HOST_COMPACT_MAX);
+    expect(compactReceiptUrl(`${LAB}/cek-nik?id=1`)).toBe("/cek-nik?id=1");
+    expect(compactReceiptUrl(`${LAB}/cek-nik`)).toBe("/cek-nik");
+  });
+
+  it("FIRE: root-only long URL falls back to the bare origin host", () => {
+    expect(compactReceiptUrl(`${LAB}/`)).toBe("6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app");
+  });
+
+  it("SILENT: short URLs stay verbatim (verify.ts digest assertion relies on the full URL)", () => {
+    expect(compactReceiptUrl("https://lab.example/api/cek-nik?id=1")).toBe("https://lab.example/api/cek-nik?id=1");
+    expect(compactReceiptUrl("")).toBe("");
+  });
+
+  it("end-to-end: the live 10:10 receipt no longer repeats the 56-char lab host 4×", () => {
+    const out = actionReceipt([
+      { name: "report_pdf", args: JSON.stringify({ target: `${LAB}/cek-nik` }), result: `📄 PDF disimpan: /home/u/ai-assistant/apps/web/.data/users/naufalazhar652952/reports/report-2026-09-26T03-10-16-897Z.pdf` },
+      { name: "http_request", args: JSON.stringify({ url: `${LAB}/cek-nik` }), result: "(dieksekusi)", prior: true },
+      { name: "web_audit", args: JSON.stringify({ url: `${LAB}/cek-nik` }), result: "(dieksekusi)", prior: true },
+      { name: "js_mine", args: JSON.stringify({ url: `${LAB}/cek-nik` }), result: "(dieksekusi)", prior: true },
+    ]);
+    expect((out.match(/cozy-kangaroo/g) || []).length).toBe(0); // host gone entirely — every arg carried a path, the PDF result is a bare filename
+    expect(out).toContain("⚙️ report_pdf → /cek-nik: report-2026-09-26T03-10-16-897Z.pdf");
+    expect(out).toContain("⚙️ http_request → /cek-nik (turn sebelumnya)");
+  });
+
+  it("FIRE: long URLs inside result summaries compact too — no dead '→ …' tails (live 12:40 shape)", () => {
+    const out = actionReceipt([
+      { name: "http_request", args: JSON.stringify({ url: `${LAB}/api/cek-nik?id=1` }), result: `🌐 HTTP GET ${LAB}/api/cek-nik?id=1 -> {"id":1,"nama":"..."}` },
+    ]);
+    expect(out).not.toContain("cozy-kangaroo");
+    expect(out).toContain("🌐 HTTP GET /api/cek-nik?id=1 -> {");
+  });
+
+  it("SILENT: short URLs inside results stay verbatim", () => {
+    const out = actionReceipt([
+      { name: "http_request", args: JSON.stringify({ url: "https://lab.example/x" }), result: "🌐 HTTP GET https://lab.example/x -> 200 OK" },
+    ]);
+    expect(out).toContain("https://lab.example/x");
+  });
+});
+
+describe("collapsePdfResult (tidiness 2026-09-26: absolute PDF path twice — narration + receipt — both truncated)", () => {
+  it("FIRE: tool result keeps only the filename", () => {
+    expect(collapsePdfResult("📄 PDF disimpan: /home/u/ai-assistant/apps/web/.data/users/naufalazhar652952/reports/report-2026-09-26T03-10-16-897Z.pdf"))
+      .toBe("report-2026-09-26T03-10-16-897Z.pdf");
+  });
+
+  it("FIRE: a path ALREADY truncated mid-way degrades to a short fragment, never a giant path", () => {
+    const out = collapsePdfResult("📄 PDF disimpan: /home/u/ai-assistant/apps/web/.data/users/naufalazhar…");
+    expect(out).toBe("naufalazhar…");
+    expect(out.length).toBeLessThan(20);
+  });
+
+  it("SILENT: non-path results come back unchanged (never fabricates)", () => {
+    expect(collapsePdfResult("✅ PoC STABIL & terkonfirmasi 3/3 PASS")).toBe("✅ PoC STABIL & terkonfirmasi 3/3 PASS");
+    expect(collapsePdfResult("")).toBe("");
+  });
+
+  it("end-to-end: report_pdf receipt line shows the bare filename", () => {
+    const out = actionReceipt([
+      { name: "report_pdf", args: "{}", result: "📄 PDF disimpan: /home/u/reports/report-2026-09-26T03-10-16-897Z.pdf" },
+    ]);
+    expect(out).toContain("⚙️ report_pdf: report-2026-09-26T03-10-16-897Z.pdf");
+    expect(out).not.toContain("/home/u");
   });
 });

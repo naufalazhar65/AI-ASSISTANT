@@ -541,6 +541,39 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
       /* best-effort */
     }
   }
+  // Exact-duplicate guard (write layer; live 2026-09-26 12:47: "IDOR on
+  // /api/cek-nik exposes sensitive NIK data" was recorded 2× — a re-find of
+  // the SAME confirmed issue one day apart; dupWarning only warns, and the
+  // model ignored it). An exact-title re-find on the same target host UPDATES
+  // the existing open row (fresh evidence, latest calibrated severity/score)
+  // instead of writing a second row, so the ledger and every "N temuan" claim
+  // count each unique issue once. Narrow by design: different titles,
+  // different hosts, and resolved rows always create new findings.
+  const dupHost = normalizeHost(target);
+  // Title key for dup matching: case/punctuation/whitespace variants of the
+  // same wording must collide (live test caught "...feature" vs "...feature!"
+  // slipping through a plain lowercase compare).
+  const dupTitleKey = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  if (dupHost) {
+    const existing = readFindings(rawUser);
+    const dup = [...existing]
+      .reverse()
+      .find(
+        (r) =>
+          r.status !== "resolved" &&
+          dupTitleKey(r.title || "") === dupTitleKey(title) &&
+          normalizeHost(r.target || "") === dupHost,
+      );
+    if (dup) {
+      if (evidence && evidence !== dup.evidence) dup.evidence = evidence.slice(0, 2000);
+      if (hasCvss) dup.cvss = cvss;
+      dup.severity = sev;
+      if (f.cwe && !dup.cwe) dup.cwe = f.cwe.slice(0, 60);
+      if (f.owasp && !dup.owasp) dup.owasp = f.owasp.slice(0, 120);
+      writeFindings(userKey, existing);
+      return dup;
+    }
+  }
   const row: Finding = {
     id: `F-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     title,
