@@ -427,7 +427,35 @@ export async function pentestScan(opts: { tool: string; target: string; wordlist
 
 // ── Findings store + report (per-user) ───────────────────────────────────────
 
-export type Finding = { id: string; title: string; severity: string; cvss: number | null; owasp: string; cwe: string; target: string; evidence: string; steps: string; impact: string; rootCause: string; remediation: string; references: string; status: "open" | "resolved"; createdAt: string; resolvedAt?: string };
+export type Finding = { id: string; title: string; severity: string; cvss: number | null; owasp: string; cwe: string; target: string; evidence: string; steps: string; impact: string; rootCause: string; remediation: string; references: string; status: "open" | "resolved"; createdAt: string; resolvedAt?: string; expected?: string; actual?: string; cvssVector?: string };
+
+/**
+ * Bounty-audit redaction (2026-09-26): reports must never carry live
+ * credentials/PII. Value-shape based so unlabeled dump columns (a SQLi dump
+ * puts the password under "isi") still get masked; date/time shapes and
+ * header names are preserved. Pure — unit-tested.
+ */
+export function redactEvidenceForReport(text: string): string {
+  let t = String(text || "");
+  t = t.replace(/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "<REDACTED_JWT>");
+  t = t.replace(/\b\d{16}\b/g, (m) => `${m.slice(0, 6)}********${m.slice(-2)}`);
+  // Mixed-class token ≥14 chars — checks MUST apply to the token itself
+  // (callback, not unbounded lookaheads: a lookahead scans to end-of-line and
+  // would redact proof tokens like markers just because an uppercase/digit
+  // exists later in the same line — caught by the payload-intact unit test).
+  // Boundaries are lookarounds (not \b) so a token ENDING in punctuation
+  // ("...Admin!") is consumed whole — a leftover "!" would re-identify it.
+  t = t.replace(/(?<![A-Za-z0-9_])[A-Za-z0-9_.!@#$%^&*()-]{14,}(?![A-Za-z0-9_])/g, (m) =>
+    /[A-Z]/.test(m) && /\d/.test(m) && /[a-z]/.test(m) && !/\d-\d/.test(m) ? "<REDACTED>" : m,
+  );
+  // JSON evidence-shape (SQLi dumps): mask the VALUE of secret-family keys
+  // ("password"… and lab-mapped columns like "isi") when the value is a short
+  // bare token. Payload proof (XSS markers, <img …>) contains < or spaces and
+  // stays intact; usernames ("judul"/"username") are not secrets and stay.
+  // Handles both raw JSON and JSON embedded with escaped quotes.
+  t = t.replace(/(\\?")((?:password|passwd|secret|token|credential|isi)[A-Za-z_]*)(\\?"\\?\s*:\s*\\?")([^"\\<>\s]{4,40})(\\?")/g, (_m, q1: string, k: string, q2: string, _val: string, q3: string) => `${q1}${k}${q2}<REDACTED>${q3}`);
+  return t;
+}
 
 const SEVERITIES = ["critical", "high", "medium", "low", "info"];
 
@@ -646,7 +674,7 @@ export function generateReport(rawUser: unknown, opts: { target?: string } = {})
   const body = sorted
     .map(
       (f, i) =>
-        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Category**: ${[normalizeOwaspYear(f.owasp || ""), f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Platform**: ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n- **Steps to Reproduce**: ${f.steps || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
+        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Category**: ${[normalizeOwaspYear(f.owasp || ""), f.cwe].filter(Boolean).join(" / ") || "-"}${f.cvssVector ? ` — Vector: \`${f.cvssVector}\`` : ""}\n- **Suggested severity** (platform mapping, not a final rating): ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `CVSS ${f.cvss ?? "?"} → HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n${f.expected ? `- **Expected Behavior**: ${f.expected}\n` : ""}${f.actual ? `- **Actual Behavior**: ${f.actual}\n` : ""}- **Steps to Reproduce**: ${redactEvidenceForReport(f.steps || "-")}\n- **Evidence**: ${redactEvidenceForReport(f.evidence || "-")}\n- **Impact**: ${redactEvidenceForReport(f.impact || "-")}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
     )
     .join("\n\n");
   return `# Pentest Report\n\nGenerated: ${new Date().toISOString()}\nTotal findings: ${rows.length} (${counts}) — average CVSS ${avg}\n\n${(() => {
