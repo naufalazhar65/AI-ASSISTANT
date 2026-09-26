@@ -22,7 +22,7 @@ jobs:
       - run: npm run lint
   unit:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,6 +30,21 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # CI red 2026-09-26: reportDelivery.test.ts renders a real PDF via
+      # reportPdf → chromium.launch, which needs the Playwright browser
+      # (same requirement the e2e job already covers for verify.ts).
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Playwright (browsers + system deps)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install Playwright system deps only (browsers cached)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       - run: npm test
   honesty:
     # Honesty guards smoke suite — adversarial two-way probe (FIRE on live
