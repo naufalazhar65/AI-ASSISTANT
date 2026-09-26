@@ -967,7 +967,7 @@ export function sqlmapScan(url: string, opts?: { level?: number; risk?: number }
 
 // ── PDF report (markdown -> HTML -> PDF via Playwright, no new deps) ─────────
 async function renderMarkdownPdf(userKey: string, md: string, prefix: string): Promise<string> {
-  const html = renderReportHtml(md, { footer: `Mia — laporan ${prefix} · ${new Date().toISOString().slice(0, 10)}` });
+  const html = renderReportHtml(md, { footer: `Mia — ${prefix} report · ${new Date().toISOString().slice(0, 10)}` });
   const dir = join(userDataRoot(), userKey, "reports");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${prefix}-${new Date().toISOString().replace(/[:.]/g, "-")}.pdf`);
@@ -983,7 +983,7 @@ async function renderMarkdownPdf(userKey: string, md: string, prefix: string): P
       margin: { top: "16mm", bottom: "18mm", left: "15mm", right: "15mm" },
       displayHeaderFooter: true,
       headerTemplate: "<div></div>",
-      footerTemplate: reportFooterTemplate(md.match(/^#\s+(.*)$/m)?.[1] || "Laporan"),
+      footerTemplate: reportFooterTemplate(md.match(/^#\s+(.*)$/m)?.[1] || "Report"),
     });
   } finally {
     await browser.close().catch(() => {});
