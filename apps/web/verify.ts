@@ -4181,6 +4181,166 @@ async function main() {
     console.log("unverified-finding claim (live 23:05 + 23:23 flagged · both guard shapes kept · requirement/honest/earned silent): OK");
   }
 
+  // ── vocabulary is DATA and checks itself (2026-09-27) ────────────────────
+  // The 2026-09-26 evening lost a verdict word three times in one fix. This
+  // block iterates the vocabulary itself, which is the only reason a fourth
+  // loss would fail here instead of in production. It also re-checks the
+  // grouping: the `terbukti`/`terkonfirmasi` alternatives must stay INSIDE the
+  // negated window, and that bug appeared TWICE (once in agent.ts, then again
+  // unchanged when the pattern moved into claimVocab.ts).
+  {
+    const CV = await import("./src/lib/claimVocab");
+    const { unverifiedFindingClaimNote, confirmedStrengthClaim } = await import("./src/lib/agent");
+    const storeLedger = [
+      { name: "http_request", executed: true },
+      { name: "finding_list", executed: true },
+      { name: "report_pdf", executed: true },
+    ];
+    for (const w of CV.VERDICT_WORDS) {
+      if (!confirmedStrengthClaim(`temuan IDOR itu sudah ${w}`))
+        throw new Error(`vocabulary word does not register as a claim: ${w}`);
+      if (unverifiedFindingClaimNote([], `temuan IDOR sudah ${w}.`, storeLedger) === "")
+        throw new Error(`guard is DEAD for vocabulary word: ${w}`);
+    }
+    for (const w of CV.NEGATORS) {
+      if (unverifiedFindingClaimNote([], `temuan IDOR ${w} diverifikasi.`, storeLedger) !== "")
+        throw new Error(`negator must silence the guard, got a flag on: ${w}`);
+    }
+    for (const w of CV.PENDING_WORDS) {
+      if (confirmedStrengthClaim(`temuan IDOR masih ${w} diverifikasi`))
+        throw new Error(`requirement word must not read as a claim: ${w}`);
+    }
+    for (const w of CV.BARE_VERIFY_WORDS) {
+      if (!confirmedStrengthClaim(`sudah kita ${w}`)) throw new Error(`prefix-dropped form missed: ${w}`);
+      if (confirmedStrengthClaim(`perlu ${w} manual di browser korban`))
+        throw new Error(`bare form counted without an aspect marker: ${w}`);
+    }
+    // The grouping guard, stated positively so a regression is legible.
+    if (!CV.NEGATOR_NEAR_VERIFY_RE.test("belum diverifikasi")) throw new Error("negation window lost its negator");
+    if (CV.NEGATOR_NEAR_VERIFY_RE.test("terkonfirmasi")) throw new Error("GROUPING REGRESSION: `terkonfirmasi` reads as a negation again — the guard would be dead for the most common Indonesian confirmed-word");
+    console.log(`verdict vocabulary as data (${CV.VERDICT_WORDS.length} words × guard alive · ${CV.NEGATORS.length} negators · ${CV.PENDING_WORDS.length} requirement words · ${CV.BARE_VERIFY_WORDS.length} bare forms · grouping intact): OK`);
+  }
+
+  // ── fact-based claim audit (2026-09-27) ──────────────────────────────────
+  // Replaces prose-guessing with lookups: `target_brain` + the PoC ledger know
+  // whether proving work happened, `coverage` knows which surfaces were
+  // exercised. The point is that a past-work claim is now CHECKED — previously
+  // the single word "sebelumnya" switched every guard off.
+  {
+    const { buildAuditFacts, untestedSurfaceClaimNote, unprovenPastWorkClaimNote } = await import("./src/lib/claimAudit");
+    const { claimAuditHost } = await import("./src/lib/claimAuditReaders");
+    const { unverifiedFindingClaimNote } = await import("./src/lib/agent");
+    const storeLedger = [
+      { name: "http_request", executed: true },
+      { name: "finding_list", executed: true },
+      { name: "report_pdf", executed: true },
+    ];
+    const storeRead: any[] = [
+      { role: "user", content: "uji" },
+      { role: "assistant", content: null, tool_calls: [{ id: "s1", type: "function", function: { name: "finding_list", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "s1", content: "7 open findings" },
+    ];
+
+    // unknown, never false
+    const unknown = buildAuditFacts("lab.example", {}, "");
+    if (unknown.pastWorkProven !== null) throw new Error("absent reader must yield UNKNOWN, not false");
+    const throwing = buildAuditFacts("lab.example", {
+      provingRunsForHost() {
+        throw new Error("unreadable");
+      },
+    });
+    if (throwing.pastWorkProven !== null) throw new Error("throwing reader must fail closed to UNKNOWN");
+
+    // the live 22:57 claim, both ways
+    const gapFacts = { ...unknown, host: "lab.example", endpointsSeen: 9, endpointsProbed: 3 };
+    const live2257 = "Semua endpoint utama juga sudah aku cek berulang supaya hasilnya konsisten.";
+    if (untestedSurfaceClaimNote(live2257, gapFacts) === "")
+      throw new Error("live 22:57 'semua endpoint sudah dicek' must be flagged when coverage shows a gap");
+    if (untestedSurfaceClaimNote(live2257, { ...unknown, endpointsSeen: 9, endpointsProbed: 9 }) !== "")
+      throw new Error("exhaustive claim must be silent when everything known was probed");
+    if (untestedSurfaceClaimNote(live2257, unknown) !== "")
+      throw new Error("exhaustive claim must stay silent on unknown coverage (never accuse on no data)");
+
+    // the live 23:38 turn is HONEST and must stay silent
+    const live2338 = "Pentest untuk target tersebut sudah aku jalankan sebelumnya dan hasilnya sudah terekam rapi.";
+    if (unprovenPastWorkClaimNote(live2338, { ...unknown, pastWorkProven: true, provingRuns: 29 }) !== "")
+      throw new Error("honest 23:38 past-work claim must be silent when proving work is on record");
+    if (unprovenPastWorkClaimNote(live2338, { ...unknown, pastWorkProven: false }) === "")
+      throw new Error("past-work claim with no proving record must be flagged");
+    if (unprovenPastWorkClaimNote(live2338, unknown) !== "")
+      throw new Error("past-work claim must stay silent when the fact is unknown");
+
+    // the same sentence resolves differently by FACT — this is the whole point
+    const withFact = unverifiedFindingClaimNote(storeRead, "Temuan IDOR sudah diverifikasi sebelumnya.", storeLedger, { audit: { pastWorkProven: true } });
+    const withoutFact = unverifiedFindingClaimNote(storeRead, "Temuan IDOR sudah diverifikasi sebelumnya.", storeLedger, { audit: { pastWorkProven: false } });
+    if (withFact !== "") throw new Error("past-work attribution backed by the fact must be silent");
+    if (withoutFact === "") throw new Error("past-work attribution with no record must be flagged — the keyword must not be trusted on its own");
+
+    // a citation must never become the audited target (targetDrift lesson)
+    const cited = [
+      { role: "user", content: "full pentest di https://lab.example/cek-nik" },
+      { role: "assistant", content: null, tool_calls: [{ id: "1", type: "function", function: { name: "finding_add", arguments: JSON.stringify({ target: "https://lab.example", title: "X", references: "https://owasp.org/www-project-top-ten" }) } }] },
+    ];
+    if (claimAuditHost(cited, "lihat https://owasp.org/top10") !== "lab.example")
+      throw new Error("a citation URL was mistaken for the audited target");
+    if (claimAuditHost([{ role: "user", content: "cek" }], "tidak ada url di sini") !== "")
+      throw new Error("no host must stay empty, not be invented");
+
+    // the proof count can never exceed the total
+    const counted = buildAuditFacts("lab.example", { openFindingIds: () => ["a", "b", "c", "d", "e", "f", "g"], verifiedFindingIds: () => ["a", "b"] }, "");
+    if (counted.findingsWithProof > counted.findingsTotal)
+      throw new Error(`proof count exceeds total — mismatched scope would print nonsense (${counted.findingsWithProof}/${counted.findingsTotal})`);
+
+    console.log("fact-based claim audit (unknown≠false · live 22:57 flagged · live 23:38 silent · fact flips the verdict · citation not a target): OK");
+  }
+
+  // ── a measured-but-clean pentest is a deliverable (2026-09-27) ───────────
+  // The product gap: generateReport returned early at zero findings, BELOW the
+  // coverage sections, so the evidence of a clean run was discarded and
+  // EMPTY_REPORT then blocked the PDF. EMPTY_REPORT is still correct for the
+  // genuinely unmeasured case — that is the distinction being asserted here.
+  {
+    const { generateReport, reportSave } = await import("./src/lib/security");
+    const { recordCoverage } = await import("./src/lib/coverage");
+    const { rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { userDataRoot } = await import("./src/lib/users");
+    const U = `verify_cleanreport_${Date.now()}`;
+    const TARGET = "https://lab.example";
+    try {
+      // 1. unmeasured + zero findings → still refused (EMPTY_REPORT intact)
+      const empty = generateReport(U, { target: TARGET });
+      if (!empty.startsWith("No open findings"))
+        throw new Error("an unmeasured empty report must stay a refusal, not a deliverable");
+      let refused = "";
+      try {
+        reportSave(U, { target: TARGET });
+      } catch (e) {
+        refused = String(e);
+      }
+      if (!/EMPTY_REPORT/.test(refused)) throw new Error(`EMPTY_REPORT must still refuse the unmeasured case, got: ${refused.slice(0, 60)}`);
+
+      // 2. measured + zero findings → a real report that carries the evidence
+      recordCoverage(U, { surface: "/api/login", risk_area: "authentication", outcome: "no_issue_found", target: TARGET, evidence: "csrf_prove 3/3 no forms; login rejects wrong creds 401" });
+      recordCoverage(U, { surface: "/api/dokumen", risk_area: "authorization", outcome: "ruled_out", target: TARGET, evidence: "bola_diff A/B: anon 403, user 200 — access control enforced" });
+      const clean = generateReport(U, { target: TARGET });
+      if (!clean.includes("Total findings: 0")) throw new Error("a measured clean run must still produce a report");
+      if (!clean.includes("Coverage")) throw new Error("the measured clean report dropped its Coverage section — the gap is not closed");
+      if (!clean.includes("csrf_prove 3/3")) throw new Error("coverage evidence must survive into the report");
+      let saved = "";
+      try {
+        reportSave(U, { target: TARGET });
+        saved = "ok";
+      } catch (e) {
+        saved = String(e).slice(0, 60);
+      }
+      if (saved !== "ok") throw new Error(`a measured clean report must be writable, got: ${saved}`);
+    } finally {
+      rmSync(join(userDataRoot(), U), { recursive: true, force: true });
+    }
+    console.log("measured-but-clean report (unmeasured still refused · evidence survives · report writable): OK");
+  }
+
   // ── numeric-claim honesty: invented counts over zero probes (residual audit
   // 2026-09-24 — "sudah kucek 5 endpoint" recurred in forensics 17:00/17:28/
   // 18:43/20:10 with zero probes; no tool-name quoted, no path named, so the

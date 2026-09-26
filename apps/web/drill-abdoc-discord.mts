@@ -67,9 +67,14 @@ async function approveAll(prev: TurnResult, pendingMsgs: unknown[], provider: st
   }
 
   console.log("\n── T3: minta poc_verify + finding_add ──");
+  // `var` hoists, so t2 can genuinely be undefined here — and TypeScript's
+  // definite-assignment analysis does not narrow it away via `typeof`. Declaring
+  // the type explicitly is the fix (TS2454, found by typechecking the .mts files
+  // which tsconfig never included).
+  const t2text = (t2 as { text?: string } | undefined)?.text || t1.text || "";
   const followMsgs = [
     { role: "user", content: ask },
-    ...(typeof t2 !== "undefined" ? [{ role: "assistant", content: t2.text || "" }] : [{ role: "assistant", content: t1.text || "" }]),
+    { role: "assistant", content: t2text },
     { role: "user", content: `kalau staff ikut dapat 200, buktikan deterministik dengan poc_verify (3x, expect_status 200) di ${DOC} pakai session staff, lalu catat temuan BOLA/IDOR-nya dengan finding_add (CVSS, evidence, target=${BASE})` },
   ];
   const t3 = (await runAssistantTurn({ messages: followMsgs, provider: "9router", user: USER, channel: "discord" })) as TurnResult;

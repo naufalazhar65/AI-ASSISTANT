@@ -52,7 +52,9 @@ const fire = await cdpEval("netlify", `(async () => {
   try { await fetch("https://cozy-kangaroo-42f2e0.netlify.app/api/cek-nik?id=1&q=RAHASIA"); out.push("fetch-ceknik"); } catch (e) { out.push("f2-err:" + e); }
   return out.join(",");
 })()`, 15000);
-console.log("in-page traffic:", fire.value || fire.error);
+// cdp_eval returns a STRING, not a {value} envelope — reading `.value` printed
+// undefined and hid the real output. Found by typechecking the .mts files.
+console.log("in-page traffic:", String(fire ?? ""));
 
 // 4. drain result
 const out = await armPromise;

@@ -106,6 +106,10 @@ export interface ToolCall {
   id: string;
   name: string;
   arguments: string;
+  /** Present on the gateway-canonical shape (`"function"`). Optional here
+   *  because the executor reads the top-level fields; normalizeMessageToolCalls
+   *  (agent.ts) adds it before anything is sent to a strict gateway. */
+  type?: "function";
   /** Gateway-canonical echo (assistant tool_calls shape). Optional: confirm
    *  input may arrive in EITHER shape (top-level from adapters, nested from
    *  raw provider echoes) — normalizeToolCall (agent.ts) fills both. */

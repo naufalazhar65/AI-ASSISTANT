@@ -34,6 +34,7 @@ import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolu
 import { loadPersonaPrompt } from "./persona";
 import { allowedWorkspaces } from "./users";
 import { clockLabel } from "./time";
+import * as CV from "./claimVocab";
 import { readReminders } from "./reminders";
 import { appendDailyMemory } from "./dailyMemory";
 import { readFindings } from "./security";
@@ -3378,52 +3379,22 @@ export function chainRunClaimSuffix(messages: ChatMessage[], text: string): stri
  * guard is silent — but the verdict was invented. Pure, tested.
  */
 /**
- * Security-vocabulary gate. Every verdict-strength guard needs it so a
- * "confirmed" in a non-security sentence (a reminder, a weather line, a
- * delivery receipt) is never mistaken for a security verdict. One owner —
- * added when verdictInflationSuffix grew its own inline copy.
- */
-const SECURITY_VOCAB_RE =
-  /(csrf|xss|idor|sqli|injection|ssrf|xxe|smuggl|redirect|pollut|race|bypass|cache[ _-]?dec|nosql|auth[ _-]?bypass|graphql|otp|takeover|exposure|upload|vulnerab\w*|kerentanan)/i;
-
-/**
- * "This verdict is CONFIRMED" vocabulary — the single owner of the confirmed-
- * strength decision.
+ * Verdict vocabulary lives in `claimVocab.ts` as DATA, not as regex literals
+ * here. Reason (2026-09-26): this list was rebuilt three times in one evening and
+ * each rebuild lost a word — `terbukti`/`terkonfirmasi`, then `diverifikasi`
+ * (never present at all), and one rebuild's grouping slip turned
+ * `\bterkonfirm\w*\b` into a negation, disabling the guard for the most common
+ * Indonesian confirmed-word while every other test stayed green. As data it can
+ * be iterated by a meta-test, so a dropped word fails CI instead of shipping.
+ * See `claimVocab.ts` and `claimVocab.test.ts`.
  *
- * Live 2026-09-26 23:05: the reply said "Aku berhasil menemukan dan MEMVERIFIKASI
- * 7 temuan" over a turn with zero probes, and the inflation guard stayed silent
- * because its list had no word for "verified" — only "terkonfirmasi/terbukti".
- * The gap class is the same as the run-claim guard's: our vocabulary is finite,
- * the model's is not, so a new phrasing of the SAME lie walks through.
- *
- * Two shapes, deliberately kept apart:
- *  - VERIFIED/PROVEN are unambiguous verdict words on their own.
- *  - CONFIRMED only counts in a VERDICT_NOUN context. Bare "confirmed" is also
- *    how models say "confirmed 200 OK" — a transport fact, not a verdict, and
- *    calling that inflation would be a false accusation.
+ * The patterns below are the EXPORTED ones, not rebuilds: an earlier version of
+ * this refactor re-derived the negation from the word lists while exporting a
+ * pre-built `NEGATOR_NEAR_VERIFY_RE` nobody called — so the meta-test exercised
+ * dead code and a deliberately reintroduced grouping bug still passed 58/58.
+ * A vocabulary module only helps if the consumer actually consumes it.
  */
-const VERDICT_NOUN =
-  "(?:vulnerab\\w*|kerentanan\\w*|celah|exploit\\w*|bug|temuan|findings?|sqli|idor|xss|ssrf|xxe|csrf|rce|bola|takeover|auth[ _-]?bypass)";
-// Provenance: `terbukti`/`terkonfirmasi` were the ORIGINAL inflation vocabulary
-// (2026-09-24) and are kept verbatim — a 2026-09-26 refactor that rebuilt this
-// list dropped them and a probe caught it (typecheck cannot see a regex).
-const VERIFIED_WORD =
-  "\\b(?:verified|proven|reproduced)\\b|\\b(?:diverifikasi|terverifikasi|memverifikasi|memverifika|terverifika|membuktikan)\\b|\\bterbukti\\b|\\bterkonfirm\\w*\\b";
-const CONFIRMED_VERDICT = `(?:${VERDICT_NOUN}\\s+(?:is\\s+|are\\s+)?confirmed|confirmed\\s+(?:the\\s+|a\\s+|an\\s+)?(?:${VERDICT_NOUN}))`;
-
-// Bare "verifikasi" — Indonesian routinely DROPS the prefix ("sudah kita
-// verifikasi", "udah keverifikasi"), and live 2026-09-26 23:23 the model used
-// exactly that, so the past-participle list alone missed the claim.
-const VERIFY_ANY = "(?:diverifikasi|terverifikasi|memverifikasi|memverifika|terverifika|membuktikan|keverifikasi|everifikasi|verifikasi|verifikan)";
-// The prefix-DROPPED subset: these only count behind an aspect marker, since
-// "verifikasi" is also the noun in "perlu verifikasi manual".
-const BARE_VERIFY = "(?:keverifikasi|everifikasi|verifikasi|verifikan)";
-const ASPECT_MARKER = "(?:sudah|telah|udah|berhasil|kini|masih)";
-// A stated REQUIREMENT ("perlu verifikasi manual", "belum bisa diverifikasi")
-// sits right next to a claim in the same sentence and must never be read as a
-// completed one. Matched near the verb, and clause-scoped below, so a real
-// claim elsewhere in the reply is not silenced by it.
-const PENDING_NEAR = `(?:perlu|butuh|harus|mau|ingin|akan|sebaiknya|seharusnya|bisa|boleh|dapat|jangan)\\b[^.!?]{0,30}?${VERIFY_ANY}`;
+const SECURITY_VOCAB_RE = CV.SECURITY_VOCAB_RE;
 
 export function confirmedStrengthClaim(text: string): boolean {
   // Clause-scoped on purpose (live 2026-09-26 23:23 probe: a whole-text
@@ -3431,10 +3402,10 @@ export function confirmedStrengthClaim(text: string): boolean {
   // "perlu verifikasi manual", and a whole-text claim check fired on
   // "masih perlu diverifikasi" because a neighbouring clause said "sudah").
   for (const clause of String(text || "").split(/[,.;:!?\n]/)) {
-    if (new RegExp(PENDING_NEAR, "i").test(clause)) continue;
-    if (new RegExp(VERIFIED_WORD, "i").test(clause)) return true;
-    if (new RegExp(CONFIRMED_VERDICT, "i").test(clause)) return true;
-    if (new RegExp(`${ASPECT_MARKER}[\\s\\S]{0,24}?${BARE_VERIFY}`, "i").test(clause)) return true;
+    if (CV.PENDING_NEAR_VERIFY_RE.test(clause)) continue;
+    if (CV.VERDICT_WORD_RE.test(clause)) return true;
+    if (CV.CONFIRMED_VERDICT_RE.test(clause)) return true;
+    if (CV.ASPECT_THEN_VERIFY_RE.test(clause)) return true;
   }
   return false;
 }
@@ -3461,7 +3432,10 @@ export function confirmedStrengthClaim(text: string): boolean {
 export function unverifiedFindingClaimNote(
   messages: ChatMessage[],
   text: string,
-  ledger?: Array<{ name: string; executed: boolean }>
+  ledger?: Array<{ name: string; executed: boolean }>,
+  opts: {
+    audit?: { pastWorkProven?: boolean | null; findingsTotal?: number; findingsWithProof?: number; host?: string };
+  } = {}
 ): string {
   const t = String(text || "");
   if (!SECURITY_VOCAB_RE.test(t)) return "";
@@ -3490,22 +3464,19 @@ export function unverifiedFindingClaimNote(
   // top-level alternatives, `\bterkonfirm\w*\b` became a "negation" of its own
   // and silently disabled the whole guard for the most common Indonesian
   // confirmed-word — while every other test still passed, because they mostly
-  // used `terverifikasi`. verify.ts caught it on the first run.
-  if (
-    new RegExp(
-      `\\b(?:belum|nggak|gak|tidak|kurang)\\b[^.!?]{0,40}?(?:${VERIFY_ANY}|terbukti|terkonfirm\\w*)\\b`,
-      "i"
-    ).test(t)
-  )
+  // used `terverifikasi`. verify.ts caught it on the first run, and
+  // claimVocab.test.ts now fails if any word in the vocabulary goes dead.
+  if (CV.NEGATOR_NEAR_VERIFY_RE.test(t)) return "";
+  // Past-work attribution. NOTE: a model could switch this guard off simply by
+  // writing "sebelumnya" — so claimAudit.ts is consulted first (the caller
+  // passes `audit`), and this keyword is only the fallback when the fact is
+  // genuinely unknown.
+  if (opts.audit && opts.audit.pastWorkProven === false) {
+    // A claim that points at earlier work, but no proving run exists for this
+    // target. Fall through to the note instead of silently believing it.
+  } else if (CV.TIME_ATTRIBUTION_RE.test(t)) {
     return "";
-  // Time attribution: "terverifikasi sebelumnya" points outside this window.
-  // The ledger replays only the last few minutes, so we cannot contradict it.
-  if (
-    /\b(?:sebelumnya|td\s+lalu|tadi\s+lalu|turn\s+lalu|run\s+lalu|waktu\s+lalu|minggu\s+lalu|kemarin|pertama\s+kali|saat\s+itu)\b/i.test(
-      t
-    )
-  )
-    return "";
+  }
   // A quoted instruction or worked example is not a claim about this turn.
   if (/^\s*[-*>]|\bprompt\s+(?:saya|kami)\b|\bcontohnya\b|\bexample\b/i.test(t)) return "";
 
@@ -3514,7 +3485,18 @@ export function unverifiedFindingClaimNote(
   if (turnRanTool(messages, "poc_verify") || turnRanTool(messages, "retest_run")) return "";
   if ((ledger ?? []).some((c) => c.executed && (c.name === "poc_verify" || c.name === "retest_run"))) return "";
 
-  return ' (Catatan jujur: temuan itu BELUM diverifikasi di giliran ini — yang jalan cuma baca + ambil dari daftar temuan, tidak ada satu pun poc_verify/retest_run. Jangan sebut "terverifikasi" sebelum ada PoC yang benar-benar dijalankan; bilang "buktikan temuanku" kalau mau kujalankan.)';
+  // Prefer the POSITIVE fact over a bare accusation: naming what IS proven is
+  // actionable, and a positive statement cannot be wrong about intent the way a
+  // negative one can. Counts come from the store, never from the prose, and the
+  // host is named so the figure cannot be misread as a whole-account number.
+  const proven = opts.audit?.findingsWithProof;
+  const total = opts.audit?.findingsTotal;
+  const hostLabel = opts.audit?.host ? ` untuk ${opts.audit.host}` : "";
+  const realState =
+    typeof proven === "number" && typeof total === "number" && total > 0
+      ? `Dari ${total} temuan terbuka${hostLabel}, ${proven} yang punya bukti PoC. `
+      : "";
+  return ` (Catatan jujur: temuan itu BELUM diverifikasi di giliran ini — yang jalan cuma baca + ambil dari daftar temuan, tidak ada satu pun poc_verify/retest_run.${realState}Jangan sebut "terverifikasi" sebelum ada PoC yang benar-benar dijalankan; bilang "buktikan temuanku" kalau mau kujalankan.)`;
 }
 
 export function verdictInflationSuffix(
@@ -5195,12 +5177,6 @@ async function runAssistantTurnImpl(opts: {
     // guard; pure, tested.
     const verdictNote = verdictInflationSuffix(messages, text, collector.executedCalls);
     if (verdictNote) text = `${text}${verdictNote}`;
-    // Unverified-finding guard (live 2026-09-26 23:05): "menemukan dan
-    // memverifikasi 7 temuan" over a turn whose only finding source was
-    // `finding_list`. verdictInflation cannot see it — no prover ran, so there
-    // is no signal to have upgraded. Same gates; pure, tested.
-    const verifyNote = unverifiedFindingClaimNote(messages, text, collector.executedCalls);
-    if (verifyNote) text = `${text}${verifyNote}`;
   }
 
   // Endpoint-triage honesty guard: "cek /login rentan?" answered with an old
@@ -5225,6 +5201,48 @@ async function runAssistantTurnImpl(opts: {
   if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
     const composeNote = composeBuildClaimSuffix(messages, text);
     if (composeNote) text = `${text}${composeNote}`;
+  }
+
+  // FACT-BASED honesty (2026-09-26). Everything above decides truth by matching
+  // prose, which is why the vocabulary kept losing words. Where a fact exists,
+  // look it up instead: `target_brain` and the PoC ledger know whether proving
+  // work was ever done for this host, and `coverage` knows which surfaces were
+  // actually exercised. A claim about the PAST is believed only when the fact
+  // supports it — previously the mere word "sebelumnya" switched guards off.
+  //
+  // Deliberately AFTER the pattern guards, and additive: those still catch the
+  // turn-level fabrication, this catches the ones no pattern can see. Any reader
+  // that throws yields UNKNOWN, which never fires a note.
+  if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
+    try {
+      const { claimAuditHost: resolveHost, liveReaders } = await import("./claimAuditReaders");
+      const { buildAuditFacts, untestedSurfaceClaimNote, unprovenPastWorkClaimNote } = await import("./claimAudit");
+      const host = resolveHost(messages, text);
+      if (host) {
+        const facts = buildAuditFacts(host, liveReaders(opts.user, host), text);
+
+        const surfaceNote = untestedSurfaceClaimNote(text, facts);
+        if (surfaceNote) text = `${text}${surfaceNote}`;
+
+        // Passed into the pattern guard too, so a past-work attribution is now
+        // checked rather than believed on the strength of one keyword, and the
+        // note can state the REAL proof counts instead of only denying.
+        const verifyNote = unverifiedFindingClaimNote(messages, text, collector.executedCalls, {
+          audit: {
+            pastWorkProven: facts.pastWorkProven,
+            findingsTotal: facts.findingsTotal,
+            findingsWithProof: facts.findingsWithProof,
+            host: facts.host,
+          },
+        });
+        if (verifyNote) text = `${text}${verifyNote}`;
+
+        const pastWorkNote = unprovenPastWorkClaimNote(text, facts);
+        if (pastWorkNote) text = `${text}${pastWorkNote}`;
+      }
+    } catch {
+      // A store that cannot be read must never cost the user their reply.
+    }
   }
 
   // STRUCTURED ACTION NARRATION (2026-09-25): the receipt is the AUTHORITATIVE

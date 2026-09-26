@@ -159,7 +159,11 @@ try {
   ok(!(r2.needsConfirmation || []).length, "P2: no pending confirmation left");
   ok(!/REFUSED|not delivered|not available on this provider/i.test(r2.text || ""), "P2: no delivery-guard refusal in narration");
 
-  ok(/SECRETVAL|hunter2/.test(fire.value || "") === false, "in-page fire itself ran clean");
+  // cdp_eval returns a STRING ("🧠 eval @ …\n<out>"), not a {value} envelope.
+  // Reading `.value` here made this assertion silently vacuous — the drill
+  // reported a pass it had never actually checked. Caught by typechecking the
+  // .mts files, which tsconfig never included.
+  ok(/SECRETVAL|hunter2/.test(String(fire || "")) === false, "in-page fire itself ran clean");
   ok(!/SECRETVAL|hunter2|S-123/.test(r2.text || ""), "VALUES NEVER appear in turn output");
   // House contract (sibling drill 2026-09-23): proof = audit log + brain, NOT
   // prose. BOTH honest outcomes are OK — a real narrated result, or the honest

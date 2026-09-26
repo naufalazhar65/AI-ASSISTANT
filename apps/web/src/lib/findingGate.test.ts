@@ -4,7 +4,10 @@
 // The drill case is reproduced here verbatim: a turn tested `?id=1;-- -` on the
 // owner's lab, the clean `?id=1` returned byte-identical output, the real SQLi
 // payload was 404 — and a HIGH CWE-89 finding was filed anyway.
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+import { userDataRoot } from "./users";
 import { findingAddGate, findingIsInjectionClass, pocRunWitnesses } from "./findingGate";
 import { toolResultExecuted } from "./agent";
 import type { PocRun } from "./pocRuns";
@@ -182,4 +185,13 @@ describe("addFinding — exact-duplicate write-layer guard (live 2026-09-26 12:4
     const a2 = addFinding("verify_dupgate4", { title: "Open redirect on login", severity: "medium", target: "https://lab-a.example/other", evidence: "re-find on host A" });
     expect(a2.id).toBe(a.id); // ...while a same-host re-find still merges
   });
+});
+
+// These four users are written to disk by addFinding. Without this sweep every
+// `npm test` run leaves four more directories under .data/users/, which is how
+// four of them accumulated unnoticed (2026-09-27).
+afterAll(() => {
+  for (const u of ["verify_dupgate", "verify_dupgate2", "verify_dupgate3", "verify_dupgate4"]) {
+    rmSync(join(userDataRoot(), u), { recursive: true, force: true });
+  }
 });

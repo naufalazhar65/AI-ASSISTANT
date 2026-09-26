@@ -359,7 +359,7 @@ for (const w of [
   "verdictInflationSuffix(messages, text, collector.executedCalls)",
   "numericClaimSuffix(messages, text, collector.executedCalls)",
   "endpointTriageNote(messages, text, collector.executedCalls)",
-  "unverifiedFindingClaimNote(messages, text, collector.executedCalls)",
+  "unverifiedFindingClaimNote(messages, text, collector.executedCalls,",
 ]) {
   const fed = agentSrc.includes(w);
   console.log(`${fed ? "✓" : "✗"} LEDGER-FED: ${w.slice(w.indexOf("(") + 1)}${fed ? "" : " — guard tidak menerima ledger!"}`);

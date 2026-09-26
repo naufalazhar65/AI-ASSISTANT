@@ -658,11 +658,26 @@ export function generateReport(rawUser: unknown, opts: { target?: string } = {})
     // findings showed up in the Kohona lab report).
     .filter((r) => !wantHost || matchesHost(r.target, wantHost));
   if (!rows.length) {
+    // A pentest that MEASURED something and found nothing is a real
+    // deliverable — the coverage ledger IS the evidence that the work was done,
+    // and Strix's own rule is that a surface may not be closed without proof.
+    // Before this, that report was impossible: the empty case returned early,
+    // below the Coverage/Threat-model sections, so the evidence was discarded and
+    // EMPTY_REPORT then blocked the PDF. The owner would lose the record of a
+    // clean run entirely.
+    //
+    // EMPTY_REPORT therefore stays for the genuinely unmeasured case, which is
+    // the one it was written for (live 2026-09-25: a 0-finding "report" rendered
+    // as a clean 1-page PDF with nothing in it). The distinction is whether
+    // measurement data exists, not whether findings do.
+    const measured = measuredSections(rawUser, wantHost);
+    if (measured) {
+      const host = wantHost || normalizeHost(rows[0]?.target || "") || "the recorded target";
+      return `# Pentest Report\n\nGenerated: ${new Date().toISOString()}\nTotal findings: 0 — no issues found in the surfaces exercised\n\n> Scope: ${wantHost || "the recorded target"} — coverage-driven run; every surface below carries its own evidence.\n${measured}`;
+    }
     // NOTE: this MESSAGE must never become a DELIVERABLE — reportSave/reportPdf
-    // throw EMPTY_REPORT on it (live 2026-09-25: a 0-finding "report" rendered
-    // as a clean 1-page PDF whose cover said it had nothing to report).
-    // English (2026-09-26): deliverables are language-neutral for international
-    // platforms; chat-facing strings elsewhere stay Indonesian.
+    // throw EMPTY_REPORT on it. English (2026-09-26): deliverables are
+    // language-neutral for international platforms; chat strings stay Indonesian.
     return wantHost
       ? `No open findings for target "${opts.target}" — nothing to report yet.`
       : "No open findings — nothing to report yet.";
@@ -688,20 +703,35 @@ export function generateReport(rawUser: unknown, opts: { target?: string } = {})
     if (hosts.length && hosts.every((h) => isLabTarget(h))) return "> Scope: OWNER-OWNED LAB / self-owned authorized assets — report for defensive remediation.";
     return "> Scope: self-owned / written-authorized assets. This report is for defensive remediation.";
   })()}` +
-    // Coverage + threat-model sections (Strix-adapted, 2026-09-26): only when
-    // data exists — an unmeasured run renders exactly as before, no filler.
+    // Coverage + threat-model sections — same owner as the 0-finding path, so
+    // the two cannot drift. Empty when unmeasured, and the run then renders
+    // exactly as it always did.
     (() => {
-      try {
-        const entries = listCoverage(rawUser, wantHost ? { target: wantHost } : {});
-        const covSec = coverageReportSection(entries);
-        const tm = threatModelForHost(rawUser, wantHost || normalizeHost(rows[0]?.target || ""));
-        const tmSec = tm ? threatModelReportSection(tm) : "";
-        return (covSec ? `\n\n${covSec}` : "") + (tmSec ? `\n\n${tmSec}` : "");
-      } catch {
-        return "";
-      }
+      const sec = measuredSections(rawUser, wantHost || normalizeHost(rows[0]?.target || ""));
+      return sec ? `\n\n${sec}` : "";
     })() +
     `\n\n${body}`;
+}
+
+/**
+ * The measurement sections of a report — Coverage and Threat model — or an
+ * empty string when neither has data.
+ *
+ * One owner for both the 0-finding path and the normal path, which is the whole
+ * point: a pentest that measured surfaces and found nothing must render exactly
+ * the same evidence a pentest with findings does. Two copies of this logic
+ * would drift, and the empty one is the copy that matters.
+ */
+export function measuredSections(rawUser: unknown, wantHost: string): string {
+  try {
+    const entries = listCoverage(rawUser, wantHost ? { target: wantHost } : {});
+    const covSec = coverageReportSection(entries);
+    const tm = threatModelForHost(rawUser, wantHost || "");
+    const tmSec = tm ? threatModelReportSection(tm) : "";
+    return (covSec ? `${covSec}\n` : "") + (tmSec ? `\n${tmSec}` : "");
+  } catch {
+    return "";
+  }
 }
 
 /** OWASP ZAP baseline scan via Docker (web app in the owner's own lab only). */
