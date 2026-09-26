@@ -42,6 +42,21 @@ export function appRoot(): string {
 
 /** Root for all runtime-written per-user state (notes, persona, …). */
 export function userDataRoot(): string {
+  // RUNTIME GUARD (2026-09-26): a caller passing a user key here is running the
+  // 1-arg pattern `rmSync(userDataRoot(user))` — this function IGNORES its
+  // argument, so that would delete the WHOLE users/ tree, not one user's dir.
+  // Correct usage: `rmSync(join(userDataRoot(), user), …)`.
+  //
+  // No wipe has ever happened: `tsc` rejected the 1-arg call in verify.ts before
+  // it ran, which is what surfaced the pattern. This guard exists so the mistake
+  // cannot survive in a `.mts` drill — those are outside tsconfig's `**/*.ts`
+  // include, so nothing else would catch it.
+  if (arguments.length > 0) {
+    throw new Error(
+      "userDataRoot() takes no arguments — it returns the SHARED users root. " +
+        "To address one user's dir use join(userDataRoot(), user).",
+    );
+  }
   return join(appRoot(), ".data", "users");
 }
 

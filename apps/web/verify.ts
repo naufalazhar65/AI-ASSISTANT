@@ -630,7 +630,7 @@ async function main() {
     id: "F-x", title: "[DRAFT, belum diverifikasi] Cookie tanpa HttpOnly", severity: "low", cvss: 3.1, owasp: "A02:2025", cwe: "CWE-1004",
     target: "app.example.com", evidence: "[auto from http_history] GET https://app.example.com/x → 200", steps: "", impact: "session theft", rootCause: "", remediation: "set HttpOnly", references: "", status: "open", createdAt: new Date().toISOString(),
   });
-  for (const needle of ["# Cookie tanpa HttpOnly", "Severity:", "Steps to reproduce", "Evidence", "Remediation", "STATUS: DRAFT"]) {
+  for (const needle of ["# Cookie tanpa HttpOnly", "Suggested: LOW", "Steps to reproduce", "Expected Behavior", "Actual Behavior", "Evidence", "Remediation", "STATUS: DRAFT"]) {
     if (!wu.includes(needle)) throw new Error(`writeup missing ${needle}`);
   }
   console.log("oauth classifier + writeup renderer: OK");
@@ -1751,7 +1751,7 @@ async function main() {
     if (unresolved.length) throw new Error(`CORE names not in registry: ${unresolved.join(",")}`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "api_spec", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt", "bypass403", "otp_probe", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "api_spec", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt", "bypass403", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "coverage", "threat_model"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
@@ -3572,6 +3572,29 @@ async function main() {
       throw new Error("groq window must carry auth_setup");
     }
     if (!isHeadlessSideEffect("auth_setup")) throw new Error("auth_setup must be headless-guarded");
+    // writeup delivery (2026-09-26 drill): the §8 submission writeup sat outside
+    // EVERY capped window — through chat it could never run (the model improvised
+    // its own writeup with 0 tool:writeup runs). It must ride all three windows
+    // and stay OUT of the ask-gate (a document tool, like hardening_plan).
+    {
+      const wuDef = getTOOLS().find((x) => x.function.name === "writeup");
+      if (!wuDef || wuDef.risk !== "read") throw new Error("writeup must be registered read/auto");
+      if (!CORE_TOOL_NAMES.has("writeup")) throw new Error("writeup must be in CORE (drill-found delivery gap)");
+      if (CORE_TOOL_NAMES.has("memory")) throw new Error("memory must stay demoted from CORE (writeup balance)");
+      for (const [label, url] of [["groq", "https://api.groq.com/openai/v1/chat/completions"], ["9router", "http://127.0.0.1:20128/v1/chat/completions"], ["openrouter", "https://openrouter.ai/api/v1/chat/completions"]] as const) {
+        if (!toolsForUrl(url).some((x) => x.function.name === "writeup")) throw new Error(`${label} window must carry writeup`);
+      }
+      // Ask-gate carve-out: a writeup ask must hit the verbatim fast-path — the
+      // rendered §8 markdown IS the deliverable, not list-gated prose.
+      const { userAskedForList } = await import("./src/lib/agent");
+      if (!userAskedForList("writeup", "buatkan writeup untuk temuan F-abc")) {
+        throw new Error("writeup is a document tool — its ask must always verbatim (ask-gate must not apply)");
+      }
+      // Truncated-id prefix match (drill run 2): a unique prefix resolves.
+      const { writeupText } = await import("./src/lib/writeup");
+      const wu = writeupText(`verify_wu_probe_${Date.now()}`, {});
+      if (!wu.includes("No findings recorded yet")) throw new Error(`writeupText empty-store shape changed: ${wu.slice(0, 80)}`);
+    }
     const http = await import("node:http");
     const server = http.createServer((req, res) => {
       let body = "";
@@ -4055,6 +4078,107 @@ async function main() {
     if (toolRunClaimSuffix([], "remind_me sudah kujalankan, jam 9 kubangunkan.") !== "") throw new Error("deterministic remind_me claim must be silent");
     if (toolRunClaimSuffix([], "spotify_play langsung kupakai untuk dengerin lagunya 🌸") !== "") throw new Error("deterministic spotify claim must be silent");
     console.log("tool-run-claim (fabricated narration flagged · real/refused/future/deterministic handled): OK");
+  }
+
+  // ── unverified-finding claim (live 2026-09-26 23:05) ──────────────────────
+  // "memverifikasi 7 temuan" over a turn whose only finding source was
+  // finding_list. verdictInflation CANNOT see this shape: it needs a prover
+  // output to exist before it can accuse an upgrade, and here no prover ever
+  // ran. Both guards are asserted so neither can silently lose the other.
+  {
+    const { unverifiedFindingClaimNote, verdictInflationSuffix, confirmedStrengthClaim } = await import("./src/lib/agent");
+    const mkCall = (name: string, id: string) => ({ id, type: "function" as const, function: { name, arguments: "{}" } });
+    const storeRead: any[] = [
+      { role: "user", content: "full pentest di https://lab/cek-nik dan buatkan report pdf nya" },
+      { role: "assistant", content: null, tool_calls: [mkCall("http_request", "u1"), mkCall("finding_list", "u2")] },
+      { role: "tool", tool_call_id: "u1", content: "HTTP GET /cek-nik -> 200 OK" },
+      { role: "tool", tool_call_id: "u2", content: "HIGH 7.5 IDOR /api/dokumen" },
+      { role: "assistant", content: null, tool_calls: [mkCall("report_pdf", "u3")] },
+    ];
+    const storeLedger = [
+      { name: "http_request", executed: true },
+      { name: "finding_list", executed: true },
+      { name: "report_pdf", executed: true },
+    ];
+    const live2305 =
+      "Mas Naufal, pengujian menyeluruh di target ini sudah selesai ya. Aku berhasil menemukan dan memverifikasi 7 temuan, mulai dari SQLi kritis di endpoint pencarian berita, IDOR di akses NIK, stored XSS, sampai hilangnya header keamanan. Semua endpoint utama juga sudah aku cek berulang supaya hasilnya konsisten.";
+
+    // 1. the live shape MUST be flagged by the new guard
+    const unv = unverifiedFindingClaimNote(storeRead, live2305, storeLedger);
+    if (!unv || !unv.includes("BELUM diverifikasi")) throw new Error(`live 23:05 verification claim must flag, got: ${(unv || "").slice(0, 90)}`);
+
+    // 2. the two guards cover DIFFERENT shapes and neither may regress into the other
+    const withProverSignal: any[] = [
+      { role: "user", content: "uji csrf" },
+      { role: "assistant", content: null, tool_calls: [mkCall("csrf_prove", "p1")] },
+      { role: "tool", tool_call_id: "p1", content: "kandidat CSRF — verifikasi manual" },
+    ];
+    if (verdictInflationSuffix(withProverSignal, "CSRF-nya terkonfirmasi.", storeLedger) === "")
+      throw new Error("verdictInflation must keep its prover-signal shape");
+    if (unverifiedFindingClaimNote(withProverSignal, "CSRF-nya terkonfirmasi.", storeLedger) === "")
+      throw new Error("new guard must also fire on a confirmed claim (shared vocabulary)");
+
+    // 3. vocabulary: the 2026-09-24 originals plus the 2026-09-26 additions
+    for (const w of ["terbukti", "terkonfirmasi", "memverifikasi", "terverifikasi", "diverifikasi", "verified", "proven"]) {
+      if (!confirmedStrengthClaim(`temuan itu ${w}`)) throw new Error(`confirmed-strength vocabulary lost: ${w}`);
+    }
+    if (confirmedStrengthClaim("sudah confirmed 200 OK")) throw new Error("transport 'confirmed' must not read as a verdict");
+
+    // 3b. live 23:23 — the prefix-DROPPED Indonesian shape. The guard shipped at
+    // 23:21 missed this exact turn ("sudah kita verifikasi" has no "ter-").
+    const live2323 = "ada 7 temuan yang sudah kita verifikasi: CRITICAL 9.8 SQL Injection di /api/cari-berita, HIGH 8.2 IDOR di /api/cek-nik";
+    if (unverifiedFindingClaimNote(storeRead, live2323, storeLedger) === "")
+      throw new Error("live 23:23 prefix-dropped claim ('sudah kita verifikasi') must flag");
+    for (const t of ["temuan SQLi yang udah keverifikasi", "telah saya verifikasi semua temuan IDOR", "sudah diverifikasi semua temuan IDOR", "sudah kujalankan verifikasi IDOR"]) {
+      if (!confirmedStrengthClaim(t)) throw new Error(`prefix-dropped Indonesian claim missed: ${t}`);
+    }
+    // a stated REQUIREMENT is not a completed one (prover outputs say it a lot)
+    for (const t of ["perlu verifikasi manual di browser korban", "temuan IDOR ini masih perlu diverifikasi", "SQLi-nya belum bisa diverifikasi tanpa payload", "hasil verifikasi menunjukkan tidak ada perubahan"]) {
+      if (confirmedStrengthClaim(t)) throw new Error(`stated requirement must not read as a claim: ${t}`);
+    }
+    // …and a real claim must survive a neighbouring requirement clause
+    if (!confirmedStrengthClaim("temuan IDOR sudah diverifikasi, tapi perlu verifikasi manual di browser"))
+      throw new Error("clause scoping lost: a genuine claim was silenced by a neighbouring 'perlu verifikasi' clause");
+
+    // 3c. REGRESSION: the negation pattern was once three top-level
+    // alternatives, which turned `\bterkonfirm\w*\b` into a negation of its own
+    // and disabled this guard for "terkonfirmasi" — silently, because the other
+    // cases used `terverifikasi`. Both directions are asserted here.
+    for (const claim of ["CSRF-nya terkonfirmasi.", "Temuan SQLi sudah terbukti.", "CSRF confirmed."]) {
+      if (unverifiedFindingClaimNote(storeRead, claim, storeLedger) === "")
+        throw new Error(`confirmed-word must flag, guard is dead for: ${claim}`);
+    }
+    for (const honest of [
+      "CSRF-nya belum terkonfirmasi.",
+      "SQLi belum terbukti.",
+      "tidak ada temuan IDOR yang terkonfirmasi.",
+      "IDOR belum bisa dibuktikan.",
+    ]) {
+      if (unverifiedFindingClaimNote(storeRead, honest, storeLedger) !== "")
+        throw new Error(`negation must silence the guard, got flag on: ${honest}`);
+    }
+
+    // 4. fail-open: never accuse an honest turn
+    for (const honest of [
+      "Temuan IDOR ini belum diverifikasi, aku baru baca daftar.",
+      "Temuan IDOR ini belum kita verifikasi.",
+      "tidak ada temuan IDOR yang sudah diverifikasi di giliran ini.",
+      "tidak satu pun temuan SQLi yang sudah diverifikasi.",
+      "Temuan IDOR itu sudah terverifikasi sebelumnya lewat PoC.",
+      "Sudah confirmed 200 OK buat endpoint IDOR itu.",
+      "Jadwal bangun kamu sudah diverifikasi, jam 6 WIB.",
+    ]) {
+      if (unverifiedFindingClaimNote(storeRead, honest, storeLedger) !== "")
+        throw new Error(`honest text must stay silent, got flag on: ${honest.slice(0, 60)}`);
+    }
+
+    // 5. earned: a verifier in the turn or in the ledger silences it
+    if (unverifiedFindingClaimNote([...storeRead, { role: "assistant", content: null, tool_calls: [mkCall("poc_verify", "p2")] }], live2305, storeLedger) !== "")
+      throw new Error("poc_verify in turn must earn the verified wording");
+    if (unverifiedFindingClaimNote(storeRead, live2305, [...storeLedger, { name: "poc_verify", executed: true }]) !== "")
+      throw new Error("poc_verify in the ledger must earn the verified wording (confirmation turn)");
+
+    console.log("unverified-finding claim (live 23:05 + 23:23 flagged · both guard shapes kept · requirement/honest/earned silent): OK");
   }
 
   // ── numeric-claim honesty: invented counts over zero probes (residual audit
@@ -4724,11 +4848,18 @@ async function main() {
     const { CORE_TOOL_NAMES: core3, toolsForUrl: tfu3 } = await import("./src/lib/agent");
     if (core3.size !== 128) throw new Error(`CORE must stay 128 (got ${core3.size})`);
     for (const n of names3) {
+      // (2026-09-26: otp_probe demoted from CORE — superseded by otp_hunt; still
+      // registered + write/confirm; bypass403/proto_pollute stay in CORE.)
+      if (n === "otp_probe") {
+        if (core3.has(n)) throw new Error(`${n} must stay OUT of CORE (superseded by otp_hunt)`);
+        continue;
+      }
       if (!core3.has(n)) throw new Error(`${n} must be in CORE`);
       if (core3.has("param_discover") || core3.has("tech_watch") || core3.has("engagement_close")) throw new Error("demoted tools must stay out of CORE");
     }
+    if (core3.has("coverage") === false || core3.has("threat_model") === false) throw new Error("Strix-adapted coverage/threat_model must be in CORE");
     const groq3 = new Set(tfu3("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
-    for (const n of names3) if (!groq3.has(n)) throw new Error(`groq window missing ${n}`);
+    for (const n of ["bypass403", "proto_pollute", "coverage", "threat_model"]) if (!groq3.has(n)) throw new Error(`groq window missing ${n}`);
     const r93 = new Set(tfu3("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name));
     for (const n of names3) if (r93.has(n)) throw new Error(`${n} must stay OUT of the 9router-64 window (analysis chain priority)`);
     for (const n of ["param_discover", "tech_watch", "engagement_close"]) if (groq3.has(n) && !core3.has(n)) throw new Error(`${n} leaked into groq window via rest-fill`);
@@ -5640,6 +5771,84 @@ async function main() {
       throw new Error("action narration rule missing from full/slim prompt");
     }
     console.log("structured action receipt (executed-only lines, refusal-proof, ledger backfill, full+slim prompt rule): OK");
+  }
+
+  // ── Strix-adapted runtime tools: coverage ledger + threat model (2026-09-26) ──
+  {
+    const { getTOOLS, executeTool } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES } = await import("./src/lib/agent");
+    const cov = await import("./src/lib/coverage");
+    const tm = await import("./src/lib/threatModel");
+    const U = `verify_strix_${Date.now()}`;
+    try {
+      for (const n of ["coverage", "threat_model"]) {
+        const reg = getTOOLS().find((t) => t.function.name === n);
+        if (!reg) throw new Error(`${n} not registered`);
+        if (reg.risk !== "read") throw new Error(`${n} must be read/auto`);
+        if (!CORE_TOOL_NAMES.has(n)) throw new Error(`${n} must be in CORE`);
+      }
+      // Coverage: evidence-required closing outcomes (the Strix honesty rule).
+      const noEv = await executeTool({ id: "t", name: "coverage", arguments: JSON.stringify({ action: "record", surface: "https://lab.example/api/x", risk_area: "idor", outcome: "ruled_out" }) }, U);
+      if (!/^Error:.*WAJIB evidence/.test(noEv)) throw new Error(`coverage must reject evidence-free ruling: ${noEv.slice(0, 120)}`);
+      await executeTool({ id: "t", name: "coverage", arguments: JSON.stringify({ action: "record", surface: "https://lab.example/api/cek-nik?id=1", risk_area: "idor", outcome: "reported", target: "https://lab.example" }) }, U);
+      await executeTool({ id: "t", name: "coverage", arguments: JSON.stringify({ action: "record", surface: "https://lab.example/api/other", risk_area: "sqli", outcome: "no_issue_found", target: "https://lab.example" }) }, U);
+      const covList = await executeTool({ id: "t", name: "coverage", arguments: JSON.stringify({ action: "list", target: "https://lab.example" }) }, U);
+      if (!covList.includes("[reported]") || !covList.includes("[no_issue_found]")) throw new Error(`coverage list must render outcomes: ${covList.slice(0, 160)}`);
+      // Threat model: incomplete saves are rejected with the missing sections named.
+      const short = await executeTool({ id: "t", name: "threat_model", arguments: JSON.stringify({ action: "save", target: "https://lab.example", overview: "too short" }) }, U);
+      if (!/^Error:.*threat model belum lengkap/.test(short)) throw new Error(`threat model must reject incomplete saves: ${short.slice(0, 140)}`);
+      await executeTool({
+        id: "t",
+        name: "threat_model",
+        arguments: JSON.stringify({
+          action: "save",
+          target: "https://lab.example",
+          overview: "Demo shop with public catalog API and an admin backoffice behind a session.",
+          trust_boundaries: "Anonymous web → public API; staff session → admin endpoints; no service-to-service trust.",
+          attack_surface: "/api/products, /api/cart, /api/orders, /admin",
+          severity_calibration: "Unauthenticated order tampering is critical; reflected XSS on staff-only pages is low.",
+        }),
+      }, U);
+      const tmShow = await executeTool({ id: "t", name: "threat_model", arguments: JSON.stringify({ action: "show", target: "https://lab.example" }) }, U);
+      if (!tmShow.includes("Trust boundaries") || !tmShow.includes("Severity calibration")) throw new Error(`threat model render incomplete: ${tmShow.slice(0, 140)}`);
+      // Report integration: coverage + threat model sections appear; an unmeasured user renders none.
+      const { addFinding } = await import("./src/lib/security");
+      addFinding(U, { title: "IDOR on order endpoint", severity: "high", cvss: 8.1, target: "https://lab.example/api/orders" });
+      const rep = (await import("./src/lib/security")).generateReport(U, { target: "https://lab.example" });
+      if (!rep.includes("## Coverage") || !rep.includes("## Threat model")) throw new Error("report must carry Coverage + Threat model sections when data exists");
+      const bare = (await import("./src/lib/security")).generateReport(`verify_strix_bare_${Date.now()}`, {});
+      if (bare.includes("## Coverage") || bare.includes("## Threat model")) throw new Error("unmeasured report must not render empty Coverage/Threat model sections");
+      console.log("coverage + threat_model (Strix-adapted: evidence-required outcomes, section-complete models, CORE/groq window, dispatch, report integration): OK");
+    } finally {
+      // Cleanup ONLY this run's user dir — userDataRoot() itself is the SHARED
+      // users root (0-arg); passing a user as an argument would be a no-arg
+      // mismatch the typecheck rightly rejects (and rmSync of the shared root
+      // would be catastrophic).
+      const { rmSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const { userDataRoot } = await import("./src/lib/users");
+      rmSync(join(userDataRoot(), U), { recursive: true, force: true });
+    }
+  }
+
+  // ── Final sweep: every FIXED-name scratch user this file creates ──────────
+  // Most blocks clean up in their own finally, but three used hardcoded keys
+  // and never did, so every verify run left .data/users/recapprobe,
+  // verify_scope_matrix and verify_selector_user behind (they were found
+  // orphaned in .data/users on 2026-09-26 and reappeared on the very next
+  // run). Same rule as everywhere else here: userDataRoot() is the SHARED
+  // 0-arg root, so the user is always joined onto it.
+  {
+    const { rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { userDataRoot } = await import("./src/lib/users");
+    for (const scratch of ["recapprobe", "verify_scope_matrix", "verify_selector_user"]) {
+      try {
+        rmSync(join(userDataRoot(), scratch), { recursive: true, force: true });
+      } catch {
+        /* best-effort: never fail the suite over litter */
+      }
+    }
   }
 }
 

@@ -7,7 +7,8 @@
 // .md — and pointed at a PDF from 11 minutes earlier as "the report". Nothing in
 // the reply disclosed the substitution.
 import { describe, expect, it } from "vitest";
-import { crossFormatArtifactNote, isMalformedTargetUrl, targetDriftNote } from "./agent";
+import { crossFormatArtifactNote, isEnumerationProbe, isMalformedTargetUrl, targetDriftNote } from "./agent";
+import { stripReceiptImitation } from "./actionReceipt";
 
 const FULL = "https://6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app";
 const TRUNC = "https://6a90...netlify.app/cek-nik";
@@ -170,6 +171,48 @@ describe("crossFormatArtifactNote", () => {
     const both = `Markdown: report-A.md\nPDF: report-B.pdf`;
     const note = crossFormatArtifactNote(both, { asked: "md" });
     expect(note).toBe("");
+  });
+
+  it("strips a model-authored copy of the action receipt (live 22:28)", () => {
+    // The fake block the model wrote, followed by the real one the system
+    // appends afterwards. Only the latter may survive.
+    const prose = [
+      "Udah tuntas Mas Naufal! 🌸",
+      "",
+      "⚙️ finding_list → https://6a90…netlify.app/cek-nik: 7 temuan ditemukan",
+      "⚙️ report_pdf → https://6a90…netlify.app/cek-nik: report-2026-09-26T15-28-13-544Z.pdf",
+    ].join("\n");
+    const cleaned = stripReceiptImitation(prose);
+    expect(cleaned).not.toContain("⚙️");
+    expect(cleaned).toContain("Udah tuntas");
+  });
+
+  it("strips an imitated receipt header too (the model copies that as well)", () => {
+    const prose = `Selesai.\nAksi yang benar-benar dijalankan:\n⚙️ report_pdf → /cek-nik: report-x.pdf`;
+    const cleaned = stripReceiptImitation(prose);
+    expect(cleaned).not.toContain("Aksi yang benar-benar dijalankan");
+    expect(cleaned).not.toContain("⚙️");
+  });
+
+  it("leaves a ⚙️ inside a code fence alone (user asked for that content)", () => {
+    const prose = "Ini contoh format:\n```\n⚙️ report_pdf → /x: y\n```\nitu saja";
+    expect(stripReceiptImitation(prose)).toContain("⚙️ report_pdf");
+  });
+
+  it("leaves ordinary prose untouched (no receipt, no change)", () => {
+    const prose = "PDF-nya sudah kubuat ya, cek foldernya 🌸";
+    expect(stripReceiptImitation(prose)).toBe(prose);
+  });
+
+  it("keeps the honesty note OUT of the fake block (it was visually swallowed)", () => {
+    // The note is appended after prose; with the imitation gone it reads as its
+    // own paragraph instead of hanging inside a fabricated receipt.
+    const prose = "Semua endpoint sudah diuji menyeluruh.\n⚙️ finding_list → /cek-nik: 7 temuan";
+    const note = ' (Catatan jujur: klaim "sudah menguji" belum didukung pengujian.)';
+    const cleaned = stripReceiptImitation(prose);
+    const final = `${cleaned}${note}`;
+    expect(final.indexOf("Catatan jujur")).toBeGreaterThan(cleaned.length);
+    expect(final.split("\n").filter((l) => l.includes("⚙️")).length).toBe(0);
   });
 
   it("preserves the file's exact casing in the note (a receipt must match disk)", () => {

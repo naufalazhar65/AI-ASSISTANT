@@ -3377,15 +3377,154 @@ export function chainRunClaimSuffix(messages: ChatMessage[], text: string): stri
  * inversion slipped past the older guards: the tool DID run, so the run-claim
  * guard is silent — but the verdict was invented. Pure, tested.
  */
+/**
+ * Security-vocabulary gate. Every verdict-strength guard needs it so a
+ * "confirmed" in a non-security sentence (a reminder, a weather line, a
+ * delivery receipt) is never mistaken for a security verdict. One owner —
+ * added when verdictInflationSuffix grew its own inline copy.
+ */
+const SECURITY_VOCAB_RE =
+  /(csrf|xss|idor|sqli|injection|ssrf|xxe|smuggl|redirect|pollut|race|bypass|cache[ _-]?dec|nosql|auth[ _-]?bypass|graphql|otp|takeover|exposure|upload|vulnerab\w*|kerentanan)/i;
+
+/**
+ * "This verdict is CONFIRMED" vocabulary — the single owner of the confirmed-
+ * strength decision.
+ *
+ * Live 2026-09-26 23:05: the reply said "Aku berhasil menemukan dan MEMVERIFIKASI
+ * 7 temuan" over a turn with zero probes, and the inflation guard stayed silent
+ * because its list had no word for "verified" — only "terkonfirmasi/terbukti".
+ * The gap class is the same as the run-claim guard's: our vocabulary is finite,
+ * the model's is not, so a new phrasing of the SAME lie walks through.
+ *
+ * Two shapes, deliberately kept apart:
+ *  - VERIFIED/PROVEN are unambiguous verdict words on their own.
+ *  - CONFIRMED only counts in a VERDICT_NOUN context. Bare "confirmed" is also
+ *    how models say "confirmed 200 OK" — a transport fact, not a verdict, and
+ *    calling that inflation would be a false accusation.
+ */
+const VERDICT_NOUN =
+  "(?:vulnerab\\w*|kerentanan\\w*|celah|exploit\\w*|bug|temuan|findings?|sqli|idor|xss|ssrf|xxe|csrf|rce|bola|takeover|auth[ _-]?bypass)";
+// Provenance: `terbukti`/`terkonfirmasi` were the ORIGINAL inflation vocabulary
+// (2026-09-24) and are kept verbatim — a 2026-09-26 refactor that rebuilt this
+// list dropped them and a probe caught it (typecheck cannot see a regex).
+const VERIFIED_WORD =
+  "\\b(?:verified|proven|reproduced)\\b|\\b(?:diverifikasi|terverifikasi|memverifikasi|memverifika|terverifika|membuktikan)\\b|\\bterbukti\\b|\\bterkonfirm\\w*\\b";
+const CONFIRMED_VERDICT = `(?:${VERDICT_NOUN}\\s+(?:is\\s+|are\\s+)?confirmed|confirmed\\s+(?:the\\s+|a\\s+|an\\s+)?(?:${VERDICT_NOUN}))`;
+
+// Bare "verifikasi" — Indonesian routinely DROPS the prefix ("sudah kita
+// verifikasi", "udah keverifikasi"), and live 2026-09-26 23:23 the model used
+// exactly that, so the past-participle list alone missed the claim.
+const VERIFY_ANY = "(?:diverifikasi|terverifikasi|memverifikasi|memverifika|terverifika|membuktikan|keverifikasi|everifikasi|verifikasi|verifikan)";
+// The prefix-DROPPED subset: these only count behind an aspect marker, since
+// "verifikasi" is also the noun in "perlu verifikasi manual".
+const BARE_VERIFY = "(?:keverifikasi|everifikasi|verifikasi|verifikan)";
+const ASPECT_MARKER = "(?:sudah|telah|udah|berhasil|kini|masih)";
+// A stated REQUIREMENT ("perlu verifikasi manual", "belum bisa diverifikasi")
+// sits right next to a claim in the same sentence and must never be read as a
+// completed one. Matched near the verb, and clause-scoped below, so a real
+// claim elsewhere in the reply is not silenced by it.
+const PENDING_NEAR = `(?:perlu|butuh|harus|mau|ingin|akan|sebaiknya|seharusnya|bisa|boleh|dapat|jangan)\\b[^.!?]{0,30}?${VERIFY_ANY}`;
+
+export function confirmedStrengthClaim(text: string): boolean {
+  // Clause-scoped on purpose (live 2026-09-26 23:23 probe: a whole-text
+  // pending check silenced "sudah diverifikasi" because a later clause said
+  // "perlu verifikasi manual", and a whole-text claim check fired on
+  // "masih perlu diverifikasi" because a neighbouring clause said "sudah").
+  for (const clause of String(text || "").split(/[,.;:!?\n]/)) {
+    if (new RegExp(PENDING_NEAR, "i").test(clause)) continue;
+    if (new RegExp(VERIFIED_WORD, "i").test(clause)) return true;
+    if (new RegExp(CONFIRMED_VERDICT, "i").test(clause)) return true;
+    if (new RegExp(`${ASPECT_MARKER}[\\s\\S]{0,24}?${BARE_VERIFY}`, "i").test(clause)) return true;
+  }
+  return false;
+}
+
+/**
+ * A claim of having VERIFIED findings, with no verifier anywhere behind it.
+ *
+ * This is a DIFFERENT hole from verdictInflationSuffix. That guard catches "the
+ * prover said kandidat, the narration upgraded it to terkonfirmasi" — it needs
+ * a prover output to exist (proverOuts), so it is structurally silent when the
+ * findings came from a STORE READ. That is the common case: the model calls
+ * `finding_list`, gets N findings, and narrates "saya menemukan dan memverifikasi
+ * N temuan" as though it had proven them. Live 2026-09-26 23:05 — 7 findings,
+ * zero poc_verify, and the claim shipped with only the generic "no probe ran"
+ * note to contradict it.
+ *
+ * Verifying a finding is a specific act with a specific tool (poc_verify /
+ * retest_run), so absence of that tool is the test. Fail-open on the shapes we
+ * cannot judge: an explicit negation ("belum diverifikasi") and a time
+ * attribution ("terverifikasi sebelumnya") both mean the model is either honest
+ * or pointing at work outside this turn's window — accusing those would be the
+ * very slop this layer exists to remove. Pure — tested.
+ */
+export function unverifiedFindingClaimNote(
+  messages: ChatMessage[],
+  text: string,
+  ledger?: Array<{ name: string; executed: boolean }>
+): string {
+  const t = String(text || "");
+  if (!SECURITY_VOCAB_RE.test(t)) return "";
+  if (!confirmedStrengthClaim(t)) return "";
+
+  // Honest negation: saying it did NOT verify is the truth, not a lie.
+  //
+  // Provenance (2026-09-26 23:23 probe): the first version enumerated the
+  // pronouns and particles between the negator and the verb, and that missed
+  // real shapes — "belum kita verifikasi", "tidak ada temuan IDOR yang sudah
+  // diverifikasi" — so an honest turn got accused. A bounded window replaces
+  // the enumeration. (Related: while `diverifikasi` was missing from the
+  // vocabulary, "belum diverifikasi" read as SILENT only by short-circuiting at
+  // the vocabulary test — adding the word without this list would have turned an
+  // honest sentence into an accusation.)
+  //
+  // Trade-off, chosen deliberately: the window also silences a genuine claim
+  // that sits close after a negator in the same sentence ("IDOR belum diuji,
+  // tapi SQLi-nya sudah keverifikasi"). That is a miss, not a false accusation,
+  // and the completion/probe guards still cover the turn. Failing open is the
+  // right side to err on here — this whole layer exists to stop us calling
+  // honest work a lie.
+  //
+  // Grouping note (a real bug this comment now guards): the negator, `terbukti`
+  // and `terkonfirmasi` must stay INSIDE the windowed group. Written as three
+  // top-level alternatives, `\bterkonfirm\w*\b` became a "negation" of its own
+  // and silently disabled the whole guard for the most common Indonesian
+  // confirmed-word — while every other test still passed, because they mostly
+  // used `terverifikasi`. verify.ts caught it on the first run.
+  if (
+    new RegExp(
+      `\\b(?:belum|nggak|gak|tidak|kurang)\\b[^.!?]{0,40}?(?:${VERIFY_ANY}|terbukti|terkonfirm\\w*)\\b`,
+      "i"
+    ).test(t)
+  )
+    return "";
+  // Time attribution: "terverifikasi sebelumnya" points outside this window.
+  // The ledger replays only the last few minutes, so we cannot contradict it.
+  if (
+    /\b(?:sebelumnya|td\s+lalu|tadi\s+lalu|turn\s+lalu|run\s+lalu|waktu\s+lalu|minggu\s+lalu|kemarin|pertama\s+kali|saat\s+itu)\b/i.test(
+      t
+    )
+  )
+    return "";
+  // A quoted instruction or worked example is not a claim about this turn.
+  if (/^\s*[-*>]|\bprompt\s+(?:saya|kami)\b|\bcontohnya\b|\bexample\b/i.test(t)) return "";
+
+  // A verifier in this turn — or replayed from the prior turn's side-ledger —
+  // is exactly the evidence that earns the word "verified".
+  if (turnRanTool(messages, "poc_verify") || turnRanTool(messages, "retest_run")) return "";
+  if ((ledger ?? []).some((c) => c.executed && (c.name === "poc_verify" || c.name === "retest_run"))) return "";
+
+  return ' (Catatan jujur: temuan itu BELUM diverifikasi di giliran ini — yang jalan cuma baca + ambil dari daftar temuan, tidak ada satu pun poc_verify/retest_run. Jangan sebut "terverifikasi" sebelum ada PoC yang benar-benar dijalankan; bilang "buktikan temuanku" kalau mau kujalankan.)';
+}
+
 export function verdictInflationSuffix(
   messages: ChatMessage[],
   text: string,
   ledger?: Array<{ name: string; executed: boolean }>
 ): string {
-  if (!/(csrf|xss|idor|sqli|injection|ssrf|xxe|smuggl|redirect|pollut|race|bypass|cache[ _-]?dec|nosql|auth[ _-]?bypass|graphql|otp|takeover|exposure|upload)/i.test(text)) return "";
+  if (!SECURITY_VOCAB_RE.test(text)) return "";
   // A confirmed-strength claim in the narration…
-  const confirmedClaim = /terkonfirmasi|terkonfirm|terbukti|vulnerab(ility|le) confirmed|confirmed vulnerab|rentan\.? (terkonfirm|yacc)|sudah (terbukti|terkonfirmasi)/i.test(text);
-  if (!confirmedClaim) return "";
+  if (!confirmedStrengthClaim(text)) return "";
   // …but this turn's prover outputs only offered a SIGNAL (kandidat/lead/sinyal),
   // and no poc_verify/retest_run ever ran to upgrade it.
   const proverOuts: string[] = [];
@@ -4120,7 +4259,7 @@ export function composeBuildClaimSuffix(messages: ChatMessage[], text: string): 
  */
 const CHAIN_DEADLINE_MS = 30_000;
 
-export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "report_generate", "report_save", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "content_discover", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "exec_write", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner"];
+export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "report_generate", "report_save", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "content_discover", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "exec_write", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner", "github_osint", "har_import", "memory"];
 
 /**
  * Tool-budget honesty hint, per candidate provider (live 2026-09-21: on 9router
@@ -4135,7 +4274,7 @@ function toolBudgetHint(url: string): string {
   const missingTools = HINT_UNDELIVERED.filter((n) => !deliveredTools.some((t) => t.function.name === n));
   if (!missingTools.length) return "";
   return (
-    `\n\nTOOL BUDGET (provider ini): hanya ${deliveredTools.length} tool yang tersedia. TIDAK tersedia di sini: ${missingTools.join(", ")}. JANGAN memanggilnya — rencanakan dengan tool yang ada (pentest_resources, pentest_scan, http_request, auth_setup, poc_verify, ato_prove, finding_add, finding_list, workflow_fuzz, prompt_injection_hunt, race_attack, graphql_hunt) dan katakan jujur kalau sebuah tahap butuh provider lain. Untuk permintaan pentest/pengujian: LANGSUNG kerjakan alurnya dengan tool yang tersedia mulai giliran ini — jangan minta izin, jangan menawarkan alternatif dulu. SWEEP MENYELURUH: kalau user minta pentest semua bagian/full/menyeluruh, JANGAN bertanya bagian mana yang diuji duluan (arahan sudah jelas) — lakukan sendiri secara sistematis: enumerasi endpoint dari halaman/JS yang ter-fetch, uji satu per satu dengan http_request (+ poc_verify untuk yang mencurigakan), catat tiap temuan dengan finding_add, lanjut ke endpoint berikutnya sampai semua teruji; bila target_brain ter-delivery di provider ini, cek gap via action=coverage target=<host>, bila tidak pakai finding_list + hunt_log sebagai konteks. JANGAN menutup giliran pentest dengan pertanyaan pilihan arah ("mau lanjut via X atau Y?") bila langkah konkret tersedia — langsung EKSEKUSI langkah pertama dengan tool yang ada; pertanyaan hanya bila benar-benar butuh input yang tidak kumiliki (kredensial, pilihan target, izin). KONTEKS TEMUAN: sebelum menguji target, panggil finding_list target=<host> — bila findings target itu sudah tercatat, pakai sebagai titik mulai dan sebut dengan benar; DILARANG mengklaim "endpoint/API belum ketemu" bila findings store sudah berisi endpoint itu. Pengujian endpoint pakai http_request — browser_open hanya untuk melihat halaman, jangan loop untuk pengujian. PENGECUALIAN PDF: kalau user minta PDF laporan ("buatkan pdf", "laporan pdf"), TERIMA permintaannya dan jawab positif — sistem provider ini tetap membuat PDF-nya secara otomatis dari temuan tercatat; JANGAN bilang fitur PDF tidak aktif, JANGAN tawarkan file markdown sebagai pengganti, dan JANGAN berkata akan membuatnya "nanti/segera setelah ada temuan" — kalau sistem membuatnya, PDF-nya SUDAH ada saat balasan ini terkirim. PDF adalah PELAPORAN, bukan pengganti pengujian: setelah PDF dibuat, bila user minta full/menyeluruh, LANJUTKAN sweep http_request + finding_add ke endpoint berikutnya — jangan berhenti menguji hanya karena PDF sudah tercetak. Bicara LANGSUNG ke user ("Mas Naufal, ini statusnya…"), bukan menulis instruksi tentang dia (bukan "Beri tahu Mas Naufal …").`
+    `\n\nTOOL BUDGET (provider ini): hanya ${deliveredTools.length} tool yang tersedia. TIDAK tersedia di sini: ${missingTools.join(", ")}. JANGAN memanggilnya — rencanakan dengan tool yang ada (pentest_resources, pentest_scan, http_request, auth_setup, poc_verify, ato_prove, finding_add, finding_list, workflow_fuzz, prompt_injection_hunt, race_attack, graphql_hunt) dan katakan jujur kalau sebuah tahap butuh provider lain. Untuk permintaan pentest/pengujian: LANGSUNG kerjakan alurnya dengan tool yang tersedia mulai giliran ini — jangan minta izin, jangan menawarkan alternatif dulu. SWEEP MENYELURUH: kalau user minta pentest semua bagian/full/menyeluruh, JANGAN bertanya bagian mana yang diuji duluan (arahan sudah jelas) — lakukan sendiri secara sistematis: enumerasi endpoint dari halaman/JS yang ter-fetch, uji satu per satu dengan http_request (+ poc_verify untuk yang mencurigakan), catat tiap temuan dengan finding_add, lanjut ke endpoint berikutnya sampai semua teruji; bila target_brain ter-delivery di provider ini, cek gap via action=coverage target=<host>, bila tidak pakai finding_list + hunt_log sebagai konteks. JANGAN menutup giliran pentest dengan pertanyaan pilihan arah ("mau lanjut via X atau Y?") bila langkah konkret tersedia — langsung EKSEKUSI langkah pertama dengan tool yang ada; pertanyaan hanya bila benar-benar butuh input yang tidak kumiliki (kredensial, pilihan target, izin). KONTEKS TEMUAN: sebelum menguji target, panggil finding_list target=<host> — bila findings target itu sudah tercatat, pakai sebagai titik mulai dan sebut dengan benar; DILARANG mengklaim "endpoint/API belum ketemu" bila findings store sudah berisi endpoint itu. Sebut jumlah temuan HANYA dari output finding_list/isi laporan (laporan menggabungkan temuan lama + baru), bukan dari ingatan. Pengujian endpoint pakai http_request — browser_open hanya untuk melihat halaman, jangan loop untuk pengujian. PENGECUALIAN PDF: kalau user minta PDF laporan ("buatkan pdf", "laporan pdf"), TERIMA permintaannya dan jawab positif — sistem provider ini tetap membuat PDF-nya secara otomatis dari temuan tercatat; JANGAN bilang fitur PDF tidak aktif, JANGAN tawarkan file markdown sebagai pengganti, dan JANGAN berkata akan membuatnya "nanti/segera setelah ada temuan" — kalau sistem membuatnya, PDF-nya SUDAH ada saat balasan ini terkirim. PDF adalah PELAPORAN, bukan pengganti pengujian: setelah PDF dibuat, bila user minta full/menyeluruh, LANJUTKAN sweep http_request + finding_add ke endpoint berikutnya — jangan berhenti menguji hanya karena PDF sudah tercetak. Bicara LANGSUNG ke user ("Mas Naufal, ini statusnya…"), bukan menulis instruksi tentang dia (bukan "Beri tahu Mas Naufal …").`
   );
 }
 
@@ -5056,6 +5195,12 @@ async function runAssistantTurnImpl(opts: {
     // guard; pure, tested.
     const verdictNote = verdictInflationSuffix(messages, text, collector.executedCalls);
     if (verdictNote) text = `${text}${verdictNote}`;
+    // Unverified-finding guard (live 2026-09-26 23:05): "menemukan dan
+    // memverifikasi 7 temuan" over a turn whose only finding source was
+    // `finding_list`. verdictInflation cannot see it — no prover ran, so there
+    // is no signal to have upgraded. Same gates; pure, tested.
+    const verifyNote = unverifiedFindingClaimNote(messages, text, collector.executedCalls);
+    if (verifyNote) text = `${text}${verifyNote}`;
   }
 
   // Endpoint-triage honesty guard: "cek /login rentan?" answered with an old
@@ -5091,7 +5236,13 @@ async function runAssistantTurnImpl(opts: {
   // model adds context only. On the confirm path the prior turn's real
   // executions (side ledger) merge in, tagged "(turn sebelumnya)".
   try {
-    const { actionReceipt } = await import("./actionReceipt");
+    const { actionReceipt, stripReceiptImitation } = await import("./actionReceipt");
+    // Drop any SYSTEM-FORMATTED action narration the model wrote in its own
+    // prose BEFORE the real receipt lands (live 2026-09-26 22:28: the user saw
+    // "Aksi yang benar-benar dijalankan" twice with different contents, and the
+    // honesty note landed inside the fake block). The ⚙️ line is the system's
+    // authority — a model-authored copy is a fabrication by construction.
+    text = stripReceiptImitation(text);
     const receipt = actionReceipt(collectActionRecords(messages, collector.executedCalls));
     if (receipt) text = `${text}${receipt}`;
   } catch {

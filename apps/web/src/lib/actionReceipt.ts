@@ -209,6 +209,47 @@ export function stripReceiptBlock(text: string): string {
 }
 
 /**
+ * Remove a MODEL-AUTHORED copy of the receipt block from the reply prose.
+ *
+ * Live 2026-09-26 22:28: the model narrated its own actions in the exact
+ * system shape —
+ *   ⚙️ finding_list → https://…/cek-nik: 7 temuan ditemukan
+ *   ⚙️ report_pdf → https://…/cek-nik: report-….pdf
+ * — immediately before the real receipt was appended, so the user saw
+ * "Aksi yang benar-benar dijalankan" TWICE with different contents (the fake
+ * one lacked the "(turn sebelumnya)" tags) and the appended honesty note landed
+ * visually inside the fake block. An earlier session already hit the degenerate
+ * `⚙️ :` variant; only that empty-name case was fixed, not the general mimic.
+ *
+ * The `⚙️` glyph is reserved for SYSTEM receipts (the line is the authority),
+ * so any such line in model prose is a fabrication and is removed. This runs
+ * BEFORE the real receipt is appended, so it can never touch it — and the
+ * header is matched too, since the model copies that as well. Pure. Tested.
+ */
+export function stripReceiptImitation(text: string): string {
+  const t = text || "";
+  if (!t.includes("⚙️") && !t.includes(RECEIPT_HEADER)) return t;
+  // Drop an imitated header + its lines, and any stray ⚙️ line, fence-aware so
+  // a ⚙️ mentioned inside a code block the user asked for is left alone.
+  let out = "";
+  let inFence = false;
+  for (const line of t.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      out += `${line}\n`;
+      continue;
+    }
+    if (inFence) {
+      out += `${line}\n`;
+      continue;
+    }
+    if (line.includes("⚙️") || line.trim() === RECEIPT_HEADER) continue;
+    out += `${line}\n`;
+  }
+  return out.replace(/\n{3,}/g, "\n\n").trimEnd();
+}
+
+/**
  * Dedupe receipt groups by name+args, keeping the first occurrence per key but
  * upgrading a placeholder/absent result when a group carries the real tool
  * output (confirm-path records win over ledger backfill). Pure. Tested.
