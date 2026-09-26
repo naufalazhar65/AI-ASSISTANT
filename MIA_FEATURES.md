@@ -14,7 +14,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 
 ## 2. Otak & Provider
 
-- **OpenCode Go (GLM 5.2)** — full-window brain (semua 331 tool); default pindah ke **9router** sejak 2026-09-21 (kuota Go bulanan habis, reset ~15 hari — lihat §21); auto-switch ke `deepseek-v4-flash-vision-exp` saat ada gambar
+- **OpenCode Go (GLM 5.2)** — full-window brain (semua 333 tool); default pindah ke **9router** sejak 2026-09-21 (kuota Go bulanan habis, reset ~15 hari — lihat §21); auto-switch ke `deepseek-v4-flash-vision-exp` saat ada gambar
 - **Multi-provider** — Groq / opencode local / 9router / openrouter / mock, selectable per channel
 - **Spotify sleep timer** — `spotify_sleep_timer`: `after_track=true` (matikan setelah lagu ini selesai) / `minutes=N` / `cancel=true`; timer in-process (hilang saat restart) + push ⏹️ saat dieksekusi
 - **Persona facts**: kunci kanonik + resolusi konflik (nilai terbaru menang, riwayat di `## Superseded` yang TIDAK di-inject ke prompt) + **rahasia/token ditolak** + cap 80 fakta; tool `persona_show` / `persona_set` (`ingat ini: …`) / `persona_forget` (`lupakan …`)
@@ -152,7 +152,7 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 - **Audit hardening (2026-09-15)** — cakupan subdomain env `PENTEST_LAB_TARGETS`, `netGuard.assertPublicUrl` bersama (IPv6/metadata), ID temuan anti-tabrakan, `engagement_create` write/confirm, `web_audit` anti-SSRF, metadata endpoint diblok, suite pentest masuk `CORE_TOOL_NAMES` (Groq).
 - **Bug-bounty toolkit (2026-09-15)** — `oast_create/poll/stop` (OOB/blind via webhook.site), `http_session` + `http_request session/save_session` (auth), `bola_diff` (BOLA/IDOR dua identitas A/B), `content_discover` (robots/sitemap/JS/path), `param_fuzz` (XSS/SQLi/SSTI/redirect/cmdi per-param), `jwt_attack` (forge/crack), `evidence_capture` (screenshot + raw HTTP), `scope_import` (parse Targets→engagement), `crawl`, `param_discover`, `recon_diff` (aset baru), `recon_screenshot` (visual recon), `js_mine` (endpoint+secret JS), `api_spec`/`graphql_probe`, `request_save`/`request_run`, `platform_severity` (H1/VRT), `cve_intel`, `recon_dnsbrute`, `recon_ports`, `bucket_enum`, `submission_track`, `cors_audit`, `csp_audit`, `http_history`, `race`, `ws_probe`, `browser_eval` (Playwright), DNS-OAST (`oast_dns_create/poll/stop`, interactsh). `recon_subdomains` multi-sumber (crt.sh+certspotter); **scope-watch** heartbeat (`SECURITY_SCOPE_WATCH`) push aset baru. Biner terpasang: searchsploit, semgrep, trivy, gobuster, katana, interactsh-client. RoE-aware: manual + rate-limit default.
 - **`security_hunt` (2026-09-15)** — orkestrasi otonom: satu perintah menjalankan header/cookie+CSP+CORS+content discovery+crawl+JS mining (+param discovery `deep=true`) lalu merangkum **LEADS**. Scope-gated + bounded.
-- **Cheat-sheet** — `SECURITY.md`. **Total tools 331.**
+- **Cheat-sheet** — `SECURITY.md`. **Total tools 333.**
 
 ---
 
@@ -217,7 +217,7 @@ Lima modul pentest "superpower" yang saling menguatkan, terintegrasi ke `bounty_
 - `apps/web/verify.ts` — assertions updated
 - `AGENTS.md` — updated
 
-**Total tools: 331** · **CORE 128** (jendela Groq; 9router membawa 64 chain analisis) · **85 playbook** · **vitest 698**
+**Total tools: 333** · **CORE 128** (jendela Groq; 9router membawa 64 chain analisis) · **85 playbook** · **vitest 945**
 
 ---
 

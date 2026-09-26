@@ -164,7 +164,7 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
 | **Superpower** | `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query` | Per-target memory, regression suite, N-role matrix, DOM XSS taint, disclosed patterns |
 
-**331 tools total.** Full list derives from the registry — see
+**333 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---

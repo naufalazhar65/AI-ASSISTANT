@@ -1464,3 +1464,125 @@ Owner paste push pagi (04:00–10:00) dan tanya apakah Mia mengada-ada. Verifika
 - **Anti-regresi:** `moodIntent.test.ts` baru 13 tes dua arah (FP markdown/negasi/substring = silent; ekspresi asli + clitic + negasi-campuran = tetap mencatat). Data 25-Sep kini bersih (0 entri → briefing tidak lagi bisa mengklaim "kemarin berat" dari data palsu; moodTone neutral).
 
 Gates: typecheck 0 · vitest **883/883** (+13 moodIntent) · restart tmux sehat (health ok, logged_in=1, 0×409, stale-check OK). **Belum commit — menunggu approval owner.**
+
+## Session 2026-09-26 (lanjutan) — Strix runtime tools diadaptasi: `coverage` + `threat_model` (tools 331→333, CORE tetap 128)
+
+Owner minta dicek ulang repo Strix (`~/Documents/PROJECT/strix`) — "kemarin sudah ambil beberapa, siapa tada ada yang lebih bagus". Audit baris-per-baris: folder `skills/` (9 SKILL.md) SUDAH habis diadaptasi jadi 85 playbook (sisa = cloud-specific Strix, N/A keyless); yang BELUM pernah diambil adalah **runtime tools** Python (`strix/strix/tools/`). Dari 4 kandidat, 2 layak (dua lainnya skip: `agents_graph` = multi-subagent overkill, `proxy` Caido = butuh install eksternal, use-case sudah ditutup `cdp_proxy`):
+
+1. **`coverage.ts` (baru, tool `coverage` read/auto, CORE)** — coverage ledger per-user (adaptasi `tools/coverage/tools.py`): satu baris per `surface × risk_area` dengan **5 outcome kanonik** (`reported` / `no_issue_found` / `ruled_out` / `not_applicable` / `needs_follow_up`) — dan **outcome penutup WAJIB evidence** (`OUTCOMES_REQUIRING_EVIDENCE`; aturan kejujuran Strix verbatim: surface tidak boleh ditutup tanpa bukti). Dedupe/update per surface×risk_area (`coverageKey`), `normalizeSurface` (scheme/trailing-slash/case collapse), `coverageProgress` (closed vs open — membuat klaim "full pentest selesai" TERUKUR), `coverageReportSection` untuk laporan. Store `.data/users/<u>/coverage.json` (atomic, cap 200). Tool actions record/list/forget. Menutup gap: Mia mencatat WHAT ditemukan (findings) dan WHERE sudah dicek (hunt_log/target_brain) tapi bukan KELAS RISKO apa diuji dan BAGAIMANA tutupnya.
+2. **`threatModel.ts` (baru, tool `threat_model` read/auto, CORE)** — threat model per-target (adaptasi `tools/threat_model/tools.py`): **4 section wajib** (`overview` / `trust_boundaries` / `attack_surface` / `severity_calibration`, min `MIN_SECTION_CHARS=20` — placeholder ditolak dengan nama section yang kurang), merge-on-update (bukan replace), amendments (min 30 char, cap 40, oldest-dropped), `renderThreatModel` + `threatModelReportSection`. Store `.data/users/<u>/threat-models.json` (atomic, cap 20). Tool actions save/show/amend. Menahan inflasi severity lewat section calibration eksplisit.
+
+**Wiring:** 2 plugin tools.ts (risk read → auto); CORE swap in-place — `coverage`+`threat_model` masuk, `retest_list` (retest_run = operator loop) + `otp_probe` (superseded `otp_hunt`) keluar → **CORE 128 unik runtime-verified** (node probe, bukan grep visual); PERSONAL_LIST_TOOLS +2 (dan `otp_probe` dikeluarkan); prompt: daftar no-wait + seksi AUDIT & ANALISIS; **report integration**: `generateReport` kini menyisipkan seksi `## Coverage` + `## Threat model` (bahasa Inggris, deliverable) HANYA bila datanya ada — laporan tanpa pengukuran dirender persis seperti sebelumnya (tanpa filler).
+
+**Tes dua arah menangkap 3 bug implementasi sebelum gates:** (1) `coverageValidate` lupa diimpor di test (ReferenceError); (2) pesan error dua lokasi tak seragam (`WAJIB menyertakan evidence` vs `WAJIB evidence`); (3) `missingSections` indexing TS (TS7053) — return type dipersempit `ThreatModelSection[]`. Plus `hosts` out-of-scope di IIFE report (recompute dari `rows[0].target`).
+
+**Verify:** assertion lama diupdate 2 tempat (daftar window Groq: −`otp_probe`/−`retest_list` +`coverage`/`threat_model`; blok 2026-09-23: `otp_probe` kini WAJIB di luar CORE); blok baru ke-177 "coverage + threat_model": dispatch E2E (evidence-free ruling ditolak, incomplete model ditolak dengan nama section, list/show render, report menyisipkan kedua seksi, user tanpa data tidak dapat seksi kosong), CORE 128 + groq window. **Gates:** typecheck 0 · vitest **915/915** (+18: coverage 10, threatModel 8) · verify **EXIT=0 (177 blok)** · eslint 0 error · registry **333 tools** 0 dupes · docs totals 331→333 + vitest 698→915 (README/MIA_FEATURES/SECURITY/ROADMAP). **Belum commit — menunggu approval owner** (bersama batch sesi: fix CI + English deliverables + mood FP + polesan receipt + dup-merge findings).
+
+### Lanjutan 2026-09-26 — verify.ts typecheck error + sync maksimal Strix tools (5 temuan, semua fix)
+
+Owner: "verify.ts masih error, cek teliti, pastikan bekerja & sinkron maksimal". Benar 5 lapis:
+
+1. **8 TS error di blok verify baru** (tsx tidak men-typecheck — gotcha lama berulang): (a) `executeTool({name,…})` tanpa `id` — ToolCall runtime wajib `id` (pola rumah `{ id: "t", … }`); 7 call-site diperbaiki; (b) **BAHAYA: `userDataRoot(U)`** — helper ternyata 0-arg mengembalikan SHARED users root; `rmSync(userDataRoot(U))` akan menghapus SEMUA data user. Typecheck yang menolaknya = jaring penyelamat nyata. Cleanup dikoreksi `join(userDataRoot(), U)` + komentar alasan.
+2. **Ghost `undefined` member di CORE (setelah swap posisi)** — `sed -i` menyisakan `"github_osint", "har_import",,` (double comma) → slot kosong → `undefined` masuk Set → CORE 129 (uniq) dengan window tetap 64. Kelas bug identik insiden "hantu" terdokumentasi; ketemu via diff runtime-vs-literal + posisi + tetangga (`[github_osint, har_import, undefined, engagement_create]`), fix = hapus koma dobel. Runtime probe kini assert `ghost:0`.
+3. **Penempatan window 9router-64 diperbaiki dua kali berdasar FAKTA, bukan teori**: sisip di samping `finding_list` (idx 53) ternyata mendorong `har_import`+`report_generate` keluar window (report_generate keluar TIDAK boleh — PDF deterministik); geser ke idx 61 mendorong `report_pdf` keluar (juga tidak boleh). Solusi final: `github_osint`+`har_import` pindah ke EKOR CORE (masih Groq-128 + opencodego, keluar 9router-64 by design) → slot window untuk `coverage, threat_model, report_generate, report_save, report_pdf`. Runtime-verified: 9r64 = cov✓ tm✓ rgen✓ pdf✓ race✓ wfz✓ len 64; groq128 = cov✓ tm✓ osint✓ har✓ len 128.
+4. **`github_osint`+`har_import` ditambahkan ke HINT_UNDELIVERED** (input-driven tools yang kini out-of-window di 9router) — menutup gap hint yang akan membuat model Discord membuang round mencoba tool tak ter-delivery.
+5. **Slim prompt "RECON+PROVE (delivered here)" diselaraskan**: daftarnya masih mengiklankan `github_osint, har_import` (kini out-of-window) — diganti `coverage, threat_model` (in-window). Kelas bug yang sama dengan hint-pool kontradiksi 2:03 PM: hint yang mengiklankan tool tak ter-delivery melawan delivery guard.
+
+**Gates akhir:** typecheck 0 · vitest 915/915 · verify EXIT=0 (**177 blok OK**) · smoke honesty guards PASS · eslint 0 error. **Pelajaran berulang:** (1) tiap edit verify.ts WAJIB typecheck sebelum "selesai"; (2) tiap edit CORE WAJIB runtime probe (bukan grep) — termasuk assert tidak ada ghost falsy member; (3) penempatan window capped-provider WAJIB dibaca dari `toolsForUrl` aktual, bukan dihitung dari posisi teks; (4) hint & prompt selalu audit ulang setiap CORE move.
+
+### Drill live Strix tools via jalur produksi (2026-09-26) — `drill-strix-coverage.mts` ALL GREEN
+
+Drill durabel baru (jalur produksi 9router + channel discord, user run-unique + auto-cleanup, bukti = audit log + store + report, BUKAN prosa):
+- **P0** delivery matrix: 9router-64 membawa `coverage`+`threat_model`+3 report; `github_osint`/`har_import` keluar window (HINT covers) ✓
+- **P1** real LLM turn (1 attempt!): model langsung mengerjakan 9 round — http_request×2 (id=1 vs id=2/3 differential) → poc_verify → finding_add×3 (2× Error jujur "judul temuan wajib" tampil di receipt, 1× sukses HIGH 7.5) → security_playbook → **coverage** → **threat_model** — semua read/auto policy own-lab jalan langsung, needsConfirmation kosong ✓
+- **P3** Strix ledger terisi NYATA: audit `tool:coverage` 1 run + `tool:threat_model` 1 run; store: 1 row `[reported] idor` + model 4 section lengkap; `generateReport` merender `## Coverage` + `## Threat model` untuk user drill ✓
+- Honesty guards: 0 inflation (klaim didukung poc_verify di audit), 0 penyangkalan eksekusi, receipt memperlihatkan bahkan error tool jujur ("judul temuan wajib") ✓
+- Observasi → fix 1 kalimat: threat model yang model tulis berbahasa Indonesia (akan masuk laporan) → deskripsi tool `threat_model` kini memerintahkan "Tulis isi section dalam ENGLISH (deliverable netral)". typecheck 0 + verify 177 OK ulang.
+
+Gates: drill EXIT=0 (13/13 asersi) · user drill dibersihkan otomatis (0 sisa). **Belum commit — menunggu approval owner.**
+
+### Drill live PDF Strix (2026-09-26, lanjutan) — seksi Coverage + Threat model di PDF asli — `drill-strix-pdf.mts` ALL GREEN
+
+Owner: "coba minta laporan PDF baru di Discord untuk melihat seksi Coverage + Threat model di PDF asli". Drill durabel baru (jalur produksi 9router + channel discord, user run-unique + cleanup, bukti = audit + file di disk):
+- **P1** ledger diisi via **executeTool dispatch** (jalur yang sama dipakai agent): threat_model 4-section + coverage row `[reported] idor` ber-evidence — bukan import langsung ✓
+- **P3** ask Discord "buatkan report pdf untuk target …" → round 1 model memanggil `finding_list, finding_add, poc_verify, report_pdf` (semua in-window) → **PDF nyata 119 KB** di disk + receipt di balasan ✓
+- **P4** bukti seksi di PDF via **diferensial terukur**: artefak kontrol (temuan identik TANPA ledger Strix) = 1 halaman/111 KB; PDF drill (DENGAN seksi) = **2 halaman/119 KB** → seksi Coverage + Threat model menambah halaman render nyata ✓. (Ekstraksi teks mentah Chromium-PDF butuh dekoder ToUnicode-CMap per-font-subset — 16 font dengan gid tumpang-tindih, proyek tersendiri; diferensial halaman adalah bukti render yang jujur dan durabel.)
+- Honesty: tidak ada klaim palsu "tidak bisa buat PDF"; error tool tidak pernah jadi baris receipt ✓
+
+Gates: typecheck 0 · drill EXIT=0 (9/9) · user drill dibersihkan otomatis (0 sisa). **Belum commit — menunggu approval owner.**
+
+## Sesi 2026-09-26 (malam) — guard "sudah diverifikasi" + 4 turn live, dan stabilitas yang BELUM terbukti
+
+Empat turn live Discord ("full pentest menyeluruh di <lab>/cek-nik + report pdf")
+dipakai sebagai bahan forensik, bukan sebagai uji yang buram. Bukti selalu audit log
++ disk, tidak pernah prosa balasan.
+
+**Defect yang ditemukan dan diperbaiki (guard baru):**
+Turn 23:05 menyatakan "Aku berhasil menemukan dan **memverifikasi** 7 temuan"
+padahal sumbernya cuma `finding_list` — nol `poc_verify`, nol probe. Dua lubang
+independen, keduanya dari probe (baca kode tidak akan menemukannya):
+1. **Kosakata** — `verdictInflationSuffix` punya daftar sendiri; "memverifikasi"
+   tidak ada di sana, dan `diverifikasi` tidak ada di daftar mana pun.
+2. **Cakupan (yang menentukan)** — guard itu butuh **output prover** untuk bisa
+   menuduh upgrade ("tool bilang kandidat → narasi bilang terkonfirmasi"). Kalau
+   temuan datang dari *baca store*, tidak ada sinyal yang di-upgrade → guard
+   buta secara struktural. Produksi itu kasus umum, bukan pengecualian.
+
+Perbaikan: `confirmedStrengthClaim()` jadi **satu pemilik** keputusan
+confirmed-strength; guard baru `unverifiedFindingClaimNote()` menutup bentuk
+tanpa-prover (absen `poc_verify`/`retest_run` di turn ini maupun di side-ledger
+yang di-replay = klaim tak dibayar). Fail-open pada yang tidak bisa dinilai:
+pengakuan jujur, atribusi waktu ("terverifikasi sebelumnya"), dan permintaan
+("perlu verifikasi manual" — bahasa output prover sendiri). `confirmed` hanya
+bernilai di dekat kata verdict; "confirmed 200 OK" itu fakta transport.
+
+**4 bug di dalam fix ini sendiri** (semua tertangkap probe dua-arah, bukan
+typecheck — dicatat karena polanya, bukan karena kejadiannya):
+- `terbukti`/`terkonfirmasi` hilang diam-diam saat daftar ditulis ulang.
+- `"belum diverifikasi"` sebelumnya diam **karena short-circuit di tes kosakata**,
+  bukan karena negasi bekerja → bom laten: begitu kata itu ditambahkan, negasi
+  akan salah tuduh orang yang jujur.
+- Penilaian per-teks membuat `"sudah diverifikasi"` hilang karena klausa tetangga
+  bilang "perlu verifikasi manual" → sekarang **per klausa**.
+- **Bug GROUPING** (ketahuan `verify.ts` di run pertama): pola negasi ditulis
+  sebagai tiga alternatif top-level, jadi `\bterkonfirm\w*\b` berlaku sebagai
+  negasi sendiri dan **mematikan guard untuk "terkonfirmasi"** — sementara 13
+  tes lain tetap hijau karena kebanyakan memakai `terverifikasi`. Kedua arah
+  kini dipaksa lewat assertion.
+
+**Turn 23:38 = turn pertama yang benar sepenuhnya**: 7 temuan cocok 7/7 dengan
+`generateReport` scope yang sama, PDF nyata, "sudah" diberi atribusi waktu yang
+**benar** (owner memang punya 11+18 run proving di 25–26 Sep), dan guard diam
+karena model tidak memakai kata verdict. Catatan: kejujuran turn itu datang dari
+pilihan kata model, bukan dari guard — jadi ini bukti n=1, bukan stabilitas.
+
+**Kenapa ini belum "stabil"** (catatan untuk sesi berikutnya, bukan klaim):
+pendekatan kosakata-regEx adalah whack-a-mole — 4 bug dalam 20 menit adalah
+prediksi, bukan kejutan. Arah yang lebih tahan: **berhenti menebak prosa, mulai
+lookup fakta** (audit log / `coverage` / `target_brain` / `findings`), note
+berbentuk **positif** ("yang benar-benar jalan: …") alih-alih tuduhan negatif,
+plus **meta-test generatif** yang menyalakan guard untuk tiap alternatif
+kosakatanya sendiri (bug grouping akan ketahuan seketika). `coverage` dan
+`target_brain` adalah basis fakta untuk "sudah tidak semua teruji?" dan saat ini
+belum dipakai guard sama sekali — lever yang menganggur.
+
+**Juga ikut:** `stripReceiptImitation` (model meniru bentuk receipt dengan nama
+file lamanya) · `userDataRoot()` kini **throw** bila dipanggil dengan argumen
+(pola 1-argumen `rmSync(userDataRoot(user))` akan menghapus SELURUH `users/`;
+`tsc` menangkapnya di verify.ts sebelum jalan — tidak ada wipe yang terjadi,
+koreksi komentar yang sempat mengklaim sebaliknya) · drill membersihkakan user
+uji run-unique-nya.
+
+**Gap produk (terbukti konkret, belum ditutup):** laporan scope `/cek-nik` punya
+seksi *Threat model* tapi **tidak** punya *Coverage* — `generateReport` early-return
+saat 0 temuan, jadi pentest "terukur tapi bersih" membuang bukti pengukurannya
+dan `EMPTY_REPORT` memblokir PDF.
+**Gap struktural:** `tsconfig` hanya mencakup `**/*.ts` — 32 file `.mts`
+(drill/probe) tidak pernah di-typecheck; ini sudah menutupi bug nyata
+(`listFindings` yang sebenarnya `readFindings`).
+
+**Gates:** typecheck 0 · lint 0 error · **vitest 945/945** (dari 931) ·
+`verify.ts` **EXIT=0** (178 blok, blok baru "unverified-finding claim") · smoke
+honesty guards **83 ✓ / 0 ✗** (dari 70) · restart sehat (health ok, login 1,
+409 0, boot > mtime) · 9router **tidak disentuh**. 4 `verify_dupgate*` leftovers
+dibersihkan → 0 sisa.
