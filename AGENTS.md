@@ -1449,3 +1449,18 @@ Gates: typecheck 0 · vitest **872/872** (+3 findingLanguage) · verify EXIT=0 �
 ### Lanjutan (2026-09-26, 01:50) — sisa ID di renderer PDF: BUKTI→EVIDENCE, Halaman→Page
 
 Owner: "tinggal BUKTI yg masih bahasa Indonesia". Sweep penuh renderer `reportHtml.ts`: panel `BUKTI` → **`EVIDENCE`**, footer Playwright `Halaman X / Y` → **`Page X / Y`** (+test asersi diperbarui; asersi duplikat BUKTI tertangkap vitest). Sweep kata kunci ID di HTML hasil render dari store bermigrasi: kini NONE — "RAHASIA" yang tersisa di konten adalah **quoted raw evidence milik lab itu sendiri** (`[RAHASIA - INTERNAL]` isi dokumen target), disengaja: menerjemahkan bukti mentah = memalsukan bukti. Gates: vitest 872/872 · verify EXIT=0 · restart sehat (health ok, 1 login, 0×409). **Belum commit — menunggu approval.**
+
+## Session 2026-09-26 — audit "mengada-ada?" atas push pagi: 1 fabrikasi NYATA (mood capture) + 3 klaim terbukti jujur
+
+Owner paste push pagi (04:00–10:00) dan tanya apakah Mia mengada-ada. Verifikasi klaim-vs-data (bukan prosa):
+- **JUJUR — auto-update**: "main @ 0b09ffc" persis commit 01:57 (HEAD saat 04:00; commit e8564be/9918282 datang setelahnya). Honest "nggak ada commit baru".
+- **JUJUR — wake 06:00**: push 6:02 AM didukung receipts reminder store (`lastFiredAt` 06:00, `deliveredAt` 06:02:08, daily).
+- **JUJUR — cuaca 31°C "potensi hujan ringan"**: `getWeather("Lake Home")` live → 31°C, code 176 "Patchy rain nearby", koordinat persona benar (-6.378806,106.712563).
+- **JUJUR — kutipan "kamu kemana aja"** di briefing/proactive: baris itu BENAR ada di daily memory 25-Sep (bukan karangan).
+- **FABRIKASI NYATA — mood**: briefing bilang "Kemarin kerasa capek dan berat", padahal owner TIDAK pernah menyatakan mood kemarin. 20 entri mood palsu di store (50→30 setelah cleanup, backup `.bak-moodfp`). Dua akar di `moodIntent.ts`:
+  1. **Substring match tanpa word boundary**: alternasi keyword `down` menempel di dalam kata **"markdown"** → SETIAP ask pentest "buatkan report markdown nya" dicatat mood=`sad` (7× kemarin, berlanjut sampai hari ini). Fix: semua keyword kini `\b`-anchored + clitic Indonesia opsional (`capeknya/sedihku`) + regresi "download/countdown".
+  2. **Buta negasi**: "belum ngantuk nich" → `tired` (owner justru belum mengantuk). Fix: `negatedBefore()` — negasi langsung sebelum keyword (`belum/nggak/gak/tidak/kurang/jangan/not`) membatalkan pattern itu, tapi tidak menghalangi keyword nyata lain dalam kalimat yang sama ("belum ngantuk tapi aku kesel" → angry).
+- **Gotcha self-catch (kelas baru):** perbaikan pertama menginterpolasi `CLITIC` via string-concat KE DALAM regex literal → pattern diam-diam rusak (semua mood null), typecheck/tests lama hijau. Probe dua arah 12-kasus yang menangkapnya. **Pelajaran: perubahan pola regex WAJIB diverifikasi via probe perilaku, bukan typecheck.** Kedua: regex diinterpolasi → tulis literal penuh (clitic inline), catat alasannya di komentar.
+- **Anti-regresi:** `moodIntent.test.ts` baru 13 tes dua arah (FP markdown/negasi/substring = silent; ekspresi asli + clitic + negasi-campuran = tetap mencatat). Data 25-Sep kini bersih (0 entri → briefing tidak lagi bisa mengklaim "kemarin berat" dari data palsu; moodTone neutral).
+
+Gates: typecheck 0 · vitest **883/883** (+13 moodIntent) · restart tmux sehat (health ok, logged_in=1, 0×409, stale-check OK). **Belum commit — menunggu approval owner.**
