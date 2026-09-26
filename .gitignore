@@ -34,3 +34,4 @@ apps/web/.env.local.bak-*
 
 # one-off preview/probe scripts (hardcode owner user key + absolute report paths)
 apps/web/tmp-*.mts
+bug-bounty-report-improvement-checklist.md

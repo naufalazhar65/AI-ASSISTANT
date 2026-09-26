@@ -1,6 +1,8 @@
 // Proof: the exact runtime path that failed at 10:43 (finding_list →
 // autoApproveAllowed → dynamic import of policy.ts) now resolves, and the
 // honesty guard fires on the live ask shape. No LLM call, no network.
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import { endpointTriageNote, userAskedForList } from "./src/lib/agent";
 import { executeTool } from "./src/lib/tools";
 import { autoApproveAllowed, readPolicy } from "./src/lib/policy";
@@ -41,4 +43,6 @@ ok(userAskedForList("finding_list", ask) === false, "no verbatim hijack");
 ok(/tidak menyentuh/i.test(endpointTriageNote(msgs, reply)), "honesty note fires (zero-contact, no probe ran)");
 
 console.log(fail === 0 ? "\nRUNTIME PATH OK — 10:43 crash gone, guard armed" : `\nFAIL: ${fail}`);
+// Auto-cleanup: executeTool wrote http-history/findings for this run-unique user.
+rmSync(join(process.cwd(), "apps/web/.data/users", user), { recursive: true, force: true });
 process.exit(fail === 0 ? 0 : 1);

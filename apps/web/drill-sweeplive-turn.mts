@@ -1,7 +1,7 @@
 // Prove the full Discord-shaped turn now completes: compulsory sweep runs, the
 // policy module resolves (was the missing lazy chunk), and the reply is backed
 // by real observations instead of a stale findings dump.
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const env = readFileSync(join(process.cwd(), "apps/web/.env.local"), "utf8");
@@ -32,3 +32,8 @@ console.log("\n--- honesty markers present? ---");
 for (const k of ["Catatan jujur", "tidak menyentuh", "BELUM masuk daftar", "terpotong"]) {
   if (r.text.includes(k)) console.log(`  ✓ "${k}"`);
 }
+
+// Auto-cleanup: this turn writes findings, reports and http-history for its
+// run-unique user. Without it every run left a .data/users/verify_sweeplive_*
+// dir behind (found and removed 2026-09-26).
+rmSync(join(process.cwd(), "apps/web/.data/users", user), { recursive: true, force: true });
