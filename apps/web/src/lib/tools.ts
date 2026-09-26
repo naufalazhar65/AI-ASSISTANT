@@ -4350,6 +4350,62 @@ const toolRegistry: ToolPlugin[] = [
     },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "coverage", description: "Ledger COVERAGE pengujian per-user (pola Strix): satu baris per surface × risk_area dengan outcome kanonik — reported / no_issue_found / ruled_out / not_applicable / needs_follow_up. Outcome penutup (ruled_out/not_applicable/needs_follow_up) WAJIB evidence — surface tidak boleh ditutup tanpa bukti. action=record: catat permukaan yang sudah diuji (panggil setelah probe selesai ATAU saat menutup sesi untuk tiap area); action=list: lihat ledger (opsional target=host); action=forget id=…: koreksi buku besar. Membuat klaim \"full pentest selesai\" terukur dan laporan punya seksi Coverage profesional. Read/auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["record", "list", "forget"], description: "default list" }, surface: { type: "string", description: "apa yang dites — URL atau host (record)" }, risk_area: { type: "string", description: "kelas risiko yang diuji: idor, sqli, xss, ssrf, auth, headers, … (record)" }, outcome: { type: "string", enum: ["reported", "no_issue_found", "ruled_out", "not_applicable", "needs_follow_up"], description: "hasil penutup (record)" }, evidence: { type: "string", description: "WAJIB untuk ruled_out/not_applicable/needs_follow_up — bukti penutupan" }, target: { type: "string", description: "host untuk filter action=list" }, id: { type: "string", description: "id entri untuk action=forget" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const cov = await import("./coverage");
+        const action = typeof args.action === "string" ? args.action : "list";
+        if (action === "record") {
+          const entry = cov.recordCoverage(ctx.rawUser, {
+            surface: String(args.surface || ""),
+            risk_area: String(args.risk_area || ""),
+            outcome: String(args.outcome || ""),
+            evidence: typeof args.evidence === "string" ? args.evidence : undefined,
+            target: typeof args.target === "string" ? args.target : undefined,
+          });
+          const progress = cov.coverageProgress(cov.listCoverage(ctx.rawUser, { target: args.target as string | undefined }));
+          return `✅ Coverage tercatat: [${entry.outcome}] ${entry.surface} · ${entry.risk_area}${entry.evidence ? " (dengan evidence)" : ""} — total ${progress.total} surface (closed ${progress.closed}, open ${progress.open}).`;
+        }
+        if (action === "forget") {
+          return cov.forgetCoverage(ctx.rawUser, String(args.id || "")) ? `🗑️ Entri coverage ${args.id} dihapus.` : `Error: entri ${args.id} tidak ditemukan.`;
+        }
+        const rows = cov.listCoverage(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined });
+        return cov.renderCoverage(rows);
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "coverage failed"}`;
+      }
+    },
+  },
+  {
+    definition: { type: "function", risk: "read", function: { name: "threat_model", description: "Threat model PER-TARGET (pola Strix): overview, trust boundaries, attack surface, severity calibration — WAJIB lengkap (min 20 char/section) sebelum tersimpan. action=save: tulis/perbarui model (sections merge, bukan replace) — disarankan SETELAH recon awal, SEBELUM probing; action=show: baca model + amendmen; action=amend: catat perubahan pemahaman (min 30 char). Memberi laporan seksi \"apa sistem ini\" dan menahan inflasi severity lewat severity_calibration. Tulis isi section dalam ENGLISH (deliverable netral) — section ini masuk laporan PDF/MD. Read/auto.", parameters: { type: "object", properties: { action: { type: "string", enum: ["save", "show", "amend"], description: "default show" }, target: { type: "string", description: "host/URL target (wajib)" }, overview: { type: "string" }, trust_boundaries: { type: "string" }, attack_surface: { type: "string" }, severity_calibration: { type: "string" }, amend: { type: "string", description: "teks amendmen untuk action=amend (min 30 char)" } }, required: [] } } },
+    execute: async (args, ctx) => {
+      try {
+        const tm = await import("./threatModel");
+        const action = typeof args.action === "string" ? args.action : "show";
+        const target = String(args.target || "");
+        if (!target) return "Error: target wajib (host/URL yang dimodelkan).";
+        if (action === "save") {
+          const m = tm.saveThreatModel(ctx.rawUser, target, {
+            overview: args.overview,
+            trust_boundaries: args.trust_boundaries,
+            attack_surface: args.attack_surface,
+            severity_calibration: args.severity_calibration,
+          });
+          return `🛡️ Threat model ${m.host} tersimpan (4 section lengkap).`;
+        }
+        if (action === "amend") {
+          const text = typeof args.amend === "string" ? args.amend : typeof args.overview === "string" ? args.overview : "";
+          const m = tm.amendThreatModel(ctx.rawUser, target, text);
+          return `🛡️ Amendmen threat model ${m.host} tercatat (${m.amendments.length} total).`;
+        }
+        const m = tm.getThreatModel(ctx.rawUser, target);
+        return m ? tm.renderThreatModel(m) : `Error: belum ada threat model untuk ${target} — buat via action=save (overview, trust_boundaries, attack_surface, severity_calibration).`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "threat_model failed"}`;
+      }
+    },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "retest_list", description: "Daftar retest case (regression suite): temuan terbukti + signature rentan untuk di-recheck kapan pun. Opsi `target` (host) untuk filter. Read/auto.", parameters: { type: "object", properties: { target: { type: "string" } }, required: [] } } },
     execute: async (args, ctx) => { try { const { retestListText } = await import("./retest"); return retestListText(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "retest_list failed"}`; } },
   },

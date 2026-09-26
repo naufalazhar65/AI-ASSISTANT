@@ -18,6 +18,8 @@ import { activeEngagementFor, engagementAllows, normalizeHost } from "./engageme
 import { assertPublicUrl } from "./netGuard";
 import { sessionHeaders, captureCookies } from "./httpSession";
 import { recordHttp, readHttpHistory } from "./httpHistory";
+import { coverageReportSection, listCoverage } from "./coverage";
+import { threatModelForHost, threatModelReportSection } from "./threatModel";
 import { fetchFingerprint } from "./techFingerprint";
 import { renderReportHtml, reportFooterTemplate } from "./reportHtml";
 import { cvss4BaseScore } from "./cvssV4";
@@ -657,7 +659,21 @@ export function generateReport(rawUser: unknown, opts: { target?: string } = {})
     if (eng) return `> Engagement: ${eng.id} — ${eng.name} (${eng.client})\n> Authorization: ${eng.authorization}\n> Scope: ${eng.scope.join(", ")}${eng.windowEnd ? ` (until ${eng.windowEnd})` : ""}`;
     if (hosts.length && hosts.every((h) => isLabTarget(h))) return "> Scope: OWNER-OWNED LAB / self-owned authorized assets — report for defensive remediation.";
     return "> Scope: self-owned / written-authorized assets. This report is for defensive remediation.";
-  })()}\n\n${body}`;
+  })()}` +
+    // Coverage + threat-model sections (Strix-adapted, 2026-09-26): only when
+    // data exists — an unmeasured run renders exactly as before, no filler.
+    (() => {
+      try {
+        const entries = listCoverage(rawUser, wantHost ? { target: wantHost } : {});
+        const covSec = coverageReportSection(entries);
+        const tm = threatModelForHost(rawUser, wantHost || normalizeHost(rows[0]?.target || ""));
+        const tmSec = tm ? threatModelReportSection(tm) : "";
+        return (covSec ? `\n\n${covSec}` : "") + (tmSec ? `\n\n${tmSec}` : "");
+      } catch {
+        return "";
+      }
+    })() +
+    `\n\n${body}`;
 }
 
 /** OWASP ZAP baseline scan via Docker (web app in the owner's own lab only). */
