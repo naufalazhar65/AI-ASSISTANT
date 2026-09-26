@@ -3425,7 +3425,7 @@ const toolRegistry: ToolPlugin[] = [
             title: { type: "string" },
             severity: { type: "string", enum: ["critical", "high", "medium", "low", "info"] },
             cvss: { type: "number", description: "Skor CVSS 0.0-10.0 (opsional; default per severity)" },
-            owasp: { type: "string", description: "Kategori OWASP tahun 2025, mis. 'A03:2025 Injection'" },
+            owasp: { type: "string", description: "OWASP 2025 category, e.g. 'A03:2025 Injection'" },
             cwe: { type: "string", description: "CWE, mis. 'CWE-89'" },
             target: { type: "string" },
             evidence: { type: "string", description: "Raw evidence (English) — request/response, poc_verify hasil, OAST hit" },

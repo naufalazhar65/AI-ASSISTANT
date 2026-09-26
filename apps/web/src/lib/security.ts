@@ -611,7 +611,7 @@ export function generateReport(rawUser: unknown, opts: { target?: string } = {})
   const body = sorted
     .map(
       (f, i) =>
-        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Kategori**: ${[normalizeOwaspYear(f.owasp || ""), f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Platform**: ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n- **Steps to Reproduce**: ${f.steps || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
+        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Category**: ${[normalizeOwaspYear(f.owasp || ""), f.cwe].filter(Boolean).join(" / ") || "-"}\n- **Platform**: ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n- **Steps to Reproduce**: ${f.steps || "-"}\n- **Evidence**: ${f.evidence || "-"}\n- **Impact**: ${f.impact || "-"}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
     )
     .join("\n\n");
   return `# Pentest Report\n\nGenerated: ${new Date().toISOString()}\nTotal findings: ${rows.length} (${counts}) — average CVSS ${avg}\n\n${(() => {
@@ -967,7 +967,10 @@ export function sqlmapScan(url: string, opts?: { level?: number; risk?: number }
 
 // ── PDF report (markdown -> HTML -> PDF via Playwright, no new deps) ─────────
 async function renderMarkdownPdf(userKey: string, md: string, prefix: string): Promise<string> {
-  const html = renderReportHtml(md, { footer: `Mia — ${prefix} report · ${new Date().toISOString().slice(0, 10)}` });
+  // "laporan report" (old footer) / "report report" (naive translation) both
+  // read badly — use a proper label per deliverable kind instead.
+  const label = prefix === "hardening" ? "Hardening Report" : "Pentest Report";
+  const html = renderReportHtml(md, { footer: `Mia — ${label} · ${new Date().toISOString().slice(0, 10)}` });
   const dir = join(userDataRoot(), userKey, "reports");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${prefix}-${new Date().toISOString().replace(/[:.]/g, "-")}.pdf`);
@@ -1245,10 +1248,10 @@ export function hardeningPlan(rawUser: unknown): string {
   const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0));
   const summary = SEVERITIES.map((s) => `${s} ${rows.filter((r) => r.severity === s).length}`).join(" | ");
   const lines = sorted.slice(0, 30).map(
-    (f, i) => `${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}${f.target ? ` — ${f.target}` : ""}\n   → ${f.remediation || "perbaiki sesuai kategori " + (f.owasp || "-")}`
+    (f, i) => `${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}${f.target ? ` — ${f.target}` : ""}\n   → ${f.remediation || "fix per category " + (f.owasp || "-")}`
   );
-  const rest = rows.length > 30 ? `\n… dan ${rows.length - 30} temuan lain.` : "";
-  return `🛠️ HARDENING PLAN (prioritas CVSS)\nRingkasan: ${summary} | total ${rows.length}\n\n${lines.join("\n")}${rest}`;
+  const rest = rows.length > 30 ? `\n… and ${rows.length - 30} more findings.` : "";
+  return `🛠️ HARDENING PLAN (CVSS priority)\nSummary: ${summary} | total ${rows.length}\n\n${lines.join("\n")}${rest}`;
 }
 
 /** Mark a finding resolved (drops from open lists + the report). */

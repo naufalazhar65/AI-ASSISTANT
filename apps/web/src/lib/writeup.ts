@@ -16,7 +16,7 @@ export function renderWriteup(f: Finding, opts: { platform?: string } = {}): str
   const platform = platformSeverity({ cvss: f.cvss ?? undefined, severity: f.severity });
   const rawReq = f.evidence.includes("[auto from http_history]") || f.evidence.includes("GET ") || f.evidence.includes("POST ")
     ? f.evidence
-    : f.evidence || "(belum ada bukti mentah — jalankan poc_verify/evidence_capture)";
+    : f.evidence || "(no raw evidence yet — run poc_verify/evidence_capture)";
 
   const lines = [
     `# ${title}`,
@@ -29,12 +29,12 @@ export function renderWriteup(f: Finding, opts: { platform?: string } = {}): str
     f.createdAt ? `**Reported:** ${f.createdAt.slice(0, 10)}` : "",
     ``,
     `## Summary`,
-    `${title}. ${f.impact ? f.impact : "Dampak dirinci di bawah setelah verifikasi."}`,
+    `${title}. ${f.impact ? f.impact : "Impact detailed below after verification."}`,
     ``,
     `## Steps to reproduce`,
-    f.steps ? f.steps : `1. Autentikasi/iapkan sesi sesuai target (${f.target || "asset"}).`,
-    f.steps ? "" : `2. Kirim request di bagian Evidence.`,
-    f.steps ? "" : `3. Amati bahwa respons berbeda dari yang seharusnya (lihat Expected vs Actual).`,
+    f.steps ? f.steps : `1. Authenticate/set up a session against the target (${f.target || "asset"}).`,
+    f.steps ? "" : `2. Send the request shown under Evidence.`,
+    f.steps ? "" : `3. Observe that the response differs from the intended behavior (see Expected vs Actual).`,
     ``,
     `## Evidence (raw)`,
     "```",
@@ -42,16 +42,16 @@ export function renderWriteup(f: Finding, opts: { platform?: string } = {}): str
     "```",
     ``,
     `## Impact`,
-    f.impact || "Jelaskan data/aksi yang bisa diakses penyerang dan siapa yang terdampak.",
+    f.impact || "Describe the data/actions an attacker can access and who is affected.",
     ``,
     `## Root cause`,
-    f.rootCause || "(isi setelah trace source→sink)",
+    f.rootCause || "(fill in after tracing source→sink)",
     ``,
     `## Remediation`,
-    f.remediation || "Validasi otorisasi/integritas di server; jangan percaya nilai dari klien.",
+    f.remediation || "Enforce authorization/integrity checks server-side; never trust client-supplied values.",
     ``,
     f.references ? `## References\n${f.references}\n` : "",
-    unverified ? `> ⚠️ **STATUS: DRAFT — belum diverifikasi.** Jalankan \`poc_verify\` dan lampirkan bukti deterministik sebelum submit.\n` : "",
+    unverified ? `> ⚠️ **STATUS: DRAFT — not yet verified.** Run \`poc_verify\` and attach deterministic proof before submitting.\n` : "",
   ];
   return lines.filter((l) => l !== "").join("\n");
 }
@@ -59,8 +59,8 @@ export function renderWriteup(f: Finding, opts: { platform?: string } = {}): str
 /** Writeup for a finding by id, or the newest when no id is given. */
 export function writeupText(rawUser: unknown, opts: { id?: string; platform?: string } = {}): string {
   const all = readFindings(rawUser);
-  if (!all.length) return "Belum ada temuan. Catat dulu (finding_add) atau jalankan bounty_run.";
+  if (!all.length) return "No findings recorded yet. Add one (finding_add) or run bounty_run first.";
   const f = opts.id ? all.find((x) => x.id === opts.id) : all[all.length - 1];
-  if (!f) return `Finding "${opts.id}" tidak ditemukan.`;
+  if (!f) return `Finding "${opts.id}" not found.`;
   return renderWriteup(f, { platform: opts.platform });
 }
