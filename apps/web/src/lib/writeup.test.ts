@@ -84,6 +84,17 @@ describe("renderWriteup (§8 submission format)", () => {
       // writeupText imports the real store — seed via the module's own path.
       const { addFinding } = await import("./security");
       const a = addFinding(U, { title: "IDOR A unique", severity: "high", cvss: 8.1, target: "https://a.example/x" });
+      // Ids are `F-<Date.now().toString(36)>-<rand>` (security.ts:629), so two
+      // calls microseconds apart SHARE the same middle segment. The truncated id
+      // below is that segment, so without this wait it is ambiguous ~always and
+      // writeupText correctly answers "not found" — which is what made this test
+      // fail roughly half the time. The un-awaited randomness was the flake, not
+      // the prefix matching. Wait for a second boundary so the "exactly one row
+      // starts with this prefix" precondition holds by construction.
+      await new Promise<void>((r) => {
+        const go = () => { if (Date.now() % 1000 < 5) r(); else setTimeout(go, 10); };
+        go();
+      });
       addFinding(U, { title: "BOLA B unique", severity: "medium", cvss: 6.5, target: "https://b.example/y" });
       // Truncated (drill shape): strip the random suffix after the last dash.
       const trunc = a.id.replace(/-[0-9a-z]+$/i, "");

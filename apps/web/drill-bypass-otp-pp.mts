@@ -18,7 +18,7 @@ for (const line of envRaw.split("\n")) {
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^"(.*)$/, "$1");
 }
 
-const { toolsForUrl, CORE_TOOL_NAMES, runAssistantTurn } = await import("./src/lib/agent");
+const { toolsForUrl, CORE_TOOL_NAMES, runAssistantTurn, gatewayToolCall } = await import("./src/lib/agent");
 const { executeTool } = await import("./src/lib/tools");
 const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
 const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name);
@@ -96,9 +96,15 @@ function auditToolRuns(user: string, names: string[]): string[] {
 // so a fixed user key makes THIS run's assertions read LAST run's executions
 // (false failure — the 2026-09-23 recheck hit exactly this).
 const USER = `verify_drill3_${Date.now()}`;
-const mkCall = (id: string, name: string, args: unknown) => ({
-  id, type: "function" as const, function: { name, arguments: JSON.stringify(args) },
-});
+// `ToolCall` is the EXECUTOR shape (top-level name/arguments required, nested
+// `function.*` optional), while `ChatMessage["tool_calls"]` is the GATEWAY
+// shape (nested required, `type` present). A drill has to satisfy both, so this
+// builds the executor shape WITH the nested echo already attached.
+const mkCall = (id: string, name: string, args: unknown) => {
+  // `arguments` cannot be a binding name in a module (strict mode) — argsJson.
+  const argsJson = JSON.stringify(args);
+  return { id, name, arguments: argsJson, type: "function" as const, function: { name, arguments: argsJson } };
+};
 
 try {
   // ── B: honesty drill on 9router (tool NOT in window) ──
@@ -155,7 +161,8 @@ try {
   const re = await runAssistantTurn({
     messages: [
       { role: "user", content: `tolong uji bypass 403 di ${base}/admin pakai bypass403` },
-      { role: "assistant", content: null, tool_calls: [call] },
+        // Re-sent through gatewayToolCall: the proposed call is the EXECUTOR shape.
+{ role: "assistant", content: null, tool_calls: [gatewayToolCall(call)] },
     ],
     provider: "openrouter",
     user: USER,

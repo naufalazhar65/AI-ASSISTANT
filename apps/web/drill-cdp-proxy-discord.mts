@@ -23,7 +23,7 @@ for (const line of envRaw.split("\n")) {
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^"(.*)"$/, "$1");
 }
 
-const { runAssistantTurn, toolsForUrl } = await import("./src/lib/agent");
+const { runAssistantTurn, toolsForUrl, gatewayToolCall } = await import("./src/lib/agent");
 const { cdpOpen, cdpEval, cdpStatus } = await import("./src/lib/cdp");
 const { brainBrief } = await import("./src/lib/targetBrain");
 
@@ -108,7 +108,9 @@ try {
   const turnPromise = runAssistantTurn({
     messages: [
       { role: "user", content: finalAsk },
-      { role: "assistant", content: null, tool_calls: [call] },
+        // Re-sent through gatewayToolCall: `call` is the EXECUTOR shape (top-level
+  // name/arguments), which does not satisfy the stricter gateway tool_calls.
+{ role: "assistant", content: null, tool_calls: [gatewayToolCall(call)] },
     ],
     provider: "openrouter",
     user: USER,
@@ -124,7 +126,11 @@ try {
   for (let i = 0; i < 40; i++) {
     await sleep(1000);
     try {
-      lastSt = await cdpEval("127.0.0.1", 'window.__miaProxy ? (window.__miaProxy.active ? "ACTIVE" : "inactive") : "none"', 5000);
+      // cdpEval takes (tabUrlContains, expr) — the third argument this line
+      // used to pass was NEVER a timeout parameter; it was silently discarded,
+      // so the "5000" only ever looked like a guarantee. Typechecking the .mts
+      // files is what exposed it. Do not re-add it.
+      lastSt = await cdpEval("127.0.0.1", 'window.__miaProxy ? (window.__miaProxy.active ? "ACTIVE" : "inactive") : "none"');
       if (lastSt.includes("ACTIVE")) { opened = true; break; }
     } catch { /* tab busy — keep polling */ }
   }
@@ -145,7 +151,7 @@ try {
       out.push("x1");
     } catch (e) { out.push("x1e:" + e); }
     return out.join(",");
-  })()`, 15000);  console.log("in-page traffic fired:", fire.slice(-90));
+  })()`);  console.log("in-page traffic fired:", fire.slice(-90));
   ok(/f1[,\n]|f1$|x1/.test(fire), "in-page fire reported success", fire.slice(-60));
 
   const r2 = await turnPromise;

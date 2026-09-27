@@ -17,7 +17,7 @@ for (const line of envRaw.split("\n")) {
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^"(.*)"$/, "$1");
 }
 
-const { runAssistantTurn, toolsForUrl, CORE_TOOL_NAMES } = await import("./src/lib/agent");
+const { runAssistantTurn, toolsForUrl, CORE_TOOL_NAMES, gatewayToolCall } = await import("./src/lib/agent");
 
 const USER = `verify_fcdrill_${Date.now()}`; // run-unique: audit log is append-only/shared
 const LAB = "https://6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app";
@@ -73,7 +73,8 @@ const t0 = Date.now();
 const r2 = await runAssistantTurn({
   messages: [
     { role: "user", content: finalAsk },
-    { role: "assistant", content: null, tool_calls: [call] },
+      // Re-sent through gatewayToolCall: the proposed call is the EXECUTOR shape.
+{ role: "assistant", content: null, tool_calls: [gatewayToolCall(call)] },
   ],
   provider: "openrouter",
   user: USER,

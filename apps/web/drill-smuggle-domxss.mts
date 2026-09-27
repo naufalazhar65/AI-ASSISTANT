@@ -126,9 +126,15 @@ const domToy = http2.createServer((req, res) => {
 await new Promise<void>((r) => domToy.listen(0, "127.0.0.1", () => r()));
 const hport = (domToy.address() as { port: number }).port;
 
-const mkCall = (id: string, name: string, args: unknown) => ({
-  id, type: "function" as const, function: { name, arguments: JSON.stringify(args) },
-});
+// `ToolCall` is the EXECUTOR shape (top-level name/arguments required, nested
+// `function.*` optional), while `ChatMessage["tool_calls"]` is the GATEWAY
+// shape (nested required, `type` present). A drill has to satisfy both, so this
+// builds the executor shape WITH the nested echo already attached.
+const mkCall = (id: string, name: string, args: unknown) => {
+  // `arguments` cannot be a binding name in a module (strict mode) — argsJson.
+  const argsJson = JSON.stringify(args);
+  return { id, name, arguments: argsJson, type: "function" as const, function: { name, arguments: argsJson } };
+};
 // Audit-log proof helper: executeTool logs `tool:<name>` per execution.
 // A declined/re-gated tool must leave NO such line for the drill user.
 function auditToolRuns(user: string, names: string[]): string[] {

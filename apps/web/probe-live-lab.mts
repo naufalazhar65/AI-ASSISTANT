@@ -20,7 +20,7 @@ const usr = "naufalazhar652952";
 
 console.log("\n── js_deobfuscate — live on Netlify lab SPA ──");
 const out = await executeTool(
-  { name: "js_deobfuscate", arguments: JSON.stringify({ url: LAB }) },
+  { id: "jsdeob", name: "js_deobfuscate", arguments: JSON.stringify({ url: LAB }) },
   usr
 );
 console.log((out || "").slice(0, 2500));

@@ -1959,6 +1959,35 @@ export function normalizeMessageToolCalls(messages: ChatMessage[]): void {
   }
 }
 
+/**
+ * The GATEWAY-canonical form of one tool call: nested `function.*`, top-level
+ * `name`/`arguments` dropped, `type` always present.
+ *
+ * ONE owner for the shape conversion that `normalizeMessageToolCalls` performs
+ * in bulk, so a caller holding a single `ToolCall` (the executor-canonical shape
+ * with optional fields) can put it into a message without a cast.
+ *
+ * Why this exists (2026-09-28): `ChatMessage["tool_calls"]` is deliberately
+ * STRICTER than `ToolCall` — it requires `type: "function"` and only the nested
+ * `function.*`, because that is what a strict gateway accepts — while
+ * `ToolCall` has `type?` and optional top-level fields so the confirm executor
+ * can read them. Every drill that re-sent a proposed call in an assistant
+ * message hit that gap, and the workarounds in circulation were casts. A cast
+ * hides a genuine mismatch; this converts it, and the runtime already does the
+ * same conversion on every inbound request.
+ *
+ * Pure. Never mutates the input.
+ */
+export function gatewayToolCall(call: ToolCall): NonNullable<ChatMessage["tool_calls"]>[number] {
+  const raw = call as { id: string; type?: string; function?: { name: string; arguments: string }; name?: unknown; arguments?: unknown };
+  if (raw.function?.name) return { id: raw.id, type: "function", function: { ...raw.function } };
+  return {
+    id: raw.id,
+    type: "function",
+    function: { name: typeof raw.name === "string" ? raw.name : "", arguments: typeof raw.arguments === "string" ? raw.arguments : JSON.stringify(raw.arguments ?? {}) },
+  };
+}
+
 /** Normalize the singular `confirm_call` (web UI / legacy) and the plural
  *  `confirm_calls` (batch approval from Telegram/Discord) into one list. Each
  *  call is normalized to the executor-canonical top-level shape on a COPY (a

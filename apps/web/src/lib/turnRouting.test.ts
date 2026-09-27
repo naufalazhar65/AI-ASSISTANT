@@ -831,7 +831,7 @@ describe("chunkText word boundary (no mid-word cuts)", () => {
 // Executor reads top-level name/arguments; gateway replay needs nested
 // function.*. normalizeToolCall fills both on confirm decisions;
 // normalizeMessageToolCalls strips top-level + fills nested on messages.
-import { normalizeToolCall, normalizeMessageToolCalls, type ChatMessage } from "./agent";
+import { normalizeToolCall, normalizeMessageToolCalls, gatewayToolCall, type ChatMessage } from "./agent";
 
 describe("normalizeToolCall (confirm decisions, executor-canonical)", () => {
   it("fills nested function.* from top-level and keeps top-level", () => {
@@ -851,6 +851,47 @@ describe("normalizeToolCall (confirm decisions, executor-canonical)", () => {
     const original = { id: "c3", name: "nosql_hunt", arguments: "{}" };
     normalizeToolCall({ ...original });
     expect((original as { function?: unknown }).function).toBeUndefined();
+  });
+});
+
+describe("gatewayToolCall (single call, gateway-canonical)", () => {
+  // Added 2026-09-28 together with `**/*.mts` in tsconfig: the drills re-sent a
+  // proposed ToolCall as an assistant message, and ChatMessage.tool_calls is
+  // STRICTER than ToolCall (nested `function.*` required, `type` present) while
+  // ToolCall has `type?` and optional top-level fields for the confirm
+  // executor. The workarounds in circulation were casts, which hide a genuine
+  // mismatch — so the conversion is one exported pure function instead.
+  it("promotes a top-level-only call to the nested gateway shape", () => {
+    expect(gatewayToolCall({ id: "c1", name: "poc_verify", arguments: '{"url":"x"}' })).toEqual({
+      id: "c1", type: "function", function: { name: "poc_verify", arguments: '{"url":"x"}' },
+    });
+  });
+
+  it("keeps a nested call and returns a COPY (the input is never mutated)", () => {
+    const fn = { name: "exploit_chain", arguments: '{"chain":"xxe"}' };
+    const out = gatewayToolCall({ id: "c2", name: "exploit_chain", arguments: '{"chain":"xxe"}', type: "function", function: fn });
+    expect(out).toEqual({ id: "c2", type: "function", function: { name: "exploit_chain", arguments: '{"chain":"xxe"}' } });
+    // Mutating the result must not write through to the caller's object.
+    out.function.name = "MUTATED";
+    expect(fn.name).toBe("exploit_chain");
+  });
+
+  it("always yields an assignable tool_calls entry, even from a junk call", () => {
+    // A call with neither name nor arguments still has to satisfy the type —
+    // that is what makes the drills compile without a cast.
+    const out = gatewayToolCall({ id: "c3", name: "", arguments: "" } as never);
+    expect(out).toEqual({ id: "c3", type: "function", function: { name: "", arguments: "" } });
+  });
+
+  it("agrees with the bulk normalizer — the two cannot drift", () => {
+    const call = { id: "c4", name: "finding_add", arguments: '{"cvss":8.5}' };
+    const msgs: ChatMessage[] = [{
+      role: "assistant", content: null,
+      tool_calls: [gatewayToolCall(call as never)],
+    }];
+    const before = JSON.stringify(msgs[0].tool_calls);
+    normalizeMessageToolCalls(msgs);
+    expect(JSON.stringify(msgs[0].tool_calls)).toBe(before);
   });
 });
 

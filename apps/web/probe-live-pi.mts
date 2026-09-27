@@ -46,7 +46,7 @@ console.log("leaky auth-gated server up :", base);
 
 // 1) WITHOUT session — must NOT hit the leak (probe unauth → 401 → no marker)
 const noSess = await executeTool(
-  { name: "prompt_injection_hunt", arguments: JSON.stringify({ url: base, classes: ["leak"] }) },
+  { id: "pi1", name: "prompt_injection_hunt", arguments: JSON.stringify({ url: base, classes: ["leak"] }) },
   usr
 );
 console.log("\n── WITHOUT session ──");
@@ -56,7 +56,7 @@ console.log("\nleak absent (session REQUIRED to see it):", !/identity clause|con
 // 2) WITH session — cookie must reach the wire → leak detected
 setSession(usr, "sA", { cookie: "sid=audit-live-ok" });
 const withSess = await executeTool(
-  { name: "prompt_injection_hunt", arguments: JSON.stringify({ url: base, session: "sA", classes: ["leak"] }) },
+  { id: "pi2", name: "prompt_injection_hunt", arguments: JSON.stringify({ url: base, session: "sA", classes: ["leak"] }) },
   usr
 );
 console.log("\n── WITH session ──");
@@ -65,7 +65,7 @@ console.log("\nleak DETECTED:", /confidentiality clause/.test(withSess) && (with
 
 // 3) Missing session name → fail fast, no network
 const miss = await executeTool(
-  { name: "prompt_injection_hunt", arguments: JSON.stringify({ url: base, session: "tak-ada" }) },
+  { id: "pi3", name: "prompt_injection_hunt", arguments: JSON.stringify({ url: base, session: "tak-ada" }) },
   usr
 );
 console.log("\n── missing session ──");

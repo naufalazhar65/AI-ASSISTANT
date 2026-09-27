@@ -16,8 +16,15 @@ for (const line of readFileSync(join(here, ".env.local"), "utf8").split("\n")) {
 }
 
 const { runAssistantTurn } = await import("./src/lib/agent");
-type Call = { id: string; type: "function"; function: { name: string; arguments: string } };
-type TurnResult = { text?: string; needsConfirmation?: Call[]; messages?: unknown[] };
+// Type-only: `import type { … }` — a destructuring pattern cannot carry a
+// `type` modifier, so `const { type X } = await import(…)` does not parse.
+import type { ToolCall } from "./src/lib/tools";
+import type { ChatMessage } from "./src/lib/agent";
+// The real types, not a hand-rolled copy: the local `Call` had no top-level
+// `name` (so three read sites did not compile) and its `messages?: unknown[]`
+// did not satisfy `ChatMessage[]`. A drill that declares its own approximation
+// of a product type stops checking the moment the product type changes.
+type Turn = Awaited<ReturnType<typeof runAssistantTurn>>;
 
 const USER = "naufalazhar652952";
 const BASE = "https://cozy-kangaroo-42f2e0.netlify.app";
@@ -38,11 +45,13 @@ function auditCounts(user: string, names: string[]): Record<string, number> {
   return counts;
 }
 
-async function approveAll(prev: TurnResult, pendingMsgs: unknown[], provider: string): Promise<TurnResult> {
+async function approveAll(prev: Turn, pendingMsgs: ChatMessage[], provider: string): Promise<Turn> {
   const pending = prev.needsConfirmation || [];
-  const decisions = pending.map((call) => ({ call, allow: true })); // owner reply "ya" = semua
+  const decisions = pending.map((call: ToolCall) => ({ call, allow: true })); // owner reply "ya" = semua
   return runAssistantTurn({
-    messages: (prev.messages as unknown[]) ?? pendingMsgs,
+    // prev.messages is already ChatMessage[]; the old `as unknown[]` cast was
+    // what hid the mismatch from the compiler.
+    messages: (prev.messages as ChatMessage[] | undefined) ?? pendingMsgs,
     provider,
     user: USER,
     channel: "discord",
@@ -53,13 +62,19 @@ async function approveAll(prev: TurnResult, pendingMsgs: unknown[], provider: st
 (async () => {
   console.log("── T1: ask A/B probe (9router, jalur Discord) ──");
   const ask = `uji akses dokumen internal ${DOC} pakai dua sesi yang sudah kusiapkan: http_request session=admin lalu http_request session=staff ke URL yang sama — bandingkan apakah staff (bukan admin) juga dapat 200 untuk dokumen rahasia`;
-  const t1 = (await runAssistantTurn({ messages: [{ role: "user", content: ask }], provider: "9router", user: USER, channel: "discord" })) as TurnResult;
+  const t1 = (await runAssistantTurn({ messages: [{ role: "user", content: ask }], provider: "9router", user: USER, channel: "discord" }));
   console.log("T1 text:", (t1.text || "").slice(0, 300));
   console.log("T1 pending:", (t1.needsConfirmation || []).map((c) => c.name).join(",") || "(none)");
 
+  // Declared OUTSIDE the branch on purpose. This used to be `var t2 =` inside
+  // the `if`, relying on function-scope hoisting so line 84 could read it when
+  // the branch never ran — which is why the definite-assignment error (TS2454)
+  // appeared the moment these files were typechecked. An explicit `let` above
+  // with an `undefined` initialiser states the same intent and is checkable.
+  let t2: Turn | undefined;
   if (t1.needsConfirmation?.length) {
     console.log("\n── T2: owner approve semua (reply 'ya') ──");
-    var t2 = await approveAll(t1, [{ role: "user", content: ask }], "9router");
+    t2 = await approveAll(t1, [{ role: "user", content: ask }], "9router");
     console.log("T2 text:", (t2.text || "").slice(0, 400));
     console.log("T2 pending baru:", (t2.needsConfirmation || []).map((c) => c.name).join(",") || "(none)");
   } else {
@@ -67,23 +82,21 @@ async function approveAll(prev: TurnResult, pendingMsgs: unknown[], provider: st
   }
 
   console.log("\n── T3: minta poc_verify + finding_add ──");
-  // `var` hoists, so t2 can genuinely be undefined here — and TypeScript's
-  // definite-assignment analysis does not narrow it away via `typeof`. Declaring
-  // the type explicitly is the fix (TS2454, found by typechecking the .mts files
-  // which tsconfig never included).
-  const t2text = (t2 as { text?: string } | undefined)?.text || t1.text || "";
+  // t2 is genuinely undefined when T1 proposed nothing — fall back to T1's own
+  // text so the follow-up context still carries what the model actually said.
+  const t2text = t2?.text || t1.text || "";
   const followMsgs = [
     { role: "user", content: ask },
     { role: "assistant", content: t2text },
     { role: "user", content: `kalau staff ikut dapat 200, buktikan deterministik dengan poc_verify (3x, expect_status 200) di ${DOC} pakai session staff, lalu catat temuan BOLA/IDOR-nya dengan finding_add (CVSS, evidence, target=${BASE})` },
   ];
-  const t3 = (await runAssistantTurn({ messages: followMsgs, provider: "9router", user: USER, channel: "discord" })) as TurnResult;
+  const t3 = (await runAssistantTurn({ messages: followMsgs, provider: "9router", user: USER, channel: "discord" }));
   console.log("T3 text:", (t3.text || "").slice(0, 300));
   console.log("T3 pending:", (t3.needsConfirmation || []).map((c) => c.name).join(",") || "(none)");
 
   if (t3.needsConfirmation?.length) {
     console.log("\n── T4: owner approve poc_verify/finding_add ──");
-    var t4 = await approveAll(t3, followMsgs, "9router");
+    const t4 = await approveAll(t3, followMsgs, "9router");
     console.log("T4 text:", (t4.text || "").slice(0, 400));
   }
 

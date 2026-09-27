@@ -22,7 +22,7 @@ for (const line of envRaw.split("\n")) {
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^"(.*)"$/, "$1");
 }
 
-const { runAssistantTurn } = await import("./src/lib/agent");
+const { runAssistantTurn, gatewayToolCall } = await import("./src/lib/agent");
 const { executeTool } = await import("./src/lib/tools");
 
 const USER = `verify_xxeoast_${Date.now()}`;
@@ -113,7 +113,13 @@ try {
   // accepts the replay (no more 400 → real narration, not the digest fallback).
   type ProposedCall = { id?: string; arguments?: string };
   const prop = call as ProposedCall;
-  const mk = (id: string, args: unknown) => ({ id, type: "function" as const, name: "exploit_chain", arguments: JSON.stringify(args) });
+  // Executor shape (top-level) + nested echo, so the same object satisfies both
+  // `ToolCall` and — via gatewayToolCall — the stricter gateway tool_calls.
+  const mk = (id: string, args: unknown) => {
+    // `arguments` cannot be a binding name in a module (strict mode).
+    const argsJson = JSON.stringify(args);
+    return { id, name: "exploit_chain", arguments: argsJson, type: "function" as const, function: { name: "exploit_chain", arguments: argsJson } };
+  };
   let modelArgs: Record<string, unknown> = { chain: "xxe", url: `${LAB}/api/pengaduan`, callback: dnsCallback };
   try { if (prop.arguments) modelArgs = JSON.parse(prop.arguments) as Record<string, unknown>; } catch { /* keep default */ }
   const callDual = mk(prop.id || "c-x", modelArgs);
@@ -121,7 +127,7 @@ try {
   const r2 = await runAssistantTurn({
     messages: [
       { role: "user", content: finalAsk },
-      { role: "assistant", content: null, tool_calls: [call, callToy] },
+      { role: "assistant", content: null, tool_calls: [gatewayToolCall(call), gatewayToolCall(callToy)] },
     ],
     provider: "openrouter",
     user: USER,

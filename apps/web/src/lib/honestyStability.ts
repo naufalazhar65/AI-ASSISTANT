@@ -44,6 +44,15 @@ import {
   type ChatMessage,
 } from "./agent";
 import { untestedSurfaceClaimNote, unprovenPastWorkClaimNote, type AuditFacts } from "./claimAudit";
+
+// Re-export the fact snapshot type so a consumer that reads the real stores
+// (probe-guard-liveness.mts) can type the object it builds from ONE module
+// instead of two. `AuditFacts` is DECLARED in claimAudit and only reachable
+// here as an import alias, so importing it from this module failed with TS2459
+// ("declares it locally, but it is not exported"). That error was invisible
+// until `.mts` files were typechecked: `isolatedModules` erases the type-only
+// import at runtime, so the probe ran green while `tsc` was red.
+export type { AuditFacts };
 import { pocCoverageClaimNote } from "./claimAuditReaders";
 
 export interface ExecutedCall {
