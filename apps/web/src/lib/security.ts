@@ -15,6 +15,7 @@ import { connect as tlsConnect } from "node:tls";
 import { dirname, extname, join, relative } from "node:path";
 import { appRoot, resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
 import { activeEngagementFor, engagementAllows, normalizeHost } from "./engagement";
+import { isOwnerLabHostForOwner, ownerLabsLine } from "./ownerLabs";
 import { assertPublicUrl } from "./netGuard";
 import { sessionHeaders, captureCookies } from "./httpSession";
 import { recordHttp, readHttpHistory } from "./httpHistory";
@@ -234,6 +235,11 @@ export async function breachCheck(password: string): Promise<{ count: number }> 
 
 /** Practice platforms + the local lab, for when the owner asks where to train. */
 export function pentestResources(): string {
+  // Registered owner labs (ownerLabs.ts) — the writable registry, shown
+  // alongside the env list so the model SEES the authorization (live
+  // 2026-09-27 12:47: the model refused a lab that WAS authorized because
+  // nothing in its context said so).
+  const registry = ownerLabsLine("naufalazhar652952");
   return [
     "🎯 LATIHAN ETHICAL HACKING (legal)",
     "",
@@ -272,6 +278,13 @@ export function pentestResources(): string {
     })(),
     "SCOPE: hanya target sendiri / berizin tertulis. Active scan hanya ke localhost/lab ini.",
     "⛔ Demo publik pihak ketiga (mis. itsecgames.com / bWAPP online) BUKAN target — jangan discan; jalankan bWAPP lokal sebagai gantinya.",
+    ...(registry
+      ? [
+          `LAB TERDAFTAR MILIK OWNER (via lab_add — BERIZIN penuh): ${registry}`,
+          "Host di daftar ini owner nyatakan MILIKNYA sendiri — langsung uji, jangan tanya engagement, jangan menolak.",
+          "",
+        ]
+      : []),
     "",
     "Target PUBLIK yang eksplisit MENGIZINKAN diuji (ikuti aturan + rate-limit):",
     "• scanme.nmap.org — resmi boleh di-nmap (Nmap Project)",
@@ -353,6 +366,14 @@ export function isOwnLabTarget(raw: string): boolean {
   // A listed own domain also authorizes its subdomains (`example.com` covers
   // `app.example.com`) — e.g. so recon can probe the subdomains it found.
   if (envTargets.some((e) => !e.includes(":") && (host === e || host.endsWith("." + e)))) return true;
+  // The OWNER LAB REGISTRY (ownerLabs.ts, live 2026-09-27): hosts the owner
+  // personally declared his own via `lab_add`. The env list cannot be written
+  // by any tool — that dead-end is exactly why "tambahkan <host> ke lab" asks
+  // used to end in refusals. The registry is the writable channel. This
+  // signature has no user parameter (it feeds targetAllowed(raw) from ~40
+  // call-sites), so the check consults the OWNER identity (canonical key +
+  // aliases — one person, one registry).
+  if (isOwnerLabHostForOwner(host)) return true;
   // Cloud instance-metadata endpoints are NEVER "lab" targets (SSRF → stolen
   // credentials). Refuse before the generic link-local allowance below.
   if (host === "169.254.169.254" || host === "100.100.100.200" || host === "fd00:ec2::254") return false;

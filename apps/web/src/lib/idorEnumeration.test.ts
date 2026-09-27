@@ -76,7 +76,20 @@ describe("endpointTriageNote — IDOR enumeration is testing (live 12:02)", () =
     const note = endpointTriageNote(msgs, "Endpoint sudah aman, pengujian selesai.");
     expect(note).not.toBe("");
     expect(note).toContain("/cek-nik");
-    expect(note).toMatch(/hanya dari membaca halaman/i);
+    // The reply claims BOTH safety ("sudah aman") and completion ("pengujian
+    // selesai"), so it is legitimately accusable on either ground. The
+    // completion branch is tested first and now matches structurally
+    // (2026-09-27: `pengujian … selesai` used to need a word between the noun
+    // and the copula, which a modifier always supplied). Asserting one
+    // SPECIFIC note here would be over-specification: the invariant this test
+    // actually protects is that the guard is NOT silenced by the IDOR
+    // enumeration exemption when no enumeration happened.
+    expect(note).not.toBe("");
+    expect(note).toContain("/cek-nik");
+    // No branch of this guard may quote a claim back at the model — the note
+    // used to hardcode "tidak ada celah" and once attributed the opposite of
+    // what the model said (live 2026-09-27 11:29).
+    expect(note).not.toContain('"tidak ada celah"');
   });
 
   it("STILL fires on the zero-contact case (no read at all)", () => {

@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { inlineDeliveryClaimNote, reportProvenanceNote, stripAbsentReportFiles } from "./agent";
+import { emptyReportClaimNote, inlineDeliveryClaimNote, pdfExistenceClaim, reportProvenanceNote, retryEmptyReportDelivery, stripAbsentReportFiles, stripToolCallProse } from "./agent";
 import { addFinding, reportPdf, reportSave } from "./security";
 import { userDataRoot } from "./users";
 
@@ -266,4 +266,250 @@ describe("empty findings are never a deliverable (live 2026-09-25 drill)", () =>
       rmSync(join(userDataRoot(), user), { recursive: true, force: true });
     }
   }, 30_000);
+});
+
+/**
+ * Structural, ORDER-FREE PDF/report-existence claim.
+ *
+ * Live drill 2026-09-27 05:11 (real discord.ts handler, audit-verified: zero
+ * report tools, zero files on disk) — the model said
+ *   "PDF laporannya sudah aku buatkan ya untuk target tersebut"
+ * The previous pattern required the word "PDF" AFTER the creation verb, so
+ * natural Indonesian word order was structurally invisible to the guard.
+ *
+ * This is the 5th member of the vocabulary/word-order bug family, so the test
+ * is two-way and includes the real receipt shapes: the loose structural
+ * trigger must stay SILENT on the deterministic delivery receipt (which
+ * proves its own file) — otherwise the fix would accuse honest turns.
+ */
+describe("pdfExistenceClaim — structural, order-free (live 05:11 fabrication)", () => {
+  const FIRES = [
+    // The exact live sentence, verbatim.
+    "PDF laporannya sudah aku buatkan ya untuk target tersebut.",
+    // Same order, markdown-bolded (must not hide the words).
+    "**PDF** laporannya **sudah** aku **buatkan** ya.",
+    // Artifact last (old pattern's order) must still fire.
+    "sudah aku buatkan filenya hari ini dalam bentuk pdf",
+    "laporan sudah selesai disusun",           // Indonesian passive prefix di-
+    "laporan sudah dibuatkan",
+    "report sudah dicetak hari ini",
+    // `lagi` is DELIBERATELY excluded from PDF_ANAPHOR_RE: "sekarang … lagi"
+    // asserts THIS turn even when a past frame exists elsewhere in the reply, so
+    // it must stay caught.
+    "Pentest-nya sudah kujalankan sebelumnya. Sekarang PDF-nya sudah kubuat lagi.",
+  ];
+
+  for (const s of FIRES) {
+    it(`FIRES: ${JSON.stringify(s.slice(0, 58))}`, () => {
+      expect(pdfExistenceClaim(s)).toBe(true);
+    });
+  }
+
+  const SILENT = [
+    // NOTE: the two real deterministic receipts are deliberately NOT here.
+    // `pdfExistenceClaim` is a pure structural predicate: a receipt genuinely
+    // does assert the artefact exists, so `true` is the CORRECT answer for it.
+    // What makes a receipt safe is the CALLER's `&& !PDF_DELIVERY_RECEIPT.test(t)`
+    // — the receipt is excluded because it IS the proof. Asserting silence here
+    // would have encoded the wrong contract and pushed the exclusion into the
+    // predicate, re-creating the coupling this fix removed. The caller contract
+    // is asserted in the dedicated test below instead.
+    // Honest admissions.
+    "PDF-nya belum ada",
+    "belum ada PDF yang kucehat",
+    // Not a creation claim.
+    "PDF-nya sudah kucek dan aman",
+    "laporan sudah kucek dan aman",
+    // Bare artefact mention, no completion or no creation.
+    "aku kirim link PDF-nya ya",
+    "nanti kukasih tau soal laporan ini",
+    // Completion + creation but NO artefact noun in the clause.
+    "sudah aku buatkan kok",
+    // --- PAST ATTRIBUTION CARVE-OUT (stability corpus found 2 FALSE ACCUSATIONS
+    // here on 2026-09-27: 23/23 → 21/23 with two honest fixtures accused). Both
+    // texts below are real honest turns that truthfully place the report in an
+    // EARLIER turn; accusing them is a false accusation, the class this whole
+    // effort exists to eliminate. ---
+    // Rule 1 — past marker inside the SAME clause (comma-joined).
+    "Hasilnya: 7 temuan tercatat di store dari sesi sebelumnya, dan PDF-nya sudah dicetak ulang.",
+    // Rule 2 — past marker in ANOTHER clause, so the PDF clause is anaphoric
+    // ("juga") and continues that established past frame.
+    "Siap Mas Naufal, pentest untuk target tersebut sudah aku jalankan sebelumnya dan hasilnya sudah terekam rapi. Laporan PDF-nya juga sudah selesai dibuat. Ada 7 temuan dari hasil sweep menyeluruh kita sebelumnya.",
+  ];
+  for (const s of SILENT) {
+    it(`SILENT: ${JSON.stringify(s.slice(0, 58))}`, () => {
+      expect(pdfExistenceClaim(s)).toBe(false);
+    });
+  }
+
+  it("a receipt satisfies the predicate, and the CALLER is what excludes it", async () => {
+    const { pdfDeliverableSuffix } = await import("./agent");
+    // A turn with NO report tool — so the fabrication branch is otherwise live.
+    const noReportTool = [
+      { role: "user", content: "buatkan report pdf nya" },
+      { role: "assistant", content: null, tool_calls: [{ id: "t0", type: "function", function: { name: "http_request", arguments: JSON.stringify({ url: "https://lab.example.com/x" }) } }] },
+      { role: "tool", tool_call_id: "t0", content: "HTTP GET /x -> 200" },
+    ] as never;
+
+    const DISC = " (📎 PDF-nya sudah kubuat: `report-2026-09-26T15-42-18-925Z.pdf` — cek folder laporanmu ya.)";
+    const VOICE = " (PDF-nya sudah kubuat — cek folder laporanmu ya.)";
+
+    // The predicate honestly reports "this asserts a PDF exists" for both.
+    expect(pdfExistenceClaim(DISC)).toBe(true);
+    expect(pdfExistenceClaim(VOICE)).toBe(true);
+    // …and the caller is the layer that must not accuse them.
+    expect(pdfDeliverableSuffix(noReportTool, DISC)).toBe("");
+    expect(pdfDeliverableSuffix(noReportTool, VOICE)).toBe("");
+    // Control: the same turn, minus the receipt, IS accused. Without this the
+    // two assertions above would pass even if the guard were simply dead.
+    expect(pdfDeliverableSuffix(noReportTool, "PDF laporannya sudah aku buatkan ya.")).toMatch(/Catatan jujur/);
+  });
+});
+
+describe("emptyReportClaimNote — creation claim next to the EMPTY_REPORT refusal (residual A5)", () => {
+  // Live drill 2026-09-27, verbatim: the tool result carried the honest refusal
+  // while the prose opened with a creation claim. One sentence, both halves.
+  const LIVE = "Udah aku buatkan laporan PDF-nya Mas Naufal, tapi karena belum ada temuan yang tercatat ya.";
+  const emptyTurn = (reply: string, toolName = "report_pdf", result = "Error: EMPTY_REPORT: no open findings to report") => [
+    { role: "user", content: "full pentest di https://lab.example.com/cek-nik dan buatkan report pdf nya" },
+    { role: "assistant", content: null, tool_calls: [{ id: "t0", type: "function", function: { name: toolName, arguments: JSON.stringify({ target: "https://lab.example.com/cek-nik" }) } }] },
+    { role: "tool", tool_call_id: "t0", content: result },
+    { role: "assistant", content: reply },
+  ] as never;
+
+  it("FIRES on the live case: claim + refusal in one breath", () => {
+    expect(emptyReportClaimNote(emptyTurn(LIVE), LIVE)).toMatch(/BELUM jadi/);
+  });
+
+  it("fires on a markdown-twin claim next to a report_save refusal", () => {
+    const REPLY = "Laporan markdown-nya sudah selesai kususun ya.";
+    const note = emptyReportClaimNote(
+      emptyTurn(REPLY, "report_save", "Error: EMPTY_REPORT: no open findings to report"),
+      REPLY
+    );
+    expect(note).toMatch(/BELUM jadi/);
+  });
+
+  it("silent when the reply honestly admits the gap (no creation claim)", () => {
+    expect(emptyReportClaimNote(emptyTurn("Laporannya belum kubuat — belum ada temuan yang tercatat. Bilang lanjut kalau mau kuuji dulu."), "Laporannya belum kubuat — belum ada temuan yang tercatat. Bilang lanjut kalau mau kuuji dulu.")).toBe("");
+    expect(emptyReportClaimNote(emptyTurn("PDF-nya belum ada ya, belum ada temuan tercatat."), "PDF-nya belum ada ya, belum ada temuan tercatat.")).toBe("");
+  });
+
+  it("silent when the turn actually wrote a file (real delivery beats the refusal)", async () => {
+    const { reportFileFromTurn } = await import("./agent");
+    const saved = [
+      { role: "user", content: "buatkan report markdown nya" },
+      { role: "assistant", content: null, tool_calls: [{ id: "t0", type: "function", function: { name: "report_save", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "t0", content: "📄 Laporan tersimpan: report-2026-09-27T00-00-00-000Z.md" },
+      { role: "assistant", content: "Laporan markdown-nya sudah kusimpan ya." },
+    ] as never;
+    expect(reportFileFromTurn(saved, "\\.md")).not.toBe("");
+    expect(emptyReportClaimNote(saved, "Laporan markdown-nya sudah kusimpan ya.")).toBe("");
+  });
+
+  it("silent without the refusal in any tool result (no EMPTY_REPORT this turn)", () => {
+    // Same claim, but the turn refused differently / no report tool ran — the
+    // accusation must rest on the FACT, never on the wording alone.
+    expect(emptyReportClaimNote(emptyTurn(LIVE, "report_pdf", "🌐 HTTP GET /cek-nik -> 200"), LIVE)).toBe("");
+    expect(emptyReportClaimNote(emptyTurn(LIVE, "http_request", "Error: EMPTY_REPORT: no open findings"), LIVE)).toBe("");
+  });
+
+  it("silent on an OFFER or a question (mention ≠ claim)", () => {
+    expect(emptyReportClaimNote(emptyTurn("Mau kubuatkan PDF-nya?"), "Mau kubuatkan PDF-nya?")).toBe("");
+    expect(emptyReportClaimNote(emptyTurn("Aku cek dulu pdf-nya ya."), "Aku cek dulu pdf-nya ya.")).toBe("");
+  });
+});
+
+describe("retryEmptyReportDelivery — reverse the model's inverted order (live kyzuch 17:01)", () => {
+  // Live: the user approved report_pdf; the turn ran report_pdf FIRST →
+  // EMPTY_REPORT refusal → finding_add SUCCESS. At turn end the finding
+  // existed and the PDF would have rendered, but nothing retried and the
+  // owner had to ask "mana pdfnya?" a third time.
+  const LAB = "https://kyzuch-productivity-hub.vercel.app/";
+  const invertedTurn = (reportTarget: string, addTarget: string) => [
+    { role: "user", content: `full pentest di ${LAB} dan buatkan report pdf nya` },
+    { role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "report_pdf", arguments: JSON.stringify({ target: reportTarget }) } }] },
+    { role: "tool", tool_call_id: "t1", content: "Error: EMPTY_REPORT: no open findings to report" },
+    { role: "assistant", content: null, tool_calls: [{ id: "t2", type: "function", function: { name: "finding_add", arguments: JSON.stringify({ target: addTarget, title: "Missing Security Headers", severity: "low", cvss: 3, evidence: "A/B header audit" }) } }] },
+    { role: "tool", tool_call_id: "t2", content: "✅ Temuan dicatat: [LOW CVSS 3] Missing Security Headers (F-x)" },
+  ] as never;
+
+  it("re-renders the PDF when the finding landed AFTER the empty refusal (same host)", async () => {
+    const user = `verify_retry_${Date.now()}`;
+    try {
+      addFinding(user, { title: "Missing Security Headers", severity: "low", cvss: 3, target: LAB, evidence: "A/B header audit" });
+      const receipt = await retryEmptyReportDelivery(invertedTurn(LAB, LAB), user, "discord");
+      expect(receipt).toMatch(/PDF-nya sudah kubuat/);
+      expect(receipt).toMatch(/tercatat setelah percobaan pertama/);
+      const file = (/`([^`]+\.pdf)`/i.exec(receipt) || [])[1] || "";
+      expect(file).not.toBe("");
+      expect(existsSync(join(userDataRoot(), user, "reports", file))).toBe(true);
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("falls back to an honest gap note when the retry STILL refuses (finding not actually stored)", async () => {
+    // No store row: the finding_add result was simulated by the model's prose,
+    // or the write failed — the retry must say the truth, not fake a receipt.
+    const receipt = await retryEmptyReportDelivery(invertedTurn(LAB, LAB), `verify_retry_miss_${Date.now()}`, "discord");
+    expect(receipt).toMatch(/belum dibuat/);
+    expect(receipt).toMatch(/belum tersimpan/);
+    expect(receipt).not.toMatch(/sudah kubuat/);
+  }, 30_000);
+
+  it("silent when the report target is a DIFFERENT host than the added finding (wrong-host delivery)", async () => {
+    const receipt = await retryEmptyReportDelivery(invertedTurn("https://other-host.example/", LAB), `verify_retry_mm_${Date.now()}`, "discord");
+    expect(receipt).toBe("");
+  });
+
+  it("silent without finding_add in the turn (no inversion story)", async () => {
+    const msgs = [
+      { role: "user", content: "buatkan report pdf nya" },
+      { role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "report_pdf", arguments: JSON.stringify({ target: LAB }) } }] },
+      { role: "tool", tool_call_id: "t1", content: "Error: EMPTY_REPORT: no open findings to report" },
+    ] as never;
+    expect(await retryEmptyReportDelivery(msgs, `verify_retry_na_${Date.now()}`, "discord")).toBe("");
+  });
+
+  it("the A5 creation-claim note stays SILENT once the retry delivered (receipt is the truth now)", async () => {
+    const user = `verify_retry_a5_${Date.now()}`;
+    try {
+      addFinding(user, { title: "Missing Security Headers", severity: "low", cvss: 3, target: LAB, evidence: "A/B header audit" });
+      const receipt = await retryEmptyReportDelivery(invertedTurn(LAB, LAB), user, "discord");
+      expect(receipt).toMatch(/PDF-nya sudah kubuat/);
+      // Prose even makes the creation claim next to the old refusal — the
+      // delivered file wins, no accusation.
+      const claim = "Udah aku buatkan laporan PDF-nya Mas Naufal.";
+      expect(emptyReportClaimNote(invertedTurn(LAB, LAB), claim, { deliveredThisTurn: true })).toBe("");
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
+describe("attribute-form pseudo-tool-call leak (live kyzuch 17:00)", () => {
+  const LEAK = [
+    "finding_add target=\"https://kyzuch-productivity-hub.vercel.app/\" severity=\"low\" cvss=3.0 title=\"Missing Security Headers\"",
+    "report_pdf target=\"https://kyzuch-productivity-hub.vercel.app/\"",
+  ].join("\n");
+
+  it("strips the bare name key=value lines the model emitted as text", () => {
+    const out = stripToolCallProse(LEAK);
+    expect(out).not.toContain("finding_add");
+    expect(out).not.toContain("severity=");
+    expect(out).not.toContain("report_pdf");
+  });
+
+  it("keeps the surrounding prose and bare mentions", () => {
+    const out = stripToolCallProse(`Aku mulai dari audit header ya.\n${LEAK}\nmau lanjut ke auth?`);
+    expect(out).toContain("audit header");
+    expect(out).toContain("mau lanjut ke auth?");
+    // A bare mention without key= is NOT a call and must survive.
+    expect(stripToolCallProse("nanti pakai http_request ya")).toContain("http_request");
+  });
+
+  it("the paren form is still stripped (no regression)", () => {
+    expect(stripToolCallProse("remind_me(text='x', when='2026-01-01')")).not.toContain("remind_me");
+  });
 });

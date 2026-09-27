@@ -34,7 +34,7 @@ export type RetestCase = {
   severity: string;
   createdAt: string;
   lastRunAt?: string;
-  lastVerdict?: "vulnerable" | "patched" | "error";
+  lastVerdict?: "vulnerable" | "patched" | "unproven" | "error";
 };
 
 const MAX_CASES = 120;
@@ -138,7 +138,7 @@ export function retestListText(rawUser: unknown, opts: { target?: string } = {})
     cases = cases.filter((c) => c.target === host || c.target.endsWith(`.${host}`));
   }
   if (!cases.length) return "Belum ada retest case. Case dibuat otomatis saat finding_add dengan retest_url+retest_expect, atau manual via retest_add.";
-  const icon = (v?: string) => (v === "vulnerable" ? "🔴" : v === "patched" ? "🟢" : v === "error" ? "⚪" : "▫️");
+  const icon = (v?: string) => (v === "vulnerable" ? "🔴" : v === "patched" ? "🟢" : v === "unproven" ? "⚪" : v === "error" ? "❓" : "▫️");
   return `♻️ Retest cases (${cases.length}):\n${cases
     .map((c) => `${icon(c.lastVerdict)} ${c.id} [${c.severity}] ${c.title}\n   ${c.method} ${c.url}${c.expect_contains ? `\n   expect: ${c.expect_contains.slice(0, 80)}` : ""}${c.expect_status ? ` status=${c.expect_status}` : ""}${c.lastVerdict ? `\n   last: ${c.lastVerdict} @ ${(c.lastRunAt || "").slice(0, 19)}` : ""}`)
     .join("\n")}`;
@@ -172,14 +172,25 @@ async function runOnce(rawUser: unknown, c: RetestCase): Promise<RunResult> {
 /**
  * Verdict from one response. Pure — unit-tested.
  * vulnerable = still matches the vulnerable signature (status AND/OR contains).
+ *
+ * FOUR verdicts, not three (probe-retest-verdict.mts, 2026-09-27): the old
+ * binary called every non-2xx from an UNASSERTED case "patched" — so a case
+ * that simply stopped existing (404), hit an auth gate (403), or broke the
+ * server (500) was reported as 🟢 "sudah dipatch". That is the classic
+ * "no signal ≠ safe" lie in the fix-verification loop itself, and it feeds
+ * lastVerdict into retest_list afterwards. A non-2xx from an unasserted case
+ * is not evidence of safety — it is evidence the check could not run. The
+ * three asserted branches are unchanged (they never had the bug).
  */
-export function retestVerdict(c: Pick<RetestCase, "expect_contains" | "expect_status">, r: RunResult): "vulnerable" | "patched" | "error" {
+export function retestVerdict(c: Pick<RetestCase, "expect_contains" | "expect_status">, r: RunResult): "vulnerable" | "patched" | "unproven" | "error" {
   if (r.error) return "error";
   const statusOk = !c.expect_status || r.status === c.expect_status;
   const containsOk = !c.expect_contains || r.body.toLowerCase().includes(c.expect_contains.toLowerCase());
-  // A case with NO assertion always counts by status: 2xx = still-vulnerable signal.
-  const matched = c.expect_contains || c.expect_status ? statusOk && containsOk : r.status >= 200 && r.status < 300;
-  return matched ? "vulnerable" : "patched";
+  if (c.expect_contains || c.expect_status) return statusOk && containsOk ? "vulnerable" : "patched";
+  // No assertion: only a 2xx can still be read as the vulnerable signal (the
+  // original finding's proof was that the endpoint answered with content).
+  if (r.status >= 200 && r.status < 300) return "vulnerable";
+  return "unproven";
 }
 
 /** Run one case or every case (optionally filtered by target). */
@@ -210,6 +221,9 @@ export async function retestRun(rawUser: unknown, opts: { id?: string; target?: 
     } else if (v === "patched") {
       patched++;
       out.push(`🟢 ${c.id} ${c.title} — sudah dipatch (status ${r.status})`);
+    } else if (v === "unproven") {
+      err++;
+      out.push(`⚪ ${c.id} ${c.title} — TIDAK BISA DIPASTIKAN (status ${r.status} tanpa signature — endpoint pindah/auth gate/server error; BUKAN bukti sudah dipatch)`);
     } else {
       err++;
       out.push(`⚪ ${c.id} ${c.title} — error: ${r.error || `status ${r.status}`}`);

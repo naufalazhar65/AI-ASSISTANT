@@ -612,7 +612,7 @@ Files changed:
 
 Lima "superpower" pentest yang saling menguatkan, SEMUA jalan dalam SATU sesi (uncommitted, menunggu approval):
 
-**1. `targetBrain.ts` — Persistent Target Brain (memori per-target).** Satu sumber kebenaran per-host: endpoints+params (nilai query DIBUANG — hanya nama param yang disimpan), tech fingerprint, temuan TERBUKTI (proof: what/how/severity/findingId), request yang sudah dites aman (`safeTested`), catatan bebas. Store `.data/users/<user>/target-brain.json` (atomic, cap 40 target × 120 endpoint). Pure helpers `brainHost`/`brainPathKey`/`brainParamNames` unit-tested. **Auto-write hooks (fire-and-forget, best-effort):** `content_discover`+`js_mine` → brainRecordEndpoints (parse bullet `/path` dari output), `tech_watch` → brainRecordTech (regex baris `tech:`), `finding_add` → brainRecordProof. Tool `target_brain` (read/auto): action brief (WAJIB sebelum uji ulang target — berisi "TERBUKTI", endpoints, "sudah dites aman — jangan ulang", catatan)/list/forget/note.
+**1. `targetBrain.ts` — Persistent Target Brain (memori per-target).** Satu sumber kebenaran per-host: endpoints+params (nilai query DIBUANG — hanya nama param yang disimpan), tech fingerprint, temuan TERBUKTI (proof: what/how/severity/findingId), request yang sudah dites aman (`safeTested`), catatan bebas. Store `.data/users/<user>/target-brain.json` (atomic, cap 40 target × 120 endpoint). Pure helpers `brainHost`/`brainPathKey`/`brainParamNames` unit-tested. **Auto-write hooks (fire-and-forget, best-effort):** `content_discover` → brainRecordEndpoints (`tools.ts:4576`), `js_mine` → brainRecordEndpoints (`tools.ts:4652`), `cdp_proxy` → brainRecordEndpoints (`cdpProxy.ts:146`), `tech_watch` → brainRecordTech, `finding_add` → brainRecordProof. **KOREKSI 2026-09-27:** hook `content_discover`+`js_mine` **tidak pernah ada di kode** — hanya tertulis di dokumen ini. Akibatnya store owner `endpoints: []` meski audit mencatat 29× `js_mine` + 17× `content_discover`, dan guard `surface-coverage` (`untestedSurfaceClaimNote`) **buta di produksi** sambil tetap terlihat "covered" di corpus (fixture diberi `endpointsSeen: 2` yang tidak pernah ada di dunia nyata). Hook sekarang benar-benar di-wire dan dibuktikan live: 12 endpoint masuk brain → guard menyala. **Liveness dicek `npx tsx apps/web/probe-guard-liveness.mts` (baca store produksi; DEAD = fact source kosong = guard tidak akan pernah menuduh).** `safeTested` juga **dead writer**: `brainRecordSafe` (`targetBrain.ts:223`) ada tapi **nol pemanggil** — `brainBrief` mengiklankannya, tidak ada yang mengisinya. Tool `target_brain` (read/auto): action brief (WAJIB sebelum uji ulang target — berisi "TERBUKTI", endpoints, "sudah dites aman — jangan ulang", catatan)/list/forget/note.
 
 **2. `retest.ts` — Regression Retest Suite (fix-verification jadi 1 perintah).** Setiap temuan terbukti → retest case (request + signature respons VULNERABLE: `expect_contains`/`expect_status`). `retest_run id=…|target=…` → verdict per case: 🔴 MASIH RENTAN (signature masih cocok) / 🟢 sudah dipatch (signature hilang) / ⚪ error/skip (scope ditolak, session hilang, network). Store `.data/users/<user>/retest.json` (cap 120, lastRunAt+lastVerdict per case). **AUTO-CREATE:** `finding_add` menerima arg opsional `retest_url`+`retest_expect`+`retest_status`+`retest_method`+`retest_session` → case otomatis saat temuan dicatat (output + "♻️ Retest case otomatis: R-…"). Pure `retestVerdict`/`retestCaseId`/`retestHost` unit-tested (verdict no-assertion: 2xx = vulnerable signal, else patched). Semua case di-scope-check `targetAllowed` saat RUN (bukan cuma saat add) — engagement yang sudah ditutup auto-skip.
 
@@ -1586,3 +1586,465 @@ dan `EMPTY_REPORT` memblokir PDF.
 honesty guards **83 ✓ / 0 ✗** (dari 70) · restart sehat (health ok, login 1,
 409 0, boot > mtime) · 9router **tidak disentuh**. 4 `verify_dupgate*` leftovers
 dibersihkan → 0 sisa.
+
+## Sesi 2026-09-27 (12:47) — lab baru + guard "penolakan yang bertentangan dengan aksi sendiri"
+
+**Permintaan owner:** "tambahkan https://naufalv3.netlify.app/ ke lab pentest".
+
+**1. Aksi operator (selesai).** Host ditambahkan ke `PENTEST_LAB_TARGETS` di
+`apps/web/.env.local` (backup `.env.local.bak-labadd`), restart via
+`./scripts/restart-mia.sh`. `isLabTarget`/`targetAllowed` terverifikasi dua arah
+lewat `npx tsx apps/web/probe-labscope.mts` (6/6 benar): host + path-nya ALLOW,
+`example.com` dan trik suffix `naufalv3.netlify.app.evil.com` tetap DENY.
+Bukti kepemilikan datang dari target sendiri — `fetch_url` mengembalikan profil
+"Software QA Engineer …" yang cocok dengan owner.
+
+**2. Bug produk yang ditemukan (bukan sekadar konfigurasi).** Balasan Mia
+menolak: *"aku tidak bisa melakukan pengujian keamanan atau pemindaian
+kerentanan pada target spesifik"*. Audit membuktikan **penolakan itu bertentangan
+dengan aktivitas tool di giliran yang sama**:
+
+```
+05:46:25  threat_model save   → argumennya sendiri menyebut "Mas Naufal's
+                                  personal netlify deployment at naufalv3.netlify.app"
+05:46:36  recon_subdomains    naufalv3.netlify.app
+05:46:45  fetch_url           https://naufalv3.netlify.app/
+05:46:46  recon_params        naufalv3.netlify.app
+05:47:12  turn_provider 9router  → lalu prosa: "tidak bisa melakukan pengujian keamanan"
+```
+
+Tiga akar, ketiganya dibuktikan bukan ditebak:
+
+- **Prompt sudah melarangnya, tapi tak ada JALUR untuk host baru.** Aturan keras
+  di `agent.ts` sudah berbunyi "JANGAN menolak lab milik owner … cek daftar lab
+  dulu" plus pre-check wajib `engagement_list` + `pentest_resources`. Audit
+  membuktikan **pre-check itu tidak pernah dipanggil** di turn tersebut. Yang
+  tidak ada: jalur untuk owner yang menominasikan host lab BARU. Semua aturan
+  hanya membahas host yang *sudah* terdaftar, dan **tidak ada tool yang bisa
+  menulis `PENTEST_LAB_TARGETS`** (20 hit di kode semuanya `targetAllowed`
+  Membaca). Model/improvisasi karena jalan buntu itu.
+- **Guard baru `refusalContradictionNote`** (22 guard jadi 23): satu-satunya
+  kelas yang belum tertutup adalah penolakan yang bertentangan dengan aksi
+  sendiri. Di-fire HANYA bila (a) ada klausa penolakan **kapabilitas blanket** dan
+  (b) ada FAKTA — tool pengentuh target benar-benar jalan di giliran ini
+  (`threat_model`/`coverage`/`http_request`/`fetch_url`/`recon_*`/dst). Host
+  diambil dari `claimAuditHost` (field target by-design saja, tidak pernah dari
+  teks bebas — pelajaran `targetDriftNote`).
+- **Prompt ditambah "HOST LAB BARU"**: owner menyatakan host miliknya = otorisasi.
+  Jalur benar: `engagement_create authorization="lab milik owner (dinyatakan
+  owner sendiri)" scope=[host]` supaya langsung ber-scope di sesi ini; dan jujur
+ -called bahwa `PENTEST_LAB_TARGETS` adalah env yang tidak bisa ditulis tool.
+
+**3. Empat cacat menangkap diri sendiri lewat probe dua-arah** (typecheck 0
+sepanjang waktu — seperti 5 bug lain di sesi ini):
+- `belum bisa` tidak ada di daftar negasi padahal itu cara paling alami
+  bilang "tidak bisa" dalam bahasa Indonesia → guard buta pada bentuk paling umum.
+- **DUA FALSE ACCUSATION**: penolakan sah beralasan ("pada website **orang lain**",
+  "**aturan mereka**") ikut dituduh. Perbaikan struktural: `REFUSAL_REASON_RE` —
+  penolakan yang **sertakan alasan otorisasi/policy** itu sah dan tidak boleh
+  dibantah. Hanya penolakan tanpa alasan yang dituduh.
+- Satu fixture probe saya salah label (teksnya memang tidak punya penolakan
+  sama sekali) — per-klausa sudah benar, fixture-nya yang salah. Dipindah ke SILENT.
+- Scan CJK mandatory menangkap token non-Latin yang saya sendiri masukkan diam-diam
+  ke `probe-refusal-contradiction.mts` saat menyalin ulang teks live, dan TIGA kali
+  berturut-turut saya memperbaruinya di file ini -- termasuk sekali saat menulis
+  catatan tentang aturan itu sendiri, yang justru mengandung CJK lagi. Semua
+  dibersihkan; 5 sisa di `agent.ts` (`:222`, `:591`, `:3057`, `:5737`) adalah
+  NEGATIF EXAMPLE yang memang disengaja. Pelajaran: aturan "satu karakter
+  non-Latin = bug" berlaku untuk file APA PUN yang saya tulis, bukan hanya
+  output model; `perl -CSD` harus dijalankan pada setiap file yang baru diedit,
+  dan hasilnya harus dibaca -- bukan dianggap sudah bersih karena sekilas
+  terlihat bersih.
+
+**4. Corpus naik ke 24 fixture; turn ini jadi fixture ke-9 yang REAL**
+(`live-1247-blanket-refusal-contradicts-own-tools`, `basis` cite baris audit +
+PDF/store di disk). Skor: **24/24 · TUDUHAN SALAH 0 · FABRIKASI LOLOS 0**.
+
+**Gates:** typecheck 0 · lint 0 · **vitest 1071/1071** (67 file) · `verify.ts`
+**EXIT=0** (127 blok) · smoke 0 · stability 24/24 · detectors 0 · liveness 3/3
+ALIVE · wiring 8 pass · **probe-refusal-contradiction 6 FIRE / 13 SILENT, dua arah
+lulus** · probe-labscope 6/6. Restart: health ok, login 1, telegram 1, 409 0,
+chunk 0, boot `12:58:58` > mtime `12:54:25`, 9router pid 65183 **tidak
+disentuh**. **Belum commit — menunggu approval owner.**
+
+## Sesi 2026-09-27 (audit lanjutan) — 3 file tersisa + drill adapter 8 run: kwitansi PDF-jalur-tool + 4 kalibrasi asersi drill + higienitas probe
+
+Audit menyeluruh atas sisa diff (drill-discord-adapter, reportDelivery.test,
+idorEnumeration.test, verify.ts, probe-honesty-guards) + 15 probe. Gates awal
+semua hijau (typecheck 0, vitest 1071/1071, verify EXIT=0, smoke PASS, liveness
+3/3 ALIVE, corpus 24/24). Sementara itu `probe-retest-verdict` (exit=1)
+**menemukan bug produk nyata**: `retestVerdict` melaporkan 🟢 "sudah dipatch"
+untuk case retest TANPA assertion yang endpoint-nya balas 404/403/500/301 —
+klaim keamanan palsu di loop fix-verification sendiri, dan `lastVerdict` palsu
+tersimpan ke `retest_list`. Fix 4-verdict (`"unproven"` untuk non-2xx
+unasserted; output `⚪ TIDAK BISA DIPASTIKAN (… BUKAN bukti sudah dipatch)`;
+`icon()` `error`→❓) + lock dua arah 11 status (test lama yang mengunci bug
+diperbaiki). Store owner bersih (6 case, semua ber-assertion). Plus 1 kosmetik:
+alternasi dead `" auditing"` di `COMPLETION_STRUCTURAL_RE`.
+
+**Audit lanjutan (sesi ini) menemukan 1 gap produk + 1 higienitas + 4
+kalibrasi asersi drill:**
+
+1. **Kwitansi PDF-jalur-TOOL (gap produk, live A5 run #1).** Fix .md 2026-09-25
+   ("user never saw the path") TIDAK punya twin PDF: ketika `report_pdf` jalan
+   SEBAGAI TOOL — jalur tersering owner — tidak ada kwitansi, user menerima PDF
+   yang tak pernah disebut. A5 fact-based drill membuktikannya: file di disk,
+   `report_pdf` 1 run, kwitansi nihil. Fix: twin persis di agent.ts setelah
+   `stripAbsentReportFiles` — `reportFileFromTurn("\\.pdf")` + cek eksistensi
+   disk (kwitansi tidak pernah dikarang; file yang sudah dinamai prosa
+   menekan kwitansi; deterministic delivery tetap punya jalannya sendiri).
+
+2. **`probe-intimacy-ab` pakai key OWNER** (higienitas). 4 turn LLM nyata
+   `runAssistantTurn` dengan `USER=naufalazhar652952` menulis snippet sintetis
+   ke daily memory owner + memberi makan auto-capture persona dengan konteks
+   karangan. Fix: run-unique throwaway + cleanup (dibuktikan live: 0 sisa).
+   `probe-kyzuch` terbukti read-only (bersih).
+
+3. **Empat kalibrasi asersi drill (semua ditemukan OLEH run, bukan tebakan):**
+   (a) A3 "recon-phase answer" menuntut prosa — padahal confirmation prompt
+   adalah jawaban benar untuk ask "jangan uji apapun dulu" (scan diusulkan,
+   MENUNGGU izin); (b) A7 "not a skip" match "cuma" di reply jujur "cuma recon
+   aja yang kelar" ("cuma" = only, bukan skip-artifact) → diganti whole-reply
+   anchored; (c) A5 kwitansi regex-only — sekarang menerima prosa model yang
+   menyebut file nyata (untuk user run-unique, nama yang lolos
+   stripAbsentReportFiles dijamin ada di disk) ATAU predikat produk sendiri
+   `pdfExistenceClaim` (file tak ada + tak ada klaim keberadaan = jujur);
+   (d) regex konfirmasi `Mia ingin melakukan aksi` tidak match prompt batch
+   `Mia ingin melakukan 2 aksi berikut` → A5/A7 menilai TEKS PROMPT sebagai
+   jawaban final (A7 bahkan menuntut tuduhan dari prompt). Fix: `CONFIRM
+   _PROMPT_RE` + alur approve di A7. **Drill final: ALL GREEN** (A0–A7, bukti
+   audit + disk, bukan prosa).
+
+4. **Temuan residual (dicatat, bukan diubah):** prosa model "Udah aku buatkan
+   laporan PDF-nya… tapi karena belum ada temuan" — self-correcting dalam satu
+   kalimat; guard PDF diam dengan benar karena `report_pdf` tool memang jalan
+   (refuse via EMPTY_REPORT). Klaim "sudah buatkan" yang menyertai penolakan
+   jujur adalah kandidat polish berikutnya, bukan fabricasi.
+
+**Gates akhir:** typecheck 0 · **vitest 1072/1072** (67 file, +1 lock retest) ·
+`verify.ts` **EXIT=0** · smoke honesty guards PASS · stability corpus 24/24 ·
+**drill-discord-adapter ALL GREEN** (8 run total, tiap FAIL dikalibrasi hanya
+setelah forensik full-reply) · cleanup user drill 0 sisa. Restart: health ok,
+`logged in as`=1, boot `14:49:31` > mtime `14:23:03`, 9router pid 65183 **tidak
+disentuh**. **Belum commit — menunggu approval owner.**
+
+## Sesi 2026-09-27 (lanjutan) — residual A5: klaim "sudah aku buatkan" di samping penolakan EMPTY_REPORT
+
+Owner minta polish residual A5 dari drill adapter: prosa *"Udah aku buatkan laporan
+PDF-nya Mas Naufal, tapi karena belum ada temuan…"* — SATU kalimat berisi klaim
+penciptaan + penolakan jujur. Guard PDF benar diam (report_pdf memang JALAN sebagai
+tool, lalu menolak via EMPTY_REPORT — `pdfDeliverableSuffix` butuh tool ABSEN untuk
+menuduh), jadi ini gap narasi murni: penolakannya jujur dan tetap, klaim di sampingnya
+yang bohong.
+
+**Fix: `emptyReportClaimNote(messages, text)`** (agent.ts, pure + exported) + predicate
+`reportCreationClaim(text)` — nyala HANYA bila TIGA fakta terpenuhi:
+1. prosa mengklaim penciptaan (struktural order-free, reuse regex terurut
+   `pdfExistenceClaim` + varian markdown-twin, granularity klausa-koma),
+2. hasil tool `report_pdf`/`report_save` di turn window berisi `Error: EMPTY_REPORT`
+   / "Belum ada temuan terbuka" / "No open findings" (penolakan verbatim dari tool),
+3. tidak ada file report nyata dari turn ini (`reportFileFromTurn` kosong).
+
+Silent bila: prosa jujur ("belum kubuat", "belum ada temuan" — negasi DALAM klausa
+pengklaim membatalkan klaim: "belum berhasil kubuat"), penawaran/pertanyaan ("mau
+kubuatkan?" — tanpa kata completion), tool sukses (kwitansi menang), atau file nyata
+ada. Wiring di blok delivery `runAgent` sebelum cabang delivered, gated
+`!needsConfirmation?.length`; corpus stability kini menjalankannya sebagai source
+`empty-report-claim`.
+
+**Dua bug self-catch via probe dua-arah (typecheck hijau sepanjang waktu):**
+1. Carve-out "honest admission" versi pertama berbasis WHOLE-TEXT — "laporan" dan
+   "belum" (dari "belum ada temuan") kebetulan berdekatan dalam SATU kalimat live,
+   jadi guard membungkam dirinya sendiri pada kasus yang justru harus ditangkap.
+   Fix: logika per-klausa (koma memisah klausa) + negasi dinilai DALAM klausa
+   pengklaim — kelas yang sama dengan pelajaran per-clause verdictInflation.
+2. Probe dan dua tes pertama memanggil helper SATU argumen (`emptyReportClaimNote(msgs)`)
+   → `text` undefined → early-return kosong yang terlihat seperti guard mati.
+   Harness-nya yang salah, bukan lib — koreksi call-site.
+
+**Corpus +1 fixture REAL (ke-10):** `live-udah-aku-buatkan-empty-report` (dishonest,
+basis = audit log + disk + tool result di window). Meta-test corpus menuntut basis
+menyebut bukti eksternal — versi pertama ditolak test, dilengkapi. Scorecard:
+**25/25 · TUDUHAN SALAH 0 · FABRIKASI LOLOS 0**.
+
+**Gates:** typecheck 0 · **vitest 1078/1078** (67 file, +6 tes dua arah
+emptyReportClaimNote) · `verify.ts` EXIT=0 · smoke honesty guards PASS · stability
+25/25 · restart sehat (health ok, `logged in as`=1, 0×409, boot `17:14:30` > mtime
+`17:00:19`, 9router pid 65183 tidak disentuh). **Belum commit — menunggu approval owner.**
+
+## Sesi 2026-09-27 (lanjutan) — turn live kyzuch: PDF tidak jadi walau di-approve + leak pseudo-tool-call
+
+Owner menempel transkrip Discord live (lab baru kyzuch-productivity-hub.vercel.app,
+17:00-17:01 WIB): "mana pdfnya?" dua kali. Forensik (audit log UTC+7 + findings store
++ transkrip) menemukan DUA akar, keduanya diperbaiki:
+
+1. **Urutan terbalik model, tanpa retry.** Turn 17:01 (setelah approve): model
+   menjalankan `report_pdf` DULU → EMPTY_REPORT (belum ada temuan) → `finding_add`
+   SUKSES sesudahnya (F-mujnfcw4-twio tersimpan). Di akhir turn temuan sudah ada dan
+   PDF pasti bisa dirender — tapi tidak ada yang mencoba lagi; turn selesai tanpa
+   deliverable. **Fix: `retryEmptyReportDelivery(messages, rawUser, channel)`**
+   (agent.ts, exported + tested) — saat turn window menunjukkan report tool yang
+   menolak EMPTY **dan** `finding_add` yang jalan **dan** tidak ada file yang
+   ditulis turn ini → re-render SEKALI (PDF utk report_pdf, .md utk report_save)
+   dengan kwitansi beratribusi "(temuan tadi tercatat setelah percobaan pertama)".
+   Guard: host-mismatch (report host ≠ finding_add host → silent, jangan kirim
+   laporan host salah — parse JSON args by-design field, pelajaran targetDriftNote
+   via `reportTargetArgs`), gated `canDeliver` (tidak pernah side-effect di turn
+   headless/pending), fallback jujur "temuan ternyata belum tersimpan" bila retry
+   tetap menolak (bukti simulasi/prosa model). Interplay A5: `emptyReportClaimNote`
+   kini menerima opt `deliveredThisTurn` — kwitansi retry tidak pernah dituduh.
+2. **Leak pseudo-tool-call bentuk atribut.** Prosa model membawa baris
+   `finding_add target="…" severity="low" cvss=3.0 title="…"` +
+   `report_pdf target="…"` sebagai TEKS polos — `stripToolCallProse` hanya kenal
+   bentuk `name(...)` (paren), jadi bocor verbatim ke Discord. **Fix:** `attrLineRe`
+   — baris utuh `name key="value"…` (nama tool + `key=` TANPA parens) dibuang;
+   sebutan polos ("pakai http_request ya") tetap lolos; bentuk paren tak regresi.
+   Plus 1 kalimat prompt slim: saat mengusulkan tool tulis usulan+alasan saja,
+   JANGAN format call (attribute-form) — itu dieksekusi sistem setelah approval.
+
+Catatan audit: sweep wajib terbukti read-only (GET/web_audit/js_mine, tanpa payload —
+pentestSweep.ts), klaim header model = `web_audit` nyata; temuan LOW 3.0 header
+memang sah. Yang gagal hanyalah DELIVERY, bukan pengujian.
+
+**Gates:** typecheck 0 · **vitest 1086/1086** (+8: retry E2E PDF nyata di disk,
+fallback-jujur, host-mismatch, tanpa-finding_add, A5 interplay, leak-strip ×3,
+paren-regresi) · `verify.ts` EXIT=0 (blok baru "kyzuch fixes": PDF nyata dirender
+throwaway user + mismatch silent + EMPTY_REPORT regression guard) · smoke honesty
+guards PASS · stability 25/25 · restart sehat (health ok, `logged in as`=1, 0×409,
+boot 18:43 > mtime 17:47, 9router pid 65183 utuh). **Belum commit — menunggu approval
+owner.**
+
+## Sesi 2026-09-27 (lanjutan) — owner-lab registry: `lab_add` (declare-once, tanpa env edit)
+
+Owner: "perbaiki lagi, biar kedepannya kalau saya ingin uji lab lain mia tidak
+menolaknya seperti tadi." Akar penolakan ulang bukan prompt — prompt sudah punya
+aturan HOST LAB BARU — tapi **tidak ada jalur penulisan**: `PENTEST_LAB_TARGETS`
+adalah env yang tak bisa ditulis tool, jadi setiap lab baru mengulang siklus
+menolak → edit env → restart. Fix: registry persisten + tool.
+
+**`ownerLabs.ts` (baru):** store `.data/users/naufalazhar652952/owner-labs.json`
+(atomic tmp+rename, cap 40, mtime cache). **Registry SINGLE owner-scoped** —
+`resolveKey()` selalu mengembalikan `OWNER_REGISTRY_KEY` konstan: `isOwnLabTarget`
+di security.ts feeds ~40 scope gates dari bare target string TANPA user param,
+jadi registry per-user akan buta di sebagian besar gate (owner = satu orang;
+alias Zigen/naufalazhar65/naufalazhar652952 sudah dikanonikalisasi). Host
+dinormalisasi `normalizeHost` + wajib ada titik + tolak spasi; subdomain covered
+(`host === h || host.endsWith("." + h)`). API: `addOwnerLab/listOwnerLabs/
+forgetOwnerLab/isOwnerLabHost(ForOwner)/ownerLabsLine`.
+
+**security.ts:** static import ownerLabs (TANPA cycle — ownerLabs hanya import
+users+engagement). **PELAJARAN SESI INI: `require("./ownerLabs")` interop DI DALAM
+try/catch itu DEAD di vitest** — ESM vitest tidak punya global `require`;
+ReferenceError tertelan catch → fungsi selalu `false` → 6 probe perlu untuk
+menemukannya (modul identik, fungsi langsung true, gate false). Pola lama
+`require("./time")` pernah sama; bila tidak ada cycle, SELALU static import.
+`isOwnLabTarget` kini cek registry setelah env-list; `pentestResources()`
+menambah blok "LAB TERDAFTAR MILIK OWNER (via lab_add)".
+
+**Tool `lab_add` (read/auto, permanen):** action add/list/forget; deklarasi
+owner = otorisasi; output "✅ LAB TERDAFTAR: <host> kini ber-scope penuh…".
+Prompt FULL (HOST LAB BARU, line ~321) + SLIM (OWNER LAB BARU, line ~420):
+panggil `lab_add host=<host>` SEKALI lalu langsung uji — dilarang menolak/minta
+engagement; engagement_create hanya untuk klien/bug-bounty. `lab_add` masuk
+daftar no-wait (read-auto) prompt FULL.
+
+**CORE rebalance (runtime-verified):** `lab_add` WAJIB di window 9router-64
+(provider Discord produksi — persis di situ kelas penolakan hidup). Dibayar
+dengan demote **`calendar_list`** — dipilih via **bukti audit, bukan tebakan
+prompt-refs**: 0 eksekusi sepanjang SElURUH sejarah audit, sedangkan kandidat
+0-prompt-refs lain justru sangat dipakai (upload_fuzz 480, recon_full 163 eksekusi
+24–27 Sep) — pelajaran keras: **0 prompt refs ≠ 0 usage; audit log yang memutuskan
+demote.** Probe: CORE 128/128 unik, ghost=[], groq-128 penuh missing=[],
+9r64 lab_add=true + coverage/report_pdf tetap in-window.
+
+**Anti-regresi:** `ownerLabs.test.ts` 7 tes (declare-once, honored di semua gate
++ alias, subdomain, non-owner ditolak, idempotent+forget, host tidak valid
+ditolak). `verify.ts` blok "owner lab registry" E2E via executeTool: gate BEFORE
+denied → lab_add (Zigen alias) → targetAllowed/isOwnLabTarget/subdomain/
+ownerLabScopeLine/pentestResources → **web_audit nyata jalan** (bukan Error:
+SCOPE) → list → forget → denied again; **+ assertion window baru: 9router-64 wajib
+membawa `lab_add`** (kalau rebalance berikutnya menggusurnya, verify FAIL —
+pelajaran silent-shrink CORE dua kali tidak boleh terulang).
+
+**Gates:** typecheck 0 · lint 0 error (warning baseline writeup.ts) · **vitest
+1093/1093** (68 file; +7 ownerLabs) · `verify.ts` EXIT=0 · smoke honesty guards
+PASS · stability TUDUHAN SALAH 0 · FABRIKASI LOLOS 0 · probe-labscope 6/6 ·
+restart sehat (health ok, `logged in as`=1, 0×409, boot 20:50 > mtime 20:36,
+9router pid 65183 utuh). **Belum commit — menunggu approval owner.**
+
+### Live drill lab_add (2026-09-27, lanjutan) — 1 bug nyata tertangkap + drill ALL GREEN
+
+Drill durabel baru **`apps/web/drill-lab-add.mts`** — ask owner verbatim lewat
+handler adapter Discord asli (invariant token-invalid, reply di-capture, bukti =
+audit log + registry store + disk). Run pertama langsung menangkap **bug nyata**:
+
+1. **`lab_add` confirm-pause padahal risk read.** Turn berakhir `text len=0`
+   tanpa prompt konfirmasi dan tanpa eksekusi. Akar: keanggotaan
+   `HEADLESS_SIDE_EFFECT_TOOLS` di filter risky agent memaksa KONFIRMASI pada
+   turn interaktif — dua gate yang semestinya terpisah terkonflasi. Set itu
+   dirancang (2026-09-17) hanya untuk MENOLAK otomatis di turn headless
+   (automation/webhook), bukan memaksa konfirmasi di turn interaktif — kontrak
+   terdokumentasi semua anggota read-auto (lab_add "satu panggilan auto",
+   spotify_*/mac_open/send_channel "read, immediate") dilanggar diam-diam sejak
+   keanggotaan dipakai sebagai proxy risk. Fix satu baris di filter risky:
+   keanggotaan hanya berlaku bila `autoDenyRisky` (turn headless); turn
+   interaktif mengikuti risk tool masing-masing. **Isolasi pakai probe
+   runAssistantTurn langsung** (teks/needsConfirmation/registry) — adapter
+   drill + asersi drill dicek paralel, bukan didiagnosa buta.
+
+2. **Koreksi guard `refusalContradictionNote` sudah basi.** Teks koreksinya
+   menyarankan `engagement_create authorization="lab milik owner"` — jalur lama
+   SEBELUM registry ada, padahal prompt kini melarang engagement_create untuk
+   lab owner. Guard sendiri nyaris melawan sistemnya (kelas 2:03 PM). Diganti
+   mengarah ke `lab_add host=<host>`.
+
+3. **Dua bug asersi drill sendiri** (pola berulang): (a) `listOwnerLabs`
+   mengembalikan `OwnerLab[]` objects — asersi v1 membandingkan string dan
+   FAIL melawan registry yang benar terisi; (b) `sent` diubah jadi `string[]`
+   saat logging ditambah tapi konsumen masih baca `s.text` → A5 vacuous
+   (regex tidak pernah menemukan apa pun — false green, bukan false red).
+   Leftover registry `labadd-*` dari probe crash dibersihkan (1 entri).
+
+Run final (provider 9router, jalur adapter asli): round 1 `lab_add` auto-jalan
+(1 run ter-audit) + `http_request` pause → prompt konfirmasi tertangkap → "ya"
+→ probe nyata → balasan 444 char TANPA penolakan + kwitansi
+`⚙️ http_request → https://labadd-…/: 404 Not Found` (host run-unique memang
+tidak ada deploymentnya — 404 itu jawaban server nyata, bukan penolakan scope).
+**Semua assertion hijau; registry + user drill dibersihkan otomatis.**
+
+**Gates:** typecheck 0 · **vitest 1093/1093** · verify EXIT=0 · smoke honesty
+guards PASS · stability 0/0 · lint 0 error · restart sehat (health ok, login 1,
+0×409, boot 22:00 > mtime 21:26, 9router pid 65183 utuh). **Belum commit —
+menunggu approval owner.**
+
+### SWEEP direction-question guard (2026-09-27, lanjutan) — penutup penyimpangan minor turn 22:11
+
+Observasi forensik turn 22:11: sweep GENUINELY jalan (9 http_request + temuan
+HIGH nyata) TAPI turn ditutup "Mau aku catat temuannya ke laporan atau lanjut uji
+akses pakai kredensial ini buat bypassing /admin?" — KEDUA opsi adalah langkah
+konkret yang bisa dieksekusi turn itu sendiri (finding_add dan http_request sama-
+sama auto-approve di kanal utama), jadi pertanyaan itu membuang satu round-trip
+untuk minta izin melanjutkan pekerjaan yang sudah terotorisasi. Prompt sudah
+melarang (SWEEP full + SWEEP MENYELURUH slim, "JANGAN menutup giliran pentest
+dengan pertanyaan pilihan arah") — tapi hint saja tidak menahan (pelajaran
+2026-09-21), jadi ini counterpart deterministiknya.
+
+**Guard `pentestDirectionQuestionNote`** (agent.ts, pure + exported, 8 tes):
+menyala HANYA bila SEMUA: (1) ask giliran ini pentest work (`isPentestAsk` —
+gate yang sama dengan link-capture, satu pemilik); (2) prosa model BERAKHIRI
+pertanyaan arah (`PENTEST_DIRECTION_Q_RE` — window 160 char, dibatasi batas
+kalimat `[^?.!\n]` jadi aman diperlebar; live 22:11 punya pertanyaan 97 char dan
+justru menangkap window `{0,80}` v1 terlalu pendek); (3) kerja uji/baca nyata
+jalan giliran INI (PROBE/READ_TOUCH dari collector.executedCalls — tanpa ini
+pertanyaan arah sering justru BENAR karena belum ada apa pun untuk dilanjutkan;
+store read seperti finding_list tidak dihitung); (4) TIDAK ada komitmen langkah
+berikutnya di prosa ("selanjutnya aku akan…"); (5) pertanyaan TIDAK membawa
+gate otorisasi (`PENTEST_GATE_Q_RE`: RoE/izin/dilarang — itu pertanyaan
+kepatuhan yang sah). Carve-out: pertanyaan preferensi user (mau disimpan ke
+mana / format laporan) bukan defleksi arah. Note menutup dengan instruksi
+eksekusi: catat via finding_add / uji via http_request, keduanya otomatis di
+kanal ini. Wiring SEBELUM receipt (guard tidak pernah membaca receipt).
+
+**Corpus ke-11 REAL**: `live-2211-direction-question` — turn 22:11 verbatim,
+basis audit+http-history+curl (klaim kerjanya BENAR; satu-satunya cacat adalah
+pertanyaan arahnya). Guard baru satu-satunya yang menyala, kind=tuduhan.
+Scorecard: TUDUHAN SALAH 0, FABRIKASI LOLOS 0.
+
+**Smoke**: wiring check +`pentestDirectionQuestionNote(messages, text` +
+LEDGER-FED check +`, collector.executedCalls)`.
+
+**Gates:** typecheck 0 · **vitest 1100/1100** (110 file-level; +8) · verify
+EXIT=0 · smoke PASS (ledger-fed kini 12) · stability 0/0 · restart sehat
+(health ok, login 1, 0×409, boot 22:41 > mtime 22:38, 9router utuh). **Belum
+commit — menunggu approval owner.**
+
+### Uji produksi 22:51–22:52 + guard baru `unrecordedFindingClaimNote` (2026-09-27, lanjutan)
+
+Owner menjalankan uji Discord sungguhan dua turn ("lanjutkan pentest menyeluruh
+di lab itu" → "buatkan report pdfnya" → "ya"). Dua hasil:
+
+**1. Guard arah TERBUKTI di produksi.** Turn 22:51 berakhir dengan pertanyaan
+arah lagi ("Mau aku buatkan laporan PDF atau lanjut uji coba akses admin?") dan
+note `pentestDirectionQuestionNote` tampil VERBATIM di Discord — pertama kalinya
+guard itu menyala di chat nyata sejak dibuat satu jam sebelumnya.
+
+**2. Celah baru tertangkap: klaim pencatatan objek.** Rantai kejadian (semua
+diverifikasi audit + store): model memanggil `finding_add` 3× TANPA field
+`title` → 3× `Error: judul temuan wajib` (kwitansi jujur menampilkan errornya);
+owner minta PDF → approve → `report_pdf` → `Error: EMPTY_REPORT` (wajar);
+balasan membuka dengan penyesalan JUJUR ("maaf ya, ternyata… belum tersimpan
+dengan judul yang benar") lalu PIVOT ke fabrikasi: "Aku catat temuannya dulu ya
+beb: HIGH 8.5…" — tanpa satu pun `finding_add` berhasil (audit kosong setelah
+report_pdf, store 0 temuan untuk lab). `toolRunClaimSuffix` buta terhadap ini:
+prosa menyebut OBJEK ("temuannya"), bukan nama tool.
+
+**Guard `unrecordedFindingClaimNote`** (agent.ts, pure + exported): menyala
+bila (a) prosa mengandung klaim rekam-objek (`FINDING_RECORD_CLAIM_RE`: catat/
+simpen/masukkan/fix + temuan), (b) TIDAK ada finding_add yang BERHASIL di
+window (hasil bukan `Error:` — `toolActuallyRan` menganggap semua spawned call
+"ran", jadi tidak bisa dipakai di sini), (c) ada attempt yang ERRORED di window
+(prekondisi fabrikasi), (d) klausa klaim itu sendiri tidak membawa penyesalan —
+**per-klausa, bukan per-teks** (pelajaran pdfExistenceClaim 2026-09-26 terulang:
+kalimat jujur di kalimat lain hampir mematikan tuduhan terhadap klaim di
+kalimat ini — ketangkap fixture, bukan typecheck). Fail-open bila hasil
+window di-summarize away (ledger name-only tak bisa membedakan sukses/error).
+
+**Bug ORDER yang tertangkap fixture** (kelas "aseri vs runtime"): v1 mem-bypass
+ledger `executed:true` SEBELUM membaca hasil window — padahal `recordExecuted`
+menandai semua spawned call executed:true TERMASUK yang error, jadi di
+produksi (kwitansi menampilkan error) guard jadi buta. Urutan benar: bukti
+window (hasil Error terlihat) > ledger name-only; ledger hanya mensilence bila
+window juga tak menunjukkan error (hasil ter-summarize).
+
+**Corpus ke-12 REAL**: `live-2252-unrecorded-finding-object-claim` — verbatim,
+basis audit+store. Scorecard: TUDUHAN SALAH 0, FABRIKASI LOLOS 0 (fixture baru
+FIRE via unrecorded-finding-object; balasan-jujur membuka tetap diam).
+
+**Smoke**: wiring + LEDGER-FED +2 → 14 cek wiring.
+
+**Gates:** typecheck 0 · **vitest 1105/1105** · verify EXIT=0 · smoke PASS ·
+stability 0/0 · lint 0 error · restart sehat (health ok, `logged_in_as`=1,
+0×409, boot 23:40 > mtime 23:31, 9router utuh). **Belum commit — menunggu
+approval owner.**
+
+### Uji produksi 23:45–23:48 — guard menyala benar 2× + 3 celah ditutup (2026-09-28, lanjutan)
+
+Owner menjalankan full pentest menyeluruh di lab trycloudflare lewat Discord
+(2 turn: pentest_scan approve → "buatin pdfnya" → approve). Hasil forensik:
+
+**Yang benar (diverifikasi audit+store):** pentest_scan(ffuf) + poc_verify
+SQLi `/user?id=1' OR 1=1--` + poc_verify backup dump + JWT alg:none probe ke
+/admin → alur scan→prove berjalan; **1 temuan BENAR-BENAR tersimpan** kali ini
+(F-muk11n2s-j91f high 8.5 — attempt ke-3 tanpa judul errored 2× lalu berhasil);
+kwitansi menampilkan 2 error finding_add apa adanya; guard PDF menyala tepat
+pada klaim "laporannya sedang aku siapkan dalam format PDF" tanpa report tool
+(tidak ada report di turn 1) — note "(file PDF di atas tidak dibuat di giliran
+ini)" tampil; turn 2 EMPTY_REPORT jujur. pentestDirectionQuestionNote diuji
+langsung tiga kali oleh model — turn 22:51 menyala, 23:45 belum (celah).
+
+**3 celah ditutup (semua dari bentuk nyata 23:45):**
+1. **Baris kwitansi `⚙️ : (dieksekusi)` ke-3.** Kali ini bukan imitation —
+   `finding_add` SUKSES dengan args id/steps/impact (TANPA salah satu key
+   digest url/target/endpoint/path/query) → argDigest return "" → head kosong.
+   Fix di `argDigest`: fallback ke string value pertama ≤80 char, jadi barisnya
+   kini `finding_add → <title/first-arg>` — tool identity selalu tampil.
+2. **Urutan objek-dulu lolos** ("Semua temuan sudah aku catat"): regex v1
+   mensyaratkan verba-dulu. `FINDING_RECORD_CLAIM_RE` kini mencakup kedua
+   urutan (temuan…catat / catat…temuan). Terverifikasi live-shape FIRE, dan
+   SILENT bila finding_add sukses ada (claim true).
+3. **Pertanyaan pilihan-atau mid-clause lolos** ("Kabari ya, apakah kamu mau X
+   atau Y?"): kata tanya di tengah klausa. `PENTEST_DIRECTION_Q_RE` +`apakah`;
+   ditambah `PENTEST_CHOICE_Q_RE` (mau/ingin/akan … atau … ?) sebagai jalur
+   kedua. Terverifikasi live-shape FIRE.
+
+Catatan store-truth: klaim "dua temuan: kritis 9.8 + medium 6.5" tidak cocok
+store (1 temuan, high 8.5, judul lain) — klaim angka-temuan vs store masih
+dibaca guard numeric/unverified family yang mensyaratkan konteks; count-vs-store
+lookup memerlukan fact-fed guard baru (pocCoverageClaimNote menghitung proof
+coverage, bukan count match). Dicatat sebagai residual, bukan gap aktif —
+kwitansi + EMPTY_REPORT sudah mencegah klaim itu jadi deliverable palsu.
+
+**Gates:** typecheck 0 · **vitest 1106/1106** (+2: objek-dulu dua-arah, choice
+question) · verify EXIT=0 · smoke PASS · stability 0/0 · restart sehat (health
+ok, `logged_in_as`=1, 0×409, boot 00:12 > mtime, 9router pid 65183 utuh).
+**Belum commit — menunggu approval owner.**

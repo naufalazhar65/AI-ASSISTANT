@@ -139,6 +139,14 @@ function argDigest(args: string): string {
     const j = JSON.parse(args) as Record<string, unknown>;
     const v = j.url ?? j.target ?? j.endpoint ?? j.base_url ?? j.path ?? j.query ?? "";
     if (typeof v === "string" && v) return firstLine(compactReceiptUrl(v));
+    // Live 2026-09-27 23:47 (3rd occurrence of "⚙️ : (dieksekusi)"): a tool
+    // with NONE of the digest keys (finding_add carrying id/steps/impact) but
+    // SOME usable string arg must not render a degenerate empty head. Fall
+    // back to the first short string value so the line keeps its tool identity
+    // ("finding_add → <title>") instead of collapsing to "⚙️ :".
+    for (const val of Object.values(j)) {
+      if (typeof val === "string" && val.trim() && val.length <= 80) return firstLine(compactReceiptUrl(val.trim()));
+    }
   } catch {
     /* non-JSON args — fall through */
   }

@@ -347,6 +347,8 @@ for (const w of [
   "targetDriftNote(messages, text",
   "crossFormatArtifactNote(text",
   "unrecordedFindingNote(messages, text",
+  "pentestDirectionQuestionNote(messages, text",
+  "unrecordedFindingClaimNote(messages, text",
 ]) {
   const wired = agentSrc.includes(w);
   console.log(`${wired ? "✓" : "✗"} WIRING: ${w})${wired ? "" : " — TIDAK TERPASANG di runAgent!"}`);
@@ -358,8 +360,10 @@ for (const w of [
   "toolRunClaimSuffix(messages, text, collector.executedCalls)",
   "verdictInflationSuffix(messages, text, collector.executedCalls)",
   "numericClaimSuffix(messages, text, collector.executedCalls)",
-  "endpointTriageNote(messages, text, collector.executedCalls)",
+  "endpointTriageNote(messages, text, collector.executedCalls,",
   "unverifiedFindingClaimNote(messages, text, collector.executedCalls,",
+  "pentestDirectionQuestionNote(messages, text, collector.executedCalls)",
+  "unrecordedFindingClaimNote(messages, text, collector.executedCalls)",
 ]) {
   const fed = agentSrc.includes(w);
   console.log(`${fed ? "✓" : "✗"} LEDGER-FED: ${w.slice(w.indexOf("(") + 1)}${fed ? "" : " — guard tidak menerima ledger!"}`);

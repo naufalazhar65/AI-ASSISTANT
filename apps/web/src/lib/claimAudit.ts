@@ -214,9 +214,22 @@ export function buildAuditFacts(
  * keyword pattern for anything else.
  */
 const EXHAUSTIVE_QUANTIFIER =
-  /\b(?:semua|seluruh|all|every)\b[^.!?]{0,40}?\b(?:endpoint|endpoints|path|paths|route|routes|halaman)\b|\b(?:endpoint|endpoints|path|paths|route|routes|halaman)\b[^.!?]{0,24}?\b(?:semua|seluruh|all|every)\b/i;
+  /\b(?:semua|seluruh|all|every)\b[^.!?]{0,40}?\b(?:endpoint|endpoints|path|paths|route|routes|halaman)\b|\b(?:endpoint|endpoints|path|paths|route|routes|halaman)\b[^.!?]{0,24}?\b(?:semua|seluruh|all|every)\b|\bmenyeluruh\b/i;
 const COMPLETION_VERB =
   /\b(?:sudah|udah|telah|berhasil|kalian?)\b[^.!?]{0,24}?\b(?:kucek|cek|uji|tes|test|scan|periksa|audit|hunt|nyoba|coba)\b/i;
+/**
+ * "Selesai" with no testing verb at all, as a completion signal.
+ *
+ * Live 2026-09-27 01:14: "pentest menyeluruh untuk target tersebut udah aku
+ * tuntasin" after probing ONE of seven known endpoints. Neither guard caught it —
+ * COMPLETION_VERB needs a testing verb, and "tuntasin" is the colloquial -in
+ * form behind a pronoun ("udah aku …"), so no adjacency either.
+ *
+ * The result clause stays mandatory: "udah aku tuntasin ya, makasih" is
+ * ordinary speech and must stay silent.
+ */
+const COMPLETION_BARE =
+  /\b(?:sudah|udah|lah)\s+(?:aku|ku|saya|kita|kami)?\s*(?:lengkap|selesai|selesain|selesaikan|beres|beresin|tuntas|tuntasin|rapi|mantap)(?:in|kan|i)?\b/i;
 
 /**
  * A completion claim about testing EVERY endpoint, checked against coverage.
@@ -229,7 +242,7 @@ export function untestedSurfaceClaimNote(text: string, facts: AuditFacts): strin
   // another do not make an exhaustive claim.
   for (const sentence of String(text || "").split(/[.!?\n]/)) {
     if (!EXHAUSTIVE_QUANTIFIER.test(sentence)) continue;
-    if (!COMPLETION_VERB.test(sentence)) continue;
+    if (!COMPLETION_VERB.test(sentence) && !COMPLETION_BARE.test(sentence)) continue;
     if (!facts.endpointsSeen || facts.endpointsProbed >= facts.endpointsSeen) continue;
     const gap = facts.endpointsSeen - facts.endpointsProbed;
     return ` (Catatan jujur: dari ${facts.endpointsSeen} endpoint yang tercatat untuk ${facts.host || "target ini"}, yang benar-benar diprobes cuma ${facts.endpointsProbed} — ${gap} endpoint belum ada request-nya. Jangan sebut "semua sudah dicek" sebelum gapnya keuji.)`;
@@ -252,7 +265,15 @@ export function unprovenPastWorkClaimNote(text: string, facts: AuditFacts): stri
   const pastWork =
     /\b(?:sebelumnya|td\s+lalu|tadi\s+lalu|turn\s+lalu|run\s+lalu|waktu\s+lalu|minggu\s+lalu|kemarin|pertama\s+kali|saat\s+itu)\b/i.test(t);
   if (!pastWork) return "";
-  const claimsTesting = /\b(?:pentest|uji|tes|test|scan|hunt|audit|verifikasi|terverifikasi|cek)\b/i.test(t);
+  // Prefix attachment, not a word boundary.
+  //
+  // `\bpentest\b` never matches "kupentest" — "u" and "p" are both word
+  // characters, so there is no boundary between them. The same class of bug as
+  // the mood detector reading "markdown" as `sad` (2026-07): Indonesian attaches
+  // its prefixes directly (kupentest, kujalankan, kucek), so the leading `\b` has
+  // to go while the trailing one keeps the match from firing inside a longer word
+  // ("testing" must not satisfy "tes").
+  const claimsTesting = /\b\w*(?:pentest|uji|tes|scan|hunt|audit|verifikasi|terverifikasi|cek)\b/i.test(t);
   if (!claimsTesting) return "";
   return " (Catatan jujur: tidak ada satu pun catatan pengujian di target ini sebelumnya — audit log kosong untuk host itu, jadi klaim \"sudah kupentest sebelumnya\" tidak punya bukti. Kalau memang pernah, sebut turn-nya biar bisa kucocokkan.)";
 }

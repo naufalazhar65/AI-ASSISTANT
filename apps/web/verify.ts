@@ -5892,8 +5892,18 @@ async function main() {
       { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "http_request", arguments: JSON.stringify({ url: "https://lab/login" }) } }] },
       { role: "tool", tool_call_id: "c1", content: "HTTP 200" },
     ];
-    if (!ag.endpointTriageNote(absMsgs as never, "Di /login tidak ada celah keamanan yang terlihat.").includes("hanya dari membaca")) {
-      throw new Error("endpointTriageNote must qualify read-only absence claims");
+    // Asserted on the note's SUBSTANCE, not its phrasing: the note used to
+    // hardcode the quote "tidak ada celah" and was rewritten on 2026-09-27 after
+    // a live turn (11:29) showed it attributing the OPPOSITE of what the model
+    // said. Never re-add a quoted claim to this note.
+    {
+      const absNote = ag.endpointTriageNote(absMsgs as never, "Di /login tidak ada celah keamanan yang terlihat.");
+      if (!/baru baca halaman/i.test(absNote) || !/belum ada pengujian auth\/injeksi/i.test(absNote)) {
+        throw new Error("endpointTriageNote must qualify read-only absence claims");
+      }
+      if (absNote.includes('"tidak ada celah"')) {
+        throw new Error("endpointTriageNote must never quote a claim back at the model");
+      }
     }
     console.log("output-tidiness (endpoint triage note, HTML-dump collapse, dup warning, OWASP-2025 render, word-boundary chunks): OK");
   }
@@ -5988,6 +5998,112 @@ async function main() {
       const { join } = await import("node:path");
       const { userDataRoot } = await import("./src/lib/users");
       rmSync(join(userDataRoot(), U), { recursive: true, force: true });
+    }
+  }
+
+  // ── kyzuch fixes (2026-09-27 17:01 live turn): inverted-order retry + attribute-form leak strip ──
+  {
+    const { stripToolCallProse, retryEmptyReportDelivery, emptyReportClaimNote } = await import("./src/lib/agent");
+    const { addFinding, reportPdf } = await import("./src/lib/security");
+    const { rmSync, existsSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { userDataRoot } = await import("./src/lib/users");
+    const LAB = "https://kyzuch-productivity-hub.vercel.app/";
+    // 1) Attribute-form pseudo-tool-call lines (verbatim live leak) must never
+    //    reach the channel; prose and bare mentions must survive.
+    const LEAK = `finding_add target="${LAB}" severity="low" cvss=3.0 title="Missing Security Headers"\nreport_pdf target="${LAB}"`;
+    const stripped = stripToolCallProse(LEAK);
+    if (stripped.includes("finding_add") || stripped.includes("severity=")) throw new Error("attribute-form leak not stripped");
+    if (!stripToolCallProse(`audit dulu ya.\n${LEAK}\nmau lanjut?`).includes("audit dulu ya")) throw new Error("prose around the leak must survive");
+    if (!stripToolCallProse("nanti pakai http_request ya").includes("http_request")) throw new Error("bare mention must not be stripped");
+    // 2) Retry: the live turn ran report_pdf (refused EMPTY) BEFORE finding_add
+    //    succeeded — with a real store row the retry must render a REAL pdf.
+    const U = `verify_kyzuch_${Date.now()}`;
+    try {
+      addFinding(U, { title: "Missing Security Headers", severity: "low", cvss: 3, target: LAB, evidence: "A/B header audit" });
+      const inverted = [
+        { role: "user", content: `full pentest di ${LAB} dan buatkan report pdf nya` },
+        { role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "report_pdf", arguments: JSON.stringify({ target: LAB }) } }] },
+        { role: "tool", tool_call_id: "t1", content: "Error: EMPTY_REPORT: no open findings to report" },
+        { role: "assistant", content: null, tool_calls: [{ id: "t2", type: "function", function: { name: "finding_add", arguments: JSON.stringify({ target: LAB, title: "Missing Security Headers", severity: "low", cvss: 3, evidence: "A/B header audit" }) } }] },
+        { role: "tool", tool_call_id: "t2", content: "✅ Temuan dicatat: [LOW CVSS 3] Missing Security Headers (F-x)" },
+      ] as never;
+      const receipt = await retryEmptyReportDelivery(inverted, U, "discord");
+      const file = (/`([^`]+\.pdf)`/i.exec(receipt) || [])[1] || "";
+      if (!file || !existsSync(join(userDataRoot(), U, "reports", file))) throw new Error(`retry must render a real pdf: ${receipt.slice(0, 120)}`);
+      if (!receipt.includes("tercatat setelah percobaan pertama")) throw new Error("retry receipt must attribute the re-render");
+      // Host-mismatch control: report host ≠ added host → silent (no wrong-host delivery).
+      const mm = [
+        { role: "user", content: "buatkan report pdf nya" },
+        { role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "report_pdf", arguments: JSON.stringify({ target: "https://other-host.example/" }) } }] },
+        { role: "tool", tool_call_id: "t1", content: "Error: EMPTY_REPORT: no open findings to report" },
+        { role: "assistant", content: null, tool_calls: [{ id: "t2", type: "function", function: { name: "finding_add", arguments: JSON.stringify({ target: LAB, title: "X", severity: "low", cvss: 3 }) } }] },
+        { role: "tool", tool_call_id: "t2", content: "✅ Temuan dicatat: X" },
+      ] as never;
+      if ((await retryEmptyReportDelivery(mm, U, "discord")) !== "") throw new Error("host-mismatch retry must stay silent");
+      // A5 interplay: the creation-claim note stays silent once the retry delivered.
+      if (emptyReportClaimNote(inverted, "Udah aku buatkan laporan PDF-nya Mas Naufal.", { deliveredThisTurn: true }) !== "") throw new Error("A5 note must not accuse a delivered retry");
+      // And reportPdf still refuses a genuinely empty store (regression guard).
+      let refusedEmpty = false;
+      try {
+        await reportPdf(`verify_kyzuch_empty_${Date.now()}`, { target: LAB });
+      } catch (e) {
+        refusedEmpty = e instanceof Error && e.message.includes("EMPTY_REPORT");
+      }
+      if (!refusedEmpty) throw new Error("EMPTY_REPORT regression guard must hold");
+      console.log("kyzuch fixes (attribute-leak strip, inverted-order retry w/ real pdf, host-mismatch silent, A5 interplay): OK");
+    } finally {
+      rmSync(join(userDataRoot(), U), { recursive: true, force: true });
+    }
+  }
+
+  // ── owner lab registry (2026-09-27): declare-once authorization, no refusals ──
+  {
+    const { getTOOLS, executeTool } = await import("./src/lib/tools");
+    const { isOwnLabTarget, targetAllowed, pentestResources } = await import("./src/lib/security");
+    const { ownerLabScopeLine } = await import("./src/lib/agent");
+    const LAB = `https://verify-ownerlab-${Date.now()}.vercel.app/`;
+    const HOST = LAB.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    try {
+      // tool registered, read-risk (declaration = authorization, no state change on the target)
+      const reg = getTOOLS().find((t) => t.function.name === "lab_add");
+      if (!reg) throw new Error("lab_add not registered");
+      if (reg.risk !== "read") throw new Error("lab_add must be read/auto");
+      // gate BEFORE: a brand-new host is NOT yet allowed
+      if (targetAllowed(LAB)) throw new Error("unregistered host must be denied before lab_add");
+      // owner declares it via the tool (the exact live path, Zigen alias → canonical)
+      const added = await executeTool({ id: "t", name: "lab_add", arguments: JSON.stringify({ host: LAB, note: "lab milikku" }) }, "Zigen");
+      if (!added.includes("LAB TERDAFTAR")) throw new Error(`lab_add must confirm registration: ${added.slice(0, 120)}`);
+      // gate AFTER: authorized everywhere — same call shape every tool uses
+      if (!targetAllowed(LAB)) throw new Error("registered lab must be allowed via targetAllowed");
+      if (!isOwnLabTarget(`${LAB}api/x`)) throw new Error("registered lab must pass isOwnLabTarget");
+      if (!targetAllowed(`https://sub.${HOST}/`)) throw new Error("subdomains of a registered lab must be allowed");
+      // model-facing surfaces name it (scope line + resources)
+      if (!ownerLabScopeLine().includes(HOST)) throw new Error("ownerLabScopeLine must include registered labs");
+      if (!pentestResources().includes(HOST)) throw new Error("pentest_resources must list registered labs");
+      // lab_add MUST ride the 9router-64 window — the capped provider is where
+      // the refusal class lived; if it drops from that window the whole fix is
+      // dead on the main Discord channel.
+      if (!toolsForUrl("http://localhost:20128/v1/chat/completions").some((t) => t.function.name === "lab_add"))
+        throw new Error("9router window must carry lab_add (owner-lab registry)");
+      // non-owner hosts stay denied
+      if (targetAllowed("https://example.com/")) throw new Error("example.com must stay denied");
+      if (targetAllowed(`https://${HOST}.evil.com/`)) throw new Error("suffix trick must stay denied");
+      // a REAL scope-gated tool now runs against the brand-new lab without any env edit
+      const audit = await executeTool({ id: "t", name: "web_audit", arguments: JSON.stringify({ url: LAB }) }, "Zigen");
+      if (/^Error: SCOPE/i.test(audit)) throw new Error(`web_audit must run against a registered lab: ${audit.slice(0, 140)}`);
+      // list + forget round-trip
+      const listed = await executeTool({ id: "t", name: "lab_add", arguments: JSON.stringify({ action: "list" }) }, "Zigen");
+      if (!listed.includes(HOST)) throw new Error("lab_add list must show the registered host");
+      const forgotten = await executeTool({ id: "t", name: "lab_add", arguments: JSON.stringify({ action: "forget", host: LAB }) }, "Zigen");
+      if (!/dihapus/.test(forgotten)) throw new Error(`forget must confirm: ${forgotten.slice(0, 120)}`);
+      if (targetAllowed(LAB)) throw new Error("forgotten lab must be denied again");
+      console.log("owner lab registry (lab_add declare-once, gates honor it, subdomains, resources/scope line, forget round-trip, no env edit): OK");
+    } finally {
+      try {
+        const { forgetOwnerLab } = await import("./src/lib/ownerLabs");
+        forgetOwnerLab("naufalazhar652952", HOST);
+      } catch { /* best-effort */ }
     }
   }
 

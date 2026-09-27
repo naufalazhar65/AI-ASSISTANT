@@ -22,7 +22,7 @@ import { brainGet } from "./targetBrain";
 import { readPocRuns } from "./pocRuns";
 import { listCoverage } from "./coverage";
 import { readFindings } from "./security";
-import type { AuditReaders } from "./claimAudit";
+import type { AuditReaders, AuditFacts } from "./claimAudit";
 
 const hostOf = (raw: string): string =>
   String(raw || "")
@@ -183,6 +183,45 @@ export function liveReaders(rawUser: unknown, host: string): AuditReaders {
       }
     },
   };
+}
+
+/**
+ * "Every finding was validated by a PoC" — checked against the store.
+ *
+ * Live 2026-09-27 01:20: "Semua sudah divalidasi via poc_verify" over a report
+ * whose findings carry PoC evidence for 5 of 13. The claim was false and no guard
+ * caught it, because "divalidasi" is not in the vocabulary.
+ *
+ * That is the FOURTH instance of the same class (markdown→sad, kupentest,
+ * tuntasin, divalidasi): Indonesian attaches and morphs, the model's vocabulary
+ * is open, and a hand-written list always loses eventually. So this guard does
+ * not try to recognise the verb. It recognises only a LOOSE shape — "semua/semua
+ * + temuan" alongside any validation noun — and lets the STORE decide.
+ *
+ * That is why a loose trigger is safe here: the note is authorised by a real gap
+ * in the store, not by the wording. If every finding does have proof, nothing
+ * fires no matter how the claim is phrased.
+ */
+export function pocCoverageClaimNote(text: string, facts: AuditFacts): string {
+  const t = String(text || "");
+  // The two halves of a completeness claim are INDEPENDENT, and were wrongly
+  // coupled by adjacency: the old pattern demanded "semua … temuan" within 60
+  // chars, so the real 2026-09-26 01:20 turn ("Total 7 temuan dari CRITICAL (2)
+  // … Semua sudah divalidasi via poc_verify") missed it — "temuan" sits
+  // BEFORE the quantifier there. Word-order assumptions are the same bug class
+  // as `markdown`, `kupentest`, `tuntasin` and `divalidasi`: every new phrasing
+  // the model writes lands in a gap the pattern never imagined. Judge each half
+  // on its own and let the store gap decide.
+  const universal = /\b(?:semua|seluruh|all|every|100\s?%)\b/i.test(t);
+  if (!universal) return "";
+  const scopeOfClaim = /\b(?:temuan|temuan-temuan|findings?|issues?|celah|kerentanan|vulnerab\w*)\b/i.test(t);
+  if (!scopeOfClaim) return "";
+  const claimsValidation = /poc|validasi|divalidasi|divalidasi|divalidasikan|terverifikasi|verified|bukti|proof|reproduce/i.test(t);
+  if (!claimsValidation) return "";
+  // A real gap, recorded by the tools themselves.
+  if (!facts.findingsTotal || facts.findingsWithProof >= facts.findingsTotal) return "";
+  const gap = facts.findingsTotal - facts.findingsWithProof;
+  return ` (Catatan jujur: dari ${facts.findingsTotal} temuan terbuka di store${facts.host ? " untuk " + facts.host : ""}, baru ${facts.findingsWithProof} yang punya bukti PoC — ${gap} belum. Jangan sebut "semua sudah divalidasi" sebelum sisanya dibuktikan; bilang "buktikan temuanku" kalau mau kujalankan.)`;
 }
 
 /**

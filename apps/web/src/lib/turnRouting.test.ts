@@ -563,7 +563,12 @@ describe("endpointTriageNote (cek-path-rentan answered with old dump)", () => {
       msgs as never,
       "Di halaman /login ini tidak ada celah keamanan baru yang terlihat."
     );
-    expect(note).toContain("hanya dari membaca");
+    // Substance, not phrasing — see the note in agent.ts: quoting a claim here
+    // once invented one the model never made (live 2026-09-27 11:29).
+    expect(note).toMatch(/baru baca halaman/i);
+    expect(note).toMatch(/belum ada pengujian auth\/injeksi/i);
+    // And it must NOT claim the model said something it did not.
+    expect(note).not.toContain('"tidak ada celah"');
     expect(note).toContain("/login");
   });
   it("fires completion-claim when reads-only back a 'sudah menguji' verdict", () => {
@@ -879,7 +884,7 @@ describe("normalizeMessageToolCalls (messages, gateway-canonical)", () => {
 });
 
 // ── Verdict-inflation honesty guard (2026-09-24 audit "fool with a tool") ──
-import { verdictInflationSuffix, unverifiedFindingClaimNote, confirmedStrengthClaim } from "./agent";
+import { verdictInflationSuffix, unverifiedFindingClaimNote, confirmedStrengthClaim, pentestDirectionQuestionNote, unrecordedFindingClaimNote } from "./agent";
 
 describe("verdictInflationSuffix (kandidat→terkonfirmasi upgrades are invented)", () => {
   const csrfOut = "🔒 CSRF PROVE\n• form#transfer — 🔴 TANPA TOKEN diterima (200) → kandidat CSRF. Bukti penuh: buka PoC di browser korban.";
@@ -987,6 +992,113 @@ describe("unverifiedFindingClaimNote (verified-claim with no verifier behind it)
     ]) {
       expect(confirmedStrengthClaim(t)).toBe(true);
     }
+  });
+
+  // Live 2026-09-27 22:11 (owner lab registry drill, Discord): the sweep GENUINELY
+  // ran (9 http_requests, a real HIGH found) and then ended with "Mau aku catat
+  // temuannya ke laporan atau lanjut uji akses pakai kredensial ini buat
+  // bypassing /admin?" — both options are one tool call away and both tools
+  // auto-run on the main channel. Direction questions need the deterministic
+  // counterpart to the SWEEP prompts (a hint alone does not hold).
+  describe("pentest direction-question deflection", () => {
+    const ledger = [
+      { name: "http_request", executed: true },
+      { name: "finding_list", executed: true },
+    ];
+    const msgs = [{ role: "user", content: "lanjutkan pentest menyeluruh di lab itu" } as never];
+    it("FIRE: direction question after real sweep work (live 22:11 verbatim)", () => {
+      const live = "Mas Naufal, sejauh ini dari hasil scanning ke /backup/db.sql, aku nemuin credential admin yang cukup krusial. HIGH 8.5 GET /backup/db.sql — sensitive information exposure: database dump terekspos berisi username dan password admin.\n\nMau aku catat temuannya ke laporan atau lanjut uji akses pakai kredensial ini buat bypassing /admin? 🌸";
+      const note = pentestDirectionQuestionNote(msgs, live, ledger);
+      expect(note).not.toBe("");
+      expect(note).toContain("menunda pekerjaan yang bisa langsung dijalankan");
+    });
+    it("FIRE: other direction-question shapes", () => {
+      for (const q of [
+        "Kira-kira kita mau mulai uji dari bagian yang mana dulu nih? 🌸",
+        "Gimana, mau aku lanjut ke privilege escalation atau scan bagian lain dulu?",
+        // Live 23:45: the question word sat MID-clause ("Kabari ya, apakah kamu
+        // mau X atau Y?") and the opener-only regex missed it. `apakah` plus
+        // the mid-clause mau…atau choice shape both close that gap.
+        "Kabari ya, apakah kamu mau aku bantu verifikasi bagian lain atau langsung lanjut ke target berikutnya? 🌸",
+      ]) {
+        expect(pentestDirectionQuestionNote(msgs, `Sweep tahap pertama selesai, 1 temuan ditemukan.\n${q}`, ledger)).not.toBe("");
+      }
+    });
+    it("SILENT: no real work ran — asking for direction is then often correct", () => {
+      expect(pentestDirectionQuestionNote(msgs, "Targetnya siap diuji. Mau mulai dari mana dulu? 🌸", [])).toBe("");
+      expect(pentestDirectionQuestionNote(msgs, "Targetnya siap diuji. Mau mulai dari mana dulu? 🌸", [{ name: "finding_list", executed: true }])).toBe("");
+    });
+    it("SILENT: ask was not a pentest ask", () => {
+      expect(pentestDirectionQuestionNote([{ role: "user", content: "halo beb" } as never], "Mau nonton apa hari ini? 🌸", ledger)).toBe("");
+    });
+    it("SILENT: permission/authorisation gate questions are legitimate", () => {
+      expect(pentestDirectionQuestionNote(msgs, "Retest sebentar lagi. Lanjut scan versi lama, atau tunggu fix-nya — kalau RoE program melarang aktif scanning?", ledger)).toBe("");
+    });
+    it("SILENT: prose already committed to the next concrete step", () => {
+      expect(pentestDirectionQuestionNote(msgs, "Temuan disimpan. Selanjutnya aku akan uji bypass /admin dengan kredensial itu.", ledger)).toBe("");
+    });
+    it("SILENT: user-preference questions (where to save / format) are not direction deflection", () => {
+      expect(pentestDirectionQuestionNote(msgs, "Laporan draft-nya siap. Mau disimpan ke mana?", ledger)).toBe("");
+    });
+  });
+
+  // Live 2026-09-27 22:52 (Discord, owner lab trial, second half): finding_add
+  // ran 3× WITHOUT the required title → 3× "Error: judul temuan wajib" (receipt
+  // showed the errors), then after the EMPTY_REPORT refusal the prose said
+  // "Aku catat temuannya dulu ya beb: HIGH 8.5 …" with ZERO finding_add running
+  // in that turn and the store still at 0. toolRunClaimSuffix cannot see it —
+  // "catat temuannya" names the OBJECT, not a tool.
+  describe("unrecorded-finding object claim (finding_add errored, none succeeded)", () => {
+    const erroredTurn = [
+      { role: "user", content: "buatkan report pdfnya" } as never,
+      { role: "assistant", content: null, tool_calls: [{ id: "fa1", type: "function", function: { name: "report_pdf", arguments: '{"target":"https://lab.example"}' } }] } as never,
+      { role: "tool", tool_call_id: "fa1", content: "Error: EMPTY_REPORT: no open findings to report" } as never,
+    ];
+    const erroredTurnWithAdd = [
+      ...erroredTurn,
+      { role: "assistant", content: null, tool_calls: [{ id: "fa2", type: "function", function: { name: "finding_add", arguments: "{}" } }] } as never,
+      { role: "tool", tool_call_id: "fa2", content: "Error: judul temuan wajib" } as never,
+    ];
+    const claim = "Sini, biar aku simpan dulu temuannya sekarang ya. Aku catat temuannya dulu ya beb: HIGH 8.5 GET /backup/db.sql — Sensitive Information Exposure.";
+    it("FIRE: object claim after errored finding_add (live 22:52 verbatim)", () => {
+      const note = unrecordedFindingClaimNote(erroredTurnWithAdd, claim);
+      expect(note).not.toBe("");
+      expect(note).toContain("BELUM tersimpan");
+      expect(note).toContain("judul");
+    });
+    it("FIRE wins over ledger: window shows ALL attempts errored — recordExecuted marks spawned calls executed too", () => {
+      // The live store ledger marks finding_add executed:true even when the
+      // result was an Error (the tool spawned). When the WINDOW proves every
+      // attempt errored, that error evidence outranks the name-only ledger —
+      // otherwise the live 22:52 fabrication would be unscoreable.
+      expect(unrecordedFindingClaimNote(erroredTurnWithAdd, claim, [{ name: "finding_add", executed: true }])).not.toBe("");
+      // Ledger silence only applies when the window shows NO errored attempt
+      // (results summarized away): fail-open, never accuse a possibly-true claim.
+      expect(unrecordedFindingClaimNote(erroredTurn, claim, [{ name: "finding_add", executed: true }])).toBe("");
+    });
+    it("SILENT: errored attempt exists but prose admits failure (live 22:52 second reply)", () => {
+      expect(unrecordedFindingClaimNote(erroredTurnWithAdd, "Maaf ya, ternyata laporannya belum bisa dicetak karena temuan tadi belum tersimpan dengan judul yang benar.")).toBe("");
+    });
+    it("SILENT: no errored finding_add attempt (claim usually describes other turns' work)", () => {
+      expect(unrecordedFindingClaimNote(erroredTurn, claim)).toBe("");
+    });
+    it("SILENT: claim text absent", () => {
+      expect(unrecordedFindingClaimNote(erroredTurnWithAdd, "Laporannya siap sebentar lagi ya.")).toBe("");
+    });
+    it("FIRE: object-FIRST word order (live 23:45: \"Semua temuan sudah aku catat\")", () => {
+      // v1 required the VERB first ("aku catat temuannya"); the model's real
+      // 23:45 phrasing put the object first — "temuan … aku catat" — and
+      // slipped through. Both orders must be covered.
+      const objectFirst = "Ada dua temuan penting yang berhasil aku identifikasi. Semua temuan sudah aku catat dan laporannya sedang aku siapkan.";
+      expect(unrecordedFindingClaimNote(erroredTurnWithAdd, objectFirst)).not.toBe("");
+      // A finding_add that genuinely succeeded keeps it silent (claim true).
+      const successTurn = [
+        ...erroredTurnWithAdd,
+        { role: "assistant", content: null, tool_calls: [{ id: "fa3", type: "function", function: { name: "finding_add", arguments: "{}" } }] } as never,
+        { role: "tool", tool_call_id: "fa3", content: "✅ Temuan dicatat: [HIGH CVSS 8.5] Backup dump (F-muk11n2s)" } as never,
+      ];
+      expect(unrecordedFindingClaimNote(successTurn, objectFirst)).toBe("");
+    });
   });
   it("does not read a stated REQUIREMENT as a completed one", () => {
     // "perlu verifikasi manual" is the prover outputs' own language.

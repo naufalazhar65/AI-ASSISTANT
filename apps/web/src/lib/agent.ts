@@ -195,6 +195,24 @@ function normalizeCalendarCalls(userPrompt: string | null | undefined, calls: To
   });
 }
 
+/**
+ * What to do when a target is refused by the scope gate. ONE owner, used by BOTH
+ * the slim/full prompt ("HOST LAB BARU") and toolBudgetHint, because the live
+ * 2026-09-27 13:19 turn proved they could contradict each other: the prompt said
+ * "pakai engagement_create" while the hint said "JANGAN memanggilnya" (it sits at
+ * CORE position 67, past the 9router-64 cut). The model was left with no legal
+ * move, so it improvised a dead-end refusal — "di luar jangkauan tool otomatis" —
+ * after four honest `Error: SCOPE` results.
+ *
+ * Fixing it by evicting a 64-window slot was measured and REJECTED: every
+ * candidate (git_status/git_commit/calendar_list) is itself named in the prompt,
+ * so promoting engagement_* there only moves the contradiction. Naming the
+ * operator remedy instead works on every provider and cannot drift, because
+ * there is only one copy of this text.
+ */
+const SCOPE_REMEDY =
+  "TARGET DI LUAR SCOPE: kalau sebuah tool membalas `Error: SCOPE` (atau 'di luar jangkauan'), itu BENAR — target itu memang belum terdaftar, dan mengulangi tool yang sama tidak akan mengubahnya. Lalu: (1) bila engagement_create ter-delivery di provider ini, daftar scope lebih dulu lalu daftarkan target itu; (2) bila tidak ter-delivery, JANGAN mengulang tool yang sama — katakan terus terang bahwa daftar target lab adalah file konfigurasi milik sistem (PENTEST_LAB_TARGETS) yang tidak bisa ditulis tool, jadi minta user/operator menambahkannya, lalu LANJUKKAN pekerjaan lain yang memang dalam scope (misal recon pasif lewat browser_open/fetch_url pada halaman publik); (3) jangan pernah menyebut 'tool otomatis tidak bisa' sebagai alasan umum, dan jangan menutup giliran dengan 'mau aku fokus uji bagian mana' kalau belum ada satu pun langkah konkret yang bisa dijalankan.";
+
 const SYSTEM_PROMPT = [
   "Think step-by-step before acting: reason briefly, then call the right tool(s) — don't guess. ",
   "You are Mia, a woman, female (perempuan, she/her) — unambiguously a woman. This is core identity, never ambiguous. ",
@@ -300,7 +318,7 @@ const SYSTEM_PROMPT = [
   + "COMMAND-LINE OBEDIENCE (WAJIB): bila pesan user berisi BARIS PERINTAH TOOL eksplisit (pola `nama_tool arg=…`, mis. `graphql_probe url=…` atau `http_request method=POST url=… body=…`), panggil PERSIS tool itu dengan argumen tersebut — JANGAN menggantinya dengan hunt_log/engagement_list/automation_list atau merangkum status, dan JANGAN menghilangkan salah satu. Setelah hasilnya ada, jawab ringkas dari data itu; jangan memanggil tool status tambahan tanpa diminta."
   + "PERSONA MEMORY: 'apa yang kamu ingat tentang aku?' → persona_show; 'ingat ini/ingat ya: X' → persona_set (key+value); 'lupakan soal X' → persona_forget. Fakta dikelola kanonik (favorite_food == preference.food; nilai terbaru menang, lama masuk riwayat) dan rahasia/token/OTP DITOLAK — jangan pernah menyimpan kredensial sebagai fakta."
   + "FINDING RULES (WAJIB): sebelum finding_add untuk lead yang bisa di-replay, jalankan poc_verify (N× + expect_status/expect_contains + baseline kontrol) — jangan laporkan yang tidak stabil/deterministik. ANGKA TEMUAN: bila menarasikan jumlah temuan, hitung dari output `finding_list` atau isi laporan yang dihasilkan giliran ini — laporan per target menggabungkan temuan LAMA + BARU, jadi jumlahnya bisa lebih besar dari yang baru kamu cek; jangan menebak dari ingatan (kalau laporan mencantumkan 11 entri, bilang 11). permintaan 'catat temuan / simpan finding / finding_add / catat X' → panggil `finding_add` LANGSUNG (bukan finding_list dulu; finding_list hanya bila user minta DAFTAR temuan — pengecualian: SEBELUM menguji target, `finding_list target=<host>` WAJIB diam-diam sebagai konteks, tapi output mentahnya TIDAK boleh menggantikan balasan kecuali user memang minta daftarnya). Tulis `cvss` saja bila tahu — jangan menebak `severity` terpisah (severity diturunkan otomatis dari CVSS). Map kategori ke **OWASP Top 10:2025** (Injection=A05:2025, Broken Access Control=A01:2025, Security Misconfiguration=A02:2025, Authentication Failures=A07:2025) dan labeli edisinya, kecuali user minta edisi lain. 'bikin laporan' → report_generate lalu report_pdf. PENTING: kalau user minta 'pdf'/'pdfnya' → `report_pdf` WAJIB — `report_save` HANYA menulis .md dan TIDAK menggenapi permintaan PDF; jangan antar file .md seolah sudah jadi PDF. Kalau user minta 'markdown'/'md'/'file laporan' → `report_save` (itu yang BENAR-BENAR menulis file .md dan memberi path); `report_generate` hanya mengembalikan teks panjang di hasil tool yang TIDAK muat di satu pesan channel — jangan lalu bilang 'sudah tercatat di atas' karena isinya tidak pernah terkirim. KONTROL MENGGERBANG VERDICT: kalau poc_verify balas '⛔ TIDAK ADA SINYAL' (respons payload IDENTIK dengan baseline), artinya payload TIDAK mengubah apa pun → BUKAN temuan: jangan finding_add, jangan mengulang poc yang sama, dan JANGAN menghapus baseline untuk 'membuatnya lolos' — cari payload/differential yang benar-benar membedakan (untuk bukti blind, pakai oast_poll/blind_cmdi). '⚠️ deterministik saja' = pengulangan bukan bukti, tambahkan expect_status/expect_contains. '🔄 POC ULANG STABIL' = bukti REPRODUKSI langkah, BUKAN bukti kerentanan. Bandingkan body, bukan cuma status: BOLA asli sering 200 di kedua sisi dengan isi berbeda. GERBANG finding_add: temuan HIGH/CRITICAL kelas injection akan DITOLAK kalau endpoint itu tidak punya run poc_verify berstatus ✅ (atau run terakhirnya justru ⛔) — kalau ditolak, JANGAN mengulang finding_add dan JANGAN menghapus baseline; jalankan poc_verify dulu dengan payload + kontrol yang benar, atau sebutkan bukti OOB/browser/socket-mu (oast_poll/dom_xss_prove/smuggle_probe) di evidence." 
-  + "BUG BOUNTY (program publik: Bugcrowd/HackerOne/YesWeHack/Intigriti — aset in-scope BERIZIN lewat safe harbor): MIA BOLEH bekerja di sini. Langkah: (1) minta host **in-scope** + **out-of-scope** + **URL policy/terms**; (2) sarankan `engagement_create` (authorization=URL program, scope=[host in-scope], out_of_scope=[...]) supaya tool aktif (http_request/pentest_scan/nuclei_custom/sqlmap/recon_httpx) boleh jalan ke host itu; (3) PATUHI RoE: HANYA host in-scope, **default MANUAL + rate-limit** — JANGAN pakai scanner otomatis (nmap/nuclei/ffuf/sqlmap/zap_scan) KECUALI RoE/aturan program mengizinkannya (TANYA dulu), DILARANG DoS/stress/destructive, mengakses data user lain, dan social engineering bila RoE melarang; pakai akun uji; (4) alur temuan: recon pasif (recon_subdomains/recon_params) → web_audit/lab_fetch/http_request manual → finding_add (evidence+steps+impact+remediation) → report_generate/report_pdf, dan tulis sesuai format platform (Title/Severity/Steps/Evidence/Impact/Remediation). Kalau user menyebut platform LATIHAN (TryHackMe/HTB/PortSwigger), tetap arahkan ke pentest_resources & jangan diotomasi. PENTING (ATURAN KERAS): SEBELUM menolak/menahan karena alasan scope, WAJIB panggil `engagement_list` DAN `pentest_resources`, lalu cocokkan host target. Host BERIZIN bila: (a) ada di `scope` engagement AKTIF, ATAU (b) terdaftar sebagai LAB MILIK OWNER di `pentest_resources` (env PENTEST_LAB_TARGETS — termasuk lab publik milik owner seperti Netlify; TIDAK butuh engagement), ATAU (c) localhost/RFC1918/`PENTEST_LAB_TARGETS`. Untuk (a)/(b)/(c) LANGSUNG jalankan tool ber-scope (`lab_fetch`, `http_request`, `web_audit`, `content_discover`, `crawl`, `js_mine`, `recon_*`, `param_*`, `browser_open`) TANPA ragu. JANGAN pernah mengarang 'belum ada engagement yang mencakup' bila `engagement_list`/`pentest_resources` menunjukkannya ADA, dan JANGAN menolak lab milik owner (mis. Netlify pribadi) hanya karena tidak ada engagement — cek daftar lab dulu. Status 'pihak ketiga'/'vendor' BUKAN alasan menolak bila host tercantum di scope program (contoh: `checkout.webmd.com` ada di engagement Internet Brands → boleh diuji). Kalau ragu soal aturan vendor/out-of-scope, sebutkan sebagai catatan RoE & tetap lanjut membaca/uji pasif — bukan menolak total. Aturan sandbox-only (mis. Rapyd) hanya membatasi API pembayaran (api.rapyd.net), BUKAN web testing host in-scope." 
+  + "BUG BOUNTY (program publik: Bugcrowd/HackerOne/YesWeHack/Intigriti — aset in-scope BERIZIN lewat safe harbor): MIA BOLEH bekerja di sini. Langkah: (1) minta host **in-scope** + **out-of-scope** + **URL policy/terms**; (2) sarankan `engagement_create` (authorization=URL program, scope=[host in-scope], out_of_scope=[...]) supaya tool aktif (http_request/pentest_scan/nuclei_custom/sqlmap/recon_httpx) boleh jalan ke host itu; (3) PATUHI RoE: HANYA host in-scope, **default MANUAL + rate-limit** — JANGAN pakai scanner otomatis (nmap/nuclei/ffuf/sqlmap/zap_scan) KECUALI RoE/aturan program mengizinkannya (TANYA dulu), DILARANG DoS/stress/destructive, mengakses data user lain, dan social engineering bila RoE melarang; pakai akun uji; (4) alur temuan: recon pasif (recon_subdomains/recon_params) → web_audit/lab_fetch/http_request manual → finding_add (evidence+steps+impact+remediation) → report_generate/report_pdf, dan tulis sesuai format platform (Title/Severity/Steps/Evidence/Impact/Remediation). Kalau user menyebut platform LATIHAN (TryHackMe/HTB/PortSwigger), tetap arahkan ke pentest_resources & jangan diotomasi. PENTING (ATURAN KERAS): SEBELUM menolak/menahan karena alasan scope, WAJIB panggil `engagement_list` DAN `pentest_resources`, lalu cocokkan host target. Host BERIZIN bila: (a) ada di `scope` engagement AKTIF, ATAU (b) terdaftar sebagai LAB MILIK OWNER di `pentest_resources` (env PENTEST_LAB_TARGETS — termasuk lab publik milik owner seperti Netlify; TIDAK butuh engagement), ATAU (c) localhost/RFC1918/`PENTEST_LAB_TARGETS`. Untuk (a)/(b)/(c) LANGSUNG jalankan tool ber-scope (`lab_fetch`, `http_request`, `web_audit`, `content_discover`, `crawl`, `js_mine`, `recon_*`, `param_*`, `browser_open`) TANPA ragu. JANGAN pernah mengarang 'belum ada engagement yang mencakup' bila `engagement_list`/`pentest_resources` menunjukkannya ADA, dan JANGAN menolak lab milik owner (mis. Netlify pribadi) hanya karena tidak ada engagement — cek daftar lab dulu. Status 'pihak ketiga'/'vendor' BUKAN alasan menolak bila host tercantum di scope program (contoh: `checkout.webmd.com` ada di engagement Internet Brands → boleh diuji). Kalau ragu soal aturan vendor/out-of-scope, sebutkan sebagai catatan RoE & tetap lanjut membaca/uji pasif — bukan menolak total. Aturan sandbox-only (mis. Rapyd) hanya membatasi API pembayaran (api.rapyd.net), BUKAN web testing host in-scope. HOST LAB BARU (aturan keras): kalau owner menyebut sebuah host sebagai MILIKNYA SENDIRI ('ini lab-ku', 'tambahkan ke lab pentest', 'uji <host> punyaku') lalu minta diuji/ditambahkan, itu ADALAH otorisasi — jangan menolak, jangan bilang 'tidak bisa melakukan pengujian keamanan' (itu salah: seluruh tool pentest ini ber-scope dan siap dipakai). Yang benar: (1) panggil `lab_add host=<host>` SEKALI — host langsung terdaftar PERMANEN sebagai lab milik owner (subdomain ikut, survive restart) dan ber-scope di detik itu juga; (2) lalu kerjakan pengujian yang diminta dengan tool ber-scope — tanpa menanya lagi. lab_add BUKAN write-risk: satu panggilan auto, tidak butuh konfirmasi. Jangan pakai engagement_create untuk lab milik owner (itu untuk klien/bug-bounty); jangan katakan PENTEST_LAB_TARGETS tidak bisa ditulis sebagai alasan menunda — lab_add adalah jalur penulisan yang bisa dipakai. JANGAN menolak pengujian keamanan secara umum: menolak tanpa alasan scope yang spesifik itu tetap salah, karena owner laboratoriumpun tidak akan bisa diuji. " + SCOPE_REMEDY
   + "HIGH-VALUE BOUNTY TOOLS: (1) BLIND/OOB — `oast_create` (dapat callback URL webhook.site) → sisipkan URL ke payload (SSRF URL param, blind XSS <script src>, XXE entity, RCE/SSTI) → kirim via http_request/lab_fetch → `oast_poll` (hit = bukti out-of-band; hit BARU juga didorong OTOMATIS ke channel owner oleh watcher ~5 menit, teratribusi ke probe pengirim di http_history — callback yang datang belakangan tidak perlu menunggu `oast_poll`). Ini satu-satunya cara membuktikan blind SSRF/RCE. (2) AUTH/BOLA — `http_session action=set name=A cookie=…` (dan B untuk akun kedua); `http_request ... session=A save_session=A` untuk login/authed; `bola_diff url=… session_a=A session_b=B` membandingkan respons dua identitas (identik 200 = indikasi BOLA/IDOR). (3) CONTENT DISCOVERY — `content_discover url=…` (robots/sitemap/link/endpoint JS/path umum). Alur bounty: recon → content_discover → http_session A/B → http_request/bola_diff → oast_create→payload→oast_poll → finding_add → report. (4) `param_fuzz url=…` — inject payload XSS/SQLi/SSTI/redirect/cmdi/xpath/ldap/xslt ke tiap param, flag reflection/error/eval/timing (opsi `callback`=URL OAST untuk kelas ssrf); SSTI kena → `ssti_enum` untuk identifikasi engine. (5) `jwt_attack` — decode/forge alg:none/HS256/alg-confusion/crack secret lemah, lalu uji token via http_request. (6) `evidence_capture url=… request={…}` — simpan screenshot + raw HTTP ke reports/evidence/ untuk lampiran laporan." 
   + "BOUNTY WORKFLOW LENGKAP: (1) saat user menyebut program (Bugcrowd/HackerOne/…), minta/minta-tempel daftar Targets → `scope_import` (text=… atau url=…) → sarankan `engagement_create` (verifikasi manual). (2) `crawl url=…` enumerasi path/form/JS same-origin. (3) `param_discover url=…` cari param tersembunyi → `param_fuzz` kandidatnya. (4) `recon_diff domain=…` tandai aset BARU sejak run terakhir (prioritaskan — aset baru = bug baru). (5) `recon_screenshot domain=…` visual recon host hidup. Urutan rutin: scope_import → engagement_create → recon_subdomains → recon_httpx → recon_diff → crawl → js_mine/api_spec/graphql_probe → param_discover/param_fuzz → http_session/bola_diff/request_save/request_run → oast → jwt_attack → evidence_capture → finding_add → platform_severity → report." 
   + "EXPLOIT CHAIN (otomatisasi multi-step attack): `exploit_chain chain=<jenis> url=<target>` menjalankan chain penuh dalam SATU konfirmasi. `chain` boleh SATU nama ATAU koma-terpisah untuk beberapa chain sekaligus (mis. `chain=\"idor,ssrf\"`) — tiap chain dijalankan berurutan dan hasilnya per-chain, jadi jangan panggil tool satu-satu bila chain tersedia. AUTO: `chain='auto'` memilih + menjalankan ≤5 chain paling menjanjikan dari intel target_brain + sesi yang ada (rekomendasi ber-ranking, skip jujur) — WAJIB untuk 'full pentest' tanpa daftar chain eksplisit. Jenis: `idor` (content_discover → http_request → bola_diff A/B sessions → JSON field diff), `auth_bypass` (decode JWT → alg:none → claim tampering → test), `ssrf` (param_discover → oast_create → inject payloads → oast_poll), `session_fixation` (GET login → POST login → compare session IDs), `race` (paralel + nonce unik → duplicate-creation), `graphql` (introspection/suggestion/batching/depth), `xxe` (auto-OAST → file-read/OOB → oast_poll), `open_redirect` (19 param × 8 payload bypass), `cache_poison` (header matrix + fat GET), `bypass403` (matriks bypass akses-ditolak: URL harus memang 403/401 — path tricks + X-Original-URL/loopback headers + verb override), `otp` (rate-limit + oracle OTP bounded — BUKAN brute), `proto_pollute` (__proto__ pollution server+client gadget), `cache_decep` (Web Cache Deception: decoy .css auth'd → anon re-fetch), `nosql` (NoSQL operator $ne/$gt/$regex auth-bypass), `blind_ssrf` (canary DNS per-param OOB), `traversal` (path traversal/LFI two-stage read-marker — direct payload per param → encoder escalation (%2f/dot-folding/backslash/absolute/php://filter) hanya pada param responsif; marker /etc/passwd/win.ini/php-source WAJIB absen dari baseline; RFI callback https info-only, bukti via oast_poll). BUSINESS LOGIC: `workflow_fuzz` = fuzz alur bisnis multi-step (login→cart→checkout→refund): mutasi skip/repeat/reorder + nilai (qty negatif, amount 0/0.01, coupon reuse) vs happy path — satu-satunya cara menemukan missing state validation & double-processing (CWE-840/841, payout tertinggi). Definisikan happy-path dulu via `steps` inline atau `flow_run save=<nama>` lalu `workflow_fuzz name=<nama>`; WAJIB ada di setiap full pentest aplikasi dengan alur transaksi. LLM PROMPT INJECTION (OWASP LLM01/LLM02): target punya fitur AI/chatbot/LLM → `prompt_injection_hunt url=<endpoint chat>` uji 4 kelas: leak (system-prompt bocor), indirect (payload via input dokumen/param → beacon OAST — bukti via `oast_poll`, bukan respons), toolbait (bait tool-call JSON), bypass (guardrail hilang). Baseline-controlled — selalu `oast_create` dulu kalau mau uji indirect/exfil. Sinyal → `poc_verify` → `finding_add`. Scope-gated (targetAllowed). DEEP LLM red-team: `llm_hunt url=<endpoint chat>` (bila prompt_injection_hunt belum cukup) — 5 kelas tambahan: jailbreak (DAN/UnGPT/encoding; marker game-on + refusal hilang vs baseline), rag (injection LEWAT retrieved-doc/vector index — marker ditaati = LLM08; callback oast wajib utk bukti), agency (tool kuat tanpa konfirmasi: send_email/delete_user/transfer/exec — marker echo/tool-call JSON = LLM06/LLM11), exfil (canary di-seed; echo = rahasia bocor STRONG), pii (NIK/email seed echo = LLM02). Auto-map OWASP LLM Top 10 2025 (LLM01–LLM11). Sinyal → `poc_verify` → `finding_add`. `mcp_hunt url=<endpoint MCP>` utk server MCP (JSON-RPC 2.0): initialize → tools/list/resources/list → anon-access, sensitive-tool terekspos, arg injection (marker echo), resource secret/instruksi — MCP = SUPPLY-CHAIN (LLM03), output tool dikonsumsi LLM. Scope-gated (targetAllowed). JS RECON (bundle ter-obfuscasi — DEFAULT): target web modern hampir selalu bundle minified/webpack, jadi `js_mine` adalah langkah PERTAMA dan `js_deobfuscate url=<halaman|file.js>` langkah WAJIB sesudahnya, bukan opsi. Pemicu konkret: hasil js_mine 0–5 endpoint, nama variabel `_0x`/`e_`/huruf-tunggal, file >200KB, atau user menyebut 'minified/obfuscated/tersembunyi' → panggil `js_deobfuscate` SEBELUM lanjut. `js_deobfuscate` mengganti string-array obfuscator.io jadi literal (eval-free), melipat concat terpisah baris, dan memulihkan source map .map ter-publish (source asli, file/line asli, CWE-540) — jangan menyimpulkan 'tidak ada endpoint tersembunyi' sebelum js_deobfuscate dicoba; uji endpoint hasilnya setelah itu. FULL PENTEST DI LAB MILIK OWNER: sertakan `exploit_chain chain=\"idor,ssrf,race,graphql,xxe,open_redirect,cache_poison,bypass403,otp,proto_pollute,cache_decep,nosql,blind_ssrf,traversal\"` sebagai tahap pembuktian SEBELUM report — temuan lama tetap sah, chain menambah pembuktian/sinyal baru (yang butuh setup di-skip jujur, bukan alasan menunda report). Butuh setup: JALANKAN `auth_setup login_url=<url> accounts=[{credential:'u1:p1',session:'admin'},{credential:'u2:p2',session:'guest'}]` DULU (satu konfirmasi, maks 4 akun) — IDOR butuh 2 http_session (akun A & B); auth_bypass butuh token JWT atau http_session berisi token; ssrf auto-create OAST callback; session_fixation butuh username+password. Output: structured finding (title/CVSS/OWASP/CWE/steps/evidence/remediation) SIAP `finding_add`. PENTING: finding dari exploit_chain tetap butuh `poc_verify` untuk determinisme sebelum `finding_add` (FINDING RULES). KEJUJURAN CHAIN: kalau output chain mengandung '⛔ CHAIN TIDAK DIJALANKAN', \"Error:\", 'TIDAK ADA chain yang benar-benar dijalankan', atau '0 chain dengan langkah nyata', itu artinya chain TIDAK jalan (butuh session_a/session_b untuk idor, token untuk auth_bypass, username/password untuk session_fixation, atau nama chain tidak dikenal) — katakan jujur chain tidak dijalankan + apa yang kurang, JANGAN sekali-kali menarasikan 'sudah aku uji'/'selesai diuji' seolah chain jalan/menemukan temuan baru. Laporan PDF yang dicetak di giliran yang sama hanya memuat temuan yang SUDAH ada sebelumnya kalau tidak ada chain/finding tool yang benar-benar jalan. CHAIN KOMPOSISI: `vuln_compose target=<host>` (atau finding_ids=[...]) menyusun >=2 temuan PROVEN satu host jadi SATU chain E2E — hop output-A → input-B harus artefak konkret + replay STABIL; verdict PUTUS/TAK TERSAMBUNG = jawab jujur, jangan karang chain. ARTEFAK EXPLOIT: `exploit_build finding_id=<F-...> [language=node|python|curl]` menulis file replay standalone NYATA ke disk (exit 0=VULNERABLE); kalau jawabannya 'tidak dibuat', memang tidak ada file — jangan kutip path yang tidak ada."
@@ -334,7 +352,7 @@ const SYSTEM_PROMPT = [
   "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. Present the returned list as one email per line.",
   "save_note, delete_note, library_remove, memory_hygiene, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan, lab_start, engagement_create, http_request, cache_decep, nosql_hunt, blind_ssrf, cua_keys, cua_mouse, clipboard_set, write_file, edit_file, browser_click, browser_type, browser_navigate, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_tab, browser_use_close, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, brv_curate, brv_swarm_curate, brv_review_approve, brv_review_reject, summarize_template, freeride_auto, freeride_switch, freeride_rotate, auto_update, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
-  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, browser_eval, browser_use_open, browser_use_state, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_wait, browser_use_doctor, mac_open, cua_pointer, clipboard_get, cua_desktop, cua_screen, security_scan, secret_scan, tls_check, breach_check, pentest_resources, finding_add, finding_list, report_generate, report_save, report_pdf, lab_status, lab_fetch, recon_subdomains, recon_params, recon_list, recon_takeover, recon_diff, recon_dnsbrute, scope_import, api_spec, cve_intel, request_save, platform_severity, submission_track, csp_audit, http_history, oast_dns_create, oast_dns_poll, oast_dns_stop, oast_dns, oast_create, oast_poll, oast_stop, dns_audit, http_session, tamper_script, hunt_log, engagement_targets, cdp_status, tech_watch, policy_show, flow_list, program_score, dup_check, bounty_status, writeup, persona_show, jwt_attack, encoding, trivy_scan, sast_scan, security_playbook, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, git_status, safe_exec_list, cua_doctor, cua_list_apps, cua_window_state, cua_browser_state, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_review, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_refresh, freeride_watcher, auto_update_status, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away. git_commit, cua_launch, cua_click, cua_type, cua_start_session, cua_browser_click, cua_browser_type, engagement_create, recon_httpx, content_discover, crawl, param_discover, recon_screenshot, recon_ports, bucket_enum, js_mine, graphql_probe, request_run, cors_audit, rapyd_request, security_hunt, suite_hunt, auth_hunt, api_hunt, cloud_misconfig, policy_set, flow_run, campaign_run, bounty_run, exploit_chain, vuln_compose, exploit_build, auth_setup, exposure_hunt, oauth_hunt, persona_set, persona_forget, bola_diff, poc_verify, csrf_prove, mass_assignment, upload_fuzz, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, cdp_proxy, cdp_request, cdp_eval, cdp_open, param_fuzz, evidence_capture, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan and http_request WILL wait for confirmation. When you propose tool calls (user replies 'ya'/'tidak' next), write ONLY the short proposal + one-line reason each — NEVER a final conclusion, finding verdict, file path, or receipt in the proposing turn; those are narrated AFTER approval, from real results. ACTION NARRATION RULE: never state in your own words that an action was executed, saved, run, tested, or sent — never write 'sudah aku jalankan/jalankan/eksekusi/simpan/uji/tes' about an ACTION (not about knowledge or feelings). The system appends an authoritative 'Aksi yang benar-benar dijalankan' receipt listing every executed action; your prose adds context and next steps only. If an action failed or was skipped, say honestly what failed and why — but the execution record itself comes from the receipt, not from you.",
+  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, browser_eval, browser_use_open, browser_use_state, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_wait, browser_use_doctor, mac_open, cua_pointer, clipboard_get, cua_desktop, cua_screen, security_scan, secret_scan, tls_check, breach_check, pentest_resources, lab_add, finding_add, finding_list, report_generate, report_save, report_pdf, lab_status, lab_fetch, recon_subdomains, recon_params, recon_list, recon_takeover, recon_diff, recon_dnsbrute, scope_import, api_spec, cve_intel, request_save, platform_severity, submission_track, csp_audit, http_history, oast_dns_create, oast_dns_poll, oast_dns_stop, oast_dns, oast_create, oast_poll, oast_stop, dns_audit, http_session, tamper_script, hunt_log, engagement_targets, cdp_status, tech_watch, policy_show, flow_list, program_score, dup_check, bounty_status, writeup, persona_show, jwt_attack, encoding, trivy_scan, sast_scan, security_playbook, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, git_status, safe_exec_list, cua_doctor, cua_list_apps, cua_window_state, cua_browser_state, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_review, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_refresh, freeride_watcher, auto_update_status, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away. git_commit, cua_launch, cua_click, cua_type, cua_start_session, cua_browser_click, cua_browser_type, engagement_create, recon_httpx, content_discover, crawl, param_discover, recon_screenshot, recon_ports, bucket_enum, js_mine, graphql_probe, request_run, cors_audit, rapyd_request, security_hunt, suite_hunt, auth_hunt, api_hunt, cloud_misconfig, policy_set, flow_run, campaign_run, bounty_run, exploit_chain, vuln_compose, exploit_build, auth_setup, exposure_hunt, oauth_hunt, persona_set, persona_forget, bola_diff, poc_verify, csrf_prove, mass_assignment, upload_fuzz, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, cdp_proxy, cdp_request, cdp_eval, cdp_open, param_fuzz, evidence_capture, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan and http_request WILL wait for confirmation. When you propose tool calls (user replies 'ya'/'tidak' next), write ONLY the short proposal + one-line reason each — NEVER a final conclusion, finding verdict, file path, or receipt in the proposing turn; those are narrated AFTER approval, from real results. ACTION NARRATION RULE: never state in your own words that an action was executed, saved, run, tested, or sent — never write 'sudah aku jalankan/jalankan/eksekusi/simpan/uji/tes' about an ACTION (not about knowledge or feelings). The system appends an authoritative 'Aksi yang benar-benar dijalankan' receipt listing every executed action; your prose adds context and next steps only. If an action failed or was skipped, say honestly what failed and why — but the execution record itself comes from the receipt, not from you.",
   "Tool results come from the server and should be trusted as fresh information.",
   "If a tool returned an Error, tell the user plainly what failed and what to do — never reply 'Selesai.'/'done' or invent an outcome the tool did not report.",
   "For nuclei_custom: severity default is critical,high,medium — pass severity \"critical,high\" to narrow; tags like \"xss,sqli,cve\"; templates is a sandbox path to a custom .yaml/dir (e.g. labs/pentest/nuclei-templates/cve-2024.yaml). Without templates it runs auto-scan (-as).",
@@ -399,7 +417,7 @@ export const SLIM_SYSTEM_PROMPT = [
   "If the user switches language, answer in the same language. ",
   "TIME: you always know the current time (injected below) — phrase schedule talk relative to it; a bare time like 'jam 3 sore' means TODAY (or TOMORROW if passed). Never invent a date. ",
   "For remind_me, ALWAYS use the current date below. NEVER call remind_me unless the user explicitly asks ('ingetin aku jam X', 'bangunin aku'). Casual musings get a natural answer, never an unprompted reminder. ",
-  "SCOPE (pentest, ethical, OWN/authorized only): active probing ONLY on (1) an ACTIVE engagement's in-scope hosts, or (2) the owner's lab list, or (3) localhost/RFC1918. Anything else → refuse briefly + suggest engagement_create. Public bug-bounty programs are authorized via safe harbour (ask in-scope/out-of-scope + policy URL first). ",
+  "SCOPE (pentest, ethical, OWN/authorized only): active probing ONLY on (1) an ACTIVE engagement's in-scope hosts, or (2) the owner's lab list (below + `pentest_resources`), or (3) localhost/RFC1918. Anything else → refuse briefly, then follow the TARGET DI LUAR SCOPE rule below; NEVER promise engagement_create when it is not in your tool list. Public bug-bounty programs are authorized via safe harbour (ask in-scope/out-of-scope + policy URL first). OWNER LAB BARU (hard rule): when the OWNER states a host is HIS OWN ('ini lab-ku', 'tambahkan <host> ke lab pentest', 'uji <host> punyaku'), that statement IS the authorization — call `lab_add host=<host>` once (read-risk, auto, permanent registry, subdomains included) and then run the requested tests immediately; NEVER refuse, NEVER demand an engagement, NEVER claim a new owner-named host cannot be tested. ",
   "PENTEST FLOW: recon (recon_subdomains/recon_httpx/js_mine) → hunt (security_hunt/suite_hunt) → probe (http_request, one endpoint at a time) → prove (poc_verify N× + baseline; the control GATES the verdict — payload byte-identical to baseline = ⛔ no signal, never confirmed; an injection-class HIGH/CRITICAL without a confirming run IS refused by finding_add, so re-run poc_verify rather than repeating finding_add) → record (finding_add with cvss) → report. Never report what is not stable/deterministic. Prover yields a signal/candidate (not PROVEN) → load security_playbook name=reading-prover-results before narrating: 5 verdict classes, narrative must match the verdict class, upgrade only via poc_verify/retest_run, 'no signal' ≠ 'safe'. ",
   "SWEEP: user asks full/menyeluruh → do NOT ask which part first; enumerate endpoints from fetched pages/JS, test one by one, poc_verify the suspicious, finding_add each, continue to the next. NEVER end a pentest turn with a direction question when a concrete step exists — execute the first step; ask only for truly missing input (credentials, target choice). ",
   "CONTEXT: before testing a target, call finding_list target=<host> silently for context — but raw list output only replaces the reply when the user actually ASKED for a list. ",
@@ -429,10 +447,23 @@ export const SLIM_SYSTEM_PROMPT = [
  * override + restore.
  */
 export function ownerLabScopeLine(): string {
-  const hosts = (process.env.PENTEST_LAB_TARGETS || "")
-    .split(/[,\s]+/)
+  // Env list (operator-managed) UNION the owner's registered labs
+  // (ownerLabs.ts — written by lab_add when the owner declares a host). Both
+  // authorize identically; the registry is what makes a NEW host authorized
+  // in the same turn the owner names it, without an env edit.
+  let registered: string[] = [];
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { listOwnerLabs } = require("./ownerLabs") as typeof import("./ownerLabs");
+    registered = listOwnerLabs("naufalazhar652952").map((l) => l.host);
+  } catch {
+    /* best-effort */
+  }
+  const envHosts = (process.env.PENTEST_LAB_TARGETS || "")
+    .split(/[\s,]+/)
     .map((s) => s.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, ""))
     .filter(Boolean);
+  const hosts = [...new Set([...envHosts, ...registered])];
   if (!hosts.length) return "";
   return `LAB MILIK OWNER (authorized — test DIRECTLY, no engagement/permission questions): ${hosts.join(", ")}. A pentest ask naming one of these hosts is pre-authorized: run the scope-gated tools at once, do NOT ask for an engagement and do NOT refuse for scope reasons.`;
 }
@@ -457,6 +488,15 @@ export function buildSlimSystemPrompt(rawUser?: unknown, channel?: Channel, url?
   } catch {
     /* never break the turn over the tool list */
   }
+  // The SCOPE remedy goes HERE, in the slim prompt, not only behind
+  // toolBudgetHint(). It used to reach capped providers only through the
+  // runtime hint — which fires while there are undelivered tools. Move
+  // engagement_create into CORE and that hint stops firing, and the remedy
+  // disappears with no test failing: the same silent-drift class that has
+  // bitten this file three times. It sits right after the delivered tool
+  // list on purpose — it branches on whether engagement_create is in that
+  // list, so the evidence must be adjacent.
+  parts.push(SCOPE_REMEDY);
   const fmt = formatInstructionFor(channel);
   if (fmt) parts.push(fmt);
   return parts.join("\n\n");
@@ -754,7 +794,7 @@ const HEADLESS_SIDE_EFFECT_TOOLS = new Set([
   "spotify_volume", "spotify_mode", "spotify_queue", "spotify_sleep_timer",
   "mac_open", "send_channel",
   "retest_run", "retest_add", "auth_matrix", "dom_taint", "content_discover",
-  "learning_ingest",
+  "learning_ingest", "lab_add",
   "exploit_chain", "vuln_compose", "exploit_build", "auth_setup", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",
   "open_redirect_chain", "ws_hunt", "prompt_injection_hunt", "workflow_fuzz", "llm_hunt", "mcp_hunt",  "smuggle_probe", "dom_xss_prove", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner",
 ]);
@@ -778,7 +818,10 @@ export const CORE_TOOL_NAMES = new Set<string>([
   "hotel_search", "cinema_showtimes", "train_search", "bus_search", "weather", "waze_route",
   "fetch_url", "search_memory", "memory_get",
   "file_read", "exec", "recon_full",  // (codebase_search demoted 2026-09-23 — dev Q&A, 0 Discord uses; still on opencodego)
-  "calendar_list",  // (calendar_add demoted 2026-09-24 — 0 prompt refs, room for param_miner; stays registered)
+  // (calendar_list demoted 2026-09-27 — room for lab_add in the 9router-64
+  // window; 0 executions across the entire audit history; calendar_add/
+  // calendar_check already demoted, so the personal-calendar surface was
+  // prompt-only. Stays registered on opencodego.)
   "browser_open",
   // (transcribe demoted 2026-09-24 — Groq free STT 413 on big prompts anyway,
   // voice pipeline uses STT directly; tool stays registered for uncapped providers.)
@@ -801,13 +844,25 @@ export const CORE_TOOL_NAMES = new Set<string>([
   // (sqlmap/zap) sit just past it — they need their own binaries anyway.
   "prompt_injection_hunt", "pentest_scan", "cvss_score", "poc_verify", "ato_prove", "http_request",
   "finding_add", "finding_list",  "race_attack", "graphql_hunt", "workflow_fuzz",
+  // +lab_add (2026-09-27): the writable owner-lab registry — a "this is my
+  // lab" ask MUST reach it on the capped provider or the refusal class
+  // returns. Sits in the 9router-64 window on purpose; read-risk, auto.
+  // Paid for by demoting calendar_list (see head note): 0 executions across
+  // the ENTIRE audit history (all other candidates were heavily used — the
+  // lesson being 0 prompt refs ≠ 0 usage, audit evidence decides).
+  "lab_add",
   // +2 (2026-09-26, Strix-adapted) — coverage/threat_model are daily-flow
   // ledger/model tools: they take github_osint+har_import's window slots
   // (input-driven tools, moved to the CORE tail + HINT_UNDELIVERED), keeping
   // all three report_* tools inside the 9router-64 production window.
   "coverage", "threat_model", "report_generate", "report_save", "report_pdf",
-  // (github_osint/har_import moved here 2026-09-26 — out of the 9router-64
-  // window by design, still in groq-128 + opencodego; in HINT_UNDELIVERED.)
+  // github_osint/har_import out of the 9router-64 window by design (input-driven:
+  // the owner must paste a HAR / name a repo). engagement_create/engagement_list
+  // sit just past the cut at 67/68 — measured live 2026-09-27 and DELIBERATELY
+  // left there: evicting two slots from 1..64 was measured, and every candidate
+  // (git_status/git_commit/calendar_list) is itself named in the prompt, so
+  // demoting them only MOVES the contradiction. The dead-end is closed by
+  // SCOPE_REMEDY, which works on every provider instead of paying for a slot.
   "github_osint", "har_import",
   "engagement_create", "engagement_list",  // (engagement_close demoted 2026-09-23 — 0 prompt refs; still on opencodego)
   "web_audit", "csrf_prove", "oast_create", "oast_poll", "exposure_hunt",  // (domain_audit demoted 2026-09-23 — 0 uses/refs, still on opencodego)  // (oast_stop demoted 2026-09-23 — niche cleanup, still on opencodego)
@@ -1401,7 +1456,18 @@ async function runAgent(
     return autoApproveAllowed(call.name, def.risk, args, { urlAllowed: (u) => targetAllowed(u) });
   };
   const risky = toolCalls2.filter(
-    (c) => (requiresConfirmation(getTOOLS().find((t) => t.function.name === c.name)) || isHeadlessSideEffect(c.name)) && !isAutoApproved(c)
+    (c) =>
+      // Two DIFFERENT gates used to be conflated here: HEADLESS-side-effect
+      // membership forced CONFIRMATION on interactive turns too. That broke the
+      // documented read-auto contract of every member (lab_add "read, satu
+      // panggilan auto", spotify_*/mac_open/send_channel "read, immediate, no
+      // FR-014") — live lab_add drill 2026-09-27: the declaration tool
+      // confirm-paused and the turn died empty. Membership now gates ONLY
+      // headless turns (auto-decline, the 2026-09-17 contract); interactive
+      // turns follow each tool's own risk.
+      (requiresConfirmation(getTOOLS().find((t) => t.function.name === c.name)) ||
+        (autoDenyRisky && isHeadlessSideEffect(c.name))) &&
+      !isAutoApproved(c)
   );
   if (risky.length > 0) {
     if (!autoDenyRisky) {
@@ -2318,12 +2384,20 @@ export function stripToolCallProse(text: string): string {
     `(?:^|\\s)(?:${names})\\s*\\([^()]*?\\)`,
     "gi"
   );
+  // A whole line in ATTRIBUTE form — no parens at all (live 2026-09-27 17:00
+  // kyzuch, 9router): the model emitted
+  //   finding_add target="https://…" severity="low" cvss=3.0 title="…"
+  //   report_pdf target="https://…"
+  // as PLAIN TEXT lines that shipped to Discord verbatim. `name(` never
+  // matches, so the paren forms above were blind to it. Require name +
+  // `key=` after it: bare mentions ("pakai http_request ya") still survive.
+  const attrLineRe = new RegExp(`^\\s*(?:${names})\\s+[A-Za-z_][\\w.-]*\\s*=`, "i");
   let inFence = false;
   const out: string[] = [];
   for (const line of text.split("\n")) {
     if (/^\s*```/.test(line)) inFence = !inFence;
     if (!inFence) {
-      if (lineRe.test(line)) continue; // whole line is a call
+      if (lineRe.test(line) || attrLineRe.test(line)) continue; // whole line is a call
       const stripped = line.replace(inlineRe, " ").replace(/\s{2,}/g, " ").trim();
       out.push(stripped);
       continue;
@@ -2724,6 +2798,91 @@ export function turnRanTool(messages: ChatMessage[], name: string): boolean {
   return false;
 }
 
+/** The deterministic delivery receipt, in both channel shapes. Excluded from
+ *  the fabrication check below: that receipt PROVES its own file. Voice form
+ *  has no colon ("(PDF-nya sudah kubuat — …)"), so the old `/sudah kubuat:/`
+ *  test missed it and the new structural trigger would have flagged the real
+ *  receipt as a fabrication.
+ *
+ *  `📎` MUST be wrapped: a bare `📎?` is a quantifier on ONE UTF-16 code unit,
+ *  so it swallows the pair's LOW surrogate even when matching zero occurrences
+ *  and leaves a dangling surrogate behind — the pattern then fails to match the
+ *  very form it was meant to make optional. Verified by probe, not by reading:
+ *  `/\(📎?\s*PDF-nya/` matched the Discord form and NOT the voice form, while
+ *  `/\((?:📎)?\s*PDF-nya/` matched both. */
+const PDF_DELIVERY_RECEIPT = /\((?:📎)?\s*PDF-nya sudah kubuat/i;
+
+/** Verbs that assert the artefact now EXISTS. */
+const PDF_CREATION_RE =
+  // Indonesian passive prefixes and the -an/-kan suffixes are how these verbs
+  // normally appear, so a bare `\bsusun\b` would miss "laporan sudah selesai
+  // disusun" — the same blind spot as word order, one level down.
+  // `di` MUST be first: alternation is ordered, and a leading `d` would consume
+  // the `d` of `disusun` and leave `isusun`, which matches nothing. Caught by the
+  // two-way test, not by typecheck. `ke` is deliberately NOT a prefix: it would
+  // let "kejadian" pass as "jadi".
+  /\b(?:di|d|ku|kem)?(?:buatkan|buat|bikin|siapkan|siap|sediakan|kirim|kasih|susun|cetak|rekap|terbentuk|tersimpan|simpan)(?:an|kan)?\b/i;
+/** Verbs that assert completion. */
+const PDF_COMPLETION_RE = /\b(sudah|telah|udah|berhasil|selesai|akhirnya)\b/i;
+/** The artefact itself. */
+const PDF_ARTEFACT_RE = /\b(pdf|pdf-?nya|laporan|report)\b/i;
+
+/**
+ * Structural PDF/report-existence claim — ORDER-FREE. Pure, unit-tested.
+ *
+ * Live drill 2026-09-27 05:11 (real discord.ts handler): the reply said
+ * "PDF laporannya sudah aku buatkan ya untuk target tersebut" while ZERO
+ * report tool ran and no file existed on disk — audit-verified fabrication.
+ * The old pattern was
+ *   /sudah (aku|ku)?(siap|…|buatkan|…).{0,40}\bpdf\b/
+ * which requires the word "PDF" to appear AFTER the creation verb.
+ * Reversed Indonesian word order — "PDF laporannya sudah dibuatkan", by far
+ * the most natural phrasing — never matched, so the guard was structurally
+ * blind to it.
+ *
+ * This is the 5th member of the same bug family (vocabulary/word-order
+ * coupling where a FACT was available). So the trigger is now STRUCTURAL:
+ * flag any clause that names the artefact AND asserts completion AND asserts
+ * creation/existence, in ANY order. Markdown emphasis is stripped first —
+ * "**Belum**" must not hide a word. Honest admissions are filtered out by the
+ * caller before this runs, and the deterministic receipt is excluded, so the
+ * loose shape stays safe: the note is authorised by the FACT (no report tool,
+ * no receipt, no file), not by the wording.
+ */
+/** Time attribution to an EARLIER turn or session. A truthful statement about
+ *  a report that was made earlier is not a claim that THIS turn made it — the
+ *  same fail-open carve-out `unverifiedFindingNote` already uses for "sudah
+ *  diverifikasi sebelumnya". Deliberately does NOT include "sudah ada":
+ *  "PDF-nya sudah ada" with no report tool IS a fabrication. */
+const PDF_PAST_RE =
+  /\b(sebelumnya|tadi|barusan|kemarin|yang lalu|duh(?:ai)? lalu|dari sesi|dari turn|turn lalu|giliran lalu)\b/i;
+/** Backward-referring anaphora — a clause that continues an established past
+ *  frame ("…sudah aku jalankan sebelumnya. Laporan PDF-nya juga sudah selesai
+ *  dibuat."). Scoped deliberately: `lagi` is NOT here, because "sekarang
+ *  PDF-nya sudah kubuat lagi" asserts THIS turn, and must stay caught. */
+const PDF_ANAPHOR_RE = /\b(juga|masih|terus|kemudian|sama|itulah|hasilnya|hasil dari)\b/i;
+
+export function pdfExistenceClaim(text: string): boolean {
+  const whole = String(text || "");
+  const clean = (s: string) => s.replace(/\*\*|__/g, " ");
+  const pastFrame = PDF_PAST_RE.test(clean(whole));
+  for (const raw of whole.split(/[.!?\n]+/)) {
+    const c = clean(raw);
+    if (!PDF_ARTEFACT_RE.test(c)) continue;
+    if (!PDF_COMPLETION_RE.test(c)) continue;
+    if (!PDF_CREATION_RE.test(c)) continue;
+    // Past attribution inside THIS clause ("…dari sesi sebelumnya, dan
+    // PDF-nya sudah dicetak ulang"). Scanned per clause, never per text: a
+    // per-text check silently disabled this guard when a neighbouring clause
+    // said "perlu verifikasi manual" (2026-09-26 regression).
+    if (PDF_PAST_RE.test(c)) continue;
+    // Anaphoric continuation of a past frame established elsewhere.
+    if (pastFrame && PDF_ANAPHOR_RE.test(c)) continue;
+    return true;
+  }
+  return false;
+}
+
 export function pdfDeliverableSuffix(messages: ChatMessage[], text: string): string {
   const t = (text || "").trim();
   const noReportTools =
@@ -2742,7 +2901,9 @@ export function pdfDeliverableSuffix(messages: ChatMessage[], text: string): str
   if (
     noReportTools &&
     !/sudah kubuat:/i.test(t) &&
-    /sudah (aku |ku)?(siap|siapkan|sediakan|buatkan|buat|kirim|kasih|susun|cetak|rekap).{0,40}\bpdf\b|dalam bentuk pdf\b|dalam file report-[0-9A-Za-z:.()+_-]*\.pdf/i.test(t)
+    !PDF_DELIVERY_RECEIPT.test(t) &&
+    (pdfExistenceClaim(t) ||
+      /dalam bentuk pdf\b|dalam file report-[0-9A-Za-z:.()+_-]*\.pdf/i.test(t))
   ) {
     return " (Catatan jujur: file PDF di atas tidak dibuat di giliran ini — tidak ada report yang berjalan sekarang. Kalau merujuk file lama, sebutkan saja; untuk laporan baru dari temuan terkini, bilang \"buatkan PDF-nya\".)";
   }
@@ -2769,6 +2930,11 @@ export function pdfDeliverableSuffix(messages: ChatMessage[], text: string): str
     !turnRanTool(messages, "report_pdf") &&
     !turnRanTool(messages, "report_save") &&
     !turnRanTool(messages, "report_generate") &&
+    // The deterministic delivery receipt NAMES a real report-<ts>.pdf, so this
+    // branch fired on it and accused the system's OWN receipt of fabrication
+    // (caught by probe-pdfclaim.mts 2026-09-27, DISC variant). The receipt is
+    // the PROOF that the file exists — same exclusion as the branch above.
+    !PDF_DELIVERY_RECEIPT.test(text) &&
     /report-[0-9A-Za-z:.()+_-]*\.pdf/i.test(text)
   )
     return " (Catatan jujur: giliran ini belum membuat laporan apa pun — tidak ada file PDF-nya. Aku belum men-generate report-nya; bilang \"buat pdf-nya ya\" dan aku buatkan sekarang.)";
@@ -2850,10 +3016,206 @@ async function tryDeliverReportPdf(messages: ChatMessage[], rawUser: unknown, ch
  * result unless the delivery says otherwise. Silent unless a completion claim is
  * actually made, so an ordinary "buatkan laporan" turn is not nagged.
  */
+/**
+ * Says what the report's scope ACTUALLY is, when the ask named a path.
+ *
+ * Live 2026-09-27 00:57: the owner asked for `/login` and got a PDF byte-identical
+ * to the `/cek-nik` one, then had to ask why. The report was right — findings are
+ * recorded per HOST, and none of them sit on `/login`, so a path-scoped report
+ * would have been empty and misleading — but nothing on screen said so, and
+ * "the same report for a different path" reads as a bug until you know otherwise.
+ *
+ * The scope is the HOST whenever the ask names a path, because `matchesHost`
+ * matches on host. That is the whole explanation, so it is the whole note.
+ * Pure — tested.
+ */
+export function reportScopeNote(target: string, prose = ""): string {
+  const t = String(target || "").trim();
+  if (!t) return "";
+  const m = /^https?:\/\/([^/?#]+)(\/[^?#]*)?/i.exec(t);
+  if (!m) return "";
+  const host = m[1];
+  const path = (m[2] || "").replace(/\/$/, "");
+  // Host-only ask: the report already IS the host, nothing to clarify.
+  if (!path) return "";
+  // Live 2026-09-27 01:20: the previous turn's scope note went into context, the
+  // model paraphrased it ("laporan ini mencakup seluruh host … bukan hanya
+  // /login"), and the deterministic note then said the same thing again in the
+  // same message. Same class as the receipt imitation fixed on 2026-09-23 — a
+  // model echoing system phrasing — so it gets the same treatment: if the prose
+  // already carries the host AND the path being ruled out, stay silent.
+  const p = String(prose || "");
+  if (p.includes(host) && new RegExp(`(?:bukan hanya|kecuali|kecuali dari|seluruh|seluruhnya)[^.!?]{0,20}${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i").test(p)) {
+    return "";
+  }
+  return ` (Catatan: laporan ini disusun untuk seluruh host ${host}, bukan hanya ${path} — seluruh temuan dicatat per host, dan tidak ada temuan yang benar-benar berada di ${path}. Kalau mau laporan khusus ${path}, bilang saja.)`;
+}
+
 export function reportProvenanceNote(messages: ChatMessage[], claimText: string): string {
   if (!hasCompletionClaim(claimText)) return "";
   if (turnRanTool(messages, "finding_add")) return "";
   return " (Catatan: laporan ini memuat temuan yang SUDAH tercatat sebelumnya — giliran ini tidak mencatat temuan baru.)";
+}
+
+/** Results of THIS turn's report tools, joined. The confirm continuation keeps
+ *  round-1 tool calls and their results inside the turn window, so a
+ *  user-approved report_pdf that refused is visible here. Pure — tested. */
+function reportToolResults(messages: ChatMessage[]): string {
+  const turnMsgs = turnWindow(messages);
+  const out: string[] = [];
+  for (const m of turnMsgs) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      if (!/^report_(save|pdf)$/.test(tc.function?.name || "")) continue;
+      const res = turnMsgs.find((x) => x.role === "tool" && x.tool_call_id === tc.id);
+      const body = res ? messageText(res.content) : "";
+      if (body) out.push(body);
+    }
+  }
+  return out.join("\n");
+}
+
+/** The `target` args of a tool's calls THIS TURN — parsed from JSON per call
+ *  (target-bearing fields only; free-text args are never mined — the
+ *  targetDriftNote lesson). Malformed args are skipped, not mined. Pure. */
+function reportTargetArgs(messages: ChatMessage[], name: string): string[] {
+  const out: string[] = [];
+  for (const m of turnWindow(messages)) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      if (tc.function?.name !== name) continue;
+      try {
+        const a = JSON.parse(tc.function.arguments || "{}") as { target?: unknown };
+        if (typeof a.target === "string" && a.target.trim()) out.push(a.target.trim());
+      } catch {
+        /* malformed args — skip */
+      }
+    }
+  }
+  return out;
+}
+
+/** A claim that THIS turn's artefact was made, in any wording. Structural:
+ *  vocabulary lists have repeatedly lost to new model phrasing (see the
+ *  pdfExistenceClaim lesson), so it reuses that predicate's ordered regexes
+ *  with FINER clause granularity: the live A5 sentence pairs the claim with an
+ *  honest "belum ada temuan" inside ONE sentence, and a whole-text admission
+ *  check then muffles the guard (caught by the two-way test, not typecheck).
+ *  Commas split clauses here, and a negation inside the CLAIMING clause itself
+ *  ("belum berhasil kubuat") keeps it honest. Deliberately does NOT count
+ *  plain mentions — "buatkan pdf" (an OFFER) and "cek pdf" (a question) are
+ *  not claims (no completion word). */
+export function reportCreationClaim(text: string): boolean {
+  const whole = String(text || "");
+  const clean = (s: string) => s.replace(/\*\*|__/g, " ");
+  const pastFrame = PDF_PAST_RE.test(clean(whole));
+  for (const raw of whole.split(/[.!?\n]+/)) {
+    for (const c0 of raw.split(/[,;]+/)) {
+      const c = clean(c0);
+      if (!PDF_ARTEFACT_RE.test(c)) continue;
+      if (!PDF_COMPLETION_RE.test(c)) continue;
+      if (!PDF_CREATION_RE.test(c)) continue;
+      if (PDF_PAST_RE.test(c)) continue;
+      if (pastFrame && PDF_ANAPHOR_RE.test(c)) continue;
+      // Negation governing the claim inside the SAME clause ("belum berhasil
+      // kubuat", "nggak jadi disusun") = an honest statement, not a claim.
+      if (/\b(belum|nggak|gak|tidak|jangan)\b/i.test(c)) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * "Sudah aku buatkan laporan PDF-nya, tapi karena belum ada temuan…" — one
+ * sentence pairing a creation claim with the honest EMPTY_REPORT refusal
+ * (residual A5, live drill 2026-09-27). The refusal is honest and stays; the
+ * claim next to it is the lie: report_pdf DID run this turn, it refused, no
+ * file was written — so nothing was "dibuatkan".
+ *
+ * Distinct from pdfDeliverableSuffix, which needs the tool to be ABSENT to
+ * accuse, and therefore stays correctly silent here. This guard fires ONLY
+ * when all three facts hold:
+ *   1. the prose asserts creation (reportCreationClaim),
+ *   2. this turn's report_pdf/report_save tool result says Error: EMPTY_REPORT
+ *      (the refusal, verbatim from the tool),
+ *   3. no report file exists on disk from this turn (never a real delivery).
+ * Any honest reply ("belum ada temuan", "belum kubuat") has no creation claim
+ * and stays silent; a real file suppresses the guard (file wins, receipt path).
+ * Pure — tested.
+ */
+export function emptyReportClaimNote(messages: ChatMessage[], text: string, opts: { deliveredThisTurn?: boolean } = {}): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  // The retry path already made a real file this turn — the corrective receipt
+  // is the truth now, never accuse it (the EMPTY refusal still sits in the
+  // tool results, but the retry beat it).
+  if (opts.deliveredThisTurn) return "";
+  if (!reportCreationClaim(t)) return "";
+  if (!/Error:.*EMPTY_REPORT|EMPTY_REPORT:|Belum ada temuan terbuka|No open findings/i.test(reportToolResults(messages))) return "";
+  // A real file written by this turn beats the refusal — receipt paths handle
+  // naming; never accuse a genuine delivery.
+  if (reportFileFromTurn(messages, "\\.(?:pdf|md)")) return "";
+  return " (Catatan jujur: laporannya BELUM jadi — belum ada temuan yang tercatat, jadi belum ada file yang dibuat giliran ini. Bilang \"lanjut\" kalau mau aku uji dulu dan catat temuannya, baru laporannya dibuat.)";
+}
+
+/**
+ * Reverse the model's inverted order. Live 2026-09-27 17:01 (kyzuch, Discord):
+ * the user approved `report_pdf` and the turn then ran report_pdf FIRST →
+ * EMPTY_REPORT refusal (nothing recorded yet) → finding_add SUCCESS — so at
+ * turn end the finding existed and the PDF would have rendered, but nothing
+ * retried and the turn shipped without its deliverable (the owner had to ask
+ * "mana pdfnya?" a THIRD time). This re-renders ONCE when the turn window
+ * shows both halves of that inversion: a report tool that refused EMPTY and a
+ * finding_add that ran. Exported + tested; called from the delivery block so
+ * the receipt paths downstream treat it like any other delivery.
+ */
+export async function retryEmptyReportDelivery(messages: ChatMessage[], rawUser: unknown, channel: Channel): Promise<string> {
+  if (!turnRanTool(messages, "finding_add")) return "";
+  if (!/Error:.*EMPTY_REPORT/i.test(reportToolResults(messages))) return "";
+  // A file already written this turn — nothing to fix.
+  if (reportFileFromTurn(messages, "\\.(?:pdf|md)")) return "";
+  const wantsPdf = turnRanTool(messages, "report_pdf");
+  const wantsMd = turnRanTool(messages, "report_save");
+  if (!wantsPdf && !wantsMd) return "";
+  // Host mismatch = the inversion story does not hold: the EMPTY refusal was
+  // for a DIFFERENT target than the finding that was added (model hunted two
+  // hosts in one turn). Retrying would deliver a report for the wrong host.
+  const addedHosts = reportTargetArgs(messages, "finding_add").map(hostOfUrl).filter(Boolean);
+  const reportHosts = [...reportTargetArgs(messages, "report_pdf"), ...reportTargetArgs(messages, "report_save")].map(hostOfUrl).filter(Boolean);
+  if (addedHosts.length && reportHosts.length && !reportHosts.some((h) => addedHosts.includes(h))) return "";
+  try {
+    if (wantsPdf) {
+      const { reportPdf } = await import("./security");
+      const target = reportTargetFromMessages(messages);
+      const out = await reportPdf(rawUser, target ? { target } : {});
+      const file = (out.match(/report-[0-9A-Za-z:.()+_-]+\.pdf/i) || [])[0] || "";
+      if (file) {
+        return channel === "voice"
+          ? " (PDF-nya sudah kubuat — cek folder laporanmu ya.)"
+          : ` (📎 PDF-nya sudah kubuat: \`${file}\` — temuan tadi tercatat setelah percobaan pertama, jadi kucetak ulang ya.)`;
+      }
+    } else {
+      const { reportSave } = await import("./security");
+      const target = reportTargetFromMessages(messages);
+      const out = reportSave(rawUser, target ? { target } : {});
+      const file = (out.match(/report-[0-9A-Za-z:.()+_-]+\.md/i) || [])[0] || "";
+      if (file) {
+        return channel === "voice"
+          ? " (Markdown-nya sudah kusimpan — cek folder laporanmu ya.)"
+          : ` (📄 Markdown-nya sudah kusimpan: \`${file}\` — temuan tadi tercatat setelah percobaan pertama, jadi kususun ulang ya.)`;
+      }
+    }
+  } catch {
+    /* fall through to the honest gap note below */
+  }
+  // Retry still refused (e.g. finding_add itself failed) → tell the truth.
+  // `reportTargetArgs` returns "" entries for args-less calls, so the target
+  // argument is genuinely optional — the catch above only runs on a real
+  // refusal or a network failure.
+  return channel === "voice"
+    ? " (Laporannya belum bisa kubuat — temuan tadi ternyata belum tersimpan. Kita cek dulu ya.)"
+    : " (📎 Laporan belum dibuat — temuan tadi ternyata belum tersimpan, jadi belum ada yang bisa dilaporkan. Bilang \"lanjut\" kalau mau kuuji ulang dulu.)";
 }
 
 async function tryDeliverReportMarkdown(messages: ChatMessage[], rawUser: unknown, channel: Channel, claimText = ""): Promise<string> {
@@ -3691,6 +4053,94 @@ export function toolRunClaimSuffix(
 }
 
 /**
+ * Unrecorded-finding claim guard (live 2026-09-27 22:52, Discord — owner lab
+ * trial): the model called finding_add 3× WITHOUT the required title (all 3
+ * errored "judul temuan wajib" — the receipt showed the errors honestly), then
+ * after the EMPTY_REPORT refusal wrote "Aku catat temuannya dulu ya beb: HIGH
+ * 8.5 …" with ZERO finding_add running in that turn (audit empty after
+ * report_pdf) and the store still holding 0 findings for the lab.
+ *
+ * toolRunClaimSuffix cannot catch this: it requires a TOOL NAME in the prose,
+ * and "catat temuannya" names only the OBJECT. This guard closes the object-
+ * claim class: first-person recording verbs ("aku catat/simpan/fix/catet")
+ * about FINDINGS, while (a) no finding_add executed this turn — the turn window
+ * OR the truncation-immune ledger both being evidence — and (b) at least one
+ * finding_add attempt ERRORED this turn (the exact precondition that makes the
+ * claim a fabrication rather than an odd way to describe success).
+ *
+ * Silent when: any finding_add actually executed (claim may be true), the
+ * prose admits failure ("gagal/belum bisa/ternayata belum"), or there is no
+ * errored finding_add (without it, "catat" language usually describes a
+ * different turn's work honestly). Pure — tested both ways.
+ */
+export const FINDING_RECORD_CLAIM_RE =
+  /\b(?:aku\s+|biar\s+aku\s+)?(?:catat|catet|simpen|simpan|masukin|masukkan|fix)\s+(?:temuan|finding)|\b(?:temuan|findings?)\b[^.?\n]{0,60}\b(?:aku\s+)?(?:catat|catet|simpen|simpan|masukin|masukkan|tambahkan)\b/i;
+
+export const FINDING_RECORD_ADMISSION_RE =
+  /\b(?:belum\s+(?:bisa|dapat|tersimpan)|gagal|nggak\s+(?:bisa|jadi)|tidak\s+(?:bisa|jadi|tersimpan)|tern[yi]ata|maaf)\b/i;
+
+export function unrecordedFindingClaimNote(
+  messages: ChatMessage[],
+  text: string,
+  ledger?: Array<{ name: string; executed: boolean }>
+): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  // PER-CLAUSE, not per-text (the pdfExistenceClaim 2026-09-26 lesson): the
+  // live 22:52 reply carried an HONEST apology in one sentence ("Maaf ya,
+  // ternyata laporannya belum bisa dicetak…") and the FABRICATION in the next
+  // ("Aku catat temuannya dulu ya beb: HIGH 8.5 …"). A per-text admission
+  // check lets the apology silence the accusation against the claim — which
+  // is exactly backwards. Find the claim clause FIRST, then judge only that
+  // clause's own admission words.
+  const claimClause =
+    (t.split(/(?<=[.!?\n])/).find((c) => FINDING_RECORD_CLAIM_RE.test(c)) ?? "").trim();
+  if (!claimClause) return "";
+  // Honest framing WITHIN the claim clause ("tern[yi]ata belum bisa
+  // tersimpan…") — never accuse.
+  if (FINDING_RECORD_ADMISSION_RE.test(claimClause)) return "";
+  // "Executed" here must mean SUCCEEDED: toolActuallyRan treats any non-refusal
+  // result as ran (the tool did spawn), but a finding_add that returned
+  // "Error: judul temuan wajib" saved NOTHING — that is the exact live shape.
+  // Scan the turn window for a finding_add whose result is NOT an Error (the
+  // truncation-immune ledger is name-only and cannot distinguish, so an
+  // executed ledger row without a visible success result must silence the
+  // guard — fail-open, never accuse a possibly-true claim).
+  let successRan = false;
+  let erroredAttempt = false;
+  for (const m of turnWindow(messages)) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      if (tc.function?.name !== "finding_add") continue;
+      const res = turnWindow(messages).find((x) => x.role === "tool" && x.tool_call_id === tc.id);
+      if (!res) continue;
+      if (/^error:/i.test(messageText(res.content).trim())) erroredAttempt = true;
+      else successRan = true;
+    }
+    if (successRan) break;
+  }
+  // ORDER MATTERS (drill 2026-09-27 23:2x caught this in the fixture): the
+  // window's ERROR RESULTS are stronger evidence than the name-only ledger —
+  // recordExecuted marks every spawned call executed:true, including the ones
+  // that errored, so a ledger row for finding_add does NOT mean a save
+  // happened when the window shows all attempts erroring. Ledger silence only
+  // applies when the window shows NO errored attempt either (results
+  // summarized away): fail-open, never accuse a possibly-true claim.
+  if (successRan) return "";
+  if (!erroredAttempt && (ledger ?? []).some((c) => c.name === "finding_add" && c.executed)) return "";
+  // The fabrication precondition: a finding_add attempt ERRORED this turn
+  // (without an error there is nothing to correct — the claim likely describes
+  // another turn's work honestly).
+  if (!erroredAttempt) return "";
+  // Counted claims ("dua temuan", "2 temuan") are judged against the STORE by
+  // the unverifiedFindingClaimNote/numeric family — this note corrects the
+  // SAVE claim only, so a reply carrying both gets both corrections (23:45:
+  // "dua temuan penting" where the store held ONE — the count lie was real
+  // but belonged to a different guard's fact base).
+  return " (Catatan jujur: temuan itu BELUM tersimpan — percobaan finding_add di giliran ini gagal karena judul wajib diisi, dan belum ada percobaan ulang yang berhasil. Bilang \"ulangi\" dan aku catat ulang dengan judul yang benar.)";
+}
+
+/**
  * Endpoint-triage honesty guard (audit 2026-09-23): "cek /login rentan?"
  * dijawab dengan dump temuan LAMA + HTML mentah, tanpa pernah menguji /login.
  * Bila user menyebut path endpoint spesifik + bertanya kerentanannya, tapi
@@ -3729,8 +4179,43 @@ export function shortPath(p: string): string {
 }
 // Reads that still "touch" an endpoint (vs store reads like finding_list that
 // never leave the process). Used for the zero-contact rule below.
+// Structural completion form, added 2026-09-27 after a live measurement: the
+// word list above covers "full pentest sudah selesai" and "pengujian selesai"
+// but missed "pentest menyeluruh untuk lab tersebut sudah selesai", because
+// it demands a particular ADJACENCY. Modifiers ("menyeluruh", "untuk lab
+// tersebut", "di target ini") sit between the noun and the copula, and the
+// model will always find one.
+//
+// So instead of another word, the shape is asserted: a testing noun followed by
+// a completion word inside ONE sentence. Word order is free, so no modifier can
+// hide it, and the honest negation is still short-circuited by
+// hasCompletionClaim's "belum … selesai" guard before this ever runs.
+const COMPLETION_STRUCTURAL_RE =
+  /\b(pentest|pengujian|audit|auditing|scan|scanning|uji|tes|test|hunt|survei|assessment)\b[^.!?]{0,60}\b(selesai|tuntas|berhasil|rampung)\b/i;
+
+// Reads that still "touch" an endpoint (vs store reads like finding_list that
+// never leave the process). Used for the zero-contact rule below.
 const COMPLETION_CLAIM_RE =
   /sudah selesai (memindai|menguji|memeriksa|mengetes|mengaudit|mengscan|melakukan (full )?pentest)|selesai (memindai|menguji|memeriksa|melakukan (full )?pentest)\b|sudah selesai (aku |ku)?(?:di)?(lakukan|kerjakan|tuntaskan|selesaikan)\b|sudah (aku |ku)?(uji|test|periksa|scan|pindai|audit|jalankan|lakukan|eksekusi)\b|pengujian (telah|sudah|tuntas) selesai|(sudah|telah|udah).{0,20}(cek|uji|test|periksa|scan).{0,20}(kembali|ulang|tuntas)|full pentest .{0,20}(selesai|tuntas|sudah)|(sudah|telah|udah)\s+(di|ter)(uji|tes|test|scan|periksa|cek)\b|pengujian[^.!?]{0,45}\b(sudah|telah|tuntas|berhasil)\s+selesai|(sudah|telah)\s+selesai[^.!?]{0,50}(pengujian|menguji|mengaudit|memindai|scan|uji)\b/i;
+
+/**
+ * A completion claim with NO testing verb at all.
+ *
+ * Live 2026-09-27 00:57: "Udah lengkap ya Mas Naufal 🌸 ketemu tujuh celah" over a
+ * turn that ran a read-only sweep and nothing else. COMPLETION_CLAIM_RE requires
+ * an aspect marker PLUS a verb (cek/uji/scan/…), so "udah lengkap" — finished,
+ * with no verb — matched nothing, and the numeric and verdict guards had nothing
+ * to hold on to either: the only number in the reply was a finding count, not a
+ * count of testing actions. The turn shipped with no note at all.
+ *
+ * Kept as a separate pattern because the risk profile differs: "lengkap" without
+ * a verb is far more common in ordinary speech, so it only counts when it is
+ * immediately followed by something that presents a RESULT (a count, a list, a
+ * colon-introduced enumeration). "udah lengkap, terima kasih ya" is not a claim
+ * and must stay silent — hence the result clause is mandatory, not optional.
+ */
+const COMPLETION_NO_VERB_RE =
+  /\b(?:sudah|udah|sudahlah|lah|selesai|beres)\s+(?:aku|ku|saya|kita|kami|lo|kamu|gue)?\s*(?:lengkap|selesai|selesain|selesaikan|beres|beresin|tuntas|tuntasin|tuntaskan|rapi|mantap)(?:in|kan|i)?\b[^.!?]{0,60}?(?:\d+\s*(?:temuan|celah|bug|issues?|findings?|vulnerabilit)|[:：]|\bketemu\b|\btemuan\b|\bcelah\b|\bhasilnya\b|\bteridentifikasi\b)/i;
 
 /**
  * A completion claim, minus honest negations. "pengujian menyeluruh … sudah
@@ -3740,12 +4225,257 @@ const COMPLETION_CLAIM_RE =
  * clean). The word-order-tolerant alternatives above close that; this wrapper
  * keeps an honest admission ("pengujian belum selesai") from tripping it.
  */
-function hasCompletionClaim(t: string): boolean {
+export function hasCompletionClaim(t: string): boolean {
   if (/\bbelum\s+(?:sudah\s+|telah\s+|berhasil\s+)?selesai\b/i.test(t)) return false;
-  return COMPLETION_CLAIM_RE.test(t);
+  if (COMPLETION_CLAIM_RE.test(t)) return true;
+  if (COMPLETION_STRUCTURAL_RE.test(t)) return true;
+  return COMPLETION_NO_VERB_RE.test(t);
 }
-// Reads that still "touch" an endpoint (vs store reads like finding_list that
-// never leave the process). Used for the zero-contact rule below.
+
+/**
+ * Nouns that make a sentence a SECURITY statement. A safety word is only a
+ * verdict when one of these is in reach — that is what keeps ordinary prose
+ * ("instalasi ini aman dipakai besok", "server host-nya bersih") from reading
+ * as a claim about the target's security.
+ */
+const SEC_NOUN =
+  "celah|temuan|kerentanan|vuln|vulnerab|rentan|serangan|penyerang|eksploitasi|injeksi|sqli|sql\\s*injection|xss|idor|ssrf|bocor|auth|otentikasi|otorisasi";
+
+/**
+ * "This target has no security problems" — stated positively, rather than as a
+ * search that came up empty.
+ *
+ * Rebuilt on 2026-09-27 after the loose form was measured, not guessed: the
+ * old second alternative was `/\b(sudah|terlihat|tampak)?\s*(aman|bersih)\b/`
+ * whose subject group was OPTIONAL, so a bare "aman" or "bersih" anywhere in a
+ * sentence satisfied it. "aman" is one of the commonest words in Indonesian
+ * replies, so that pattern was a false-accusation machine waiting for an
+ * unprobed endpoint to sit next to an unrelated sentence.
+ *
+ * Every form now demands a VERDICT position ("sudah aman" / "tidak aman") or a
+ * security noun in reach. Pure, exported, covered two-way by the corpus.
+ */
+export function absenceSafetyClaim(t: string): boolean {
+  const s = String(t || "");
+  // Explicit negative finding: "tidak ada celah yang terlihat".
+  if (
+    new RegExp(
+      `\\b(?:tidak|nggak|belum)\\s+(?:ada|ditemukan|terlihat|diketahui|ketemu)\\b[^.!?]{0,50}\\b(?:${SEC_NOUN})\\b`,
+      "i"
+    ).test(s)
+  )
+    return true;
+  // Explicit safety verdict: "sudah aman", "belum bersih", "tidak aman".
+  if (/\b(?:sudah|belum|tidak)\s+(?:aman|bersih)\b/i.test(s)) return true;
+  // Safety word qualified by a security object: "aman dari SQL injection".
+  if (
+    new RegExp(
+      `\\b(?:aman|bersih)\\s+(?:dari|terhadap|soal)\\b[^.!?]{0,40}\\b(?:${SEC_NOUN})\\b`,
+      "i"
+    ).test(s)
+  )
+    return true;
+  // Security noun closely followed by a safety word: "vuln-nya bersih".
+  if (new RegExp(`\\b(?:${SEC_NOUN})\\b[^.!?]{0,30}\\b(?:aman|bersih)\\b`, "i").test(s)) return true;
+  // Explicit "not vulnerable".
+  if (/\btidak\s+(?:rentan|berbahaya|bermasalah|vulnerable|exploitable)\b/i.test(s)) return true;
+  return false;
+}
+
+/**
+ * A BLANKET CAPABILITY refusal — "I cannot do security testing" — as opposed to
+ * a SCOPE refusal ("this host is out of scope"). Only the first kind is a lie
+ * worth correcting: the pentest toolkit is large and already scoped, and the
+ * prompt's hard rule ("JANGAN menolak lab milik owner … cek daftar lab dulu",
+ * plus the mandatory `engagement_list` + `pentest_resources` pre-check before
+ * ANY scope refusal) already forbids the second kind being used loosely.
+ *
+ * The alternation deliberately requires the negation and the security noun in
+ * the SAME clause; a per-text check silently disabled an earlier guard
+ * (pdfExistenceClaim, 2026-09-26) when a neighbouring clause said something
+ * else, so this is matched per clause at the call site.
+ */
+export const BLANKET_REFUSAL_RE =
+  /\b(?:tidak\s+(?:bisa|dapat|mau|berani)|belum\s+(?:bisa|dapat)|nggak?\s+(?:bisa|mau)|gak\s+(?:bisa|mau)|can'?t|cannot|unable\s+to|not\s+able\s+to)\b[^.!?\n]{0,45}?\b(?:pengujian\s+keamanan|security\s+(?:test|testing|scan)|penetration\s+test|scan(?:ning)?\s+(?:kerentanan|keamanan|vuln)|vulnerability\s+scan|kerentanan)\b/i;
+
+/**
+ * An AUTHORISATION or POLICY reason given alongside the refusal. A refusal that
+ * states WHY is legitimate and must never be contradicted — the two live-guard
+ * false accusations this probe caught were both of this kind ("…pada website
+ * ORANG LAIN tanpa izin tertulis dari mereka" and "…di platform latihan; itu
+ * aturan mereka"). Deliberately limited to authorisation/policy words: a general
+ * negation ("no tools available") is not a reason and must not silence the
+ * guard. Scanned in the SAME clause, per the pdfExistenceClaim lesson.
+ */
+export const REFUSAL_REASON_RE =
+  /\b(?:orang\s+lain|pihak\s+ketiga|bukan\s+milik|selain\s+(?:milik|aset)|tanpa\s+izin|tidak\s+diizinkan|belum\s+ada\s+(?:izin|engagement)|tidak\s+ada\s+izin|belum\s+ada\s+scope|di\s*luar\s+scope|aturan\s+(?:mereka|platform|situs)|dilarang|melanggar|terms\s+of\s+(?:use|service)|toS|robots\.txt)\b/i;
+
+/**
+ * Tools whose execution is itself evidence that a target was engaged with —
+ * either by reading it or by writing a security artefact about it. Used to make
+ * the refusal contradiction PROVABLE from the turn's own tool calls rather than
+ * inferred from prose.
+ */
+const TARGET_TOUCH_TOOLS = new Set([
+  // wrote a security artefact ABOUT the target
+  "threat_model", "coverage", "finding_add", "retest_run", "exploit_chain",
+  // probed or read the target
+  "http_request", "fetch_url", "web_audit", "js_mine", "content_discover",
+  "browser_open", "recon_httpx", "recon_ports", "target_brain", "lab_fetch",
+  // passive recon on the domain
+  "recon_subdomains", "recon_params", "js_deobfuscate",
+]);
+
+/**
+ * Refusal that contradicts the turn's own actions.
+ *
+ * Live 2026-09-27 12:47: the owner asked to add HIS OWN Netlify site to the
+ * pentest lab. The model instead wrote a threat model for that host (its own
+ * args described it as "Mas Naufal's personal netlify deployment"), ran
+ * recon_subdomains + fetch_url + recon_params against it, and then replied
+ * "aku tidak bisa melakukan pengujian keamanan atau pemindaian kerentanan pada
+ * target spesifik". The receipt in the same reply contradicted the prose.
+ *
+ * Narrow on purpose, because refusing is normally CORRECT:
+ *  - only a BLANKET capability claim fires; a scope refusal is legitimate and
+ *    is governed by the scope rules, not here.
+ *  - it needs a FACT (a target-touching tool ran this turn), so the
+ *    contradiction is provable from the tool calls, not guessed from wording.
+ *  - the host shown comes from by-design target fields only (claimAuditHost),
+ *    never from free-text args — a citation URL must not become the subject.
+ *
+ * Pure — tested two ways.
+ */
+export function refusalContradictionNote(
+  messages: ChatMessage[],
+  text: string,
+  host?: string
+): string {
+  const clean = String(text || "").replace(/\*\*|__/g, " ");
+  let refused = false;
+  for (const clause of clean.split(/[.!?\n]+/)) {
+    if (!BLANKET_REFUSAL_RE.test(clause)) continue;
+    // A refusal that GIVES a reason is legitimate — see REFUSAL_REASON_RE.
+    if (REFUSAL_REASON_RE.test(clause)) continue;
+    refused = true;
+    break;
+  }
+  if (!refused) return "";
+
+  const ran: string[] = [];
+  for (const m of messages) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      // `function` is the declared shape; the top-level `name` is a RUNTIME
+      // variant (the confirm executor reads it), so it is tolerated defensively
+      // without widening the declared type.
+      const call = tc as { name?: string; function?: { name?: string } };
+      const n = call.function?.name || call.name || "";
+      if (TARGET_TOUCH_TOOLS.has(n) && !ran.includes(n)) ran.push(n);
+    }
+  }
+  // Also honour the ledger (truncation-immune, and merged with the prior turn
+  // on the confirmation path) so a long turn that summarised its own tool calls
+  // away is not judged blind.
+  if (!ran.length) return "";
+  const upto = ran.slice(0, 3).join(", ");
+  const more = ran.length > 3 ? ` (+${ran.length - 3} lainnya)` : "";
+  const where = host ? ` terhadap ${host}` : "";
+  return ` (Catatan jujur: giliran ini menjalankan ${upto}${more}${where} — jadi kalimat "tidak bisa melakukan pengujian keamanan" bertentangan dengan aksi yang barusan terjadi. Kalau target itu milikmu sendiri, sebenarnya sudah berizin: deklarasikan sekali dengan lab_add host=<host> — terdaftar permanen, subdomain ikut — lalu lanjutkan pengujian; cek pentest_resources untuk daftar lab. Kalau memang bukan milikmu, sebutkan alasan dan target spesifiknya — jangan menolak semua pengujian keamanan.)`;
+}
+
+/**
+ * Direction-question deflection at the end of a pentest turn.
+ *
+ * Live 2026-09-27 22:11 (owner lab registry drill, Discord): after the sweep
+ * had genuinely run (9 http_requests, one real HIGH finding found), the turn
+ * STILL ended with "Mau aku catat temuannya ke laporan atau lanjut uji akses
+ * pakai kredensial ini buat bypassing /admin?" — both options are concrete
+ * steps the turn could have executed itself (finding_add and http_request are
+ * BOTH auto-approved on the main channel), so the question spent a whole
+ * round-trip asking permission to do work that was one tool call away.
+ *
+ * The prompts already forbid this (SWEEP full + SWEEP MENYELURUH slim, both
+ * "JANGAN menutup giliran pentest dengan pertanyaan pilihan arah") — but a
+ * hint alone does not hold (2026-09-21 lesson), so this is the deterministic
+ * two-sided counterpart.
+ *
+ * Fires ONLY when ALL of these hold:
+ *   1. the ask was pentest work (isPentestAsk — same gate as link-capture);
+ *   2. the model's OWN prose ends with a direction question ("Mau aku X atau
+ *      Y?" / "dari mana dulu?") — quoted from its own words in the note;
+ *   3. real testing/reading work ran THIS turn (any executed PROBE or
+ *      READ_TOUCH tool, current turn only) — without this the question is
+ *      often the CORRECT move (asking for truly missing input), and a store
+ *      read like finding_list does not qualify;
+ *   4. no next-step commitment exists in the prose ("selanjutnya aku akan…") —
+ *      if the model already committed to the concrete next step, there is no
+ *      deflection to accuse;
+ *   5. the question carries an authorisation gate ("RoE melarang", "kalau
+ *      diizinkan", "kecuali dicatat") — gates decide scope/permission, not
+ *      direction, and asking them is correct.
+ *
+ * Silent on: honest-admission turns (no work ran), report/registry/format
+ * questions (user-preference asks, not direction deflection), and any turn
+ * whose last line already commits to the next concrete action. Pure — tested
+ * both ways.
+ */
+/**
+ * The ask of the CURRENT turn: everything after the last user message — on the
+ * confirm path, the proposal turn and the follow-up are both the same ask, so
+ * the LAST user message is the right anchor. Pure.
+ */
+export function lastUserAsk(messages: ChatMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "user" && m.content) return messageText(m.content);
+  }
+  return "";
+}
+
+export const PENTEST_DIRECTION_Q_RE =
+  /(?:^|[.!?]\s+|\n)\s*(?:mas )?(?:gimana|mau|kira-kira|bagaimana|apakah)[^?.!\n]{0,160}\?\s*(?:🌸|🌼|✨|💕)?\s*$/i;
+
+/** An X-or-Y choice question ("verifikasi bagian lain atau lanjut ke target
+ * berikutnya?") is a direction question even when the clause does not OPEN
+ * with a question word — live 2026-09-27 23:45: "Kabari ya, apakah kamu mau…
+ * atau lanjut…? 🌸" slipped through because the opener word sat mid-clause. */
+export const PENTEST_CHOICE_Q_RE =
+  /\b(?:mau|ingin|akan)[^?.!\n]{0,80}\b(?:atau|or)\b[^?.!\n]{0,80}\?\s*(?:🌸|🌼|✨|💕)?\s*$/i;
+
+export const PENTEST_GATE_Q_RE =
+  /\b(?:roe|izin|diizinkan|dilarang|kalau\s+diizinkan|kalau\s+boleh|jika\s+diizinkan|autoriz|authoriz|dicatat\s+(?:dulu|ke|di)|masih\s+di\s+scope)\b/i;
+
+export const PENTEST_NEXT_STEP_RE =
+  /\b(?:selanjutnya|langkah\s+berikutnya|akan\s+aku|aku\s+akan|mau\s+aku\s+(?:jalan|eksekusi|uji|catat|lanjut)|tinggal\s+bilang\s+\"?(?:lanjut|jalan)\"?)\b[^?.!\n]{0,80}(?:\.|!|\n|$)/i;
+
+export function pentestDirectionQuestionNote(
+  messages: ChatMessage[],
+  text: string,
+  executedCalls?: Array<{ name: string; executed: boolean }>
+): string {
+  const t = String(text || "").replace(/\*\*|__/g, " ").trim();
+  if (!t) return "";
+  if (!isPentestAsk(lastUserAsk(messages))) return "";
+  if (!PENTEST_DIRECTION_Q_RE.test(t) && !PENTEST_CHOICE_Q_RE.test(t)) return "";
+  // A permission/authorisation gate is a legitimate question — never deflection.
+  if (PENTEST_GATE_Q_RE.test(t)) return "";
+  // A question about WHERE TO SAVE / report format is user preference, not a
+  // direction question about which attack to run next.
+  if (/\b(?:mau\s+disimpan|disimpan\s+ke\s+mana|format\s+laporan)\b/i.test(t)) return "";
+  // Already committed to the next concrete step → no deflection.
+  if (PENTEST_NEXT_STEP_RE.test(t)) return "";
+  // Real testing/reading work must have run THIS turn — otherwise asking for
+  // direction is often the correct move (nothing to build on yet).
+  const ran = (executedCalls ?? []).filter((c) => c.executed && (PROBE_TOOLS.has(c.name) || READ_TOUCH_TOOLS.has(c.name)));
+  if (!ran.length) return "";
+  const q = (PENTEST_DIRECTION_Q_RE.exec(t)?.[0] ?? PENTEST_CHOICE_Q_RE.exec(t)?.[0] ?? "")
+    .replace(/\s+/g, " ").replace(/^[.!?\s]+/, "").trim().slice(0, 90);
+  return ` (Catatan jujur: pertanyaan "${q}" di atas menunda pekerjaan yang bisa langsung dijalankan — catat temuan dengan finding_add, uji endpoint berikutnya dengan http_request, keduanya berjalan otomatis di kanal ini. Bilang "lanjut" dan aku langsung eksekusi langkah berikutnya tanpa menanya lagi.)`;
+}
+
+/** Reads that still "touch" an endpoint (vs store reads like finding_list that
+ * never leave the process). Used for the zero-contact rule below. */
 const READ_TOUCH_TOOLS = new Set([
   "http_request", "fetch_url", "browser_open", "browser_snapshot",
   "browser_navigate", "browser_click", "browser_type", "cdp_request",
@@ -3813,16 +4543,55 @@ function toolArgsContain(args: unknown, path: string): boolean {
   }
 }
 
-export function endpointTriageNote(
+/**
+ * Has proving work been done for the host this turn is about?
+ *
+ * `true` / `false` / `null` (unknown) — the last of which is what an unreadable
+ * store yields, and it must never collapse into `false`. Memoised per host for
+ * the life of the process: two guards in one turn ask the same question, and
+ * the answer cannot change between them.
+ */
+const pastWorkCache = new Map<string, boolean | null>();
+async function pastWorkProvenFor(messages: ChatMessage[], rawUser: unknown): Promise<boolean | null> {
+  try {
+    const { claimAuditHost, liveReaders } = await import("./claimAuditReaders");
+    const { buildAuditFacts } = await import("./claimAudit");
+    const host = claimAuditHost(messages, "");
+    if (!host) return null;
+    const hit = pastWorkCache.get(host);
+    if (hit !== undefined) return hit;
+    const facts = buildAuditFacts(host, liveReaders(rawUser, host), "");
+    pastWorkCache.set(host, facts.pastWorkProven);
+    return facts.pastWorkProven;
+  } catch {
+    return null;
+  }
+}
+
+/** Which of endpointTriageNote's two SHAPES fired. "accusation" = the note
+ *  contradicts something the model ASSERTED ("klaim di atas … tidak didukung");
+ *  "caveat" = it only states what is known so far ("baru dibaca, belum diuji").
+ *  The guard knows which branch it took, so the honesty-stability scorecard can
+ *  separate an accusation from a caveat by FACT instead of matching our own note
+ *  text with a regex — the whack-a-mole class that produced four honesty bugs in
+ *  a week, and that let a real missed fabrication hide behind a caveat. */
+export type TriageKind = "" | "accusation" | "caveat";
+export interface TriageVerdict {
+  note: string;
+  kind: TriageKind;
+}
+
+export function endpointTriageVerdict(
   messages: ChatMessage[],
   text: string,
-  ledger?: Array<{ name: string; args: string; executed: boolean; prior?: boolean }>
-): string {
+  ledger?: Array<{ name: string; args: string; executed: boolean; prior?: boolean }>,
+  opts: { audit?: { pastWorkProven?: boolean | null } } = {}
+): TriageVerdict {
   const t = (text || "").trim();
-  if (!t) return "";
+  if (!t) return { note: "", kind: "" };
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   const userText = lastUser?.content ? messageText(lastUser.content) : "";
-  if (!userText) return "";
+  if (!userText) return { note: "", kind: "" };
   // Drill 2026-09-24: a slash-group in the ASK ITSELF ("berapa endpoint /
   // request / temuan?" or "(http_request/poc_verify)") was mined as a fake
   // path ("/request/temuan") and surfaced in the honest note. Require the
@@ -3862,7 +4631,7 @@ export function endpointTriageNote(
       })
     ),
   ];
-  if (!paths.length) return "";
+  if (!paths.length) return { note: "", kind: "" };
   // Ask classification comes from ./turnGate (URL-stripped + one test-verb
   // vocabulary). Live 2026-09-25 10:31: this gate matched the RAW text, so "cek"
   // inside the target URL /cek-nik satisfied EXPLICIT_LIST_RE while the local
@@ -3871,9 +4640,9 @@ export function endpointTriageNote(
   // with ZERO probes shipped without an honesty note. Now a pure list ask
   // ("temuan apa aja di /api/x") carves out via the shared predicate, while a
   // test ask — even one whose path contains a list word — proceeds to triage.
-  if (isListAsk(userText, { askGate: true })) return "";
-  if (!isEndpointTestAsk(userText)) return "";
-  if (!ENDPOINT_CLAIM_RE.test(t) && !hasCompletionClaim(t)) return "";
+  if (isListAsk(userText, { askGate: true })) return { note: "", kind: "" };
+  if (!isEndpointTestAsk(userText)) return { note: "", kind: "" };
+  if (!ENDPOINT_CLAIM_RE.test(t) && !hasCompletionClaim(t)) return { note: "", kind: "" };
   const covered = new Set<string>();
   const touched = new Set<string>();
   // TURN SCOPE, not history scope. Live 2026-09-25 11:37: the channel handed us
@@ -3952,7 +4721,7 @@ export function endpointTriageNote(
   // from stale context — live 2026-09-23 11:22, zero tool calls).
   const zeroContact = paths.filter((p) => !touched.has(p)).slice(0, 2);
   if (zeroContact.length) {
-    return ` (Catatan jujur: giliran ini tidak menyentuh ${zeroContact.join(" + ")} sama sekali — klaim di atas dari konteks lama, bukan hasil pengujian. Bilang "uji ${zeroContact[0]}" untuk pengujian langsung.)`;
+    return { note: ` (Catatan jujur: giliran ini tidak menyentuh ${zeroContact.join(" + ")} sama sekali — klaim di atas dari konteks lama, bukan hasil pengujian. Bilang "uji ${zeroContact[0]}" untuk pengujian langsung.)`, kind: "accusation" };
   }
   // Completion claims without probes (live 2026-09-23 17:00: "sudah selesai
   // memindai dan menguji" over 9 plain GETs + zero probes). Reads don't count.
@@ -3961,32 +4730,35 @@ export function endpointTriageNote(
   // (it names the unsupported claim and offers the test), and it stops the
   // softer "tidak ada celah" wording from shadowing it.
   const untested = paths.filter((p) => !covered.has(p)).slice(0, 2);
-  if (untested.length && hasCompletionClaim(t)) {
-    return ` (Catatan jujur: klaim "sudah menguji" di atas belum didukung pengujian — tidak ada probe yang berjalan di giliran ini, hanya baca + temuan lama. Bilang "uji ${untested[0]}" untuk pengujian sungguhan.)`;
+  // A completion claim that is explicitly attributed to PAST work is not a
+  // claim about this turn, so "no probe ran this turn" does not contradict it.
+  //
+  // Found by the stability corpus on 2026-09-27, not by reading: the honest
+  // 23:38 turn said "pentest … sudah aku jalankan sebelumnya" and this guard
+  // answered "tidak ada probe yang berjalan di giliran ini" — technically true
+  // and still an accusation, because six proving runs for that host were on
+  // record. The fact now decides, as it does for the verification guard.
+  if (opts.audit?.pastWorkProven === true && CV.TIME_ATTRIBUTION_RE.test(t)) {
+    // fall through to the absence branch, which does not accuse a past claim
+  } else if (untested.length && hasCompletionClaim(t)) {
+    return { note: ` (Catatan jujur: klaim "sudah menguji" di atas belum didukung pengujian — tidak ada probe yang berjalan di giliran ini, hanya baca + temuan lama. Bilang "uji ${untested[0]}" untuk pengujian sungguhan.)`, kind: "accusation" };
   }
-  // Absence claims need probe evidence (live 2026-09-23 11:41: "tidak ada
-  // celah yang terlihat" dari membaca HTML saja — absence of evidence bukan
-  // evidence of absence). Reads don't count; only a probe silences this.
-  // The bare-safety form ("sudah aman", "aman dari SQL injection", "tidak
-  // rentan") is included: it is the SAME absence claim in softer words, and
-  // without it a single GET + "endpoint sudah aman" sailed through.
-  const absenceClaim =
-    /(tidak ada|tidak ditemukan|tidak terlihat|belum ditemukan).{0,50}(celah|temuan|kerentanan|vuln\b|rentan)|(aman|bersih).{0,30}(celah|temuan|vuln|kerentanan)/i.test(
-      t
-    ) ||
-    /\b(sudah|terlihat|tampak)?\s*(aman|bersih)\b/i.test(t) ||
-    /\b(tidak\s+(rentan|berbahaya|bermasalah|vulnerable))\b/i.test(t) ||
-    /\baman\s+dari\b/i.test(t);
   const unprobed = paths.filter((p) => !covered.has(p)).slice(0, 2);
-  if (absenceClaim && unprobed.length) {
-    return ` (Catatan jujur: "tidak ada celah" di atas hanya dari membaca halaman — belum ada pengujian auth/injeksi di ${unprobed.join(" + ")}. Bilang "uji ${unprobed[0]}" untuk pembuktian.)`;
+  if (absenceSafetyClaim(t) && unprobed.length) {
+    // NOTE (live 2026-09-27 11:29): this note used to hardcode the quote
+    // `"tidak ada celah"` while the reply had actually said the OPPOSITE
+    // ("punya tujuh celah keamanan serius") — the guard was inventing a claim
+    // and putting it in the model's mouth, which is the same fabrication the
+    // layer exists to prevent, just aimed the other way. A guard that cannot
+    // quote must therefore not quote: it describes what it found instead.
+    return { note: ` (Catatan jujur: di atas itu baru baca halaman — belum ada pengujian auth/injeksi di ${unprobed.join(" + ")}. Bilang "uji ${unprobed[0]}" untuk pembuktian.)`, kind: "accusation" };
   }
   // Read-only contact (fetch/dump) while the reply presents old findings.
   const missing = paths.filter((p) => !covered.has(p)).slice(0, 2);
   if (missing.length && /\b\d+\s+temuan\b|\[(CRITICAL|HIGH|MEDIUM|LOW)\b/i.test(t)) {
-    return ` (Catatan jujur: ${missing.join(" + ")} baru dibaca, belum diuji kerentanannya di giliran ini — di atas itu temuan lama + isi halaman. Bilang "uji ${missing[0]}" untuk pengujian auth/injeksi langsung.)`;
+    return { note: ` (Catatan jujur: ${missing.join(" + ")} baru dibaca, belum diuji kerentanannya di giliran ini — di atas itu temuan lama + isi halaman. Bilang "uji ${missing[0]}" untuk pengujian auth/injeksi langsung.)`, kind: "caveat" };
   }
-  return "";
+  return { note: "", kind: "" };
 }
 
 /** Countable testing-action verbs: a NUMBER next to one of these claims how * many testing actions were performed ("kucek 5 endpoint", "12 request
@@ -4069,6 +4841,20 @@ export function numericClaimSuffix(
     // rarely enumerates several totals at once).
     (claimed.length >= 2 && /\b(pengujian|pentest|temuan|lab|uji|tes|scan|audit)\b/i.test(t));
   if (!hasOwnAction) return "";
+  // A count of FINDINGS is a statement about the store, not a count of testing
+  // actions — and this guard cannot verify it either way, because it has no idea
+  // how many findings exist. Live 2026-09-27 01:20: "Total 7 temuan dari
+  // CRITICAL (2), HIGH (3), MEDIUM (2)" is an accurate report summary, it trips
+  // the ≥2-counts recap heuristic, and the note accuses the model of inventing
+  // testing it never claimed.
+  //
+  // Carve-out is deliberately all-or-nothing: it applies only when EVERY claimed
+  // noun is a store noun, so "5 endpoint dan 3 temuan" still fires on the
+  // endpoint count, which IS an action claim. Verifying the number itself belongs
+  // to a store-backed guard (see pocCoverageClaimNote); until one exists for
+  // plain counts, saying nothing beats accusing a true statement.
+  const STORE_NOUN = new Set(["temuan", "celah", "kerentanan", "vuln", "vulnerabilit", "vulnerabilitas", "vulnerability", "vulnerabilities"]);
+  if (claimed.every((c) => STORE_NOUN.has(c.noun))) return "";
   // Honest admissions suppress the note.
   if (/\b(belum|nggak|tidak|gagal|batal|skip)\b[^.\n]{0,40}\b(eksekusi|jalan|jalanin|uji|tes|scan|kirim)\b/i.test(t)) return "";
   // Real testing work this turn? Any executed PROBE or read-touch tool silences
@@ -4243,6 +5029,7 @@ const CHAIN_DEADLINE_MS = 30_000;
 
 export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "report_generate", "report_save", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "content_discover", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "exec_write", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner", "github_osint", "har_import", "memory"];
 
+
 /**
  * Tool-budget honesty hint, per candidate provider (live 2026-09-21: on 9router
  * the model kept attempting lab_fetch/security_hunt first — advertised by the
@@ -4256,7 +5043,7 @@ function toolBudgetHint(url: string): string {
   const missingTools = HINT_UNDELIVERED.filter((n) => !deliveredTools.some((t) => t.function.name === n));
   if (!missingTools.length) return "";
   return (
-    `\n\nTOOL BUDGET (provider ini): hanya ${deliveredTools.length} tool yang tersedia. TIDAK tersedia di sini: ${missingTools.join(", ")}. JANGAN memanggilnya — rencanakan dengan tool yang ada (pentest_resources, pentest_scan, http_request, auth_setup, poc_verify, ato_prove, finding_add, finding_list, workflow_fuzz, prompt_injection_hunt, race_attack, graphql_hunt) dan katakan jujur kalau sebuah tahap butuh provider lain. Untuk permintaan pentest/pengujian: LANGSUNG kerjakan alurnya dengan tool yang tersedia mulai giliran ini — jangan minta izin, jangan menawarkan alternatif dulu. SWEEP MENYELURUH: kalau user minta pentest semua bagian/full/menyeluruh, JANGAN bertanya bagian mana yang diuji duluan (arahan sudah jelas) — lakukan sendiri secara sistematis: enumerasi endpoint dari halaman/JS yang ter-fetch, uji satu per satu dengan http_request (+ poc_verify untuk yang mencurigakan), catat tiap temuan dengan finding_add, lanjut ke endpoint berikutnya sampai semua teruji; bila target_brain ter-delivery di provider ini, cek gap via action=coverage target=<host>, bila tidak pakai finding_list + hunt_log sebagai konteks. JANGAN menutup giliran pentest dengan pertanyaan pilihan arah ("mau lanjut via X atau Y?") bila langkah konkret tersedia — langsung EKSEKUSI langkah pertama dengan tool yang ada; pertanyaan hanya bila benar-benar butuh input yang tidak kumiliki (kredensial, pilihan target, izin). KONTEKS TEMUAN: sebelum menguji target, panggil finding_list target=<host> — bila findings target itu sudah tercatat, pakai sebagai titik mulai dan sebut dengan benar; DILARANG mengklaim "endpoint/API belum ketemu" bila findings store sudah berisi endpoint itu. Sebut jumlah temuan HANYA dari output finding_list/isi laporan (laporan menggabungkan temuan lama + baru), bukan dari ingatan. Pengujian endpoint pakai http_request — browser_open hanya untuk melihat halaman, jangan loop untuk pengujian. PENGECUALIAN PDF: kalau user minta PDF laporan ("buatkan pdf", "laporan pdf"), TERIMA permintaannya dan jawab positif — sistem provider ini tetap membuat PDF-nya secara otomatis dari temuan tercatat; JANGAN bilang fitur PDF tidak aktif, JANGAN tawarkan file markdown sebagai pengganti, dan JANGAN berkata akan membuatnya "nanti/segera setelah ada temuan" — kalau sistem membuatnya, PDF-nya SUDAH ada saat balasan ini terkirim. PDF adalah PELAPORAN, bukan pengganti pengujian: setelah PDF dibuat, bila user minta full/menyeluruh, LANJUTKAN sweep http_request + finding_add ke endpoint berikutnya — jangan berhenti menguji hanya karena PDF sudah tercetak. Bicara LANGSUNG ke user ("Mas Naufal, ini statusnya…"), bukan menulis instruksi tentang dia (bukan "Beri tahu Mas Naufal …").`
+    `\n\nTOOL BUDGET (provider ini): hanya ${deliveredTools.length} tool yang tersedia. TIDAK tersedia di sini: ${missingTools.join(", ")}. JANGAN memanggilnya — rencanakan dengan tool yang ada (pentest_resources, pentest_scan, http_request, auth_setup, poc_verify, ato_prove, finding_add, finding_list, workflow_fuzz, prompt_injection_hunt, race_attack, graphql_hunt) dan katakan jujur kalau sebuah tahap butuh provider lain. Untuk permintaan pentest/pengujian: LANGSUNG kerjakan alurnya dengan tool yang tersedia mulai giliran ini — jangan minta izin, jangan menawarkan alternatif dulu. SWEEP MENYELURUH: kalau user minta pentest semua bagian/full/menyeluruh, JANGAN bertanya bagian mana yang diuji duluan (arahan sudah jelas) — lakukan sendiri secara sistematis: enumerasi endpoint dari halaman/JS yang ter-fetch, uji satu per satu dengan http_request (+ poc_verify untuk yang mencurigakan), catat tiap temuan dengan finding_add, lanjut ke endpoint berikutnya sampai semua teruji; bila target_brain ter-delivery di provider ini, cek gap via action=coverage target=<host>, bila tidak pakai finding_list + hunt_log sebagai konteks. JANGAN menutup giliran pentest dengan pertanyaan pilihan arah ("mau lanjut via X atau Y?") bila langkah konkret tersedia — langsung EKSEKUSI langkah pertama dengan tool yang ada; pertanyaan hanya bila benar-benar butuh input yang tidak kumiliki (kredensial, pilihan target, izin). KONTEKS TEMUAN: sebelum menguji target, panggil finding_list target=<host> — bila findings target itu sudah tercatat, pakai sebagai titik mulai dan sebut dengan benar; DILARANG mengklaim "endpoint/API belum ketemu" bila findings store sudah berisi endpoint itu. Sebut jumlah temuan HANYA dari output finding_list/isi laporan (laporan menggabungkan temuan lama + baru), bukan dari ingatan. Pengujian endpoint pakai http_request — browser_open hanya untuk melihat halaman, jangan loop untuk pengujian. PENGECUALIAN PDF: kalau user minta PDF laporan ("buatkan pdf", "laporan pdf"), TERIMA permintaannya dan jawab positif — sistem provider ini tetap membuat PDF-nya secara otomatis dari temuan tercatat; JANGAN bilang fitur PDF tidak aktif, JANGAN tawarkan file markdown sebagai pengganti, dan JANGAN berkata akan membuatnya "nanti/segera setelah ada temuan" — kalau sistem membuatnya, PDF-nya SUDAH ada saat balasan ini terkirim. PDF adalah PELAPORAN, bukan pengganti pengujian: setelah PDF dibuat, bila user minta full/menyeluruh, LANJUTKAN sweep http_request + finding_add ke endpoint berikutnya — jangan berhenti menguji hanya karena PDF sudah tercetak. Bicara LANGSUNG ke user ("Mas Naufal, ini statusnya…"), bukan menulis instruksi tentang dia (bukan "Beri tahu Mas Naufal …").${SCOPE_REMEDY}`
   );
 }
 
@@ -5067,11 +5854,44 @@ async function runAssistantTurnImpl(opts: {
     } catch {
       /* fail-open: never strip prose when the existence check cannot run */
     }
+    // PDF twin of the .md tool receipt (live drill 2026-09-27, A5): when
+    // `report_pdf` ran AS A TOOL — the common path — nothing appended a file
+    // receipt, so the user received a PDF they were never told about and the
+    // fact-based contract "file ada → kwitansi deterministik" broke. Runs AFTER
+    // stripAbsentReportFiles: a fabricated prose name has already been removed,
+    // a real one suppresses the receipt (the file is already named), and the
+    // deterministic delivery branch below appends its own receipt when the tool
+    // did NOT run. Existence is checked against the real reports dir — a
+    // receipt is never invented for a file that is not on disk.
+    const pdfToolFile = turnRanTool(messages, "report_pdf")
+      ? reportFileFromTurn(messages, "\\.pdf")
+      : "";
+    if (pdfToolFile && !/report-[0-9A-Za-z:.()+_-]+\.pdf/i.test(text)) {
+      try {
+        const { userDataRoot } = await import("./users");
+        const { existsSync } = await import("node:fs");
+        const { join } = await import("node:path");
+        const udir = join(userDataRoot(), String(opts.user ?? "shared"), "reports");
+        if (existsSync(join(udir, pdfToolFile))) {
+          text = `${text} (📎 PDF-nya sudah kubuat: \`${pdfToolFile}\` — cek folder laporanmu ya.)`;
+        }
+      } catch {
+        /* fail-open: an unverifiable receipt must not be invented */
+      }
+    }
     const askedMd =
       !!ask &&
       /\bmarkdown\b|\bmd\b|laporan\s+md|report\s+md|file\s+md|sesuai\s+format\s+markdown/i.test(ask) &&
       !askedPdf;
     const canDeliver = !needsConfirmation?.length && !opts.autoDenyRisky;
+    // Reverse the model's inverted order (live kyzuch 17:01): report_pdf refused
+    // EMPTY first, finding_add succeeded after — at turn end the finding exists
+    // and the PDF would render, so re-render once instead of shipping nothing.
+    // Must run BEFORE the deterministic delivery branch (that one only fires
+    // when the tool did NOT run) and needs the SAME canDeliver gate: never
+    // execute a write-tool side effect in a headless/pending turn.
+    const retryDelivery = canDeliver ? await retryEmptyReportDelivery(messages, opts.user, channel) : "";
+    if (retryDelivery) text = `${text}${retryDelivery}`;
     const mdDelivered =
       askedMd && canDeliver && !turnRanTool(messages, "report_save")
         ? await tryDeliverReportMarkdown(messages, opts.user, channel, text)
@@ -5080,9 +5900,22 @@ async function runAssistantTurnImpl(opts: {
       askedPdf && canDeliver && !turnRanTool(messages, "report_pdf")
         ? await tryDeliverReportPdf(messages, opts.user, channel)
         : mdDelivered;
+    // Residual A5 (live drill 2026-09-27): "Udah aku buatkan laporan PDF-nya,
+    // tapi karena belum ada temuan…" — a creation claim sitting NEXT to the
+    // honest EMPTY_REPORT refusal. pdfDeliverableSuffix needs the tool ABSENT
+    // to accuse, so it correctly stays silent here; this guard pairs the claim
+    // with the refusal result and corrects it. Runs before the delivery
+    // branches so a real receipt still lands after the note.
+    if (!needsConfirmation?.length) {
+      const emptyNote = emptyReportClaimNote(messages, text, { deliveredThisTurn: !!retryDelivery });
+      if (emptyNote) text = `${text}${emptyNote}`;
+    }
     // A real markdown/PDF receipt makes any "it's recorded above" claim moot.
+    // `retryDelivery` is a REAL file too — the A5 note must not accuse the
+    // system's own corrective re-render (the tool-result still says EMPTY_REPORT
+    // in the window, but the retry beat it).
     const inlineNote = inlineDeliveryClaimNote(text, {
-      deliveredFile: mdDelivered ? "md" : delivered ? "pdf" : "",
+      deliveredFile: retryDelivery ? (retryDelivery.includes(".md") ? "md" : "pdf") : mdDelivered ? "md" : delivered ? "pdf" : "",
     });
     if (inlineNote) text = `${text}${inlineNote}`;
     // Cross-format pointer: a markdown request answered with a .pdf path (or the
@@ -5109,7 +5942,36 @@ async function runAssistantTurnImpl(opts: {
       // 11:13: the IDOR on /api/cek-nik vanished from the report).
       const unrecorded = unrecordedFindingNote(messages, text, { rawUser: opts.user });
       if (unrecorded) text = `${text}${unrecorded}`;
+      // Fires whether the PDF came from the tool or from deterministic delivery.
+      const provenance = reportProvenanceNote(messages, text);
+      if (provenance) text = `${text}${provenance}`;
+      const scope = reportScopeNote(reportTargetFromMessages(messages) || "", text);
+      if (scope) text = `${text}${scope}`;
+      // PoC-coverage claim: "semua sudah divalidasi via poc_verify" decided by
+      // the store, not by recognising the verb (live 2026-09-27 01:20).
+      try {
+        const readers = await import("./claimAuditReaders");
+        const { buildAuditFacts } = await import("./claimAudit");
+        const hostNow = readers.claimAuditHost(messages, text);
+        if (hostNow) {
+          const f = buildAuditFacts(hostNow, readers.liveReaders(opts.user, hostNow), text);
+          const pocNote = readers.pocCoverageClaimNote(text, f);
+          if (pocNote) text = `${text}${pocNote}`;
+        }
+      } catch { /* an unreadable store must not cost the user their reply */ }
     }
+    // Report provenance + scope, OUTSIDE the delivery branches on purpose.
+    //
+    // Live 2026-09-27 01:08, the mistake this corrects: I had put both notes
+    // inside `if (delivered)`, which only runs when the DETERMINISTIC delivery
+    // made the file. When the model runs `report_pdf` as a tool — the common
+    // path, and the one this owner actually uses — `delivered` is empty and both
+    // notes were silently dead. Same bug one level up as the markdown path I had
+    // just fixed. A note that lives on one delivery route is a note that does not
+    // exist.
+    //
+    // `reportProvenanceNote` already stays silent when `finding_add` ran this
+    // turn, so it cannot fire on a run that really did record something.
     if (delivered && delivered === mdDelivered) {
       text = `${text}${delivered}`;
     } else if (delivered) {
@@ -5133,6 +5995,12 @@ async function runAssistantTurnImpl(opts: {
       } catch {
         mismatch = pdfFilenameMismatchNote(text, file);
       }
+      // Provenance belongs here too, not only on the markdown path. Live
+      // 2026-09-27 00:57: "Udah lengkap ya… ketemu tujuh celah" was answered with
+      // a PDF whose seven findings were all recorded on earlier days, and no note
+      // contradicted it — because reportProvenanceNote was only ever called from
+      // tryDeliverReportMarkdown. The PDF is the artifact this owner actually
+      // asks for, so it is the path that most needed it.
       text = `${text}${delivered}${mismatch}`;
     } else if (delivered === mdDelivered && mdDelivered) {
       // Markdown delivery already appended above; the PDF-only filename checks
@@ -5183,7 +6051,11 @@ async function runAssistantTurnImpl(opts: {
   // findings dump (+ raw page) while /login was never probed. Same gates as
   // the tool-run guard; pure, tested.
   if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
-    const triageNote = endpointTriageNote(messages, text, collector.executedCalls);
+    const triageNote = endpointTriageNote(messages, text, collector.executedCalls, {
+      // Same fact the verification guard gets: without it, a claim honestly
+      // attributed to earlier work is contradicted by "no probe ran this turn".
+      audit: { pastWorkProven: await pastWorkProvenFor(messages, opts.user) },
+    });
     if (triageNote) text = `${text}${triageNote}`;
     // Numeric-claim guard: counts of testing actions ("sudah kucek 5 endpoint",
     // "12 request terkirim") must be backed by real executed probes this turn
@@ -5242,6 +6114,40 @@ async function runAssistantTurnImpl(opts: {
       }
     } catch {
       // A store that cannot be read must never cost the user their reply.
+    }
+  }
+
+  // REFUSAL CONTRADICTION (live 2026-09-27 12:47): outside the facts block on
+  // purpose — it needs no store at all, and a store read failure must not cost
+  // the user this correction. The host comes from by-design target fields only.
+  if (text.trim() && !collector.verbatimHit) {
+    try {
+      const { claimAuditHost: hostFor } = await import("./claimAuditReaders");
+      const refusalNote = refusalContradictionNote(messages, text, hostFor(messages, text));
+      if (refusalNote) text = `${text}${refusalNote}`;
+    } catch {
+      // Never let the correction itself break a reply.
+    }
+  }
+
+  // PENTEST DIRECTION DEFLECTION (live 2026-09-27 22:11): a sweep that DID run
+  // must not end by asking which concrete step to take next — execute it.
+  // Before the receipt (guards never read the receipt as a claim).
+  if (text.trim() && !collector.verbatimHit && !needsConfirmation?.length) {
+    try {
+      const dirNote = pentestDirectionQuestionNote(messages, text, collector.executedCalls);
+      if (dirNote) text = `${text}${dirNote}`;
+    } catch {
+      // The correction must never cost the user their reply.
+    }
+    // UNRECORDED-FINDING claim (live 2026-09-27 22:52): "aku catat temuannya"
+    // with every finding_add attempt errored and none succeeded — the object
+    // claim class toolRunClaimSuffix cannot see (no tool name in prose).
+    try {
+      const recNote = unrecordedFindingClaimNote(messages, text, collector.executedCalls);
+      if (recNote) text = `${text}${recNote}`;
+    } catch {
+      /* best-effort */
     }
   }
 
@@ -5321,4 +6227,16 @@ export function isEffectivelyEmpty(text: string): boolean {
 
 export function stripNonLatinChars(text: string): string {
   return text.replace(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g, "");
+}
+
+/** String-only API for the turn pipeline's call sites. The verdict form above is
+ *  for consumers that need the intent (the honesty-stability corpus); both read
+ *  the same branch, so they cannot drift. */
+export function endpointTriageNote(
+  messages: ChatMessage[],
+  text: string,
+  ledger?: Array<{ name: string; args: string; executed: boolean; prior?: boolean }>,
+  opts: { audit?: { pastWorkProven?: boolean | null } } = {}
+): string {
+  return endpointTriageVerdict(messages, text, ledger, opts).note;
 }

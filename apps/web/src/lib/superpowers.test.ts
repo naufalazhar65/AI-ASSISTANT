@@ -78,9 +78,25 @@ describe("retest suite helpers", () => {
     expect(retestVerdict(c, { status: 403, body: "forbidden" })).toBe("patched");
     expect(retestVerdict(c, { status: 200, body: "other data" })).toBe("patched");
     expect(retestVerdict(c, { status: 0, body: "", error: "ECONNREFUSED" })).toBe("error");
-    // no assertions → 2xx counts as still-vulnerable signal
+    // no assertions → 2xx counts as still-vulnerable signal; anything else is
+    // UNPROVEN, never "patched" — a 404/403/500 is not evidence of safety
+    // (probe-retest-verdict.mts, 2026-09-27: the old binary reported 🟢
+    // "sudah dipatch" for cases that simply stopped existing).
     expect(retestVerdict({ expect_contains: "", expect_status: 0 }, { status: 200, body: "x" })).toBe("vulnerable");
-    expect(retestVerdict({ expect_contains: "", expect_status: 0 }, { status: 500, body: "x" })).toBe("patched");
+    expect(retestVerdict({ expect_contains: "", expect_status: 0 }, { status: 500, body: "x" })).toBe("unproven");
+    expect(retestVerdict({ expect_contains: "", expect_status: 0 }, { status: 404, body: "x" })).toBe("unproven");
+    expect(retestVerdict({ expect_contains: "", expect_status: 0 }, { status: 403, body: "x" })).toBe("unproven");
+    expect(retestVerdict({ expect_contains: "", expect_status: 0 }, { status: 301, body: "x" })).toBe("unproven");
+  });
+
+  it("retestVerdict: a non-2xx without assertions is never reported as patched", () => {
+    // The dangerous direction, locked separately: "patched" MUST require an
+    // assertion, because retestRun prints 🟢 "sudah dipatch" and retest_list
+    // shows the stored verdict afterwards.
+    for (const status of [204, 301, 400, 401, 403, 404, 410, 429, 500, 502, 503]) {
+      const v = retestVerdict({ expect_contains: "", expect_status: 0 }, { status, body: "" });
+      expect({ status, v: v === "patched" }).toEqual({ status, v: false });
+    }
   });
 });
 
