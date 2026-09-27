@@ -45,7 +45,7 @@ Discord gotcha (2026-09-03): a first-ever **DM** arrives as a bare packet that d
 ## Provider
 
 - Registered in `apps/web/src/lib/providers.ts` (`PROVIDER_SPECS` = public metadata; `resolveProvider` = server-only env mapping; **this module is client-imported for the Settings UI — never add node built-ins here**; server-only key sources live in `serverKeys.ts`).
-- `opencodego` — **OpenCode Go subscription** ($10/mo; FULL-WINDOW brain — sees all 324 tools. Was CURRENT DEFAULT BRAIN until 2026-09-21 when the monthly Go quota hit `429 GoUsageLimitError` (~15-day reset / top-up); since then `.env.local` points `DEFAULT_AI_PROVIDER`/`NEXT_PUBLIC_DEFAULT_AI_PROVIDER`/`TELEGRAM_PROVIDER`/`DISCORD_PROVIDER` = `9router` (see Session 2026-09-21 lanjutan §11; restore the 3 env vars when Go quota resets. Voice STT/TTS stays Groq). OpenAI-compatible gateway `https://opencode.ai/zen/go/v1/chat/completions`. Key: env `OPENCODEGO_API_KEY` **or** the opencode CLI login (`~/.local/share/opencode/auth.json` slot `opencode-go`, read by `serverKeys.ts ensureOpenCodeGoKey()` — wired in agent.ts, summarize.ts, consolidate.ts). Default model `deepseek-v4.1-flash` (`.env.local` `OPENCODEGO_MODEL`; spec default `glm-5.2`), 25 chat/completions models, LIVE-verified 2026-09-16 (glm-5.2/5.3/flash/5.1, kimi-k3/k2.7-code/k2.6, deepseek-v4.1-flash/v4-pro/v4-flash/v4-flash-vision-exp/flash, minimax-m3/m2.5, qwen3.8-max/flash, qwen3.7-max/plus, qwen3.6-plus, longcat-2.0, mimo-v2.5/-pro, hy4-preview, hy3, omen-alpha). NOT usable via chat/completions (listed by /models but the gateway rejects them): `grok-4.6`/`grok-4.5`/`kimi-k2.5`/`glm-5`/`qwen3.5-plus`/`mimo-v2-pro`/`mimo-v2-omni`/`hy3-preview` ("Model is unavailable"/not oa-compat), `gpt-5.6-luna`/`union-alpha`/`minimax-m2.7` (500), `muse-spark-*` (403 DataPolicyError — needs data-sharing consent).. **Go requirements: every request needs a stable `x-opencode-session` header** (derived from the user key in `runAgent`) **and a client User-Agent** (`mia-assistant/1.0`). Models list ≠ all gateway models (GPT-5.6 Luna = `/responses`, MiniMax/Qwen Max = Anthropic `/messages` — both unsupported by the agent loop).
+- `opencodego` — **OpenCode Go subscription** ($10/mo; FULL-WINDOW brain — sees all 334 tools. Was CURRENT DEFAULT BRAIN until 2026-09-21 when the monthly Go quota hit `429 GoUsageLimitError` (~15-day reset / top-up); since then `.env.local` points `DEFAULT_AI_PROVIDER`/`NEXT_PUBLIC_DEFAULT_AI_PROVIDER`/`TELEGRAM_PROVIDER`/`DISCORD_PROVIDER` = `9router` (see Session 2026-09-21 lanjutan §11; restore the 3 env vars when Go quota resets. Voice STT/TTS stays Groq). OpenAI-compatible gateway `https://opencode.ai/zen/go/v1/chat/completions`. Key: env `OPENCODEGO_API_KEY` **or** the opencode CLI login (`~/.local/share/opencode/auth.json` slot `opencode-go`, read by `serverKeys.ts ensureOpenCodeGoKey()` — wired in agent.ts, summarize.ts, consolidate.ts). Default model `deepseek-v4.1-flash` (`.env.local` `OPENCODEGO_MODEL`; spec default `glm-5.2`), 25 chat/completions models, LIVE-verified 2026-09-16 (glm-5.2/5.3/flash/5.1, kimi-k3/k2.7-code/k2.6, deepseek-v4.1-flash/v4-pro/v4-flash/v4-flash-vision-exp/flash, minimax-m3/m2.5, qwen3.8-max/flash, qwen3.7-max/plus, qwen3.6-plus, longcat-2.0, mimo-v2.5/-pro, hy4-preview, hy3, omen-alpha). NOT usable via chat/completions (listed by /models but the gateway rejects them): `grok-4.6`/`grok-4.5`/`kimi-k2.5`/`glm-5`/`qwen3.5-plus`/`mimo-v2-pro`/`mimo-v2-omni`/`hy3-preview` ("Model is unavailable"/not oa-compat), `gpt-5.6-luna`/`union-alpha`/`minimax-m2.7` (500), `muse-spark-*` (403 DataPolicyError — needs data-sharing consent).. **Go requirements: every request needs a stable `x-opencode-session` header** (derived from the user key in `runAgent`) **and a client User-Agent** (`mia-assistant/1.0`). Models list ≠ all gateway models (GPT-5.6 Luna = `/responses`, MiniMax/Qwen Max = Anthropic `/messages` — both unsupported by the agent loop).
 - `groq` — free tier, voice STT/TTS + optional text. `opencode` — local `opencode serve` native API. `9router` — `LLM_API_BASE/KEY/MODEL`. `openrouter` — `OPENROUTER_API_KEY`. `mock` — canned replies, zero network.
 - **Tool serialization gotcha (2026-09-07):** Mia's tool definitions carry a custom `risk` field; strict OpenAI-compatible gateways (OpenCode Go) REJECT extra fields on `tools[]` (`Extra inputs are not permitted, field: 'tools[N].risk'`) — `runOneCompletionOnce` serializes standard fields only (`type/function.name/description/parameters`). Groq/9router happened to tolerate it before.
 - `MAX_TOOL_ROUNDS = 5` (was 3) — code Q&A legitimately chains search→read→answer; round-budget exhaustion threw "too many tool rounds" (user-visible "Terjadi kendala").
@@ -98,7 +98,7 @@ Note: Next.js detected a stray `package-lock.json` in `$HOME`; `outputFileTracin
 - `executeTool(call, rawUser)` — parses JSON args, looks up `getTool(call.name)`, dispatches to `plugin.execute(args, { userKey, rawUser })`, returns `Error: ...` on unknown tool. Per-tool error handling lives inside each plugin's `execute` (preserving the old switch's exact per-case try/catch).
 - `registerTool(plugin)` — add/replace a tool at runtime (idempotent by name).
 
-**Adding a new tool = adding one `ToolPlugin` object** (definition + execute) to `toolRegistry` — no separate switch, no list to keep in sync, and it's automatically visible to the model (`TOOLS`) and dispatchable (`executeTool`). **276 tools currently registered** (verified 2026-09-15 via `getTOOLS().length`; the full list is derived from `toolRegistry` → `TOOLS`, never hand-kept). Note: module-level helper functions (webSearch, evaluateArithmetic, fileRead, fileWrite, fileEdit, saveNote, listNotes, deleteNote, scheduleReminder, fetchUrl, searchMemory, addAutomation, ...) are declared later in the file and referenced by the plugin closures — fine because they run at call-time. `verify.ts` still exercises `executeTool` for calculate/save_note/list_notes/delete_note/file_read/exec/write_file/edit_file/memory_get/browser/device/calendar (green). Kept server-side only (imports `node:fs`).
+**Adding a new tool = adding one `ToolPlugin` object** (definition + execute) to `toolRegistry` — no separate switch, no list to keep in sync, and it's automatically visible to the model (`TOOLS`) and dispatchable (`executeTool`). **276 tools registered as of 2026-09-15** (snapshot; the full list is derived from `toolRegistry` → `TOOLS`, never hand-kept). **Current total: 334** — read it from the registry, never from this sentence: `npx tsx -e 'import {getTOOLS} from "./apps/web/src/lib/tools"; console.log(getTOOLS().length)'`. Note: module-level helper functions (webSearch, evaluateArithmetic, fileRead, fileWrite, fileEdit, saveNote, listNotes, deleteNote, scheduleReminder, fetchUrl, searchMemory, addAutomation, ...) are declared later in the file and referenced by the plugin closures — fine because they run at call-time. `verify.ts` still exercises `executeTool` for calculate/save_note/list_notes/delete_note/file_read/exec/write_file/edit_file/memory_get/browser/device/calendar (green). Kept server-side only (imports `node:fs`).
 
 **Device nodes (Fase 4, 2026-09-04):** `apps/web/src/lib/devices.ts` — minimal safe macOS node, per-user paired devices at `.data/users/<user>/devices/devices.json` (max 10, via `DEVICE_SECRET` env, `pairDevice`/`listDevices`/`getDevice`). Tools: `device_list` (read, no secret), `device_exec`/`device_screenshot` (write, FR-014, capability-checked, allowlisted `ls/pwd/cat/git` etc., `screencapture -x` on Mac). `ensureLocalDevice` auto-creates `local-mac` when no secret. `POST /api/devices` for pairing, `GET` for listing. Verified `device: OK` in `verify.ts`.
 
@@ -2048,3 +2048,87 @@ kwitansi + EMPTY_REPORT sudah mencegah klaim itu jadi deliverable palsu.
 question) · verify EXIT=0 · smoke PASS · stability 0/0 · restart sehat (health
 ok, `logged_in_as`=1, 0×409, boot 00:12 > mtime, 9router pid 65183 utuh).
 **Belum commit — menunggu approval owner.**
+
+## Sesi 2026-09-28 — harness `.mts` ikut ter-typecheck + 2 commit (wrap-up 3 follow-up)
+
+Picking up the 3 open follow-ups from the pre-commit review.
+
+**Follow-up #2 — `export type { AuditFacts }`** (`honestyStability.ts`, +9 baris).
+`AuditFacts` hanya TER-DEKLARASI di `claimAudit` dan hanya terjangkau sebagai import
+alias, jadi `probe-guard-liveness.mts` gagal TS2459 ("declares it locally, but it is
+not exported"). Error itu **tidak pernah terlihat** selama `.mts` tidak di-typecheck:
+`isolatedModules` menghapus type-only import saat runtime, jadi probe hijau sementara
+`tsc` merah. Di-*re-export* supaya konsumen yang membaca store nyata cukup impor dari
+SATU modul. Bukti terukur: eksperimen tsconfig ulang → 23 → 22 error, `grep TS2459`
+→ nol.
+
+**Follow-up #3 — sweep `.data/users/`.** Yang reality, bukan daftar lama: user `verify_*`
+sudah hilang sendiri (verify.ts auto-clean). Yang tersisa dipilah setelah membaca
+`.env.local` (**ini yang membuatnya aman**): `TELEGRAM_USER=naufalazhar65` → folder itu
+data produksi Telegram, BUKAN artefak uji; `users.ts:20-22` memetakan alias
+`Zigen: naufalazhar652952` sehingga pemakaian live menulis ke folder owner. Backup
+`/tmp/mia-users-backup-20260928T012238.tar.gz` dulu, lalu 7 folder uji dihapus
+(`Zigen audit23 audit_brain_values audit_pi_sess t_summary u v`) dan 3 DIPERTAHANKAN
+(`naufalazhar652952` owner, `naufalazhar65` Telegram, `shared` fallback saat `opts.user`
+kosong). Pasca-sweep: registry `owner-labs.json` tetap 1 lab asli, `targetAllowed`/
+`isLabTarget` dicek dua arah (root lab ALLOW, `sub.<lab>` ALLOW, `example.com` DENY).
+Gotcha zsh yang terulang: `for v in $VAR` **tidak** word-split → harus array
+`victims=(...)` + `"${victims[@]}"`.
+
+**Follow-up #1 — include `"**/*.mts"` di `apps/web/tsconfig.json`.** 31 `drill-*.mts` +
+17 `probe-*.mts` **tidak pernah** di-typecheck. 22 error di 9 file, **nol di `src/**`**
+— itulah bukti aman untuk mendarat. Tiga di antaranya **defect nyata**:
+1. `cdpEval()` hanya menerima 2 argumen (`cdp.ts:119`) — tiga situs drill mengirim
+   "timeout" ke-3 yang **senyap dibuang**; argumen dihapus + komentar bahwa itu memang
+   tidak pernah timeout.
+2. `drill-abdoc-discord.mts` membaca `t2` sebelum di-assign (`var` di dalam cabang `if`
+   yang diandalkan untuk hoisting scope-fungsi) → `let t2: Turn | undefined` di-hoist.
+3. `ChatMessage["tool_calls"]` **sengaja** lebih ketat dari `ToolCall` (nested wajib +
+   `type` ada) sehingga drill butuh cast yang menyembunyikan mismatch → **satu pemilik
+   baru `gatewayToolCall()`** di sebelah `normalizeMessageToolCalls` (pure, tidak pernah
+   mutate, top-level→nested, selalu assignable) + 4 test, satu memastikan keduanya tidak
+   bisa berbeda. `drill-abdoc` juga memakai tipe asli, bukan tiruan.
+
+**Flake yang BUKAN dari perubahan ini (dilaporkan jujur):** `writeup.test.ts` gagal ~50%
+— dua `addFinding` mikrodetik apart berbagi segmen tengah id (`F-${Date.now().toString(36)}-…`)
+→ prefix terpotong jadi ambigu → `writeupText` benar menjawab "not found". Diperbaiki
+dengan menunggu batas `Date.now() % 1000 < 5`; 6/6 terisolasi + 4 full-suite hijau
+berturut. `git diff --name-only` tidak pernah menyentuh writeup/findings.
+
+**Gates:** typecheck 0 (**dengan include baru** — itu inti pekerjaannya) · lint 0 error ·
+**vitest 1110/1100 → 1110/1110** (68 file) · `verify.ts` **EXIT=0** · smoke honesty
+guards **87 ✓ / 0 ✗** · stability **0 tuduhan salah / 0 fabrikasi lolos** · liveness 3/3
+ALIVE (`surface-coverage` endpoints=12 · `poc-coverage` 17 temuan terbuka / 4 punya proof
+· `past-work` poc-runs=5) · secret scan baris baru 0 · restart sehat (health ok,
+`logged_in as`=1, 0×409, boot 01:15:10 > mtime agent.ts 01:05:27, 9router pid 65183 utuh).
+
+**Commit:** `f4a8ef3 chore(typecheck): typecheck the .mts drill/probe harness and fix
+what it surfaced` (14 file, +167/−38) → `382976e..f4a8ef3 main -> main`. Sebelumnya
+`382976e feat(pentest-lab): writable owner-lab registry + fact-based honesty guards`
+(34 file, +4716/−77).
+
+**Doc sync (permintaan owner: "update semua file doc").** Semua angka di-*verifikasi dari
+registry*, bukan dari dokumen: probe `/tmp/_truth.mts` mengimpor registry live → **334
+tool** (195 read / 137 write / 2 delete), `probe-core-pos.mts` → **CORE 128**
+(`UNRESOLVED=[]`, `DUPES=[]` — **naive regex menghitung 126** karena berhenti di `]`
+pertama, jadi probe inilah metode otoritatif), **85 playbook** (census: vulnerabilities 34,
+tooling 13, methodology 9, technologies 7, custom 5, analysis 4, cloud 4, frameworks 4,
+protocols 2, reconnaissance 2, scan_modes 1), **31 drill + 17 probe**, **28 guard**,
+**21 chain**. Yang diperbaiki: badge README `tools-298`→334 + `playbooks-84`→85, "full
+298-tool window"→334, "333 tools total"→334, "vitest (244 tests, 14 files)"→1110/68,
+daftar Mia-authored 9→**10** (tertambah `teamcity-cve-2026-63077`); `security-playbooks/
+README.md` "**75 packs**" + census salah → **85** + census terukur; `MIA_FEATURES.md` 3
+claim 333→334 + vitest 945→1110, **urutan §21 diperbaiki** (21.14 di atas 21.13 di atas
+21.12 → sekarang 21.12/13/14 benar) dan §21.15–21.17 baru (prover 2026-09-24, coverage
++ threat_model 2026-09-26, `lab_add` + guard facts 2026-09-27→28); `ROADMAP.md` 2 claim +
+`vulnerabilities ×33`→34 + 5 item checkbox baru; `SECURITY.md` 333→334, vitest 945→1110,
+`exploit_chain` **9→21 chain** (cross-check ke `CHAIN_TYPES` di kode) + §9.11 `lab_add` /
+§9.12 coverage+threat_model / §9.13 tabel guard facts; `PRD` `**Status:** Draft` → Fase
+0–5 selesai (terus di **dua** tempat — L6 dan blok §18 — ketahuan karena `assert
+count==1` GAGAL, bukan karena mata); `mia-features-tools-list.md` + scope `lab_add`;
+`labs/pentest/README.md` + bagian "Declaring your own lab (no env edit, no restart)".
+Tidak diubah: 3 dokumen yang **gitignored**, `.skills/capability-evolver/**` (vendored),
+~85 playbook (isi, bukan status), `persona/*.md` (data runtime), dan **seluruh entri
+sesi bertanggal** di `AGENTS.md` (catatan historis — hanya 2 klaim yang bersifat *live-state*
+yang dikoreksi: "sees all 324 tools" dan "276 tools **currently** registered" → diberi
+snapshot + perintah runtime untuk membaca angka sebenarnya).

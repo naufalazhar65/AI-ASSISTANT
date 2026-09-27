@@ -353,7 +353,39 @@ Lima modul pentest canggih yang terintegrasi ke `bounty_run` untuk alur one-comm
 
 **Live test (Discord, Netlify Lab):** 7 findings (2 Critical: SQLi + no-auth admin-data; 3 High: BOLA, header spoof, IDOR PII; 2 Medium: Stored XSS, missing headers) + **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
 
-**Total tools: 333** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **85 playbook** · **vitest 945** · 2026-09-19→22: `exploit_chain` (9 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt`, **`llm_hunt`**/**`mcp_hunt`** + honesty/delivery guards (lihat §9).
+**Total tools: 334** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **85 playbook** · **vitest 1110**
+
+### 9.11 Scope: lab milik owner bisa dideklarasi (`lab_add`, 2026-09-27)
+
+Aktifnya gate scope selalu bergantung pada **sumber kebenaran** yang bisa ditulis. Dulu satu-satunya sumber itu adalah konfigurasi `PENTEST_LAB_TARGETS` (env) — hanya bisa diubah operator + restart — sehingga tiap host baru milik owner berakhir pada siklus **tolak → owner edit env → restart**, dan karena tidak ada jalur tulis, model pun improvisasi.
+
+- **`lab_add`** (read/auto, wajib di jendela 9router-64) — mendeklarasikan host milik owner itu **sendiri sudah jadi otorisasi**; registry persisten di `.data/users/naufalazhar652952/owner-labs.json` (atomic, cap 40). Host dinormalisasi + subdomain covered; `isOwnLabTarget` (>40 scope gate) ikut menghormati registry.
+- **Registry SINGLE owner-scoped, bukan per-user** — `isOwnLabTarget` hanya menerima bare target string tanpa parameter user, jadi registry per-user akan buta di sebagian besar gate.
+- **`engagement_create` sekarang khusus klien / bug-bounty**, bukan lagi jalur untuk lab owner (prompt + guard `refusalContradictionNote` keduanya diarahkan ke `lab_add`).
+
+### 9.12 Cakupan pengujian: `coverage` + `threat_model` (2026-09-26)
+
+Menutup pertanyaan "**kelas risiko apa yang sudah diuji, dan bagaimana hunt-nya ditutup?**" — sebelumnya Mia mencatat *apa* yang ditemukan (findings) dan *di mana* sudah dicek (hunt_log/target_brain), tapi tidak keduanya.
+
+- **`coverage`** — ledger `surface × risk_area` dengan 5 outcome kanonik (`reported` / `no_issue_found` / `ruled_out` / `not_applicable` / `needs_follow_up`); **outcome penutup wajib evidence** (surface tidak boleh ditutup tanpa bukti). `coverageProgress` membuat klaim "pentest selesai" terukur.
+- **`threat_model`** — 4 section wajib per target (`overview` / `trust_boundaries` / `attack_surface` / `severity_calibration`); section calibration menahan inflasi severity.
+- Keduanya masuk laporan sebagai `## Coverage` / `## Threat model` **hanya bila datanya ada**.
+
+### 9.13 Guard kejujuran berbasis fakta (generasi ke-6, 2026-09-27 → 28)
+
+Kosakata adalah ruang tak terbatas dan regex adalah ruang terbatas — 4 bug dalam 20 menit adalah prediksi, bukan kejutan. Enam guard dipindahkan ke **lookup fakta** (audit log, store, ledger):
+
+| Guard | Menangkap |
+|---|---|
+| `refusalContradictionNote` | penolakan yang bertentangan dengan aktivitas tool sendiri di giliran yang sama |
+| `unrecordedFindingClaimNote` | klaim merekam temuan tanpa satu pun `finding_add` **berhasil** |
+| `pentestDirectionQuestionNote` | sweep yang selesai ditutup pertanyaan arah yang sebenarnya bisa dieksekusi turn itu juga |
+| `pocCoverageClaimNote` | klaim "sudah diverifikasi" tanpa bukti PoC di giliran ini |
+| `endpointTriageVerdict` | endpoint yang diklaim diuji padahal tak tersentuh (zero-contact) |
+| `emptyReportClaimNote` | klaim PDF dibuat padahal tool menolak `EMPTY_REPORT` |
+
+Regresinya dijaga **corpus berlabel** (`honestyStability.ts`, 25 fixture, 12 dari live turn nyata) yang hanya menilai dua kelas kegagalan — **tuduhan salah** dan **fabrikasi lolos** — dengan bukti per-fixture, plus probe dua arah (menyala pada pola fabrikasi, diam pada kalimat jujur).
+ · 2026-09-19→22: `exploit_chain` (21 chain, batch), Tier-1 suite (`race_attack`/`graphql_hunt`/`cache_poison_prover`/`xxe_chain`/`open_redirect_chain`/`ws_hunt`/`github_osint`/`har_import`), `workflow_fuzz`, `js_deobfuscate`, `prompt_injection_hunt`, **`llm_hunt`**/**`mcp_hunt`** + honesty/delivery guards (lihat §9).
 
 ---
 

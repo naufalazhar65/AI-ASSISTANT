@@ -3,7 +3,7 @@
 
 **Nama Produk:** Mia — Asisten AI Pribadi
 **Versi Dokumen:** 2.0 (revisi besar dari v1.0 "Real-Time Voice AI Assistant")
-**Status:** Draft
+**Status:** Fase 0–5 selesai (rincian per fase di `ROADMAP.md`) — fondasi + core assistant + channel Telegram/Discord + kapabilitas personal (tools, scheduling, memory, monitoring, insight mingguan, habits) + stabilitas/security (auth, audit, rate-limit, config, backup, observability) sudah dikerjakan. Sisa hanya integrasi opsional (WhatsApp/Email send, calendar/email/smart-home lebih dalam, Google Maps Places)
 **Jenis Dokumen:** Product Requirements Document
 **Target Platform:** Web (voice + text), Telegram Bot, Discord Bot, (future: channel lain)
 **Interaksi Utama:** Multi-channel — chat text real-time, voice conversation, task automation
@@ -411,7 +411,7 @@ THEN core tidak berubah
 
 ## 18. Document Status
 
-**Status:** Draft
+**Status:** Fase 0–5 selesai (rincian per fase di `ROADMAP.md`) — fondasi + core assistant + channel Telegram/Discord + kapabilitas personal (tools, scheduling, memory, monitoring, insight mingguan, habits) + stabilitas/security (auth, audit, rate-limit, config, backup, observability) sudah dikerjakan. Sisa hanya integrasi opsional (WhatsApp/Email send, calendar/email/smart-home lebih dalam, Google Maps Places)
 **Versi:** 2.0
 **Referensi:** `ROADMAP.md` (panduan fase pengembangan utama)
-**History:** v2.0 merupakan revisi besar dari `PRD_Real-Time_Voice_AI_Assistant.md` v1.0 (voice-first → personal multi-platform assistant).
+**History:** v2.0 merupakan revisi besar dari `PRD_Real-Time_Voice_AI_Assistant.md` v1.0 (voice-first → personal multi-platform assistant). v2.1 (2026-09-28) memperbarui baris Status saja — isi PRD tidak diubah; kondisi terkini dibaca dari `ROADMAP.md` / `MIA_FEATURES.md` / `AGENTS.md`.

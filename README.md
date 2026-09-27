@@ -4,8 +4,8 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-298-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
-[![Playbooks](https://img.shields.io/badge/security%20playbooks-84-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
+[![Tools](https://img.shields.io/badge/tools-334-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Playbooks](https://img.shields.io/badge/security%20playbooks-85-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 Mia (*she/her* 🌸) is a proactive personal assistant **and** an authorized
@@ -37,7 +37,7 @@ Defensive + **authorized** offensive work.
 - Recon / attack-surface mapping (passive + scoped active)
 - Autonomous **`security_hunt`** → LEADS, not raw dumps
 - OWASP Top 10:2025 / API Top 10:2023 / Bugcrowd VRT
-- 85 playbook packs (Strix-adapted + 9 Mia-authored: web-cache-poisoning, websocket-security, account-takeover, host-header-injection, idor-triage, browser-transport-tampering, authenticated-testing, authorization-matrix, reading-prover-results)
+- 85 playbook packs (Strix-adapted + 10 Mia-authored: teamcity-cve-2026-63077, web-cache-poisoning, websocket-security, account-takeover, host-header-injection, idor-triage, browser-transport-tampering, authenticated-testing, authorization-matrix, reading-prover-results)
 - Findings → CVSS/OWASP/CWE → SARIF/PDF report
 - Bug-bounty toolkit (OAST, BOLA, JWT, fuzz, evidence)
 
@@ -107,7 +107,7 @@ flowchart LR
 ```
 
 - **Core:** `lib/agent.ts` — one turn (`stream → tools → follow-up → auto-memory → reminder → mood → toolsForUrl cap`) for **every** channel.
-- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `9router` = current default brain (64-tool window); `opencodego` = full 298-tool window (quota exhausted 2026-09-21, returns after reset); `groq` = STT/TTS; `openrouter` = freeride fallback.
+- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `9router` = current default brain (64-tool window); `opencodego` = full 334-tool window (quota exhausted 2026-09-21, returns after reset); `groq` = STT/TTS; `openrouter` = freeride fallback.
 - **Adapter:** `channels/{telegram,discord}.ts` + `pushTarget.ts`. Discord DM needs `partials:[Channel,Message]` + `msg.fetch()`.
 - **State:** `packages/state-machine` — `IDLE → LISTENING → PROCESSING → SPEAKING → TURN_END/INTERRUPTED` (invalid transitions impossible).
 
@@ -117,7 +117,8 @@ flowchart LR
 
 Full guide, scope rules, and examples: **[SECURITY.md](./SECURITY.md)**.
 
-**Flow:** `engagement_create` (authorization + scope) → recon → `security_hunt` /
+**Flow:** `lab_add` (own host, declare-once) **or** `engagement_create` (client
+authorization + scope) → recon → `security_hunt` /
 `auth_hunt` / `api_hunt` → verify (counterevidence + severity-calibration) →
 `finding_add` → `report_pdf` / `finding_export` (CSV/JSON/SARIF).
 
@@ -145,7 +146,9 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 > ⚖️ **Scope:** only test what you own or are **authorized** for. Public
 > third-party sites are out of scope; bug-bounty programs are honored per their
 > policy (in-scope only, no automation unless RoE allows, no DoS / other users'
-> data). Active tools are scope-gated (`engagement_create` / lab).
+> data). Active tools are scope-gated: `lab_add` for **your own** hosts (declare
+> once, persisted in `owner-labs.json` — no env edit, no restart) and
+> `engagement_create` for **client / bug-bounty** work.
 
 ---
 
@@ -162,9 +165,9 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Productivity** | `add_task/list/complete/cancel/reschedule`, `remind_me`, `reminders_list`, `create_automation`, `plan_*` | Daily/heartbeat, internal planning board |
 | **Life** | `mood_log/recent`, `health`, `habit_log/stats`, `spotify_*`, `calendar_*`, `waze_route`, `weather`, `hotel_search`, `cinema_showtimes`, `train_search`, `bus_search` | Keyless travel data, Premium for playback |
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
-| **Superpower** | `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query` | Per-target memory, regression suite, N-role matrix, DOM XSS taint, disclosed patterns |
+| **Superpower** | `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query`, `coverage`, `threat_model` | Per-target memory, regression suite, N-role matrix, DOM XSS taint, disclosed patterns, **coverage ledger** (which risk class was tested + how it closed, evidence required), **threat model** (4 mandatory sections per target) |
 
-**333 tools total.** Full list derives from the registry — see
+**334 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---
@@ -225,7 +228,7 @@ npm run dev -w @voice/web        # http://localhost:3000
 npm run typecheck
 npm run lint
 npm run build
-npm test                         # vitest (244 tests, 14 files)
+npm test                         # vitest (1110 tests, 68 files)
 npx tsx apps/web/verify.ts       # offline proofs (tsx, must EXIT 0)
 npx tsx packages/state-machine/verify.ts
 ```

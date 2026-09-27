@@ -16,10 +16,10 @@ edits for Mia's workflow.
 ## Layout
 
 `<category>/<name>.md` with YAML frontmatter (`name`, `description`) + a
-Markdown body. **75 packs** across categories: `methodology` (6),
-`scan_modes` (1), `analysis` (4), `vulnerabilities` (28), `tooling` (13),
-`protocols` (2), `frameworks` (4), `technologies` (7), `cloud` (4),
-`reconnaissance` (2), `custom` (4).
+Markdown body. **85 packs** across 11 categories: `vulnerabilities` (34),
+`tooling` (13), `methodology` (9), `technologies` (7), `custom` (5),
+`analysis` (4), `cloud` (4), `frameworks` (4), `protocols` (2),
+`reconnaissance` (2), `scan_modes` (1).
 
 Add a pack by dropping a file with that frontmatter into the matching folder,
 then restart the server (packs are cached per process). `security_playbook`
