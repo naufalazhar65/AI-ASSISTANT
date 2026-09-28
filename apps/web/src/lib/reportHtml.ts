@@ -264,7 +264,40 @@ const CSS = `
   code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9pt; background: #f1f5f9; border-radius: 3px; padding: 0.3mm 1mm; }
   .blank { color: #94a3b8; }
   .meta { color: #64748b; font-size: 9.5pt; }
+  /* Expected-vs-Actual contrast panel (report checklist 4.2): the two lines a
+     reviewer reads to decide whether the behaviour is a bug at all, so they get
+     a side-by-side block instead of two more rows in the label grid. */
+  .ea { display: flex; gap: 3mm; }
+  .ea > div { flex: 1; border-left: 3px solid #cbd5e1; padding: 0 0 0 2.5mm; }
+  .ea > div.actual { border-left-color: #dc2626; }
+  .ea-h { font-size: 7.5pt; font-weight: 700; letter-spacing: .5pt; color: #64748b; margin-bottom: 1mm; }
+  .ea > div.actual .ea-h { color: #b91c1c; }
+  .ea-b { font-size: 9pt; line-height: 1.5; color: #1f2937; }
 `;
+
+/**
+ * Pull the Expected/Actual pair out of a finding's parsed rows. Pure.
+ *
+ * Returns null when either side is missing or blank, so the renderer OMITS the
+ * panel instead of printing an empty or half-filled contrast — the checklist
+ * forbids a placeholder, and a one-sided panel reads as if the tester only
+ * checked one thing.
+ */
+export function expectedActualPair(
+  rows: ReadonlyArray<{ label: string; value: string }>
+): { expected: string; actual: string } | null {
+  const pick = (want: string): string => {
+    const hit = rows.find((r) => {
+      const l = r.label.toLowerCase().replace(/[^a-z]+/g, "");
+      return l === want || l === `${want}behavior` || l.startsWith(want);
+    });
+    return (hit?.value || "").trim();
+  };
+  const expected = pick("expected");
+  const actual = pick("actual");
+  if (!expected || !actual) return null;
+  return { expected, actual };
+}
 
 /** Full print HTML for a report markdown document. Pure. */
 export function renderReportHtml(md: string, opts: { footer?: string } = {}): string {
@@ -320,7 +353,14 @@ export function renderReportHtml(md: string, opts: { footer?: string } = {}): st
       const katRow = f.rows.find((r) => ["kategori", "category"].includes(r.label.toLowerCase()));
       const tags = katRow ? sevTags(katRow.value) : [];
       const evRows = f.rows.filter((r) => r.label.toLowerCase().startsWith("evidence"));
-      const gridRows = f.rows.filter((r) => r !== katRow && !evRows.includes(r));
+      // Expected/Actual get their own contrast panel; keeping them in the grid as
+      // well would print the same text twice.
+      const ea = expectedActualPair(f.rows);
+      const eaRows = f.rows.filter((r) => {
+        const l = r.label.toLowerCase().replace(/[^a-z]+/g, "");
+        return l === "expected" || l === "expectedbehavior" || l === "actual" || l === "actualbehavior";
+      });
+      const gridRows = f.rows.filter((r) => r !== katRow && !evRows.includes(r) && !eaRows.includes(r));
       const cells = gridRows
         .map((r) => {
           const steps = r.label.toLowerCase().startsWith("steps") ? splitSteps(r.value) : null;
@@ -341,7 +381,10 @@ export function renderReportHtml(md: string, opts: { footer?: string } = {}): st
           return `<div class="panel"><div class="panel-head"><span class="ptitle">EVIDENCE</span>${chip}</div><pre>${esc(r.value)}</pre></div>`;
         })
         .join("");
-      return `<section class="finding sev-${f.sev}"><h2>${badge}${inline(esc(f.title))}${f.cvss ? `<span class="cvss">CVSS ${esc(f.cvss)}</span>` : ""}</h2>${tagBlock}<dl class="rows">${cells}</dl>${panels}</section>`;
+      const eaBlock = ea
+        ? `<div class="panel"><div class="panel-head"><span class="ptitle">EXPECTED vs ACTUAL</span></div><div class="ea"><div><div class="ea-h">EXPECTED</div><div class="ea-b">${inline(esc(ea.expected))}</div></div><div class="actual"><div class="ea-h">ACTUAL</div><div class="ea-b">${inline(esc(ea.actual))}</div></div></div></div>`
+        : "";
+      return `<section class="finding sev-${f.sev}"><h2>${badge}${inline(esc(f.title))}${f.cvss ? `<span class="cvss">CVSS ${esc(f.cvss)}</span>` : ""}</h2>${tagBlock}${eaBlock}<dl class="rows">${cells}</dl>${panels}</section>`;
     })
     .join("");
 

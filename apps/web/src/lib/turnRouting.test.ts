@@ -743,7 +743,14 @@ describe("ownerLabScopeLine (authorized hosts in-prompt)", () => {
       expect(line).not.toContain("/index.html");
       expect(line).toContain("test DIRECTLY");
       delete process.env[KEY];
-      expect(ownerLabScopeLine()).toBe("");
+      // Union contract: env ∪ owner registry (ownerLabs.ts). The registry on a
+      // given machine may be populated (labs the owner declared via lab_add),
+      // so an empty env alone must NOT empty the line — only a world with
+      // neither env nor registry is empty. Assert the invariants that hold in
+      // both worlds instead of hardcoding this machine's registry contents.
+      const lineNoEnv = ownerLabScopeLine();
+      expect(lineNoEnv).not.toContain("https://");
+      if (lineNoEnv !== "") expect(lineNoEnv).toContain("test DIRECTLY");
     } finally {
       if (prev === undefined) delete process.env[KEY];
       else process.env[KEY] = prev;

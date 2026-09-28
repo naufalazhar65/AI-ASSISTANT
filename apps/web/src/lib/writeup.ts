@@ -9,8 +9,15 @@
 // Prerequisites → Steps → Expected vs Actual → Impact → Evidence → Root cause
 // → Remediation → References. Evidence/Impact are passed through the report
 // redactor so live credentials/PII never reach a submission.
+//
+// Two honesty rules the audit pinned down (report checklist 4.2 / 6):
+// 1. Expected vs Actual are OMITTED when unknown, never filled with an
+//    authorization sentence that does not apply to the vulnerability class.
+// 2. A class-baseline remediation is labelled as a baseline, so boilerplate is
+//    never read as a code-path-specific fix.
 
 import { readFindings, platformSeverity, redactEvidenceForReport, normalizeOwaspYear, type Finding } from "./security";
+import { cvssVersionFor, expectedActualFor, remediationFor } from "./findingPolicy";
 
 const normalizeOwasp = (s: string) => normalizeOwaspYear(s);
 
@@ -66,6 +73,18 @@ export function renderWriteup(f: Finding, opts: { platform?: string } = {}): str
     ? f.evidence
     : f.evidence || "(no raw evidence yet — run poc_verify/evidence_capture)";
 
+  // Expected vs Actual. The old fallback printed an AUTHORIZATION sentence for
+  // every finding class, so an XSS/SQLi/traversal submission carried
+  // "unauthorized requests should be rejected (401/403)" as its expected
+  // behaviour — a false claim that invites a triage N/A. So: use the tester's own
+  // text, else the class baseline, else OMIT the sections (a submission is
+  // allowed to lack them; it is not allowed to lie about them).
+  const ea = expectedActualFor(f);
+  // The CVSS version is only claimed when a vector actually pins it (v4.0 is
+  // supported by the scorer but the old heading hard-coded "v3.1").
+  const cvssHeading = f.cvssVector ? `## CVSS v${cvssVersionFor(f.cvssVector)}` : "## CVSS";
+  const rem = remediationFor(f);
+
   const lines = [
     `# ${title}`,
     ``,
@@ -84,7 +103,7 @@ export function renderWriteup(f: Finding, opts: { platform?: string } = {}): str
     `## Severity`,
     `Suggested: ${sev} — platform mapping ${platform} (baseline suggestion, NOT a final platform rating).`,
     ``,
-    `## CVSS v3.1`,
+    cvssHeading,
     f.cvssVector ? "```\n" + f.cvssVector + "\n```" : "(vector not recorded — score derives from the numeric CVSS only)",
     ``,
     `## Prerequisites`,
@@ -95,14 +114,18 @@ export function renderWriteup(f: Finding, opts: { platform?: string } = {}): str
     `## Steps to reproduce`,
     redactEvidenceForReport(f.steps ? f.steps : `1. Authenticate/set up a session against the target (${f.target || "asset"}).`),
     f.steps ? "" : `2. Send the request shown under Evidence.`,
-    f.steps ? "" : `3. Observe that the response differs from the intended behavior (see Expected vs Actual).`,
+    f.steps
+      ? ""
+      : ea
+        ? `3. Observe that the response differs from the intended behavior (see Expected vs Actual).`
+        : `3. Observe the vulnerable response shown under Evidence.`,
     ``,
-    `## Expected Behavior`,
-    f.expected || "Unauthenticated/unauthorized requests should be rejected (401/403) and no sensitive record returned.",
-    ``,
-    `## Actual Behavior`,
-    f.actual || "The endpoint returns HTTP 200 with the sensitive record without authentication.",
-    ``,
+    ea ? `## Expected Behavior` : "",
+    ea ? ea.expected : "",
+    ea ? `` : "",
+    ea ? `## Actual Behavior` : "",
+    ea ? ea.actual : "",
+    ea ? `` : "",
     `## Evidence`,
     "```",
     redactEvidenceForReport(rawReq).slice(0, 1800),
@@ -115,7 +138,12 @@ export function renderWriteup(f: Finding, opts: { platform?: string } = {}): str
     f.rootCause || "(fill in after tracing source→sink)",
     ``,
     `## Remediation`,
-    f.remediation || "Enforce authorization/integrity checks server-side; never trust client-supplied values.",
+    rem.text,
+    // A baseline paragraph is a STARTING POINT, not a finding-specific fix. The
+    // checklist asks for concrete per-vulnerability remediation, so say plainly
+    // that this line still has to be adapted instead of letting a reviewer
+    // mistake boilerplate for an analysis.
+    rem.source === "baseline" ? "\n> Baseline remediation for this vulnerability class — adapt it to the actual code path before submitting." : "",
     ``,
     f.references ? `## References\n${f.references}\n` : "",
     unverified ? `> ⚠️ **STATUS: DRAFT — not yet verified.** Run \`poc_verify\` and attach deterministic proof before submitting.\n` : "",

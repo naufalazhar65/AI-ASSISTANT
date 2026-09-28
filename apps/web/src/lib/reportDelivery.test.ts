@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { emptyReportClaimNote, inlineDeliveryClaimNote, pdfExistenceClaim, reportProvenanceNote, retryEmptyReportDelivery, stripAbsentReportFiles, stripToolCallProse } from "./agent";
+import { claimedReportNames, deliveredReportName, emptyReportClaimNote, inlineDeliveryClaimNote, pdfDeliverableSuffix, pdfExistenceClaim, reportProvenanceNote, retryEmptyReportDelivery, stripAbsentReportFiles, stripToolCallProse } from "./agent";
 import { addFinding, reportPdf, reportSave } from "./security";
 import { userDataRoot } from "./users";
 
@@ -342,7 +342,7 @@ describe("pdfExistenceClaim — structural, order-free (live 05:11 fabrication)"
     });
   }
 
-  it("a receipt satisfies the predicate, and the CALLER is what excludes it", async () => {
+  it("a receipt satisfies the predicate, and the CALLER excludes it BY NAME (not by presence)", async () => {
     const { pdfDeliverableSuffix } = await import("./agent");
     // A turn with NO report tool — so the fabrication branch is otherwise live.
     const noReportTool = [
@@ -357,7 +357,14 @@ describe("pdfExistenceClaim — structural, order-free (live 05:11 fabrication)"
     // The predicate honestly reports "this asserts a PDF exists" for both.
     expect(pdfExistenceClaim(DISC)).toBe(true);
     expect(pdfExistenceClaim(VOICE)).toBe(true);
-    // …and the caller is the layer that must not accuse them.
+    // …and the caller is the layer that must not accuse them. The exclusion used
+    // to be `&& !PDF_DELIVERY_RECEIPT.test(text)` — PRESENCE. That was the live
+    // 18:47 bug: the system's own receipt silenced a claim about a DIFFERENT
+    // artefact. It is now by NAME (`claimedReportNames` drops the delivered one),
+    // so these assertions are the contract that must never regress. They also
+    // caught a real bug in that helper: the receipt backticks its filename, the
+    // captured name kept the backticks, and the guard accused its own receipt.
+    expect(claimedReportNames(DISC)).toEqual([]);
     expect(pdfDeliverableSuffix(noReportTool, DISC)).toBe("");
     expect(pdfDeliverableSuffix(noReportTool, VOICE)).toBe("");
     // Control: the same turn, minus the receipt, IS accused. Without this the
@@ -511,5 +518,62 @@ describe("attribute-form pseudo-tool-call leak (live kyzuch 17:00)", () => {
 
   it("the paren form is still stripped (no regression)", () => {
     expect(stripToolCallProse("remind_me(text='x', when='2026-01-01')")).not.toContain("remind_me");
+  });
+});
+
+describe("a FABRICATED report URL beside the real receipt (live 2026-09-28 18:47)", () => {
+  // Live shape, verbatim: the model published a DIFFERENT artefact than the one
+  // the system delivered, in the same message. The real one is on disk; the
+  // invented one is a 404 on the TARGET host.
+  const LAB = "6a90ef33c41c07dd3335811e--cozy-kangaroo-42f2e0.netlify.app";
+  const ASK = `mia coba lakukan full pentest secara menyeluruh di https://${LAB}/login dan buatkan report pdf nya`;
+  const PROSE =
+    `Laporan PDF-nya sudah dibuatkan oleh sistem ya beb.\n\nReport PDF generated successfully: https://${LAB}/report.pdf`;
+  const DELIVERED = "report-2026-09-28T11-48-18-129Z.pdf";
+  const TAIL = `${PROSE} (\u{1F4CE} PDF-nya sudah kubuat: ${DELIVERED} — cek folder laporanmu ya.)`;
+  const turn = [{ role: "user", content: ASK }] as never[];
+
+  it("deliveredReportName reads the receipt, and nothing else", () => {
+    expect(deliveredReportName(TAIL)).toBe(DELIVERED);
+    expect(deliveredReportName(PROSE)).toBe("");
+  });
+
+  it("claimedReportNames names the FABRICATED artefact and never the delivered one", () => {
+    expect(claimedReportNames(TAIL)).toEqual(["report.pdf"]);
+    expect(claimedReportNames(TAIL)).not.toContain(DELIVERED);
+    expect(claimedReportNames(PROSE)).toEqual(["report.pdf"]);
+  });
+
+  it("the receipt alone is silent — the system's own name is not a claim", () => {
+    expect(claimedReportNames(`(\u{1F4CE} PDF-nya sudah kubuat: ${DELIVERED})`)).toEqual([]);
+    expect(pdfDeliverableSuffix(turn, `(\u{1F4CE} PDF-nya sudah kubuat: ${DELIVERED} — cek foldermu ya.)`)).toBe("");
+  });
+
+  it("FIRES on the live shape and names the real file", () => {
+    const note = pdfDeliverableSuffix(turn, TAIL);
+    expect(note).toContain("BUKAN file yang dibuat giliran ini");
+    expect(note).toContain(DELIVERED);
+    // the claim it is correcting: published on the TARGET, not written locally
+    expect(note).toContain("tidak pernah diunggah ke host target");
+  });
+
+  it("a differently-named report-<ts>.pdf is also caught (identity, not presence)", () => {
+    const other = `${PROSE}\n\nLama juga sudah ada report-2026-09-20T12-00-11-234Z.pdf`;
+    expect(pdfDeliverableSuffix(turn, `${other} (\u{1F4CE} PDF-nya sudah kubuat: ${DELIVERED})`)).toContain("BUKAN file");
+  });
+
+  it("with NO delivery at all it is still accused (the earlier branch answers it)", () => {
+    // Two honest "not created this turn" notes exist; which one answers depends
+    // on where in the function the text is first caught. Only the meaning is
+    // contractual, so assert the meaning, not the wording of one branch.
+    expect(pdfDeliverableSuffix(turn, PROSE)).toMatch(/tidak dibuat di giliran ini|belum membuat laporan apa pun/);
+  });
+
+  it("duplicates and trailing punctuation collapse to one name", () => {
+    expect(claimedReportNames("lihat report.pdf, report.pdf. lalu report.pdf!")).toEqual(["report.pdf"]);
+  });
+
+  it("no .pdf mention at all is silent", () => {
+    expect(claimedReportNames("laporan sudah dibuat, semua beres")).toEqual([]);
   });
 });

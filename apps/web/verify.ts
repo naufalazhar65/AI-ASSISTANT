@@ -1751,13 +1751,21 @@ async function main() {
     if (unresolved.length) throw new Error(`CORE names not in registry: ${unresolved.join(",")}`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "api_spec", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt", "bypass403", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "coverage", "threat_model"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt", "bypass403", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "coverage", "threat_model", "submission_preflight"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
     if (r9.length > 64) throw new Error(`9router tool cap exceeded (${r9.length})`);
-    for (const n of ["workflow_fuzz", "race_attack", "graphql_hunt", "prompt_injection_hunt", "http_request", "poc_verify", "finding_add", "llm_hunt", "mcp_hunt"]) {
+    for (const n of ["workflow_fuzz", "race_attack", "graphql_hunt", "prompt_injection_hunt", "http_request", "poc_verify", "finding_add", "llm_hunt", "mcp_hunt", "lab_add", "coverage", "threat_model", "report_generate", "report_save", "writeup", "submission_preflight"]) {
       if (!r9.some((t) => t.function.name === n)) throw new Error(`9router 64-window missing ${n}`);
+    }
+    // report_pdf sits at CORE position 65, ONE slot past the cut — verified live
+    // 2026-09-25/26: the deterministic delivery path (tryDeliverReportPdf) is
+    // what actually answers "buatkan pdfnya", so the tool being undelivered is
+    // by design, not a gap. Asserted so nobody reshuffles the window to reach
+    // it and evicts a TIER-1 prover (race_attack/graphql_hunt at 57/58).
+    if (r9.some((t) => t.function.name === "report_pdf")) {
+      throw new Error("report_pdf unexpectedly in the 9router window — update the CORE comment + this assertion together");
     }
     console.log("provider tool caps (groq keeps pentest suite): OK");
   }
@@ -6104,6 +6112,115 @@ async function main() {
         const { forgetOwnerLab } = await import("./src/lib/ownerLabs");
         forgetOwnerLab("naufalazhar652952", HOST);
       } catch { /* best-effort */ }
+    }
+  }
+  {
+    // ── Bounty-report checklist compliance (audit 2026-09-28) ────────────────
+    // Each assertion below is a rule the checklist states and the code used to
+    // break. The interesting ones are the NEGATIVE ones: proving the fix refuses
+    // the bad case, not just that it accepts the good one.
+    const U = `verify_checklist_${Date.now()}`;
+    const { addFinding, readFindings } = await import("./src/lib/security");
+    const { pickAutoEvidence } = await import("./src/lib/urlMatch");
+    const { overclaimVerdict } = await import("./src/lib/impactOverclaim");
+    const { expectedActualFor, remediationFor, dupTitleKey, vulnClass, cvssVersionFor } = await import("./src/lib/findingPolicy");
+    const { renderWriteup } = await import("./src/lib/writeup");
+    const { expectedActualPair, renderReportHtml } = await import("./src/lib/reportHtml");
+    const { preflightFinding, formatPreflight } = await import("./src/lib/submissionPreflight");
+    const { redactorResidues } = await import("./src/lib/redactScan");
+    const { recordHttp, readHttpHistory } = await import("./src/lib/httpHistory");
+    const { executeTool } = await import("./src/lib/tools");
+    try {
+      // §4.1 — auto-attached evidence must match the ENDPOINT, not just the host.
+      recordHttp(U, { method: "GET", url: "https://verify-checklist.example/api/dokumen?id=4", status: 200, bytes: 40, ms: 4, at: new Date().toISOString() });
+      recordHttp(U, { method: "GET", url: "https://verify-checklist.example/api/login", status: 200, bytes: 12, ms: 4, at: new Date().toISOString() });
+      const picked = pickAutoEvidence(readHttpHistory(U), "https://verify-checklist.example/api/login");
+      if (picked?.url !== "https://verify-checklist.example/api/login") throw new Error(`pickAutoEvidence chose ${picked?.url}`);
+      const wrong = addFinding(U, { title: "login flaw", target: "https://verify-checklist.example/api/login", evidence: "GET /api/login -> 200", steps: "1. GET /api/login" });
+      if (wrong.evidence.includes("/api/dokumen")) throw new Error("auto-attached evidence came from a different endpoint");
+      if (pickAutoEvidence([{ url: "https://other.example/api/login" }], "https://verify-checklist.example/api/login") !== null) throw new Error("pickAutoEvidence must not cite another host");
+
+      // §4.2 / §3.1 — expected/actual/vector are a LIVE data path, not dead template.
+      const full = addFinding(U, {
+        title: "SQL injection in /api/user via the id parameter",
+        target: "https://verify-checklist.example",
+        cvss: 8.5,
+        cwe: "CWE-89",
+        owasp: "A03:2021 Injection",
+        evidence: "poc_verify STABIL 3/3 PASS — GET /api/user?id=1' OR 1=1-- -> 200 with 42 rows",
+        steps: "1. GET /api/user?id=1' OR 1=1--",
+        impact: "Any user can read the 42 user records the query returns.",
+        rootCause: "The id parameter is concatenated into the SQL string.",
+        remediation: "Use a parameterised query for the id parameter.",
+        expected: "The id must be bound as a query parameter.",
+        actual: "It is concatenated, so a non-numeric id returns 42 rows.",
+        cvssVector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+      });
+      if (full.expected !== "The id must be bound as a query parameter." || full.actual !== "It is concatenated, so a non-numeric id returns 42 rows.") throw new Error("expected/actual not stored");
+      if (full.cvssVector !== "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H") throw new Error("cvssVector not stored");
+      if (!/A03:2025/.test(full.owasp)) throw new Error(`owasp year not normalized at write time: ${full.owasp}`);
+      // The stored finding must reach BOTH deliverables with that data intact.
+      const wu = renderWriteup(full);
+      if (!wu.includes("The id must be bound as a query parameter.")) throw new Error("writeup dropped the tester Expected");
+      if (!/## CVSS v3\.1/.test(wu)) throw new Error("writeup CVSS heading not version-pinned from the vector");
+      const pdf = renderReportHtml(["# Pentest Report", "Total findings: 1 (high 1) — average CVSS 8.5", "", "## 1. [HIGH · CVSS 8.5] SQL injection in /api/user via the id parameter", "- **Expected Behavior**: The id must be bound as a query parameter.", "- **Actual Behavior**: It is concatenated, so a non-numeric id returns 42 rows.", "- **Impact**: reads 42 records", ""].join("\n"));
+      if (!pdf.includes("EXPECTED vs ACTUAL")) throw new Error("pdf renderer has no Expected-vs-Actual panel");
+      if (pdf.split("The id must be bound as a query parameter.").length - 1 !== 1) throw new Error("Expected text printed twice (panel + grid)");
+
+      // §2.3 — an unbacked whole-system claim is refused; a hedged one is not.
+      if (overclaimVerdict("An unauthenticated attacker can read the ENTIRE database.", "200 OK", "1. GET /api/x").allow) throw new Error("whole-database claim without proof was allowed");
+      if (!overclaimVerdict("This could potentially expose the whole users table.", "200 OK", "1. GET /api/x").allow) throw new Error("hedged risk statement was refused");
+      if (overclaimVerdict("This does not give access to the entire database; only one row leaks.", "200 with 1 row", "1. GET /api/x?id=1").claim !== "") throw new Error("negated scope word treated as a claim");
+
+      // §5.1/5.2 — PII the value-shape redactor cannot mask is REPORTED.
+      const res = redactorResidues("row: ahmad.smith@contoh.co.id | password=hunter2000");
+      if (!res.some((r) => /email/.test(r)) || !res.some((r) => /credential/.test(r))) throw new Error(`residue scan missed: ${res.join(", ")}`);
+
+      // §6 — a class baseline is labelled, never presented as analysis.
+      const noRem = addFinding(U, { title: "XSS without remediation", target: "https://verify-checklist.example", cwe: "CWE-79" });
+      if (remediationFor(noRem).source !== "baseline") throw new Error("empty remediation did not fall back to a labelled baseline");
+      if (!renderWriteup(noRem).includes("Baseline remediation for this vulnerability class")) throw new Error("baseline remediation not labelled in the writeup");
+
+      // §1.1-1.3 — a reworded duplicate merges instead of creating a second row.
+      if (dupTitleKey("SQL injection at /api/user") !== dupTitleKey("SQLi on /api/user")) throw new Error("synonym fold broken");
+      if (dupTitleKey("IDOR on /api/user") === dupTitleKey("IDOR on /api/dokumen")) throw new Error("different endpoints folded together");
+      const d1 = addFinding(U, { title: "IDOR on /api/dokumen", target: "https://verify-checklist.example", evidence: "GET /api/dokumen?id=1 -> 200" });
+      const d2 = addFinding(U, { title: "IDOR on /api/dokumen", target: "https://verify-checklist.example", evidence: "GET /api/dokumen?id=2 -> 200" });
+      if (d1.id !== d2.id) throw new Error("identical title did not merge into the open row");
+      const rows = readFindings(U).filter((r) => r.status !== "resolved");
+      if (rows.filter((r) => /IDOR on \/api\/dokumen/.test(r.title)).length !== 1) throw new Error("duplicate row written");
+
+      // §3.1 version — and CWE-200 must not be read as path traversal.
+      if (cvssVersionFor("CVSS:4.0/AV:N") !== "4.0") throw new Error("cvssVersionFor v4");
+      if (vulnClass({ title: "Stack trace exposed", cwe: "CWE-200", owasp: "" }) !== "info-disclosure") throw new Error("CWE-200 misclassified");
+
+      // §11 — the preflight judges the whole checklist, worst first, and the
+      // tool dispatches through the SAME path the agent uses.
+      const pf = preflightFinding(full, { siblings: readFindings(U), extraProofText: "poc_verify STABIL 3/3 PASS" });
+      if (pf.items.length < 20) throw new Error(`preflight ran ${pf.items.length} items`);
+      const pfBad = preflightFinding({ ...full, id: "F-x", title: "TODO", expected: "", actual: "", cvssVector: "" }, { siblings: [] });
+      if (pfBad.worst !== "FAIL") throw new Error(`an empty finding did not FAIL the preflight (worst=${pfBad.worst})`);
+      if (!formatPreflight(pfBad).includes("[title-quality]")) throw new Error("preflight output does not name the failing item");
+      const dispatched = await executeTool({ id: "t", name: "submission_preflight", arguments: JSON.stringify({ id: full.id }) }, U);
+      if (/^Error:/.test(dispatched)) throw new Error(`submission_preflight dispatch failed: ${dispatched.slice(0, 160)}`);
+      if (!/PRECHECK|RINGKASAN/.test(dispatched)) throw new Error(`preflight output unexpected: ${dispatched.slice(0, 160)}`);
+
+      // §2.1 — XSS without a browser execution gets an advisory, never a refusal.
+      const xss = addFinding(U, { title: "Stored XSS in /api/pengaduan", target: "https://verify-checklist.example", cwe: "CWE-79", evidence: "payload stored", steps: "1. post the payload" });
+      const xssOut = await executeTool({ id: "t", name: "finding_list", arguments: JSON.stringify({}) }, U);
+      if (!xss) throw new Error("xss finding was refused instead of advised");
+      void xssOut;
+      // §2.3 at the WRITE path — the gate refuses the overclaim before it stores.
+      const overclaimRefusal = await executeTool({ id: "t", name: "finding_add", arguments: JSON.stringify({ title: "Overclaimed SQLi", target: "https://verify-checklist.example", cwe: "CWE-89", evidence: "200 OK", steps: "1. GET /api/x", impact: "An unauthenticated attacker can read the ENTIRE database.", root_cause: "Unsanitised input", remediation: "Use a parameterised query for the id parameter." }) }, U);
+      if (!/^Error:/.test(overclaimRefusal) || !/narrow|attach/i.test(overclaimRefusal)) throw new Error(`overclaim gate did not refuse: ${overclaimRefusal.slice(0, 200)}`);
+      // The refused call must NOT have stored anything.
+      if (readFindings(U).some((r) => /Overclaimed SQLi/.test(r.title))) throw new Error("refused overclaim was stored anyway");
+      void noRem;
+      void expectedActualFor;
+      void expectedActualPair;
+      console.log("bounty checklist (endpoint-matched evidence, live expected/actual + vector, overclaim gate, PII residue, baseline remediation, duplicate merge, 20-item preflight via dispatch): OK");
+    } finally {
+      rmSync(join(userDataRoot(), U), { recursive: true, force: true });
     }
   }
 

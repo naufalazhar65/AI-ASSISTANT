@@ -9,6 +9,7 @@ import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addOrMergeAutomation, describeSchedule } from "./automations";
 import { similarity } from "./dupes";
+import { xssProofAdvisory } from "./findingPolicy";
 import { searchMemory } from "./rag";
 import { listLearnings, reviewLearnings, searchLearnings, logError } from "./learnings";
 import { guard as safeGuard } from "./safeExec";
@@ -164,6 +165,20 @@ export function proofWarning(severity: string, evidenceSteps: string, retestUrl:
     }
   }
   return "";
+}
+
+/**
+ * XSS-specific proof advisory (report checklist 2.1). ADVISORY, never a refusal.
+ *
+ * Why not a gate: the only generic proof tool is `poc_verify`, a server-side
+ * fetch — it can never execute script, so requiring it for CWE-79 would block
+ * findings that `dom_xss_prove` has already PROVEN in a real browser. The
+ * honest ask is therefore the *right* proof: a browser execution (stored XSS
+ * needs a second user's session, which a self-XSS PoC never shows).
+ */
+function xssProofNote(finding: { title: string; cwe: string; owasp: string; evidence: string; steps: string }): string {
+  const note = xssProofAdvisory(finding);
+  return note ? `\n⚠️ ${note}` : "";
 }
 
 function hostOf(target: string): string {
@@ -3464,7 +3479,7 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "finding_add",
-        description: "Catat satu temuan pentest (Title/Severity/CVSS/OWASP/CWE/Evidence/Impact/Remediation). Bila `cvss` diisi, severity DITURUNKAN otomatis dari band CVSS (mis. 6.1→medium, 9.8→critical) — tak perlu menebak. GERBANG BUKTI: temuan HIGH/CRITICAL kelas injection (SQLi/NoSQLi/cmdi/SSTI/LFI/traversal/CRLF/CSV/code injection) DITOLAK bila endpoint itu tidak punya run `poc_verify` berstatus ✅, atau bila run terakhirnya ⛔ (payload identik dengan baseline). Kalau ditolak: jalankan `poc_verify` dulu dengan payload + `baseline_url` (jangan mengulang finding_add, jangan menghapus baseline) — atau sebutkan bukti OOB/browser/socket (oast_poll/dom_xss_prove/smuggle_probe/file-read marker) di evidence. WAJIB ENGLISH: tulis title/steps/evidence/impact/root_cause/remediation/references dalam BAHASA INGGRIS — temuan langsung dipakai laporan markdown/PDF untuk platform internasional (prosa berbahasa Indonesia di field temuan ditolak). Read, auto.",
+        description: "Catat satu temuan pentest (Title/Severity/CVSS/OWASP/CWE/Evidence/Impact/Remediation). Bila `cvss` diisi, severity DITURUNKAN otomatis dari band CVSS (mis. 6.1→medium, 9.8→critical) — tak perlu menebak. WAJIB isi `expected` + `actual` (Expected vs Actual) dan `cvss_vector` bila ada — ini yang dibaca reviewer triase, dan kosongnya bagian itu sering jadi alasan temuan ditutup. GERBANG BUKTI: temuan HIGH/CRITICAL kelas injection (SQLi/NoSQLi/cmdi/SSTI/LFI/traversal/CRLF/CSV/code injection) DITOLAK bila endpoint itu tidak punya run `poc_verify` berstatus ✅, atau bila run terakhirnya ⛔ (payload identik dengan baseline). Kalau ditolak: jalankan `poc_verify` dulu dengan payload + `baseline_url` (jangan mengulang finding_add, jangan menghapus baseline) — atau sebutkan bukti OOB/browser/socket (oast_poll/dom_xss_prove/smuggle_probe/file-read marker) di evidence. GERBANG KLAIM: `impact` yang mengklaim cakupan seluruh sistem ('seluruh database', 'full source code', 'RCE di semua request') tanpa bukti cakupan itu DITOLAK — tulis dampaknya yang terukur, bukan yang terburuk conceivable. WAJIB ENGLISH: tulis title/steps/evidence/impact/root_cause/remediation/references dalam BAHASA INGGRIS — temuan langsung dipakai laporan markdown/PDF untuk platform internasional (prosa berbahasa Indonesia di field temuan ditolak). Read, auto.",
         parameters: {
           type: "object",
           properties: {
@@ -3480,6 +3495,9 @@ const toolRegistry: ToolPlugin[] = [
             root_cause: { type: "string", description: "Akar masalah (Root Cause)" },
             remediation: { type: "string" },
             references: { type: "string", description: "Referensi (OWASP/CVE/URL)" },
+            expected: { type: "string", description: "Expected Behavior (English) — perilaku SEHARUSNYA; bagian paling menentukan di review triase" },
+            actual: { type: "string", description: "Actual Behavior (English) — perilaku yang benar-benar teramati, dengan angka/status nyata" },
+            cvss_vector: { type: "string", description: "CVSS vector v3.1 atau v4.0 (contoh 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H'). Wajib diisi supaya skor bisa diaudit ulang" },
             retest_url: { type: "string", description: "OPSIONAL: URL untuk regression retest — membuat case otomatis supaya 'sudah dipatch belum?' bisa dicek 1 perintah (retest_run)" },
             retest_method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] },
             retest_session: { type: "string", description: "nama http_session untuk request retest" },
@@ -3510,6 +3528,9 @@ const toolRegistry: ToolPlugin[] = [
         } catch {
           /* the language gate must never break finding_add */
         }
+        // Holds the "hedge is fine, but nobody has checked this" note so the
+        // success line below can report it without re-running the verdict.
+        let overclaimNote = "";
         // EVIDENCE GATE (2026-09-25): an injection-class HIGH/CRITICAL claim whose
         // endpoint has no confirming poc_verify — or whose latest run REFUTED it —
         // never reaches the store. A model can ignore a verdict; it cannot ignore a
@@ -3538,6 +3559,23 @@ const toolRegistry: ToolPlugin[] = [
         } catch {
           /* the gate must never break finding_add */
         }
+        // OVERCLAIM GATE (report checklist 2.3): an Impact that asserts whole-system
+        // scope ("the entire database", "full source code", "RCE on every request")
+        // without any proof of that breadth is the single fastest way to get a valid
+        // bug triaged as not-a-bug. Refuse the claim and ask for the narrow, measured
+        // one — a hedged risk statement is always allowed.
+        try {
+          const { overclaimVerdict } = await import("./impactOverclaim");
+          const over = overclaimVerdict(
+            typeof args.impact === "string" ? args.impact : "",
+            typeof args.evidence === "string" ? args.evidence : "",
+            typeof args.steps === "string" ? args.steps : ""
+          );
+          if (!over.allow) return `Error: ${over.reason}`;
+          if (over.hedged) overclaimNote = `⚠️ ${over.reason}`;
+        } catch {
+          /* the overclaim gate must never break finding_add */
+        }
         const f = addFinding(ctx.rawUser, {
           title: String(args.title || ""),
           severity: typeof args.severity === "string" ? args.severity : undefined,
@@ -3551,6 +3589,13 @@ const toolRegistry: ToolPlugin[] = [
           rootCause: typeof args.root_cause === "string" ? args.root_cause : undefined,
           remediation: typeof args.remediation === "string" ? args.remediation : undefined,
           references: typeof args.references === "string" ? args.references : undefined,
+          // Report checklist 4.2 / 3.1: Expected-vs-Actual and the CVSS vector
+          // used to be render-only fields that nothing could ever populate, so
+          // every report shipped a template with empty slots. They are now
+          // first-class input; the report and the writeup both prefer them.
+          expected: typeof args.expected === "string" ? args.expected : undefined,
+          actual: typeof args.actual === "string" ? args.actual : undefined,
+          cvssVector: typeof args.cvss_vector === "string" ? args.cvss_vector : undefined,
         });
         // SUPERPOWER hooks (best-effort, never fail the finding):
         // 1) target brain — record the proven finding on the target.
@@ -3581,7 +3626,7 @@ const toolRegistry: ToolPlugin[] = [
         // Proof-link warning (audit 2026-09-23): high/critical findings filed
         // with no poc/retest evidence get an honest flag — warn, don't block
         // (auto-history fallback + lab flows must keep working).
-        const proofNote = proofWarning(f.severity, `${f.evidence}\n${f.steps}`, retestUrl);
+        const proofNote = proofWarning(f.severity, `${f.evidence}\n${f.steps}`, retestUrl) + xssProofNote(f);
         // Near-duplicate warning (audit 2026-09-23: /api/dokumen filed 3x) —
         // same host + shared endpoint token + Jaccard >= 0.20 → warn only.
         let dupNote = "";
@@ -3589,7 +3634,7 @@ const toolRegistry: ToolPlugin[] = [
           const { readFindings } = await import("./security");
           dupNote = dupWarning(f.title, f.target, readFindings(ctx.rawUser));
         } catch { /* best-effort */ }
-        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title} (${f.id})${retestNote}${proofNote}${dupNote}`;
+        return `✅ Temuan dicatat: [${f.severity.toUpperCase()}${f.cvss != null ? ` CVSS ${f.cvss}` : ""}] ${f.title} (${f.id})${retestNote}${overclaimNote ? `\n${overclaimNote}` : ""}${proofNote}${dupNote}`;
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : "finding_add failed"}`;
       }
@@ -3680,6 +3725,51 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: { type: "function", risk: "read", function: { name: "report_save", description: "Simpan laporan pentest ke file markdown. WAJIB sertakan `target` saat user menyebut satu lab/target — tanpa target, laporan mencampur SEMUA temuan. Read, auto.", parameters: { type: "object", properties: { target: { type: "string", description: "host atau URL target — WAJIB diisi" } }, required: ["target"] } } },
     execute: async (args, ctx) => { try { const { reportSave } = await import("./security"); return reportSave(ctx.rawUser, { target: typeof args.target === "string" ? args.target : undefined }); } catch (e) { return `Error: ${e instanceof Error ? e.message : "report_save failed"}`; } },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "submission_preflight",
+        description: "Cek 20-item pre-submission checklist untuk satu temuan (atau semua temuan terbuka) SEBELUM submit ke program: Expected vs Actual terisi, CVSS vector ada, severity cocok skor, impact tidak mengklaim seluruh sistem, tidak ada PII/secret yang bocor, bukti deterministik, root cause, remediation bukan boilerplate, referensi, endpoint konkret. FAIL = akan ditolak triase, WARN = reviewer bisa push back. WAJIB dipanggil sebelum `writeup`/submit. Read, auto.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "finding id (prefix beriba cukup). Kosong = semua temuan terbuka" },
+            target: { type: "string", description: "batasi ke satu host/URL target" },
+            proof_text: { type: "string", description: "OPSIONAL: output poc_verify/retest_run — supaya item 'proof' dinilai nyata, bukan dilewati" },
+          },
+          required: [],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { readFindings } = await import("./security");
+        const { preflightFindings, formatPreflight } = await import("./submissionPreflight");
+        const wanted = typeof args.id === "string" ? args.id.trim() : "";
+        const target = typeof args.target === "string" ? args.target.trim().toLowerCase() : "";
+        const proof = typeof args.proof_text === "string" ? args.proof_text : undefined;
+        let rows = readFindings(ctx.rawUser).filter((r) => r.status !== "resolved");
+        if (target) rows = rows.filter((r) => (r.target || "").toLowerCase().includes(target));
+        if (wanted) {
+          const hits = rows.filter((r) => r.id === wanted || r.id.startsWith(wanted));
+          // Same prefix rule as writeupText: a truncated id may only match when
+          // it is unambiguous, otherwise we would preflight the wrong finding.
+          if (hits.length === 1) rows = hits;
+          else if (hits.length > 1) return `Error: prefix "${wanted}" cocok ${hits.length} temuan (${hits.map((h) => h.id).join(", ")}) — sebut id lengkapnya.`;
+          else return `Error: temuan "${wanted}" tidak ditemukan di daftar terbuka.`;
+        }
+        if (!rows.length) return "Tidak ada temuan terbuka untuk dicek (finding_list untuk melihat daftar).";
+        const out = preflightFindings(rows, proof ? { extraProofText: proof } : {});
+        const fails = out.reduce((n, r) => n + r.items.filter((i) => i.level === "FAIL").length, 0);
+        const warns = out.reduce((n, r) => n + r.items.filter((i) => i.level === "WARN").length, 0);
+        return `${out.map(formatPreflight).join("\n\n")}\n\n📋 RINGKASAN: ${out.length} temuan · 🔴 ${fails} FAIL · 🟡 ${warns} WARN${fails ? " — perbaiki FAIL dulu; laporan/writeup yang memuatnya akan ditolak triase." : fails || warns ? " — WARN boleh, tapi perbaiki yang murah biar lebih kuat." : " — semua item lolos."}`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : "submission_preflight failed"}`;
+      }
+    },
   },
   {
     definition: { type: "function", risk: "write", function: { name: "sqlmap_scan", description: "Uji SQL injection dengan sqlmap ke URL (butuh parameter, mis. ?id=1). HANYA localhost/lab/aset berizin (publik DITOLAK). Write, confirm.", parameters: { type: "object", properties: { url: { type: "string", description: "URL dengan parameter, mis. http://localhost:8081/vulnerabilities/sqli/?id=1&Submit=Submit" }, level: { type: "number", description: "1-5 (default 1)" }, risk: { type: "number", description: "1-3 (default 1)" } }, required: ["url"] } } },

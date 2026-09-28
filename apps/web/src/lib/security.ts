@@ -24,6 +24,8 @@ import { threatModelForHost, threatModelReportSection } from "./threatModel";
 import { fetchFingerprint } from "./techFingerprint";
 import { renderReportHtml, reportFooterTemplate } from "./reportHtml";
 import { cvss4BaseScore } from "./cvssV4";
+import { dupTitleKey } from "./findingPolicy";
+import { pickAutoEvidence } from "./urlMatch";
 
 function run(cmd: string, args: string[], timeoutMs = 12_000): Promise<string> {
   return new Promise((resolve) => {
@@ -460,6 +462,58 @@ export function redactEvidenceForReport(text: string): string {
   let t = String(text || "");
   t = t.replace(/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "<REDACTED_JWT>");
   t = t.replace(/\b\d{16}\b/g, (m) => `${m.slice(0, 6)}********${m.slice(-2)}`);
+  // Email (2026-09-28, live /api/admin-data dump: admin@kohona.go.id shipped in
+  // full). The DOMAIN is kept on purpose: a report must still prove "addresses
+  // on this domain were exposed", which is the whole point of the finding, while
+  // the address that identifies a person does not need to be published. First
+  // local char survives so two addresses on the same domain stay distinguishable.
+  t = t.replace(
+    /(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-]{1,64})@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g,
+    (_m, local: string, domain: string) => `${local[0]}***@${domain}`,
+  );
+  // Indonesian phone shapes only (the same shapes redactScan reports, so the
+  // scanner and the redactor cannot disagree about what a phone is).
+  t = t.replace(/(?:\+62|\(0\)[0-9]{2,3})?[0-9]{2,4}[- ]?[0-9]{3,4}[- ]?[0-9]{3,5}\b/g, (m) => {
+    // Only mask a run that actually LOOKS like a phone: 9+ digits after the
+    // country/group code. Otherwise a 200 status code or a CVSS-ish number
+    // would be destroyed, which is exactly the payload-intact failure mode the
+    // token rule below guards against.
+    const digits = m.replace(/\D/g, "");
+    if (digits.length < 9 || digits.length > 15) return m;
+    return `${m.slice(0, 2)}${"*".repeat(Math.max(0, m.length - 4))}${m.slice(-2)}`;
+  });
+  // LIVE CREDENTIAL shapes that are NOT JSON, so the secret-family key rule
+  // below never sees them. Found live 2026-09-28: `redactScan` already reported
+  // "live bearer credential" as a residue, but the redactor had no matching
+  // rule, so a session token survived into the report while the preflight said
+  // the report was fine. The two shapes are deliberately the SAME as the
+  // scanner's, so the redactor and the residue scanner can never disagree about
+  // what a credential looks like.
+  //
+  // A live session token is the worst thing a bug-bounty report can leak: it
+  // works for the reporter, and if it is somebody else's session it is a
+  // takeover handed over for free.
+  t = t.replace(
+    /\b(Bearer|Authorization:\s*Basic)\s+[A-Za-z0-9._~+/=-]{12,}/gi,
+    (_m, kind: string) => `${kind} <REDACTED>`,
+  );
+  // A bare `password: hunter2` / `api_key=…` / `token=…` in a dumped request
+  // line or a prose sentence. The KEY NAME is kept: the report must still say
+  // WHICH credential leaked, only not its value.
+  t = t.replace(
+    /\b(password|passwd|pwd|secret|api[_-]?key|token)\b(\s*[:=]\s*)["']?[^\s"',<>{}\]]{4,}/gi,
+    (_m, key: string, sep: string) => `${key}${sep}<REDACTED>`,
+  );
+  // A private key block, as ONE unit, header to END marker. Measured live
+  // 2026-09-28: the mixed-class rule below masked only the first base64 line
+  // (`MIIB…abcd` → `<REDACTED>`) and shipped the rest, so the key looked
+  // redacted while most of it was still readable — worse than not masking at
+  // all, because a reviewer trusts a visible marker. A bare header with no
+  // body leaks nothing and is deliberately left visible.
+  t = t.replace(
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+    "<REDACTED_PRIVATE_KEY>",
+  );
   // Mixed-class token ≥14 chars — checks MUST apply to the token itself
   // (callback, not unbounded lookaheads: a lookahead scans to end-of-line and
   // would redact proof tokens like markers just because an uppercase/digit
@@ -562,7 +616,8 @@ export function resolveFindingSeverity(severity?: string, cvss?: number): string
   return typeof cvss === "number" && cvss >= 0 && cvss <= 10 ? severityFromCvss(cvss) : requestedFindingSeverity(severity);
 }
 
-export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; steps?: string; impact?: string; rootCause?: string; remediation?: string; references?: string }): Finding {  const userKey = sanitizeUser(rawUser);
+export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; steps?: string; impact?: string; rootCause?: string; remediation?: string; references?: string; expected?: string; actual?: string; cvssVector?: string }): Finding {
+  const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
   const title = (f.title || "").trim().slice(0, 200);
   if (!title) throw new Error("judul temuan wajib");
@@ -573,21 +628,18 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
   // score wins; otherwise the requested severity drives the default score.
   const sev = resolveFindingSeverity(f.severity, f.cvss);
   const target = (f.target || "").slice(0, 200);
-  // If no evidence was supplied, attach the most recent matching http_history
-  // entry (so report_generate has a raw request/response to cite without the
-  // user copy-pasting it).
+  const steps = (f.steps || "").slice(0, 1500);
+  // If no evidence was supplied, attach the most recent http_history entry that
+  // actually WITNESSES this endpoint (bounty-audit §4.1: the evidence must match
+  // the endpoint). The previous host-only `url.includes(host)` match could stamp
+  // a `/api/login` finding with `GET /api/dokumen?id=4 → 200`, which is how a
+  // report ends up citing evidence for a request it never made.
   let evidence = (f.evidence || "").trim();
   if (!evidence && target) {
     try {
-      const host = target.replace(/^https?:\/\//, "").split("/")[0].toLowerCase();
-      const hist = readHttpHistory(rawUser);
-      for (let i = hist.length - 1; i >= 0; i--) {
-        const hrec = hist[i];
-        if (hrec && host && hrec.url.toLowerCase().includes(host)) {
-          evidence = `[auto from http_history] ${hrec.method} ${hrec.url} → ${hrec.status} @${hrec.at}`;
-          break;
-        }
-      }
+      const claimText = `${target}\n${steps}`;
+      const rec = pickAutoEvidence(readHttpHistory(rawUser), target, claimText);
+      if (rec) evidence = `[auto from http_history] ${rec.method} ${rec.url} → ${rec.status} @${rec.at}`;
     } catch {
       /* best-effort */
     }
@@ -601,10 +653,12 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
   // count each unique issue once. Narrow by design: different titles,
   // different hosts, and resolved rows always create new findings.
   const dupHost = normalizeHost(target);
-  // Title key for dup matching: case/punctuation/whitespace variants of the
-  // same wording must collide (live test caught "...feature" vs "...feature!"
-  // slipping through a plain lowercase compare).
-  const dupTitleKey = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  // Title key for dup matching: case/punctuation/whitespace variants of the same
+  // wording must collide (live test caught "...feature" vs "...feature!"
+  // slipping through a plain lowercase compare), and class synonyms fold so
+  // "SQLi in /x" and "SQL injection on /x" are ONE issue (bounty-audit §1.1-1.3).
+  // The key itself lives in findingPolicy so the write layer, the preflight
+  // check and the dup_check tool cannot disagree about what "the same title" is.
   if (dupHost) {
     const existing = readFindings(rawUser);
     const dup = [...existing]
@@ -620,7 +674,13 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
       if (hasCvss) dup.cvss = cvss;
       dup.severity = sev;
       if (f.cwe && !dup.cwe) dup.cwe = f.cwe.slice(0, 60);
-      if (f.owasp && !dup.owasp) dup.owasp = f.owasp.slice(0, 120);
+      if (f.owasp && !dup.owasp) dup.owasp = normalizeOwaspYear(f.owasp.slice(0, 120));
+      // A re-find is also the natural moment to fill in the fields the first
+      // attempt left empty (they were dead in the store until this path existed).
+      if (!dup.expected && f.expected) dup.expected = f.expected.slice(0, 600);
+      if (!dup.actual && f.actual) dup.actual = f.actual.slice(0, 600);
+      if (!dup.cvssVector && f.cvssVector) dup.cvssVector = f.cvssVector.slice(0, 200);
+      if (!dup.steps && steps) dup.steps = steps;
       writeFindings(userKey, existing);
       return dup;
     }
@@ -630,15 +690,24 @@ export function addFinding(rawUser: unknown, f: { title: string; severity?: stri
     title,
     severity: sev,
     cvss,
-    owasp: (f.owasp || "").slice(0, 120),
+    // Normalised at WRITE time, not only at render time: the store is what the
+    // dup guard, the preflight check and every future report read, so a raw
+    // "A01:2021" persisted there would keep contradicting the rendered 2025.
+    owasp: normalizeOwaspYear((f.owasp || "").slice(0, 120)),
     cwe: (f.cwe || "").slice(0, 60),
     target,
     evidence: evidence.slice(0, 2000),
-    steps: (f.steps || "").slice(0, 1500),
+    steps,
     impact: (f.impact || "").slice(0, 1000),
     rootCause: (f.rootCause || "").slice(0, 1000),
     remediation: (f.remediation || "").slice(0, 1000),
     references: (f.references || "").slice(0, 600),
+    // §4.2 / §3.1: these three were declared on the type and rendered by the
+    // report, but nothing ever wrote them — the Expected/Actual sections were
+    // dead template. They are first-class inputs now.
+    expected: (f.expected || "").slice(0, 600),
+    actual: (f.actual || "").slice(0, 600),
+    cvssVector: (f.cvssVector || "").slice(0, 200),
     status: "open",
     createdAt: new Date().toISOString(),
   };
@@ -710,7 +779,7 @@ export function generateReport(rawUser: unknown, opts: { target?: string } = {})
   const body = sorted
     .map(
       (f, i) =>
-        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Category**: ${[normalizeOwaspYear(f.owasp || ""), f.cwe].filter(Boolean).join(" / ") || "-"}${f.cvssVector ? ` — Vector: \`${f.cvssVector}\`` : ""}\n- **Suggested severity** (platform mapping, not a final rating): ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `CVSS ${f.cvss ?? "?"} → HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n${f.expected ? `- **Expected Behavior**: ${f.expected}\n` : ""}${f.actual ? `- **Actual Behavior**: ${f.actual}\n` : ""}- **Steps to Reproduce**: ${redactEvidenceForReport(f.steps || "-")}\n- **Evidence**: ${redactEvidenceForReport(f.evidence || "-")}\n- **Impact**: ${redactEvidenceForReport(f.impact || "-")}\n- **Root Cause**: ${f.rootCause || "-"}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
+        `## ${i + 1}. [${f.severity.toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title}\n\n- **Category**: ${[normalizeOwaspYear(f.owasp || ""), f.cwe].filter(Boolean).join(" / ") || "-"}${f.cvssVector ? ` — Vector: \`${f.cvssVector}\`` : ""}\n- **Suggested severity** (platform mapping, not a final rating): ${(() => { const b = platformFromCvss(f.cvss ?? 0); return `CVSS ${f.cvss ?? "?"} → HackerOne "${b.h1}" · Bugcrowd VRT ${b.vrt}`; })()}\n- **Target**: ${f.target || "-"}\n${f.expected ? `- **Expected Behavior**: ${f.expected}\n` : ""}${f.actual ? `- **Actual Behavior**: ${f.actual}\n` : ""}- **Steps to Reproduce**: ${redactEvidenceForReport(f.steps || "-")}\n- **Evidence**: ${redactEvidenceForReport(f.evidence || "-")}\n- **Impact**: ${redactEvidenceForReport(f.impact || "-")}\n- **Root Cause**: ${redactEvidenceForReport(f.rootCause || "-")}\n- **Remediation**: ${f.remediation || "-"}\n- **References**: ${f.references || "-"}\n- **Found**: ${f.createdAt}`
     )
     .join("\n\n");
   return `# Pentest Report\n\nGenerated: ${new Date().toISOString()}\nTotal findings: ${rows.length} (${counts}) — average CVSS ${avg}\n\n${(() => {

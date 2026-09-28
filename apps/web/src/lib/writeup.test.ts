@@ -84,25 +84,30 @@ describe("renderWriteup (§8 submission format)", () => {
       // writeupText imports the real store — seed via the module's own path.
       const { addFinding } = await import("./security");
       const a = addFinding(U, { title: "IDOR A unique", severity: "high", cvss: 8.1, target: "https://a.example/x" });
-      // Ids are `F-<Date.now().toString(36)>-<rand>` (security.ts:629), so two
-      // calls microseconds apart SHARE the same middle segment. The truncated id
-      // below is that segment, so without this wait it is ambiguous ~always and
-      // writeupText correctly answers "not found" — which is what made this test
-      // fail roughly half the time. The un-awaited randomness was the flake, not
-      // the prefix matching. Wait for a second boundary so the "exactly one row
-      // starts with this prefix" precondition holds by construction.
-      await new Promise<void>((r) => {
-        const go = () => { if (Date.now() % 1000 < 5) r(); else setTimeout(go, 10); };
-        go();
-      });
-      addFinding(U, { title: "BOLA B unique", severity: "medium", cvss: 6.5, target: "https://b.example/y" });
-      // Truncated (drill shape): strip the random suffix after the last dash.
-      const trunc = a.id.replace(/-[0-9a-z]+$/i, "");
+      const b = addFinding(U, { title: "BOLA B unique", severity: "medium", cvss: 6.5, target: "https://b.example/y" });
+
+      // The ids are `F-<Date.now().toString(36)>-<rand>` (security.ts:629), so how
+      // much of the head the two rows share depends on WHERE the millisecond
+      // counter happened to be: same millisecond → identical middle segment,
+      // next second → same head with a different tail, and near a base-36 carry
+      // → a different head entirely. Two earlier versions of this test therefore
+      // failed intermittently: one truncated to the whole middle segment (ambiguous
+      // whenever both rows landed in the same second) and one waited for a
+      // millisecond boundary (which put B in the SAME second as A just as often as
+      // not). Deriving both prefixes FROM THE ACTUAL IDS makes the preconditions
+      // true by construction instead of hoping for a favourable clock.
+      const ids = [a.id, b.id];
+      // Truncated (drill shape): the SHORTEST prefix of a's id that only a matches.
+      let trunc = a.id;
+      while (ids.some((id) => id !== a.id && id.startsWith(trunc))) trunc = trunc.slice(0, -1);
       expect(writeupText(U, { id: trunc })).toContain("IDOR A unique");
-      // Ambiguous prefix → honest miss. Row ids are F-<sec36>-<rand>; the
-      // second row lands on the NEXT 36-radix second, so chop the shared head
-      // shorter (F-<first-4>) — both rows start with it → ambiguous → not found.
-      const shared = "F-" + a.id.split("-")[1].slice(0, 4);
+      // Ambiguous prefix → honest miss: the shortest prefix BOTH rows start with.
+      let shared = "";
+      for (let n = 1; n <= a.id.length; n++) {
+        const p = a.id.slice(0, n);
+        if (ids.every((id) => id.startsWith(p))) { shared = p; break; }
+      }
+      expect(shared).not.toBe("");
       expect(writeupText(U, { id: shared })).toContain("not found");
     } finally {
       const { rmSync } = await import("node:fs");

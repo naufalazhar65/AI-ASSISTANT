@@ -48,8 +48,15 @@ done
 echo "health        : $(curl -s -m 10 http://localhost:$PORT/api/health | head -c 80)"
 echo "logged_in_as  : $(grep -c 'logged in as' /tmp/mia-dev.log 2>/dev/null || echo 0)  (harus 1)"
 echo "telegram      : $(grep -c 'telegram] starting' /tmp/mia-dev.log 2>/dev/null || echo 0)  (harus 1)"
-echo "409 conflicts : $(grep -c 409 /tmp/mia-dev.log 2>/dev/null || echo 0)  (harus 0)"
-echo "chunk errors  : $(grep -c 'Cannot find module' /tmp/mia-dev.log 2>/dev/null || echo 0)  (harus 0)"
+# Match Telegram's ACTUAL conflict text, not the bare number: a build line like
+# "Compiled /middleware in 409ms" is a compile duration and used to print a false
+# "409 conflicts : 1", which trains you to ignore the one health line that matters.
+# Real symptom of a second instance: "409: Conflict: terminated by other getUpdates".
+# grep -c prints "0" AND exits 1 on no-match, so `|| echo 0` printed a second
+# zero line. Route the count through a variable instead; /dev/null keeps the
+# missing-log case at 0.
+c409=$(grep -cE '409: Conflict|terminated by other getUpdates' /tmp/mia-dev.log 2>/dev/null); echo "409 conflicts : ${c409:-0}  (harus 0)"
+cc=$(grep -c 'Cannot find module' /tmp/mia-dev.log 2>/dev/null); echo "chunk errors  : ${cc:-0}  (harus 0)"
 echo "boot time     : $(ps -o lstart= -p "$(lsof -ti tcp:$PORT | head -1)" 2>/dev/null)"
 echo "agent.ts mtime: $(stat -f '%Sm' apps/web/src/lib/agent.ts)"
 

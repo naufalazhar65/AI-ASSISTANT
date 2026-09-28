@@ -20,6 +20,11 @@
 //
 // Pure — the caller supplies the effective severity and the ledger rows.
 import type { PocRun } from "./pocRuns";
+// URL matching has a single owner in ./urlMatch (audit fix 2026-09-28 §4.1:
+// "the evidence must match the endpoint"). Re-exported here because
+// agent.ts and findingGate.test.ts import hostOfUrl/pathOfUrl from this module.
+import { hostOfUrl, pathOfUrl, urlWitnessesUrl } from "./urlMatch";
+export { hostOfUrl, pathOfUrl } from "./urlMatch";
 
 /**
  * Injection-family classes whose claim IS a payload/response differential. Kept
@@ -39,25 +44,7 @@ const INJECTION_OWASP_RE = /injection/i;
 const NON_POC_PROOF_RE =
   /oast_poll|oast_dns|interactsh|callback\s*(?:OOB|ter-atribusi|hit)|dom_xss_prove|PROVEN[^\n]{0,40}handler|smuggle_probe|desync|CL\.TE|TE\.CL|\/etc\/passwd|win\.ini|php:\/\/filter|blind_cmdi|time-based/i;
 
-export function hostOfUrl(raw: string): string {
-  try {
-    return new URL(raw).host.toLowerCase();
-  } catch {
-    return String(raw || "").replace(/^https?:\/\//i, "").split("/")[0].toLowerCase();
-  }
-}
-
-export function pathOfUrl(raw: string): string {
-  try {
-    return new URL(raw).pathname;
-  } catch {
-    const m = String(raw || "").match(/^https?:\/\/[^/]+(\/[^?#]*)/i);
-    return m ? m[1] : "";
-  }
-}
-
-/** Is this finding a differential-dependent injection claim? Pure. */
-export function findingIsInjectionClass(input: { title?: string; cwe?: string; owasp?: string }): boolean {
+/** Is this finding a differential-dependent injection claim? Pure. */export function findingIsInjectionClass(input: { title?: string; cwe?: string; owasp?: string }): boolean {
   const title = String(input.title || "");
   const cwe = String(input.cwe || "");
   const owasp = String(input.owasp || "");
@@ -75,13 +62,7 @@ export function findingIsInjectionClass(input: { title?: string; cwe?: string; o
  * the live 2026-09-25 turn).
  */
 export function pocRunWitnesses(runUrl: string, findingTarget: string, findingText: string): boolean {
-  const runHost = hostOfUrl(runUrl);
-  const targetHost = hostOfUrl(findingTarget) || hostOfUrl(findingText);
-  if (!runHost || !targetHost || runHost !== targetHost) return false;
-  const p = pathOfUrl(runUrl);
-  if (!p || p === "/") return true;
-  const text = `${findingTarget}\n${findingText}`;
-  return text.includes(p) || text.includes(runUrl);
+  return urlWitnessesUrl(runUrl, findingTarget, findingText);
 }
 
 /**

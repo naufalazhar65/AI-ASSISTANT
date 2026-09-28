@@ -74,7 +74,17 @@ function firstLine(s: string): string {
   return line.length > RECEIPT_SUMMARY_MAX ? `${line.slice(0, RECEIPT_SUMMARY_MAX - 1)}…` : line;
 }
 
-export type ReceiptRecord = { name: string; args?: string; result?: string; prior?: boolean; at?: Date };
+/**
+ * One executed action, as the receipt sees it.
+ *
+ * `args` is `unknown`, not `string`, because the producers store the PARSED
+ * object (`collector.executedCalls`, the cross-boundary side-ledger) and only a
+ * hand-built fixture ever held a JSON string. The old `string` type made every
+ * real call site a type error (2026-09-28: 3 `args?: string` sites in agent.ts,
+ * invisible at runtime because nothing reads the type) while the renderers
+ * already handled both shapes.
+ */
+export type ReceiptRecord = { name: string; args?: unknown; result?: string; prior?: boolean; at?: Date };
 
 /**
  * Compact a long URL for receipt rendering: the host is usually IDENTICAL on
@@ -133,10 +143,31 @@ export function collapsePdfResult(result: string): string {
  * Digest pipeline: URLs are compacted FIRST (compactReceiptUrl), then bounded
  * to one line. Pure. Tested.
  */
-function argDigest(args: string): string {
+/**
+ * The one argument worth showing in a receipt line.
+ *
+ * Accepts BOTH shapes on purpose. The ledgers (`collector.executedCalls`, the
+ * cross-boundary side-ledger) hold the PARSED object, while the turn's own
+ * `tool_calls[].function.arguments` holds a JSON STRING — the same fact arrives
+ * in two encodings, so a single-shape signature either crashes or silently
+ * renders an empty head (2026-09-28, the fourth "⚙️ : (dieksekusi)").
+ */
+function argDigest(args: unknown): string {
   if (!args) return "";
+  let j: Record<string, unknown> | null = null;
+  if (typeof args === "string") {
+    try {
+      j = JSON.parse(args) as Record<string, unknown>;
+    } catch {
+      j = null;
+    }
+  } else if (typeof args === "object") {
+    j = args as Record<string, unknown>;
+  } else {
+    j = null;
+  }
+  if (!j) return "";
   try {
-    const j = JSON.parse(args) as Record<string, unknown>;
     const v = j.url ?? j.target ?? j.endpoint ?? j.base_url ?? j.path ?? j.query ?? "";
     if (typeof v === "string" && v) return firstLine(compactReceiptUrl(v));
     // Live 2026-09-27 23:47 (3rd occurrence of "⚙️ : (dieksekusi)"): a tool
@@ -181,10 +212,10 @@ export function actionReceipt(records: ReceiptRecord[]): string {
     if (!r || !/^[a-z][a-z0-9_]*$/.test(r.name || "")) continue;
     if (!RECEIPT_TOOLS.has(r.name)) continue;
     if (!executedResult(r.result ?? "")) continue;
-    const key = `${r.name}|${r.args ?? ""}`;
+    const key = `${r.name}|${JSON.stringify(r.args ?? "")}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const digest = argDigest(r.args ?? "");
+    const digest = argDigest(r.args);
     const head = digest ? `${r.name} → ${digest}` : r.name;
     const result = compactUrlsInText(collapsePdfResult(r.result ?? ""));
     lines.push(`⚙️ ${head}${r.prior ? " (turn sebelumnya)" : ""}: ${firstLine(result)}`);
