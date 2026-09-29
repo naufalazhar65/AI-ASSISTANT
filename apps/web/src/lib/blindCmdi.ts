@@ -69,22 +69,10 @@ async function send(
   }
 }
 
-/**
- * Timing verdict. Pure — tested. A lead requires the injected request to be
- * slower by a margin that the baseline pair's own jitter cannot explain:
- * delta must be >= MIN_DELAY_MS (sleep 6 is injected at ~6000) AND at least
- * 3x the baseline jitter.
- */
-export const MIN_DELAY_MS = 5_000;
-export function timingVerdict(baseA: number, baseB: number, injected: number): { lead: boolean; detail: string } {
-  const baseAvg = (baseA + baseB) / 2;
-  const jitter = Math.abs(baseA - baseB);
-  const delta = injected - baseAvg;
-  if (delta >= MIN_DELAY_MS && injected > baseAvg * 3 && delta > jitter * 3) {
-    return { lead: true, detail: `+${Math.round(delta)}ms vs baseline (jitter ${Math.round(jitter)}ms) — konsisten dengan sleep 6` };
-  }
-  return { lead: false, detail: `delta ${Math.round(delta)}ms tidak cukup (butuh ≥${MIN_DELAY_MS}ms, >3× jitter ${Math.round(jitter)}ms)` };
-}
+import { timingVerdict } from "./baseline";
+
+/** Re-export the single owner's timing verdict under the historical name. Pure — tested. */
+export { timingVerdict, MIN_DELAY_MS } from "./baseline";
 
 export type BlindCmdiOpts = {
   url?: string;            // endpoint feeding a shell

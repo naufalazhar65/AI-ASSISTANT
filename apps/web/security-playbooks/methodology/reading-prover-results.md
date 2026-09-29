@@ -164,3 +164,18 @@ itu kelas 5, baca sebagai negatif, bukan "gagal scan".
   sebelum DNS.
 - ❌ Klaim eksekusi tanpa audit log — kalau narasi dan audit bertentangan,
   audit yang menang.
+
+## Pasangan kode (precision #5, 2026-09-28)
+
+Tabel verdict → kelas kini ADA DI KODE, bukan cuma di playbook:
+`apps/web/src/lib/verdictTaxonomy.ts` (`TOOL_VERDICTS` — kunci = string persis
+yang prover emit; prefix ambigu menolak keras, bukan menebak). Meta-test
+`verdictTaxonomy.test.ts` mengiterasi fungsi verdict ASLI tiap prover
+(bypass403, otp, smuggle, dom_xss, teamcity, workflow, csv, recovery, compose)
+dan mengunci semuanya ke kelas kanonik — geser kata verdict di satu prover
+tanpa memperbarui tabel = test merah. Mapper teks bebas `classifyVerdictText`
+mengurutkan anti-fp → negative → confirmed → lead → unknown, jadi kalimat
+"bukan bypass" tidak pernah bisa dibaca ulang jadi lead.
+- Playbook saudari: `false-positive-elimination` — pola baseline/kontrol/normalisasi
+  + katalog perangkap yang sudah dipagari kode, supaya kelas verdict bisa DIPAHAMI
+  (bukan dihafal).

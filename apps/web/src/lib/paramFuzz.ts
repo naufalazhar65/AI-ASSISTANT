@@ -26,6 +26,42 @@ const SQL_ERR = /(SQL syntax|SQLite|sqlite3|mysql_|You have an error in your SQL
 
 export type FuzzHit = { param: string; klass: string; payload: string; signal: string; evidence: string };
 
+export type ReflectedXssContext = { kind: "exec" | "info"; detail: string };
+
+/**
+ * WHERE did the payload land? (Precision #3, 2026-09-28.) Reflection alone is
+ * not XSS: a browser only executes the payload when it lands in an EXECUTION
+ * position. Pure.
+ * - `exec`  → the reflection breaks out into live markup (breakout payload that
+ *   opens a tag/handler), a raw <script> block, a handler injected inside an
+ *   unterminated tag, or a javascript: URL landing in a link/src attribute.
+ * - `info`  → page text / inert positions, or only the URL-encoded form came
+ *   back (the server encoded it — WAF echo, not injection).
+ */
+export function classifyReflectionContext(body: string, payload: string): ReflectedXssContext {
+  const text = body || "";
+  if (!text.includes(payload)) {
+    return { kind: "info", detail: "hanya versi ter-encode yang kembali (server escape) — inert" };
+  }
+  const idx = text.indexOf(payload);
+  const before = text.slice(Math.max(0, idx - 80), idx);
+  // javascript: URL executable on navigation when it lands in a URL attribute
+  if (/javascript:/i.test(payload) && /(?:href|src|action|formaction|xlink:href)\s*=\s*["'`]?\s*$/i.test(before)) {
+    return { kind: "exec", detail: "javascript: URL ter-inject ke atribut link/src — eksekusi saat navigasi" };
+  }
+  // Breakout payloads ('"><img …, "><svg/onload=…): the injected quote(s) close
+  // the enclosing attribute (often via a leading >) and the tag becomes live
+  // markup. Also fires on raw <script> blocks.
+  if (/^["'`]{0,2}>{0,2}\s*<\s*[a-z]/i.test(payload) || /<\s*script/i.test(payload)) {
+    return { kind: "exec", detail: "payload memecah atribut/tag menjadi markup hidup (handler/script)" };
+  }
+  // A bare handler injected inside an unterminated tag (before ends mid-tag).
+  if (/\bon[a-z]+\s*=/i.test(payload) && /<[a-z][^<>]*$/i.test(before)) {
+    return { kind: "exec", detail: "handler attribute ter-inject di dalam tag" };
+  }
+  return { kind: "info", detail: "teks halaman / atribut tanpa posisi eksekusi — browser tidak mengeksekusi" };
+}
+
 async function pool<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = [];
   let i = 0;
@@ -64,8 +100,17 @@ export function classify(payload: string, klass: string, r: Probe, base: Probe):
   if (r.err) return out;
   const reflected = r.body.includes(payload) || r.body.includes(encodeURIComponent(payload));
   // Reflection is only a meaningful signal for XSS (every reflecting endpoint
-  // echoes all payloads, so flagging it for every class would be pure noise).
-  if (reflected && klass === "xss") out.push("reflection (cek XSS konteks)");
+  // echoes all payloads, so flagging it for every class would be pure noise) —
+  // and even there it is tiered (precision #3): an execution-position reflection
+  // is lead-grade, plain text/encoded reflection is info (not XSS evidence).
+  if (reflected && klass === "xss") {
+    const ctx = classifyReflectionContext(r.body, payload);
+    out.push(
+      ctx.kind === "exec"
+        ? `XSS exec-context (${ctx.detail}) — buktikan eksekusi via dom_xss_prove / browser manual`
+        : `reflection only — ${ctx.detail}`
+    );
+  }
   if ((klass === "sqli" || klass === "xss") && SQL_ERR.test(r.body) && !SQL_ERR.test(base.body)) out.push("SQL error signature");
   if (klass === "ssti" && /\b49\b/.test(r.body) && !/\b49\b/.test(base.body)) out.push("SSTI eval (7*7=49)");
   if (klass === "xpath" && /(XPathException|xmlXPath|XQuery|xpath.*error|Invalid predicate|libxml)/i.test(r.body) && !/(XPathException|xmlXPath|XQuery|xpath.*error|Invalid predicate|libxml)/i.test(base.body)) out.push("XPath error signature");

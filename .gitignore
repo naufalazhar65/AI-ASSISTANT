@@ -34,6 +34,7 @@ apps/web/.env.local.bak-*
 
 # one-off preview/probe scripts (hardcode owner user key + absolute report paths)
 apps/web/tmp-*.mts
+bug-bounty-report-improvement-checklist.md
 
 # --- probe/drill policy (explicit, decided 2026-09-28) -------------------
 # `apps/web/probe-*.mts` and `apps/web/drill-*.mts` are INTENTIONALLY TRACKED:

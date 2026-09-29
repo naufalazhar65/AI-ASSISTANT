@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { claimedReportNames, deliveredReportName, emptyReportClaimNote, inlineDeliveryClaimNote, pdfDeliverableSuffix, pdfExistenceClaim, reportProvenanceNote, retryEmptyReportDelivery, stripAbsentReportFiles, stripToolCallProse } from "./agent";
+import { DELIVERY_DENIAL_RE, claimedReportNames, deliveredReportName, emptyReportClaimNote, inlineDeliveryClaimNote, pdfDeliverableSuffix, pdfExistenceClaim, reportProvenanceNote, retryEmptyReportDelivery, stripAbsentReportFiles, stripToolCallProse } from "./agent";
 import { addFinding, reportPdf, reportSave } from "./security";
 import { userDataRoot } from "./users";
 
@@ -433,13 +433,27 @@ describe("retryEmptyReportDelivery — reverse the model's inverted order (live 
   // existed and the PDF would have rendered, but nothing retried and the
   // owner had to ask "mana pdfnya?" a third time.
   const LAB = "https://kyzuch-productivity-hub.vercel.app/";
-  const invertedTurn = (reportTarget: string, addTarget: string) => [
-    { role: "user", content: `full pentest di ${LAB} dan buatkan report pdf nya` },
-    { role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "report_pdf", arguments: JSON.stringify({ target: reportTarget }) } }] },
-    { role: "tool", tool_call_id: "t1", content: "Error: EMPTY_REPORT: no open findings to report" },
-    { role: "assistant", content: null, tool_calls: [{ id: "t2", type: "function", function: { name: "finding_add", arguments: JSON.stringify({ target: addTarget, title: "Missing Security Headers", severity: "low", cvss: 3, evidence: "A/B header audit" }) } }] },
-    { role: "tool", tool_call_id: "t2", content: "✅ Temuan dicatat: [LOW CVSS 3] Missing Security Headers (F-x)" },
-  ] as never;
+  // The sweep gate (same day, 2026-09-28) post-dates kyzuch: under today's
+  // rules a "full pentest" ask with ZERO real probes gets no report from ANY
+  // path, so the inversion fixture carries a real probe (poc_verify) — that is
+  // the shape the retry exists for. probe:false reproduces the live 2026-09-28
+  // 18:34 contradiction shape (sweep ask, only reads) which must stay blocked.
+  const invertedTurn = (reportTarget: string, addTarget: string, opts: { probe?: boolean } = {}) => {
+    const probeCalls = opts.probe === false
+      ? []
+      : [
+          { role: "assistant", content: null, tool_calls: [{ id: "t0", type: "function", function: { name: "poc_verify", arguments: JSON.stringify({ url: `${LAB}api/cek-nik?id=1`, expect_status: 200 }) } }] },
+          { role: "tool", tool_call_id: "t0", content: "✅ PoC STABIL & terkonfirmasi 3/3" },
+        ];
+    return [
+      { role: "user", content: `full pentest di ${LAB} dan buatkan report pdf nya` },
+      ...probeCalls,
+      { role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "report_pdf", arguments: JSON.stringify({ target: reportTarget }) } }] },
+      { role: "tool", tool_call_id: "t1", content: "Error: EMPTY_REPORT: no open findings to report" },
+      { role: "assistant", content: null, tool_calls: [{ id: "t2", type: "function", function: { name: "finding_add", arguments: JSON.stringify({ target: addTarget, title: "Missing Security Headers", severity: "low", cvss: 3, evidence: "A/B header audit" }) } }] },
+      { role: "tool", tool_call_id: "t2", content: "✅ Temuan dicatat: [LOW CVSS 3] Missing Security Headers (F-x)" },
+    ] as never;
+  };
 
   it("re-renders the PDF when the finding landed AFTER the empty refusal (same host)", async () => {
     const user = `verify_retry_${Date.now()}`;
@@ -478,6 +492,40 @@ describe("retryEmptyReportDelivery — reverse the model's inverted order (live 
     ] as never;
     expect(await retryEmptyReportDelivery(msgs, `verify_retry_na_${Date.now()}`, "discord")).toBe("");
   });
+
+  it("STILL re-renders on the LIVE 2026-09-28 18:34 shape: a zero-probe sweep ask still gets its file (live 2026-09-29 02:40)", async () => {
+    // CONTRACT REVERSED ON PURPOSE, on the owner's instruction. This test used
+    // to assert the opposite ("the gate must not be undone"). Suppressing the
+    // fallback on a zero-probe sweep ask was correct about the LABEL but wrong
+    // about the DELIVERABLE: the user who explicitly asked for a PDF got no
+    // PDF at all (live 02:40 — same ask, same zero probes, and the newest file
+    // on disk was still the one from 01:33). The contradiction the old policy
+    // was written to prevent is now prevented by a NOTE instead: the
+    // DELIVERY_DENIAL_RE branch of pdfDeliverableSuffix corrects "the system
+    // refused" when our own receipt proves the file exists, and the
+    // previous-findings note labels the report as built from stored findings.
+    // Delivering the file and labelling it honestly satisfies both halves;
+    // delivering nothing satisfies neither.
+    const user = `verify_retry_sweep_${Date.now()}`;
+    try {
+      addFinding(user, { title: "Missing Security Headers", severity: "low", cvss: 3, target: LAB, evidence: "reads only" });
+      const receipt = await retryEmptyReportDelivery(invertedTurn(LAB, LAB, { probe: false }), user, "discord");
+      expect(receipt).toMatch(/PDF-nya sudah kubuat/);
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("re-renders when the same sweep ask DID probe (a real probe re-arms delivery)", async () => {
+    const user = `verify_retry_sweepprobed_${Date.now()}`;
+    try {
+      addFinding(user, { title: "Missing Security Headers", severity: "low", cvss: 3, target: LAB, evidence: "A/B header audit" });
+      const receipt = await retryEmptyReportDelivery(invertedTurn(LAB, LAB), user, "discord");
+      expect(receipt).toMatch(/PDF-nya sudah kubuat/);
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it("the A5 creation-claim note stays SILENT once the retry delivered (receipt is the truth now)", async () => {
     const user = `verify_retry_a5_${Date.now()}`;
@@ -575,5 +623,82 @@ describe("a FABRICATED report URL beside the real receipt (live 2026-09-28 18:47
 
   it("no .pdf mention at all is silent", () => {
     expect(claimedReportNames("laporan sudah dibuat, semua beres")).toEqual([]);
+  });
+});
+
+describe("a DENIAL of a report that EXISTS, beside its own receipt (live 2026-09-29 01:33)", () => {
+  // Live shape, verbatim. The model was RIGHT about the tool — report_save was
+  // refused by the sweep gate for having no fresh test — and WRONG about the net
+  // effect, because the deterministic delivery path renders anyway. Every
+  // honest-admission carve-out matched "belum … PDF" and silenced the
+  // correction, so the sentence was a true statement about a refusal wrapped in
+  // a false statement about the outcome.
+  const LAB = "cozy-kangaroo-42f2e0.netlify.app";
+  const ASK = `mia coba lakukan full pentest secara menyeluruh di https://${LAB}/ dan buatkan report pdf nya`;
+  const DELIVERED = "report-2026-09-28T18-34-24-464Z.pdf";
+  const PROSE =
+    `Siap Mas Naufal! 🌸\n\n` +
+    `Untuk target https://${LAB}/, saat ini sudah ada 8 temuan yang tercatat, mulai dari SQL Injection, IDOR, sampai Stored XSS. ` +
+    `Karena tadi aku baru memanggil daftar temuan dan belum melakukan payload testing baru di giliran ini, ` +
+    `sistem belum mengizinkan pembuatan laporan PDF baru agar datanya tetap akurat dan tidak tercampur.\n\n` +
+    `Aku akan langsung lanjut ke sweep menyeluruh pada endpoint-endpoint yang ada. Kita mulai dari pengecekan workflow di /api/login ya beb. Bagaimana? 🌸`;
+  const RECEIPT = ` (\u{1F4CE} PDF-nya sudah kubuat: \`${DELIVERED}\` — cek folder laporanmu ya.)`;
+  const TAIL = PROSE + RECEIPT;
+  // One read-only call is the whole turn: audit 18:34:13 `finding_list`, then
+  // 18:34:24 `turn_provider`. `report_save` is absent from the audit because the
+  // sweep gate refused it before `executeTool`.
+  const turn = [
+    { role: "user", content: ASK },
+    { role: "assistant", content: "", tool_calls: [{ id: "a1", type: "function", function: { name: "finding_list", arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "a1", content: "8 temuan" },
+  ] as never[];
+
+  it("the live shape FIRES and names the file that does exist", () => {
+    const note = pdfDeliverableSuffix(turn, TAIL);
+    expect(note).not.toBe("");
+    expect(note).toContain("TIDAK gagal dibuat");
+    expect(note).toContain(DELIVERED);
+    // Honest in BOTH directions: the fresh report really was withheld.
+    expect(note).toContain("permintaan laporan BARU lewat tool");
+  });
+
+  it("SILENT on a genuine admission when nothing was delivered", () => {
+    // The identical prose, minus the receipt: now the denial is TRUE and the
+    // honest-admission carve-out must keep its voice.
+    expect(pdfDeliverableSuffix(turn, PROSE)).toBe("");
+  });
+
+  it("SILENT on an honest delivery with no denial anywhere", () => {
+    expect(pdfDeliverableSuffix(turn, `Sudah kubuat ya mas.` + RECEIPT)).toBe("");
+  });
+
+  it("SILENT on ordinary prose that never mentions a report", () => {
+    expect(pdfDeliverableSuffix(turn, `Akses LANE tidak_dimintai.` + RECEIPT)).toBe("");
+  });
+
+  it("a denial naming our OWN appended note is never the voice being judged", () => {
+    // The correction we append must not be able to accuse the model of denying
+    // a deliverable — the same trap that downgraded the completion claim on
+    // 13:44. `modelVoiceText` is what prevents it.
+    const note = pdfDeliverableSuffix(turn, `Sudah kubuat ya mas.` + RECEIPT);
+    expect(note).toBe("");
+  });
+
+  it("DENIAL_RE matches the live sentence and nothing honest", () => {
+    expect(DELIVERY_DENIAL_RE.exec(PROSE)?.[0]).toContain("sistem belum mengizinkan");
+    // Honest shapes: an admission with no system-attributed blocker.
+    expect(DELIVERY_DENIAL_RE.exec("PDF-nya belum kubuat ya")).toBeNull();
+    expect(DELIVERY_DENIAL_RE.exec("Belum ada file PDF-nya.")).toBeNull();
+    expect(DELIVERY_DENIAL_RE.exec("Laporan sudah dibuat ya.")).toBeNull();
+  });
+
+  it("the vocabulary cannot drift from itself (every actor/blocker still matches)", () => {
+    for (const verb of ["mengizinkan", "membuat", "buatkan", "menyimpan"]) {
+      expect(DELIVERY_DENIAL_RE.test(`sistem belum ${verb}`)).toBe(true);
+      expect(DELIVERY_DENIAL_RE.test(`sistem tidak ${verb}`)).toBe(true);
+    }
+    expect(DELIVERY_DENIAL_RE.test("sistem menolak membuat laporan")).toBe(true);
+    expect(DELIVERY_DENIAL_RE.test("sistem gagal menyimpan laporan")).toBe(true);
+    expect(DELIVERY_DENIAL_RE.test("aku tidak bisa membuat PDF")).toBe(true);
   });
 });

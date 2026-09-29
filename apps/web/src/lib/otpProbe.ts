@@ -12,6 +12,7 @@
 import { targetAllowed, politeDelay } from "./security";
 import { recordHttp } from "./httpHistory";
 import { sessionHeaders } from "./httpSession";
+import { oracleDigest } from "./baseline";
 
 const UA = "mia-assistant/1.0";
 
@@ -73,12 +74,12 @@ export function rateLimitVerdict(statuses: number[], bodies: string[]): { kind: 
  * verification. Pure.
  */
 export function oracleSignatures(baseline: ProbeResult, responses: ProbeResult[]): { diffIdx: number[]; successLike: number[] } {
-  const baseDigest = baseline.body.replace(/\d+/g, "N").slice(0, 200);
+  const baseDigest = oracleDigest(baseline.body);
   const diffIdx: number[] = [];
   const successLike: number[] = [];
   responses.forEach((r, i) => {
     if (r.error || r.status === 0) return;
-    const d = r.body.replace(/\d+/g, "N").slice(0, 200);
+    const d = oracleDigest(r.body);
     if (r.status !== baseline.status || d !== baseDigest) {
       diffIdx.push(i);
       if (r.status >= 200 && r.status < 300 && !THROTTLE_RE.test(r.body)) successLike.push(i);

@@ -12,9 +12,18 @@
 // Scope-gated via targetAllowed, ≤12 requests, polite delay. Pure helpers
 // exported for unit tests. A lead is a SIGNAL — the model verifies
 // determinism via poc_verify before finding_add (CWE-943).
+// Comparison semantics live in ./baseline (single owner) — classifyOutcome is
+// re-exported from there; mongoFingerprint is passed in as the fingerprint arm.
 import { targetAllowed, politeDelay } from "./security";
 import { recordHttp } from "./httpHistory";
 import { sessionHeaders } from "./httpSession";
+import { classifyOutcome } from "./baseline";
+
+/** Re-export under the historical name — semantics must NOT shift in a
+ * refactor: callers/tests importing `classifyOutcome` from this module get the
+ * fingerprinted classifier (this prover's Mongo/BSON arm), same as before the
+ * baseline.ts migration. The fingerprint-free canonical stays in ./baseline. */
+export { classifyNosqlOutcome as classifyOutcome };
 
 const UA = "mia-assistant/1.0";
 
@@ -71,18 +80,15 @@ export function mongoFingerprint(body: string): string | null {
 
 /**
  * Outcome classification vs the invalid-credential baseline. Pure.
+ * Single owner lives in ./baseline — this wraps it with this prover's
+ * fingerprint arm (Mongo/BSON error text).
  * - `lead`: auth bypass candidate (status/redirect differs from baseline in a
  *   success-ish direction, and NOT a raw error).
  * - `info`: server stumbled (error/500) — weaker signal.
  * - `none`: same as baseline.
  */
-export function classifyOutcome(baseline: { status: number; location: string }, hit: { status: number; location: string; body: string }): "lead" | "info" | "none" {
-  if (baseline.status === 0 || hit.status === 0) return "none";
-  const successish = (s: number, loc: string) => (s >= 200 && s < 300) || (s >= 300 && s < 400 && !!loc);
-  if (successish(hit.status, hit.location) && !successish(baseline.status, baseline.location)) return "lead";
-  if (hit.status >= 500) return "info";
-  if (hit.status !== baseline.status && mongoFingerprint(hit.body)) return "info";
-  return "none";
+export function classifyNosqlOutcome(baseline: { status: number; location: string }, hit: { status: number; location: string; body: string }): "lead" | "info" | "none" {
+  return classifyOutcome(baseline, hit, mongoFingerprint);
 }
 
 // ── Runner ──────────────────────────────────────────────────────────────────
@@ -119,7 +125,7 @@ export async function nosqlHunt(
     recordHttp(rawUser, { method, url, status: hit.status, bytes: hit.body.length, ms: hit.ms, at: new Date().toISOString() });
     await politeDelay();
     const fp = mongoFingerprint(hit.body);
-    const cls = classifyOutcome(baseline, hit);
+    const cls = classifyNosqlOutcome(baseline, hit);
     if (cls === "lead") leads.push({ c, hit });
     else if (cls === "info" || fp) infos.push(`• ${c.name}: ${hit.status}${fp ? ` — ${fp}` : ""}`);
     if (leads.length >= 3) break; // bounded

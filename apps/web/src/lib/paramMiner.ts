@@ -15,9 +15,12 @@
 // never did (status change, header change, or body delta > threshold). A hit
 // is a LEAD (meaning depends on semantics — never auto-claimed as vuln).
 // Scope-gated, bounded ≤26 requests, politeDelay, recordHttp, session.
+// Comparison semantics live in ./baseline (single owner) — this module keeps
+// the exports for compatibility and delegates to it.
 import { targetAllowed, politeDelay } from "./security";
 import { recordHttp } from "./httpHistory";
 import { sessionHeaders } from "./httpSession";
+import { normalizeBody, bodiesDiffer } from "./baseline";
 
 const UA = "mia-assistant/1.0";
 const BODY_BUDGET = 16_000;
@@ -39,19 +42,17 @@ export const CANDIDATE_HEADERS = [
 
 const BODY_DELTA = 60;
 
-/** Normalize a body for comparison (drop volatile bits). Pure — tested. */
-export function normalizeBody(body: string): string {
-  return (body || "")
-    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "UUID")
-    .replace(/\b\d{10,13}\b/g, "TS")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+/**
+ * Normalize a body for comparison (drop volatile bits). Pure — tested.
+ * Single owner lives in ./baseline — re-exported here for compatibility.
+ */
+export { normalizeBody } from "./baseline";
 
 /**
  * Differential verdict for one candidate. Pure — tested.
  * A hit requires the candidate response to differ from BOTH baseline
  * responses in the same direction the baselines never differed.
+ * Body arm delegates to the single owner (bodiesDiffer).
  */
 export function diffVerdict(
   bA: { status: number; body: string; headers: Record<string, string> },
@@ -60,13 +61,10 @@ export function diffVerdict(
 ): { lead: boolean; reason: string } {
   const baseStatusChanged = bA.status !== cand.status && bB.status !== cand.status;
   if (baseStatusChanged) return { lead: true, reason: `status ${bA.status}→${cand.status}` };
-  const nA = normalizeBody(bA.body);
-  const nB = normalizeBody(bB.body);
-  const nC = normalizeBody(cand.body);
-  const basePairDelta = Math.abs(nA.length - nB.length);
-  const candDeltaA = Math.abs(nA.length - nC.length);
-  const candDeltaB = Math.abs(nB.length - nC.length);
-  if (candDeltaA > BODY_DELTA && candDeltaB > BODY_DELTA && Math.min(candDeltaA, candDeltaB) > basePairDelta * 2) {
+  if (bodiesDiffer(bA, bB, cand, BODY_DELTA)) {
+    const basePairDelta = Math.abs(normalizeBody(bA.body).length - normalizeBody(bB.body).length);
+    const candDeltaA = Math.abs(normalizeBody(bA.body).length - normalizeBody(cand.body).length);
+    const candDeltaB = Math.abs(normalizeBody(bB.body).length - normalizeBody(cand.body).length);
     return { lead: true, reason: `body berubah ${Math.min(candDeltaA, candDeltaB)} byte (baseline jitter ${basePairDelta} byte)` };
   }
   // New/changed notable header on the candidate only.

@@ -1617,7 +1617,12 @@ async function main() {
     const { paramFuzz, classify } = await import("./src/lib/paramFuzz");
     if (!/SCOPE/.test(await paramFuzz(undefined, { url: "https://google.com/?q=1" }))) throw new Error("param_fuzz scope guard");
     const base = { status: 200, body: "hello", loc: "", ms: 10, err: false };
-    if (!classify("<script>x</script>", "xss", { status: 200, body: "echo <script>x</script>", loc: "", ms: 12, err: false }, base).some((s) => /reflection/.test(s))) throw new Error("classify reflection");
+    // Context-aware reflection (precision #3, 2026-09-28): an execution-position
+    // reflection is lead-grade ("XSS exec-context"); text/encoded reflection is
+    // info only — it is NOT XSS evidence (matches xssProofAdvisory vocabulary).
+    if (!classify("<script>x</script>", "xss", { status: 200, body: "echo <script>x</script>", loc: "", ms: 12, err: false }, base).some((s) => /XSS exec-context/.test(s))) throw new Error("classify reflection exec");
+    if (!classify("javascript:alert(1)", "xss", { status: 200, body: "log:javascript%3Aalert(1)", loc: "", ms: 12, err: false }, base).some((s) => /reflection only/.test(s))) throw new Error("classify reflection info");
+    if (classify("javascript:alert(1)", "xss", { status: 200, body: "log:javascript%3Aalert(1)", loc: "", ms: 12, err: false }, base).some((s) => /exec-context/.test(s))) throw new Error("classify reflection must not exec-grade encoded echo");
     if (!classify("'", "sqli", { status: 500, body: "SQL syntax error near", loc: "", ms: 11, err: false }, base).some((s) => /SQL error/.test(s))) throw new Error("classify sql error");
     // xpath/ldap/xslt classes (2026-09-24): payloads exist + detectors fire
     if (!paramFuzz) throw new Error("paramFuzz import");
@@ -3346,6 +3351,12 @@ async function main() {
     });
     await new Promise<void>((r) => toyC.listen(0, "127.0.0.1", () => r()));
     const cBase = `http://127.0.0.1:${(toyC.address() as { port: number }).port}`;
+    // Snapshot shared hunt-state: the dedup recorder below writes toy-port entries
+    // (lead/dead) through the SAME store production uses — restored in finally so
+    // the shared store never accumulates verify noise.
+    const fsX = await import("node:fs");
+    const HUNT_SHARED = `${appRoot()}/.data/users/shared/hunt-state.json`;
+    const huntSnap = fsX.existsSync(HUNT_SHARED) ? fsX.readFileSync(HUNT_SHARED) : null;
     try {
       otpSeen = 0;
       const cb = await runExploitChain(null, "bypass403", { url: `${cBase}/admin` });
@@ -3358,10 +3369,34 @@ async function main() {
       const batch = await runExploitChain(null, "bypass403,otp,proto_pollute", { url: `${cBase}/admin` });
       if (!batch.includes("EXPLOIT CHAIN (3)")) throw new Error(`batch header missing: ${batch.slice(0, 80)}`);
       if (!batch.includes("3 chain dengan langkah nyata")) throw new Error(`batch summary wrong: ${batch.slice(-160)}`);
+      // ── Dedup gate (precision #4, 2026-09-28): hunt_log/target_brain are checked
+      // BEFORE the prover's first request; outcomes are recorded after the run.
+      const { huntSet, readHunt, normalizeTarget } = await import("./src/lib/huntLog");
+      const { brainRecordProof } = await import("./src/lib/targetBrain");
+      const DU = "verify_dedup_gate";
+      // 1. Legacy `dead` → honest skip with ZERO requests (otpSeen = ground truth).
+      const otp0 = otpSeen;
+      await huntSet(DU, `${cBase}/api/otp`, "dead", "gate drill");
+      const deadOut = await runExploitChain(DU, "otp", { url: `${cBase}/api/otp`, count: 4 });
+      if (!deadOut.includes("⛔ CHAIN TIDAK DIJALANKAN") || !deadOut.includes("DEAD")) throw new Error(`dead gate must skip honestly: ${deadOut.slice(0, 140)}`);
+      if (!deadOut.includes("0 langkah dijalankan")) throw new Error("dead gate must report 0 steps");
+      if (otpSeen !== otp0) throw new Error(`dead gate leaked ${otpSeen - otp0} requests past the gate`);
+      // 2. A live run on a clean user records its outcome → hunt_log LEAD.
+      await runExploitChain(DU, "bypass403", { url: `${cBase}/admin` });
+      // huntSet normalizes targets SCHEME-LESS — compare the same way.
+      const leadEntry = readHunt(DU).find((e) => e.target === normalizeTarget(`${cBase}/admin`));
+      if (!leadEntry || leadEntry.status !== "lead") throw new Error(`recorder must mark lead after BYPASS LEAD, got: ${JSON.stringify(readHunt(DU).slice(0, 2))}`);
+      // 3. A brain PROOF on the same path surfaces as a dedup context note.
+      brainRecordProof(DU, `${cBase}/admin`, { what: `${cBase}/admin`, how: "bypass403 (verify drill)", severity: "high" });
+      const ctxOut = await runExploitChain(DU, "bypass403", { url: `${cBase}/admin` });
+      if (!ctxOut.includes("Konteks dedup") || !ctxOut.includes("terbukti sebelumnya")) throw new Error(`brain proof must surface as dedup context: ${ctxOut.slice(-140)}`);
+      fsX.rmSync(`${appRoot()}/.data/users/${DU}`, { recursive: true, force: true });
     } finally {
       toyC.close();
+      if (huntSnap) fsX.writeFileSync(HUNT_SHARED, huntSnap);
+      else fsX.rmSync(HUNT_SHARED, { force: true });
     }
-    console.log("exploit-chain: OK (tool registered, 21 chains incl. 5 tier-1 + 3 bypass/otp/pollution + 3 batch-2 wrappers + traversal + otp_hunt + recovery + csv + cmdi_blind + ssti, scope-gated, helpful errors, SSRF runs, comma-separated batches honest, live wrapper batch 3/3)");
+    console.log("exploit-chain: OK (tool registered, 21 chains incl. 5 tier-1 + 3 bypass/otp/pollution + 3 batch-2 wrappers + traversal + otp_hunt + recovery + csv + cmdi_blind + ssti, scope-gated, helpful errors, SSRF runs, comma-separated batches honest, live wrapper batch 3/3, dedup gate: dead-skip zero-request + lead/proof context + outcome recorder)");
   }
 
   // ── vuln_compose + exploit_build ────────────────────────────────────
