@@ -34,6 +34,7 @@ apps/web/.env.local.bak-*
 
 # one-off preview/probe scripts (hardcode owner user key + absolute report paths)
 apps/web/tmp-*.mts
+apps/web/tmp-*.mjs
 bug-bounty-report-improvement-checklist.md
 
 # --- probe/drill policy (explicit, decided 2026-09-28) -------------------
@@ -43,6 +44,9 @@ bug-bounty-report-improvement-checklist.md
 # already sets the precedent. The older `*_probe.ts` / `*probe.ts` patterns
 # above do NOT match the `probe-*.mts` naming, so this is recorded here to keep
 # the policy deliberate rather than accidental.
-# If you write a THROWAWAY script: name it `apps/web/tmp-*.mts` (ignored above)
-# instead of `probe-*.mts`, and use a run-unique throwaway user
-# (`verify_<name>_${Date.now()}`) whenever it writes to user data.
+# If you write a THROWAWAY script: name it `apps/web/tmp-*.mts` or
+# `apps/web/tmp-*.mjs` (both ignored above) instead of `probe-*.mts`, and use a
+# run-unique throwaway user (`verify_<name>_${Date.now()}`) whenever it writes to
+# user data. The `.mjs` entry was added 2026-09-30: the Gemini Live wire-format
+# probes could not use top-level await under tsx, so they were written as `.mjs`,
+# and `git add -A` was about to sweep four of them into the commit.

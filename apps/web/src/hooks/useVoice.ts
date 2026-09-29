@@ -22,6 +22,20 @@ export interface UseVoiceResult {
   useRealProvider: boolean;
   voiceOutput: boolean;
   toggleVoiceOutput: () => void;
+  /**
+   * Open the mic WITHOUT starting the Groq turn pipeline, returning the shared
+   * capture stream. Used by the Gemini Live mode, which needs the same stream
+   * but must not also run `manager`/`autoTurn`.
+   */
+  ensureMic: () => Promise<MediaStream | null>;
+  /** Close the mic again (Live mode's counterpart to `ensureMic`). */
+  releaseMic: () => Promise<void>;
+  /**
+   * Explicit setter for the output mode. The UI needs to SELECT a mode (a
+   * segmented control must never invert the current one), while
+   * `toggleVoiceOutput` stays for callers that genuinely want inversion.
+   */
+  setVoiceOutput: (on: boolean) => void;
   voice: string;
   setVoice: (voice: string) => void;
   model: string | undefined;
@@ -191,6 +205,22 @@ export function useVoice(): UseVoiceResult {
     setVoiceOutput((prev) => {
       voiceOutputRef.current = !prev;
       return !prev;
+    });
+  }, []);
+
+  /**
+   * Set the reply mode to an explicit value.
+   *
+   * The UI renders this as a segmented control, and a toggle cannot express
+   * "select Voice" — clicking the already-selected option would switch it off.
+   * The ref is mirrored because the provider is a long-lived singleton that
+   * reads `voiceOutputRef` outside React's render cycle.
+   */
+  const setVoiceOutputMode = useCallback((next: boolean) => {
+    setVoiceOutput((prev) => {
+      if (prev === next) return prev;
+      voiceOutputRef.current = next;
+      return next;
     });
   }, []);
 
@@ -472,6 +502,34 @@ export function useVoice(): UseVoiceResult {
     }
   }, [capture, manager, autoTurn]);
 
+  /**
+   * Open the microphone WITHOUT starting the turn-based pipeline.
+   *
+   * The Gemini Live path needs the app's single shared capture stream (so the
+   * orb and the Live session analyse the same audio, and we never hold two mic
+   * grabs at once), but it must NOT start `manager`/`autoTurn` — that is the
+   * Groq turn machinery, and running both would feed the same microphone into
+   * two pipelines. `start()` above deliberately does all three and is correct
+   * for Groq mode; this one is capture-only and is correct for Live mode.
+   */
+  const ensureMic = useCallback(async (): Promise<MediaStream | null> => {
+    await capture.start();
+    return capture.getMediaStreamSafe();
+  }, [capture]);
+
+  /**
+   * Close the microphone opened by `ensureMic`.
+   *
+   * Only meaningful while Live mode owns it: `AudioCapture` is a single shared
+   * object, so this also closes a Groq-mode mic if one happened to be open. The
+   * mode switch in `page.tsx` is therefore the intended place to change
+   * pipelines, and the console defaults to Groq, so a user has to opt into
+   * Live before this can affect the Groq path.
+   */
+  const releaseMic = useCallback(async () => {
+    await capture.stop();
+  }, [capture]);
+
   const stop = useCallback(async () => {
     autoTurn.stop();
     await capture.stop();
@@ -537,6 +595,9 @@ export function useVoice(): UseVoiceResult {
     useRealProvider: process.env.NEXT_PUBLIC_AI_PROVIDER === "groq",
     voiceOutput,
     toggleVoiceOutput,
+    ensureMic,
+    releaseMic,
+    setVoiceOutput: setVoiceOutputMode,
     voice,
     setVoice,
     model,

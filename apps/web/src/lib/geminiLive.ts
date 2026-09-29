@@ -1,0 +1,536 @@
+/**
+ * Client-side Gemini Live session (browser only).
+ *
+ * Owns exactly one WebSocket: browser <-> Google. Mia's server is NOT in the
+ * audio path — it only mints the short-lived token (see
+ * `apps/web/src/app/api/gemini-live/token/route.ts`), which is what keeps
+ * `GEMINI_API_KEY` server-side (invariant 5) while still giving the browser the
+ * low-latency direct connection Google's docs recommend.
+ *
+ * Protocol facts (verified against
+ * https://ai.google.dev/gemini-api/docs/live-api/get-started-websocket,
+ * page last updated 2026-09-15):
+ *   - the client URL is the **Constrained** method, `?access_token=`;
+ *   - the first frame MUST be `setup` and the model id carries a `models/` prefix;
+ *   - audio in is raw 16-bit LE PCM at 16 kHz, base64, in `realtimeInput.audio`;
+ *   - audio out is raw 16-bit LE PCM at 24 kHz, base64, in
+ *     `serverContent.modelTurn.parts[].inlineData.data`;
+ *   - the user's speech arrives as `serverContent.inputTranscription.text`
+ *     (only when `inputAudioTranscription` is requested in `setup`);
+ *   - Gemini's own speech arrives as `serverContent.outputTranscription.text`.
+ *
+ * Deliberately NOT a full `AIProvider` implementation: the existing
+ * `ConversationManager`/`AutoTurnManager` path is turn-based (MediaRecorder ->
+ * Whisper -> LLM -> TTS) and Gemini Live is duplex and self-turn-taking.
+ * Squeezing it through that machinery would fight it, so this is wired as its
+ * own voice mode in the console instead.
+ */
+
+/** Live websocket endpoint (the client-side, ephemeral-token method). */
+const LIVE_WS_BASE =
+  "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained";
+
+/** What the UI needs to know about the session. */
+export type GeminiLiveStatus =
+  | "idle"
+  | "connecting"
+  | "ready"
+  | "error"
+  | "closed";
+
+export type GeminiLiveEvent =
+  /** Raw PCM out, already base64-decoded, at {@link LIVE_OUTPUT_SAMPLE_RATE}. */
+  | { type: "audio"; pcm: Uint8Array }
+  /** Streaming transcript of the USER's speech. */
+  | { type: "input_transcript"; text: string; final: boolean }
+  /** Streaming transcript of GEMINI's speech. */
+  | { type: "output_transcript"; text: string; final: boolean }
+  /** Gemini started/finished a turn — used to drive the orb's state. */
+  | { type: "speaking"; speaking: boolean }
+  /** The model interrupted itself (user barge-in took effect server-side). */
+  | { type: "interrupted" }
+  /** Anything the model said as plain text (not speech). */
+  | { type: "text"; text: string }
+  /**
+   * Connected, but the server has not sent a SINGLE frame yet.
+   *
+   * A separate signal is needed because "not talking" and "not connected" are
+   * different problems with different fixes, and a spinner cannot express
+   * either. Deliberately narrow: it may only fire before the first frame, because
+   * a duplex session is silent between turns BY DESIGN and a notice then would be
+   * nagging a perfectly healthy session.
+   */
+  | { type: "stalled"; message: string }
+  | { type: "status"; status: GeminiLiveStatus; detail?: string }
+  | { type: "error"; message: string };
+
+export type GeminiLiveListener = (event: GeminiLiveEvent) => void;
+
+export interface GeminiLiveOptions {
+  /** System instruction. The persona is injected here by the caller. */
+  systemInstruction?: string;
+  /** Ask the API to transcribe the user's speech (needed for subtitles). */
+  enableInputTranscription?: boolean;
+  /** Ask the API to transcribe Gemini's speech. */
+  enableOutputTranscription?: boolean;
+}
+
+export interface StartResult {
+  ok: boolean;
+  /** Present when `ok` is false; already safe to show to a user. */
+  error?: string;
+  /**
+   * Why the start settled. `"setup-complete"` is the documented path; the other
+   * two exist because the deployed API can stay silent forever and a start that
+   * never resolves is the bug this whole block was added to prevent.
+   */
+  via?: "setup-complete" | "grace" | "timeout";
+}
+
+/**
+ * Grace period after the setup frame is written.
+ *
+ * The socket being open and our own frame being written IS a connection fact we
+ * can observe without the server's permission. Waiting for `setupComplete` alone
+ * is what made the UI sit on "Menyambung..." forever, so a bounded grace makes
+ * the promise settle on a fact we actually hold. An error or a close inside the
+ * window still wins, because those are real failures.
+ */
+const SETTLE_GRACE_MS = 2_500;
+
+/** Hard ceiling on `start()`. A start can never hang, whatever the server does. */
+const START_TIMEOUT_MS = 15_000;
+
+/**
+ * How long a connected session may go without the server sending ANY frame.
+ *
+ * Only ever armed before the first frame (see `armStallWatchdog`). It is
+ * deliberately not an error: the socket is open and audio may start at any
+ * moment, so the honest thing is a distinct notice, not a red failure the user
+ * has to dismiss. The window is generous because a cold Live session can take a
+ * while to produce its first frame, and a notice that fires on a merely slow
+ * connection is worse than no notice.
+ */
+const FIRST_FRAME_WATCHDOG_MS = 20_000;
+
+/**
+ * Decode one WebSocket frame into text.
+ *
+ * MEASURED against the live API 2026-09-30 with the owner's key: Google sends
+ * EVERY frame as **binary** — including `setupComplete`, which is a
+ * JSON-encoded binary frame like all the rest. That is why an earlier version of
+ * this client believed the API "went silent after `setup`": the browser's
+ * `WebSocket.binaryType` defaults to `"blob"`, so `String(event.data)` produced
+ * the literal `"[object Blob]"`, `JSON.parse` threw, and a `catch` written to
+ * "keep the session alive" quietly discarded every server frame — including the
+ * handshake. The UI then sat on "Menyambung..." forever with no error anywhere.
+ *
+ * Pure and exported so this exact decoding is provable without a socket.
+ *
+ * Returns `""` for anything undecodable, including a `Blob`: reading one needs
+ * an async API, and it cannot occur once `binaryType` is set to `"arraybuffer"`
+ * (which `start()` does immediately after constructing the socket).
+ */
+export function frameText(data: unknown): string {
+  if (typeof data === "string") return data;
+  if (data instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(data));
+  if (ArrayBuffer.isView(data)) {
+    const view = new Uint8Array(data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
+    return new TextDecoder().decode(view);
+  }
+  return "";
+}
+
+/**
+ * A single Gemini Live duplex session.
+ *
+ * Not reusable after `stop()`: ephemeral tokens are single-use, so a restart
+ * mints a fresh one. That is intentional — a stale socket is the classic source
+ * of "the bot went quiet after ten minutes".
+ */
+export class GeminiLiveSession {
+  private ws: WebSocket | null = null;
+  private listeners = new Set<GeminiLiveListener>();
+  private status: GeminiLiveStatus = "idle";
+  private closing = false;
+  private model = "";
+  /** Bounded grace after the setup frame, so `start()` always settles. */
+  private settleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Hard ceiling on `start()`, so a dead socket can never hang the UI. */
+  private startTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Fires when a ready session has produced nothing at all. */
+  private stallTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Server frames seen this session; the watchdog only fires while this is 0. */
+  private frameCount = 0;
+
+  constructor(private readonly options: GeminiLiveOptions = {}) {}
+
+  get currentStatus(): GeminiLiveStatus {
+    return this.status;
+  }
+
+  on(fn: GeminiLiveListener): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  /**
+   * Mint a token, open the socket, and complete the `setup` handshake.
+   *
+   * Never throws: a failure is reported through the returned result AND an
+   * `error` event, because the caller's job is to fall back to the Groq
+   * pipeline, not to handle an exception.
+   */
+  async start(): Promise<StartResult> {
+    if (this.ws) return { ok: true };
+    this.closing = false;
+    this.setStatus("connecting");
+
+    let token: string;
+    let model: string;
+    let serverInstruction: string;
+    try {
+      const res = await fetch("/api/gemini-live/token", { method: "POST" });
+      const json = (await res.json().catch(() => ({}))) as {
+        token?: string;
+        model?: string;
+        systemInstruction?: string;
+        error?: string;
+      };
+      if (!res.ok || !json.token) {
+        const message = json.error ?? `Gemini Live is unavailable (HTTP ${res.status}).`;
+        this.emit({ type: "error", message });
+        this.setStatus("error", message);
+        return { ok: false, error: message };
+      }
+      token = json.token;
+      // The server may pin a different model; fall back to the documented one.
+      model = json.model ?? "models/gemini-3.8-live";
+      // The persona is loaded server-side and returned here, because the
+      // deployed `auth_tokens` API rejects `liveConnectConstraints` and cannot
+      // pin it. Server value wins over a caller's own hint so Mia's identity
+      // cannot be replaced by a stale client default.
+      serverInstruction = json.systemInstruction ?? this.options.systemInstruction ?? "";
+    } catch (err) {
+      const message = `Could not reach the Gemini Live token route: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      this.emit({ type: "error", message });
+      this.setStatus("error", message);
+      return { ok: false, error: message };
+    }
+
+    this.model = model;
+    this.frameCount = 0;
+
+    return new Promise<StartResult>((resolve) => {
+      let settled = false;
+      const clearTimers = () => {
+        if (this.settleTimer) clearTimeout(this.settleTimer);
+        if (this.startTimer) clearTimeout(this.startTimer);
+        this.settleTimer = null;
+        this.startTimer = null;
+      };
+      const finish = (result: StartResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimers();
+        resolve(result);
+      };
+
+      // Absolute ceiling: whatever the socket does, `start()` resolves.
+      this.startTimer = setTimeout(() => {
+        const message =
+          "The Gemini Live connection did not come up within 15 seconds (this is Google's side, not your microphone).";
+        this.emit({ type: "error", message });
+        this.setStatus("error", message);
+        finish({ ok: false, error: message, via: "timeout" });
+      }, START_TIMEOUT_MS);
+
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(`${LIVE_WS_BASE}?access_token=${encodeURIComponent(token)}`);
+      } catch (err) {
+        const message = `Could not open the Gemini Live socket: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        this.emit({ type: "error", message });
+        this.setStatus("error", message);
+        finish({ ok: false, error: message });
+        return;
+      }
+      this.ws = socket;
+
+      // MUST be set before the first frame lands. Google sends every Live frame
+      // as binary (measured 2026-09-30) and the browser default is `"blob"`,
+      // which cannot be decoded synchronously — see `frameText`.
+      socket.binaryType = "arraybuffer";
+
+      socket.onopen = () => {
+        this.send({
+          setup: {
+            model: this.model,
+            // MEASURED against the live API 2026-09-29: `responseModalities` is
+            // NOT a top-level `setup` field — the socket closes with
+            // `Unknown name "responseModalities" at 'setup'`. Inside
+            // `generationConfig` it is accepted. The docs show it at the top
+            // level; the deployed API is narrower than the docs.
+            generationConfig: { responseModalities: ["AUDIO"] },
+            // `sessionResumption` is accepted as a top-level field (measured),
+            // and lets the browser reconnect with the same token after a drop.
+            sessionResumption: {},
+            ...(serverInstruction
+              ? { systemInstruction: { parts: [{ text: serverInstruction }] } }
+              : {}),
+            ...(this.options.enableInputTranscription !== false
+              ? { inputAudioTranscription: {} }
+              : {}),
+            ...(this.options.enableOutputTranscription !== false
+              ? { outputAudioTranscription: {} }
+              : {}),
+          },
+        });
+
+        // The socket is open and our frame is written — a fact we hold,
+        // independent of whether the server answers. Arming this bounded grace
+        // means the UI can never sit on "Menyambung..." forever even if the
+        // server never replies. `setupComplete` (measured: it DOES arrive, as a
+        // binary frame) still wins the race and reports the accurate `via`.
+        this.settleTimer = setTimeout(() => {
+          if (settled) return;
+          this.setStatus("ready");
+          this.armStallWatchdog();
+          finish({ ok: true, via: "grace" });
+        }, SETTLE_GRACE_MS);
+      };
+
+      socket.onmessage = (event) => {
+        // `frameText`, NOT `String(event.data)`: Google sends binary frames, and
+        // `String(blob)` is literally "[object Blob]" (see the helper's doc).
+        const raw = frameText(event.data);
+        if (raw) this.handleMessage(raw, finish);
+      };
+
+      socket.onerror = () => {
+        // The browser deliberately gives no detail here; a generic message plus
+        // the status change is the most actionable thing we can say.
+        if (this.closing) return;
+        const message = "The Gemini Live connection failed.";
+        this.clearWatchdogs();
+        this.emit({ type: "error", message });
+        this.setStatus("error", message);
+        finish({ ok: false, error: message });
+      };
+
+      socket.onclose = () => {
+        this.ws = null;
+        // A close is a fact too: it must not leave a silence notice pending.
+        this.clearWatchdogs();
+        if (this.closing) {
+          this.setStatus("closed");
+          return;
+        }
+        // A server-initiated close means the token expired or the session was
+        // cut. Say so instead of pretending the mic is still live.
+        this.setStatus("closed", "The Gemini Live session ended.");
+      };
+    });
+  }
+
+  /** Send one 16 kHz PCM frame. Silently ignored when not connected. */
+  sendAudioFrame(pcm: Uint8Array, base64: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.send({
+      realtimeInput: {
+        audio: { data: base64, mimeType: "audio/pcm;rate=16000" },
+      },
+    });
+    void pcm; // Kept in the signature so callers cannot forget the raw bytes.
+  }
+
+  /** Inject text as if the user had said it. */
+  sendText(text: string): void {
+    if (!text.trim()) return;
+    this.send({ realtimeInput: { text } });
+  }
+
+  /**
+   * Stop Gemini mid-sentence.
+   *
+   * Sends the interrupt frame AND clears the local player, because the audio
+   * already in flight would otherwise keep playing until it drained.
+   */
+  interrupt(): void {
+    this.send({ interrupt: true });
+    this.emit({ type: "interrupted" });
+    this.emit({ type: "speaking", speaking: false });
+  }
+
+  /** Close the socket. Safe to call repeatedly. */
+  stop(): void {
+    this.closing = true;
+    this.clearWatchdogs();
+    try {
+      this.ws?.close();
+    } catch {
+      // Already closing.
+    }
+    this.ws = null;
+    this.setStatus("closed");
+  }
+
+  /** Drop every pending timer so a stopped session can never fire a notice. */
+  private clearWatchdogs(): void {
+    if (this.settleTimer) clearTimeout(this.settleTimer);
+    if (this.startTimer) clearTimeout(this.startTimer);
+    if (this.stallTimer) clearTimeout(this.stallTimer);
+    this.settleTimer = null;
+    this.startTimer = null;
+    this.stallTimer = null;
+  }
+
+  private send(payload: unknown): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify(payload));
+  }
+
+  /** Parse one server frame and fan it out. Never throws. */
+  private handleMessage(raw: string, finish: (r: StartResult) => void): void {
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return; // A non-JSON frame is not actionable; keep the session alive.
+    }
+
+    // Count EVERY decoded frame, the handshake included, BEFORE branching. A
+    // duplex session is silent between turns by design, so the "no frames yet"
+    // notice is only honest until the server has proven it is talking at all.
+    this.noteFrame();
+
+    if (msg.setupComplete) {
+      if (this.settleTimer) clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+      this.setStatus("ready");
+      this.armStallWatchdog();
+      finish({ ok: true, via: "setup-complete" });
+      return;
+    }
+
+    if (msg.error) {
+      const detail =
+        (msg.error as { message?: string } | undefined)?.message ?? "Gemini Live reported an error.";
+      this.emit({ type: "error", message: detail });
+      this.setStatus("error", detail);
+      return;
+    }
+
+    if (msg.interrupted) {
+      this.emit({ type: "interrupted" });
+      this.emit({ type: "speaking", speaking: false });
+      return;
+    }
+
+    const serverContent = msg.serverContent as
+      | {
+          modelTurn?: { parts?: Array<{ inlineData?: { data?: string }; text?: string }> };
+          inputTranscription?: { text?: string };
+          outputTranscription?: { text?: string };
+          turnComplete?: boolean;
+        }
+      | undefined;
+    if (!serverContent) return;
+
+    if (typeof serverContent.inputTranscription?.text === "string") {
+      this.emit({
+        type: "input_transcript",
+        text: serverContent.inputTranscription.text,
+        final: false,
+      });
+    }
+    if (typeof serverContent.outputTranscription?.text === "string") {
+      this.emit({
+        type: "output_transcript",
+        text: serverContent.outputTranscription.text,
+        final: false,
+      });
+    }
+
+    let sawAudio = false;
+    for (const part of serverContent.modelTurn?.parts ?? []) {
+      if (part.inlineData?.data) {
+        sawAudio = true;
+        this.emit({ type: "audio", pcm: this.decode(part.inlineData.data) });
+      } else if (part.text) {
+        this.emit({ type: "text", text: part.text });
+      }
+    }
+    if (sawAudio) this.emit({ type: "speaking", speaking: true });
+    if (serverContent.turnComplete) this.emit({ type: "speaking", speaking: false });
+  }
+
+  /** base64 -> bytes, tolerant of a malformed frame. */
+  private decode(data: string): Uint8Array {
+    try {
+      const binary = atob(data);
+      const out = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+      return out;
+    } catch {
+      return new Uint8Array(0);
+    }
+  }
+
+  private setStatus(status: GeminiLiveStatus, detail?: string): void {
+    this.status = status;
+    this.emit({ type: "status", status, detail });
+  }
+
+  /**
+   * Count a decoded server frame and disarm the "no frames yet" notice.
+   *
+   * The handshake counts too: `setupComplete` is proof the server is talking, so
+   * counting it is what stops the notice from firing on a healthy session that
+   * simply has not been spoken to yet.
+   */
+  private noteFrame(): void {
+    this.frameCount += 1;
+    if (this.stallTimer) {
+      clearTimeout(this.stallTimer);
+      this.stallTimer = null;
+    }
+  }
+
+  /**
+   * Announce a session that received no frame at all, without killing it.
+   *
+   * Emitted as its own event rather than an `error` on purpose: the socket is
+   * still open, so a red failure the user has to dismiss would be a lie about
+   * the state. Armed ONLY while `frameCount === 0` — see {@link FIRST_FRAME_WATCHDOG_MS}
+   * for why a longer silence is not evidence of anything.
+   */
+  private armStallWatchdog(): void {
+    if (this.stallTimer) clearTimeout(this.stallTimer);
+    this.stallTimer = null;
+    if (this.frameCount > 0 || this.closing) return;
+    this.stallTimer = setTimeout(() => {
+      this.stallTimer = null;
+      if (this.frameCount > 0 || this.closing) return;
+      this.emit({
+        type: "stalled",
+        message:
+          "Sudah tersambung, tapi belum ada balasan apa pun dari Google. Kalau kamu memang belum bicara, itu normal — kalau sudah bicara dan tetap sunyi, tutup lalu buka Live lagi, atau pakai mode Groq.",
+      });
+    }, FIRST_FRAME_WATCHDOG_MS);
+  }
+
+  private emit(event: GeminiLiveEvent): void {
+    for (const fn of this.listeners) {
+      try {
+        fn(event);
+      } catch {
+        // One bad listener must not kill the audio stream.
+      }
+    }
+  }
+}

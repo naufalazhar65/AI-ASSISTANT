@@ -1,34 +1,38 @@
 "use client";
 
+import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import FloatingParticles from "@/components/FloatingParticles";
 import SignInForm, { useAuth } from "@/components/SignInForm";
-import AIChatCard from "@/components/ui/ai-chat";
-import { VoicePoweredOrb } from "@/components/ui/voice-powered-orb";
+import { VoiceConsole } from "@/components/ui/voice/VoiceConsole";
+import { LiveVoicePanel } from "@/components/ui/voice/LiveVoicePanel";
 import { useVoice } from "@/hooks/useVoice";
 
-const STATE_HUES: Record<string, number> = {
-  IDLE: 220,
-  LISTENING: 140,
-  PROCESSING: 35,
-  SPEAKING: 200,
-  INTERRUPTED: 345,
-  ERROR: 0,
-  RECONNECTING: 280,
-};
-
+/**
+ * Web surface: VOICE ONLY.
+ *
+ * The owner runs text conversations on Discord and Telegram, so the browser app
+ * deliberately exposes no transcript, no composer and no session switcher. What
+ * is left is the orb, the mic control, and the two controls the pipeline cannot
+ * run without: tool approval (a risky call blocks the turn until answered) and
+ * provider settings.
+ */
 export default function Home() {
   const { user, signIn, signOut } = useAuth();
+
+  // Which voice pipeline the console is driving. Defaults to the long-standing
+  // Groq turn-based path, so the app behaves exactly as before until the owner
+  // explicitly opts into the duplex session.
+  const [voiceMode, setVoiceMode] = useState<"groq" | "live">("groq");
 
   const {
     state,
     micState,
-    transcripts,
     isMicrophoneActive,
     mediaStream,
+    ensureMic,
+    releaseMic,
     useRealProvider,
-    voiceOutput,
-    toggleVoiceOutput,
     voice,
     setVoice,
     model,
@@ -42,14 +46,7 @@ export default function Home() {
     denyTool,
     reminders,
     dismissReminder,
-    sessions,
-    currentSessionId,
-    switchSession,
-    newSession,
-    deleteSession,
     toggleMic,
-    sendText,
-    sendVision,
     interrupt,
   } = useVoice();
 
@@ -60,13 +57,13 @@ export default function Home() {
   return (
     <main className="relative h-dvh w-full flex flex-col overflow-hidden bg-black safe-top safe-bottom">
       {/* Animated gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-gray-950 via-black to-gray-950 animate-gradient-shift" />
+      <div className="absolute inset-0 bg-gradient-to-br from-gray-950 via-black to-gray-950 animate-gradient-shift" aria-hidden />
 
       {/* Floating particles */}
       <FloatingParticles />
 
       {/* Top glow */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 h-48 w-96 rounded-full bg-primary/5 blur-[120px]" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 h-48 w-96 rounded-full bg-primary/5 blur-[120px]" aria-hidden />
 
       {/* Header - pinned top */}
       <header className="relative z-20 flex w-full items-center justify-between px-4 py-3 shrink-0">
@@ -98,68 +95,60 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Chat card fills remaining space */}
-      <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center px-3 pb-3">
-        <AIChatCard
-          className="shadow-2xl"
-          messages={transcripts.map((t) => ({
-            sender: t.role === "user" ? "user" : "ai",
-            text: t.text,
-            partial: t.state === "partial",
-          }))}
-          isTyping={state === "PROCESSING"}
-          onSend={(text) => sendText(text)}
-          onSendVision={(text, imgs) => (sendVision ? sendVision(text, imgs) : sendText(text))}
-          orb={
-            <div className="h-16 w-16">
-              <VoicePoweredOrb
-                enableVoiceControl={isMicrophoneActive}
-                stream={mediaStream}
-                hue={STATE_HUES[state]}
-                voiceSensitivity={1.5}
-                className="h-full w-full"
-              />
-            </div>
-          }
-          micActive={isMicrophoneActive}
-          onToggleMic={toggleMic}
-          isListening={state === "LISTENING"}
-          onInterrupt={interrupt}
-          showInterrupt={state === "SPEAKING"}
-          voiceOutput={voiceOutput}
-          onToggleVoiceOutput={toggleVoiceOutput}
-          voice={voice}
-          onVoiceChange={setVoice}
-          model={model}
-          onModelChange={setModel}
-          provider={provider}
-          onProviderChange={setProvider}
-          providers={providers}
-          confirmation={pendingConfirmation}
-          lastError={lastError}
-          onConfirm={confirmTool}
-          onDeny={denyTool}
-          reminders={reminders}
-          onDismissReminder={dismissReminder}
-          sessions={sessions}
-          currentSessionId={currentSessionId}
-          onSwitchSession={(id) => void switchSession(id)}
-          onNewSession={newSession}
-          onDeleteSession={(id) => void deleteSession(id)}
-        />
-      </div>
+      {/* Voice console fills the remaining space */}
+      <div className="relative z-10 flex-1 min-h-0">
+        {/* Two pipelines, one switch. "Groq" is the turn-based pipeline that
+            has always run (record -> ASR -> LLM -> TTS); "Live" is Gemini's
+            duplex speech-to-speech session. They share the mic stream and the
+            orb, and nothing else. */}
+        <div className="absolute right-3 top-3 z-20 flex rounded-full border border-white/10 bg-white/5 p-1 text-xs">
+          {(["groq", "live"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setVoiceMode(mode)}
+              className={
+                mode === voiceMode
+                  ? "rounded-full bg-white/15 px-3 py-1 font-medium text-white"
+                  : "rounded-full px-3 py-1 text-white/50 transition-colors hover:text-white/80"
+              }
+            >
+              {mode === "groq" ? "Groq" : "Live"}
+            </button>
+          ))}
+        </div>
 
-      {/* Status messages below card */}
-      {micState.status === "denied" && (
-        <p className="relative z-10 shrink-0 px-4 pb-2 text-center text-xs text-rose-400/80">
-          Microphone access is required. Enable it in your browser settings.
-        </p>
-      )}
-      {useRealProvider && !isMicrophoneActive && micState.status !== "denied" && (
-        <p className="relative z-10 shrink-0 px-4 pb-2 max-w-sm mx-auto text-center text-xs text-white/25">
-          Start voice, then just talk. The AI listens and answers by voice.
-        </p>
-      )}
+        {voiceMode === "live" ? (
+          <LiveVoicePanel
+            mediaStream={mediaStream}
+            micDenied={micState.status === "denied"}
+            onEnsureMic={ensureMic}
+            onReleaseMic={releaseMic}
+          />
+        ) : (
+          <VoiceConsole
+            state={state}
+            micActive={isMicrophoneActive}
+            mediaStream={mediaStream}
+            onToggleMic={toggleMic}
+            onInterrupt={interrupt}
+            confirmation={pendingConfirmation}
+            onConfirm={confirmTool}
+            onDeny={denyTool}
+            provider={provider}
+            onProviderChange={setProvider}
+            providers={providers}
+            model={model}
+            onModelChange={setModel}
+            voice={voice}
+            onVoiceChange={setVoice}
+            lastError={lastError}
+            reminders={reminders}
+            onDismissReminder={dismissReminder}
+            micDenied={micState.status === "denied"}
+          />
+        )}
+      </div>
     </main>
   );
 }
