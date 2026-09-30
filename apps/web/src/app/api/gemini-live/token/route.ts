@@ -62,6 +62,14 @@ async function readTaskHint(request: NextRequest): Promise<string> {
 /** Gemini model used for the duplex voice path. */
 const LIVE_MODEL = "models/gemini-3.8-live";
 
+/**
+ * Prebuilt voice for the session (owner 2026-10-01: "gadis muda").
+ * The Live API shares the TTS voice pool — "Leda" is the youthful feminine
+ * one; alternatives the owner can pin here: "Aoede" (breezy), "Kore" (firm),
+ * "Sulafat" (warm). Preview them in AI Studio before pinning.
+ */
+const LIVE_VOICE = (process.env.GEMINI_LIVE_VOICE ?? "Leda").trim() || "Leda";
+
 /** `auth_tokens` lives on the v1beta surface; ephemeral tokens are preview-only there. */
 const TOKEN_URL = "https://generativelanguage.googleapis.com/v1beta/auth_tokens";
 
@@ -216,6 +224,9 @@ export async function POST(request: NextRequest) {
       // The browser must declare these in `setup.tools`; it cannot invent
       // them, and the tool route re-checks every call name before executing.
       tools: liveToolDeclarations(),
+      // The browser must send this as `setup.generationConfig.speechConfig`;
+      // the client omits the field entirely when this is empty.
+      voice: LIVE_VOICE,
       expiresInSeconds: SESSION_MINUTES * 60,
     });
   } catch (err) {

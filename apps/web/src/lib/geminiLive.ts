@@ -121,6 +121,12 @@ export interface GeminiLiveOptions {
   systemInstruction?: string;
   /** Tool declarations from our token route; omitted when the server sent none. */
   tools?: LiveToolDeclaration[];
+  /**
+   * Prebuilt voice for the session (e.g. "Leda"). Server value wins when the
+   * token route returns one; omitted entirely when neither side sets it, so a
+   * session without voice config behaves exactly like before.
+   */
+  voiceName?: string;
   /** Ask the API to transcribe the user's speech (needed for subtitles). */
   enableInputTranscription?: boolean;
   /** Ask the API to transcribe Gemini's speech. */
@@ -260,6 +266,7 @@ export class GeminiLiveSession {
     let model: string;
     let serverInstruction: string;
     let serverTools: LiveToolDeclaration[];
+    let serverVoice: string;
     try {
       // Who is speaking, so the server loads the RIGHT persona. The token
       // route reads `x-mia-user` and falls back to the DEFAULT persona when it
@@ -282,6 +289,7 @@ export class GeminiLiveSession {
         model?: string;
         systemInstruction?: string;
         tools?: LiveToolDeclaration[];
+        voice?: string;
         error?: string;
       };
       if (!res.ok || !json.token) {
@@ -304,6 +312,12 @@ export class GeminiLiveSession {
       // server sent none.
       serverTools =
         (Array.isArray(json.tools) ? json.tools : null) ?? this.options.tools ?? [];
+      // Voice follows the same precedence as the persona: the server pins it
+      // (env `GEMINI_LIVE_VOICE`), the caller's hint only fills the gap.
+      serverVoice =
+        (typeof json.voice === "string" && json.voice.trim() ? json.voice.trim() : "") ||
+        this.options.voiceName ||
+        "";
     } catch (err) {
       const message = `Could not reach the Gemini Live token route: ${
         err instanceof Error ? err.message : String(err)
@@ -368,7 +382,22 @@ export class GeminiLiveSession {
             // `Unknown name "responseModalities" at 'setup'`. Inside
             // `generationConfig` it is accepted. The docs show it at the top
             // level; the deployed API is narrower than the docs.
-            generationConfig: { responseModalities: ["AUDIO"] },
+            generationConfig: {
+              responseModalities: ["AUDIO"],
+              // Prebuilt voice (docs: Live shares the TTS voice pool, e.g.
+              // "Leda"). Inside generationConfig — the deployed API rejects
+              // top-level fields it does not know (measured with
+              // responseModalities), so this stays next to the field that is
+              // proven accepted. Omitted when unset: a voiceless setup is the
+              // old behavior, byte for byte.
+              ...(serverVoice
+                ? {
+                    speechConfig: {
+                      voiceConfig: { prebuiltVoiceConfig: { voiceName: serverVoice } },
+                    },
+                  }
+                : {}),
+            },
             // `sessionResumption` is accepted as a top-level field (measured),
             // and lets the browser reconnect with the same token after a drop.
             sessionResumption: {},

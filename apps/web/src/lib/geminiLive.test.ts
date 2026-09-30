@@ -618,3 +618,50 @@ describe("saveLiveTurnToMemory — fire-and-forget write-back, never throws", ()
     ).resolves.toBe(false);
   });
 });
+
+describe("GeminiLiveSession — prebuilt voice in setup (owner 2026-10-01: gadis muda)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeSocket.last = null;
+    FakeSocket.lastUrl = "";
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeSocket;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function startWithVoice(voice?: string): Promise<void> {
+    vi.stubGlobal("fetch", vi.fn(async () => tokenReply(voice ? { voice } : {})));
+    const session = new GeminiLiveSession();
+    const pending = session.start();
+    await vi.advanceTimersByTimeAsync(0);
+    FakeSocket.last?.open();
+    FakeSocket.last?.frame({ setupComplete: {} });
+    await vi.advanceTimersByTimeAsync(0);
+    await pending;
+  }
+
+  function setupFrame(): Record<string, unknown> {
+    return JSON.parse(FakeSocket.last?.sent[0] ?? "{}") as Record<string, unknown>;
+  }
+
+  it("sends the server voice as generationConfig.speechConfig (wire snake_case)", async () => {
+    await startWithVoice("Leda");
+    const setup = (setupFrame().setup ?? {}) as Record<string, unknown>;
+    const gen = (setup.generationConfig ?? {}) as Record<string, unknown>;
+    expect(gen.responseModalities).toEqual(["AUDIO"]);
+    expect(gen.speechConfig).toEqual({
+      voiceConfig: { prebuiltVoiceConfig: { voiceName: "Leda" } },
+    });
+  });
+
+  it("omits speechConfig entirely when the server sent no voice (old behavior)", async () => {
+    await startWithVoice();
+    const setup = (setupFrame().setup ?? {}) as Record<string, unknown>;
+    const gen = (setup.generationConfig ?? {}) as Record<string, unknown>;
+    expect(gen.responseModalities).toEqual(["AUDIO"]);
+    expect("speechConfig" in gen).toBe(false);
+  });
+});

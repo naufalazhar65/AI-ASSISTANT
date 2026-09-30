@@ -1573,11 +1573,12 @@ const toolRegistry: ToolPlugin[] = [
       risk: "read",
       function: {
         name: "device_battery",
-        description: "Check battery level of a paired device (macOS via pmset/ioreg, iOS/Android queued).",
+        description:
+          "Check the battery of the owner's Mac (this server, macOS via pmset/ioreg) — use this for 'baterai Mac/cek baterai'. No device_id needed for the Mac itself; optional device_id (from device_list) only for a paired device.",
         parameters: {
           type: "object",
-          properties: { device_id: { type: "string", description: "Device ID from device_list" } },
-          required: ["device_id"],
+          properties: { device_id: { type: "string", description: "Optional device ID from device_list (paired device only; omit for the Mac itself)" } },
+          required: [],
         },
       },
     },
@@ -2628,7 +2629,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "waze_route",
         description:
-          "Cek traffic real-time via Waze Direct (gratis, tanpa API key). Beri durasi + jarak dengan traffic untuk alamat atau koordinat. Fallback OSRM bila Waze rate-limit. Pakai saat user tanya 'ke BSD macet ga', 'berapa menit ke PIK', 'rute tercepat'.",
+          "Cek traffic real-time via Waze Direct (gratis, tanpa API key). Beri durasi + jarak dengan traffic untuk alamat atau koordinat. CATATAN 2026-10-01: endpoint Waze memblokir fetch server (403) — praktis selalu fallback OSRM tanpa traffic live. Untuk traffic live pakai gmaps_route. Pakai saat user tanya 'ke BSD macet ga', 'berapa menit ke PIK', 'rute tercepat'.",
         parameters: {
           type: "object",
           properties: {
@@ -2654,6 +2655,45 @@ const toolRegistry: ToolPlugin[] = [
         const r = await getWazeRoute(from, to, ctx.rawUser);
         const routesTxt = r.routes.map((x, i) => `${i === 0 ? "★" : " "} ${x.duration_min} menit (${x.distance_km} km) via ${x.name}`).join("\n");
         return `${r.human}\n\n${routesTxt}\n\nJSON:\n${JSON.stringify({ from: r.from, to: r.to, routes: r.routes, fastest: r.fastest }, null, 2)}`;
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "gmaps_route",
+        description:
+          "Rute + traffic LIVE via Google Maps headless (gratis, tanpa API key). WAJIB untuk semua pertanyaan rute/durasi/macet antarkota ('ke Bandung berapa jam', 'Serpong ke PIK macet ga') — Waze diblokir server (403), jadi ini satu-satunya sumber traffic live. Beri durasi + jarak + via + label live. ~10-15 detik per cek.",
+        parameters: {
+          type: "object",
+          properties: {
+            from: {
+              type: "string",
+              description: "Alamat asal, mis. 'Serpong, Tangerang Selatan'",
+            },
+            to: {
+              type: "string",
+              description: "Alamat tujuan, mis. 'Bandung, Jawa Barat'",
+            },
+          },
+          required: ["from", "to"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const from = typeof args.from === "string" ? args.from : "";
+      const to = typeof args.to === "string" ? args.to : "";
+      if (!from || !to) return "Error: from dan to wajib diisi";
+      try {
+        const { getGmapsRoute } = await import("./gmaps");
+        const r = await getGmapsRoute(from, to);
+        // Return ONLY the formatted list — it is delivered verbatim
+        // (PERSONAL_LIST_TOOLS), so the model can't collapse it or leak JSON.
+        return r.human;
       } catch (e) {
         return `Error: ${e instanceof Error ? e.message : String(e)}`;
       }

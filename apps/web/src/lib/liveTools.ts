@@ -38,6 +38,8 @@ export { LIVE_WRITE_TOOLS };
  *     2026-09-30 after Live honestly refused "cek emailku dong" — the owner's
  *     Gmail is linked (refresh token on file), so the refusal was an
  *     allowlist gap, not a missing credential.
+ *     Travel live-data (`waze_route`/`hotel_search`), added 2026-10-01 at the
+ *     owner's ask — both fast and speakable ("44 km, 86 menit").
  *     WRITE tools go through a SPOKEN confirmation loop instead of
  *     executing on first sight (owner-approved 2026-09-30, gap #2):
  *     `remind_me` and `save_note` are held by `liveConfirm.ts`, the model
@@ -64,7 +66,12 @@ export const LIVE_TOOL_NAMES = [
   "mood_recent",
   "habit_stats",
   "health",
+  "device_battery",
+  "google_news",
   "weather",
+  "waze_route",
+  "gmaps_route",
+  "hotel_search",
   "web_search",
   "calculate",
   "briefing",
