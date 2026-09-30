@@ -14,9 +14,11 @@ import {
   bytesToBase64,
   base64ToBytes,
   BYTES_PER_SAMPLE,
+  createPcmChunker,
   floatTo16BitPcm,
   LIVE_INPUT_SAMPLE_RATE,
   LIVE_OUTPUT_SAMPLE_RATE,
+  LIVE_PLAY_CHUNK_BYTES,
   pcm16ToFloat32,
   pcmToWav,
   resampleFloat32,
@@ -212,5 +214,57 @@ describe("base64 helpers", () => {
 
   it("encodes the empty payload", () => {
     expect(bytesToBase64(new Uint8Array(0))).toBe("");
+  });
+});
+
+describe("createPcmChunker — fixed-size playout pieces for jittered frames", () => {
+  const seq = (n: number, start = 0): Uint8Array => {
+    const out = new Uint8Array(n);
+    for (let i = 0; i < n; i += 1) out[i] = (start + i) % 256;
+    return out;
+  };
+
+  it("emits nothing until a full chunk is buffered", () => {
+    const chunker = createPcmChunker(100);
+    expect(chunker.push(seq(30))).toEqual([]);
+    expect(chunker.push(seq(40, 30))).toEqual([]);
+    expect(chunker.buffered()).toBe(70);
+  });
+
+  it("emits exact-size chunks in order across many small pushes", () => {
+    const chunker = createPcmChunker(100);
+    const got: Uint8Array[] = [];
+    for (let i = 0; i < 7; i += 1) got.push(...chunker.push(seq(40, i * 40)));
+    expect(got).toHaveLength(2);
+    expect(got[0].length).toBe(100);
+    expect(got[1].length).toBe(100);
+    // Byte order preserved end to end across chunk boundaries.
+    expect(got[0][0]).toBe(0);
+    expect(got[0][99]).toBe(99);
+    expect(got[1][0]).toBe(100);
+    expect(chunker.buffered()).toBe(80);
+  });
+
+  it("flush returns the short tail and then nothing", () => {
+    const chunker = createPcmChunker(100);
+    chunker.push(seq(250));
+    const tail = chunker.flush();
+    expect(tail?.length).toBe(50);
+    expect(tail?.[0]).toBe(200);
+    expect(chunker.flush()).toBeNull();
+    expect(chunker.buffered()).toBe(0);
+  });
+
+  it("reset drops stale audio so an interrupt never leaks into the next turn", () => {
+    const chunker = createPcmChunker(100);
+    chunker.push(seq(90));
+    chunker.reset();
+    expect(chunker.buffered()).toBe(0);
+    expect(chunker.flush()).toBeNull();
+    expect(chunker.push(seq(100))).toHaveLength(1);
+  });
+
+  it("the default chunk is half a second of 24 kHz mono 16-bit audio", () => {
+    expect(LIVE_PLAY_CHUNK_BYTES).toBe(24_000);
   });
 });

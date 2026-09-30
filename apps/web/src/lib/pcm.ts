@@ -143,3 +143,69 @@ export function base64ToBytes(b64: string): Uint8Array {
   for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
   return out;
 }
+
+/**
+ * Fixed-size playout chunk for Live voice: 0.5 s of 24 kHz mono 16-bit PCM.
+ *
+ * Why this exists (2026-09-30): chaining chunk starts (`nextTime` in
+ * `AudioPlayer`) removed the per-chunk scheduling gap, but the voice still
+ * stuttered "like a broken cassette". The remaining cause is upstream of the
+ * player: Google's PCM frames are small and arrive with network jitter, so
+ * playing each frame as its own WAV means every late frame is an audible
+ * hole. Buffering ~0.5 s of audio and emitting fixed-size chunks trades a
+ * half-second of latency for continuous sound — the standard playout-buffer
+ * tradeoff, and the right one while choppiness is the complaint.
+ */
+export const LIVE_PLAY_CHUNK_BYTES = 24_000;
+
+/**
+ * Startup prebuffer for Live voice: playback of a turn starts only after this
+ * many bytes are held (owner 2026-10-01 — gaps between chunks on Chrome macOS).
+ * Two 0.5 s chunks = ~1 s of latency traded for a full second of jitter
+ * headroom, the same tradeoff a native player makes. A turn shorter than this
+ * still plays: the turn-end flush releases whatever is held.
+ */
+export const LIVE_PREBUFFER_BYTES = LIVE_PLAY_CHUNK_BYTES * 2;
+
+export interface PcmChunker {
+  /** Append bytes; returns every full chunk that is now ready, in order. */
+  push: (pcm: Uint8Array) => Uint8Array[];
+  /** Emit the leftover tail (possibly short), or null when empty. */
+  flush: () => Uint8Array | null;
+  /** Drop everything buffered (interrupt/stop: stale audio must never play). */
+  reset: () => void;
+  /** Bytes currently held. */
+  readonly buffered: () => number;
+}
+
+/** Accumulate raw PCM and emit fixed-size chunks. Pure logic, no timers. */
+export function createPcmChunker(bytesPerChunk: number = LIVE_PLAY_CHUNK_BYTES): PcmChunker {
+  let buf = new Uint8Array(0);
+  const take = (n: number): Uint8Array => {
+    const head = buf.slice(0, n);
+    const rest = new Uint8Array(buf.length - n);
+    rest.set(buf.subarray(n));
+    buf = rest;
+    return head;
+  };
+  return {
+    push: (pcm: Uint8Array) => {
+      if (!pcm.length) return [];
+      const grown = new Uint8Array(buf.length + pcm.length);
+      grown.set(buf, 0);
+      grown.set(pcm, buf.length);
+      buf = grown;
+      const out: Uint8Array[] = [];
+      while (buf.length >= bytesPerChunk) out.push(take(bytesPerChunk));
+      return out;
+    },
+    flush: () => {
+      if (!buf.length) return null;
+      return take(buf.length);
+    },
+    reset: () => {
+      buf = new Uint8Array(0);
+    },
+    buffered: () => buf.length,
+  };
+}

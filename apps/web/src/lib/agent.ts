@@ -357,7 +357,7 @@ const SYSTEM_PROMPT = [
   + "Use browser_use_open (read, daemon new_tab ~50ms) + browser_use_state (read, AX indices — WAJIB before click) + browser_use_click/input/type/keys/tab/close (write, indices or x y) + browser_use_get/eval/scroll/wait/screenshot (read) for persistent browser automation. Daemon preserves tab across calls — first nav is new_tab, not goto. Prefer browser_open (Playwright headless) for quick JS read, browser_use for interactive/form/screenshot/daemon, cua_browser for typed Chromium. Always state before click, scroll then state if not found, close when done. "
   + "Use learnings_search (query) to find past corrections/learnings or learnings_review for counts — when user asks 'learning apa', 'error apa aja', 'review learnings'. Both run immediately without confirmation. "
   + "Mia updates herself daily (mandiri, no Clawdbot/OpenClaw): AUTO_UPDATE_HOUR default 04:00 git pull --ff-only + npm install + gates typecheck/test/verify + summary push. auto_update_status (read, auto) shows jadwal/last run/riwayat; auto_update (write, confirm) runs the update NOW — when user says 'update mia', 'coba update', 'update dong' call auto_update (confirm first). "
-  + "RULE: kalau user cuma BERTANYA lagu apa yang sedang diputar (\"lagu apa\", \"sedang putar apa\", \"what's playing\") → pakai spotify_status (read), JANGAN play/ganti lagu. Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_next/spotify_previous/spotify_volume/spotify_mode/spotify_queue to control playback (they run immediately, no confirmation) — shuffle & ulang lagu/album pakai spotify_mode, 'tambahin ke antrean / putar ini berikutnya' pakai spotify_queue. Untuk permintaan 'stop lagunya kalau udah selesai / biar nggak bablas / matiin spotify kalau ketiduran' pakai spotify_sleep_timer (after_track=true atau minutes=N) — JANGAN remind_me (reminder cuma ngingetin, tidak menghentikan playback). Kalau user bilang 'lagu favoritku/kesukaanku', panggil spotify_play dengan query itu apa adanya — sistem otomatis mengambil judulnya dari persona (preference.song) + artist. SPOTIFY HONESTY: jangan pernah mengklaim sebuah lagu sudah diputar kecuali hasil tool-nya menyebut judul itu. Kalau tool bilang 'Pemutaran dilanjutkan — yang jalan sekarang: X', sebut X apa adanya (jangan mengarang judul lain); kalau ragu, panggil spotify_status dulu. If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
+  + "RULE: kalau user cuma BERTANYA lagu apa yang sedang diputar (\"lagu apa\", \"sedang putar apa\", \"what's playing\") → pakai spotify_status (read), JANGAN play/ganti lagu. Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_previous/spotify_mode/spotify_queue to control playback (they run immediately, no confirmation) — shuffle & ulang lagu/album pakai spotify_mode, 'tambahin ke antrean / putar ini berikutnya' pakai spotify_queue. Untuk permintaan 'stop lagunya kalau udah selesai / biar nggak bablas / matiin spotify kalau ketiduran' pakai spotify_sleep_timer (after_track=true atau minutes=N) — JANGAN remind_me (reminder cuma ngingetin, tidak menghentikan playback). Kalau user bilang 'lagu favoritku/kesukaanku', panggil spotify_play dengan query itu apa adanya — sistem otomatis mengambil judulnya dari persona (preference.song) + artist. SPOTIFY HONESTY: jangan pernah mengklaim sebuah lagu sudah diputar kecuali hasil tool-nya menyebut judul itu. Kalau tool bilang 'Pemutaran dilanjutkan — yang jalan sekarang: X', sebut X apa adanya (jangan mengarang judul lain); kalau ragu, panggil spotify_status dulu. If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
   "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. Present the returned list as one email per line.",
   "save_note, delete_note, library_remove, memory_hygiene, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan, lab_start, engagement_create, http_request, cache_decep, nosql_hunt, blind_ssrf, cua_keys, cua_mouse, clipboard_set, write_file, edit_file, browser_click, browser_type, browser_navigate, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_tab, browser_use_close, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, brv_curate, brv_swarm_curate, brv_review_approve, brv_review_reject, summarize_template, freeride_auto, freeride_switch, freeride_rotate, auto_update, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
@@ -817,12 +817,18 @@ export const CORE_TOOL_NAMES = new Set<string>([
   "save_note", "list_notes", "delete_note",
   "remind_me", "reminders_list", "cancel_reminder",
   "add_task", "list_tasks", "complete_task", "cancel_task", "auth_setup",  // (swap 2026-09-23 dengan reschedule_task: redundant via cancel+add; reschedule tetap di Groq-128)
-  "spotify_status", "spotify_play", "spotify_pause", "spotify_next",
+  "spotify_status", "spotify_play", "spotify_pause",
+  // (spotify_next demoted 2026-09-30 — 0 executions across Sep 25-30 audit;
+  // pause/play/status/link cover control on capped channels; stays registered)
   // (spotify_previous demoted 2026-09-24 — 0 prompt refs, spotify_next covers
   // the family in practice; room for ssti_enum; stays registered)
-  "spotify_volume", "spotify_mode", "spotify_queue",
+  "spotify_mode", "spotify_queue",
+  // (spotify_volume demoted 2026-09-30 — same evidence as spotify_next)
   "spotify_sleep_timer", "spotify_search", "spotify_devices", "spotify_link",
-  "hotel_search", "cinema_showtimes", "train_search", "bus_search", "weather", "waze_route",
+  "gmail_list", "gmail_link", "mac_open",  // (promoted 2026-09-30 — owner-asked Discord asks "cek gmail"/"buka youtube" failed for lack of delivery, not scope; all three are risk-read, auto-execute, no confirm friction)
+  "hotel_search", "cinema_showtimes", "train_search", "bus_search", "weather",
+  // (waze_route demoted 2026-09-30 — 0 executions across Sep 25-30 audit;
+  // travel niche; hotel/cinema/train/bus stay for the liveToolsBoth lock)
   "fetch_url", "search_memory", "memory_get",
   "file_read", "exec", "recon_full",  // (codebase_search demoted 2026-09-23 — dev Q&A, 0 Discord uses; still on opencodego)
   // (calendar_list demoted 2026-09-27 — room for lab_add in the 9router-64
@@ -1197,6 +1203,27 @@ function memoryRecallBlock(recall: string): string {
     "\n(This context was auto-retrieved from the user's memory to help you answer " +
     "accurately. Use it naturally when relevant; never mention this block or its mechanics.)"
   );
+}
+
+/**
+ * Gmail-check asks get fact-first treatment (2026-09-30): the model
+ * deterministically refused "cek gmail ku dong" 5/5 turns (3 Discord-path
+ * probes + 2 live turns, word-for-word identical) despite gmail_list being
+ * delivered and the prompt ordering ALWAYS-call — so the read runs up front
+ * and the REAL inbox goes into the system prompt instead of hoping the model
+ * calls. Narrow on purpose: send/compose verbs are a different intent
+ * (different tool) and must never trigger a pre-read.
+ */
+const GMAIL_CHECK_VERBS = "cek|buka|baca|lihat|liat|read|check|tampilkan|tunjukin|ada|masuk|baru|belum dibaca|unread";
+const GMAIL_CHECK_NOUNS = "email|gmail|inbox|inbok|kotak masuk|surat|pesan masuk";
+const GMAIL_SEND_RE = /\b(kirim|send|balas|reply|jawab|tulis|compose|forward|teruskan|kirimkan)\b/i;
+
+export function isGmailCheckAsk(text: string): boolean {
+  if (!text || GMAIL_SEND_RE.test(text)) return false;
+  const t = text.toLowerCase();
+  const verb = new RegExp(`\\b(?:${GMAIL_CHECK_VERBS})\\b`);
+  const noun = new RegExp(`(?:${GMAIL_CHECK_NOUNS})`);
+  return verb.test(t) && noun.test(t);
 }
 
 /**
@@ -5991,7 +6018,7 @@ export function composeBuildClaimSuffix(messages: ChatMessage[], text: string): 
  */
 const CHAIN_DEADLINE_MS = 30_000;
 
-export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "report_generate", "report_save", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "content_discover", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "exec_write", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner", "github_osint", "har_import", "api_spec", "memory"];
+export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "report_generate", "report_save", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "content_discover", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "exec_write", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner", "github_osint", "har_import", "api_spec", "memory", "waze_route", "spotify_next", "spotify_volume"];
 
 
 /**
@@ -6153,6 +6180,32 @@ async function runAssistantTurnImpl(opts: {
   const lastUserText = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content).trim() ?? "";
   const recall = opts.user ? await recallContext(opts.user, lastUserText).catch(() => "") : "";
   if (recall) systemPrompt += memoryRecallBlock(recall);
+
+  // Gmail fact-first (2026-09-30): the model deterministically refused
+  // gmail-check asks 5/5 turns despite gmail_list being delivered, so the read
+  // runs up front and the REAL inbox (or the auth-link result) goes into the
+  // system prompt. Into the prompt, never into messages (same reason as the
+  // sweep above: a synthetic user turn would shadow the ask). Skipped on
+  // headless turns and when there is no user to read as.
+  if (!opts.autoDenyRisky && opts.user && isGmailCheckAsk(lastUserText)) {
+    try {
+      const inbox = await executeTool(
+        { id: "prefetch-gmail", name: "gmail_list", arguments: "{}" },
+        opts.user
+      );
+      if (inbox && inbox.trim()) {
+        systemPrompt +=
+          "\n\n[Inbox Gmail terkini — diambil sistem sebelum giliran ini. " +
+          "JANGAN klaim tidak punya akses atau tautan; sampaikan isi ini " +
+          "dengan hangat. Kalau isinya tautan hubungkan-akun, arahkan user " +
+          "membukanya. Kalau isinya error akses/autentikasi, katakan terus " +
+          "terang bahwa tautan Gmail-nya kedaluwarsa dan tawarkan " +
+          "menghubungkan ulang (tool gmail_link) — JANGAN berjanji akan " +
+          "mengabari nanti.]\n" +
+          inbox.slice(0, 1500);
+      }
+    } catch { /* best-effort: the model path still works */ }
+  }
 
   // OpenCode native agent: talk to the local `opencode serve` server via its
   // session/prompt_async/SSE protocol (pure server-side transport swap).

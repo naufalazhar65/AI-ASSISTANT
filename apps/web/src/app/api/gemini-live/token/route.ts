@@ -31,6 +31,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { loadPersonaPrompt } from "@/lib/persona";
 import { buildMemoryRecap, liveToolDeclarations, loadRecentMemory } from "@/lib/liveTools";
+import { clockLabel, wibDay } from "@/lib/time";
 
 export const runtime = "nodejs";
 
@@ -129,6 +130,25 @@ export async function POST(request: NextRequest) {
       const hint = await readTaskHint(request);
       const rawUser = readRawUser(request);
       const persona = loadPersonaPrompt(rawUser).trim();
+      // The Live model has no other clock: without this line it answers "jam
+      // berapa" in UTC (measured 2026-09-30 — the chat prompts carry
+      // currentTimeLine(), the Live instruction carried nothing). Pinned to
+      // Asia/Jakarta like every other clock in this repo (lib/time.ts), placed
+      // right after the persona so truncation cuts memory first, facts never.
+      const now = Date.now();
+      const timeLine =
+        `Waktu sekarang: ${wibDay(now)} pukul ${clockLabel(now)} WIB ` +
+        `(Asia/Jakarta, UTC+7). Kalau ditanya jam, hari, atau tanggal, jawab ` +
+        `dalam WIB — jangan UTC. Ini jam SEKARANG saja, bukan catatan kapan ` +
+        `user terakhir chat; jangan pernah mengklaim dia menghilang/sunyi.`;
+      // Live is voice-only: the persona's 🌸 signature flower belongs to text
+      // replies, but here the transcript IS what gets spoken — and an emoji in
+      // the spoken line stutters the audio (owner 2026-09-30). So Live never
+      // uses emoji at all, flower included. Placed before the memory recap so
+      // truncation cuts memory first, rules never.
+      const voiceRule =
+        `Aturan suara Live: jangan pakai emoji sama sekali (termasuk 🌸), baik ` +
+        `di ucapan maupun di transcript. Bicara dengan kata-kata saja.`;
       let memoryRecap = "";
       try {
         memoryRecap = buildMemoryRecap(loadRecentMemory(rawUser));
@@ -136,7 +156,7 @@ export async function POST(request: NextRequest) {
         // No recent memory: the session still starts with the persona.
         memoryRecap = "";
       }
-      systemInstruction = [persona, memoryRecap, hint].filter(Boolean).join("\n\n");
+      systemInstruction = [persona, timeLine, voiceRule, memoryRecap, hint].filter(Boolean).join("\n\n");
     } catch {
       // Persona load failed: still start the session, just without the persona.
       // Losing the persona degrades the voice; refusing the session loses the

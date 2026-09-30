@@ -486,7 +486,7 @@ describe("slim prompt for small providers (audit 2026-09-23)", () => {
   });
 });
 
-import { endpointTriageNote, collapseHtmlDumps, summarizeHtmlDump, shortPath, ownerLabScopeLine, pdfFilenameMismatchNote, stripReceiptMimics } from "./agent";
+import { endpointTriageNote, collapseHtmlDumps, summarizeHtmlDump, shortPath, ownerLabScopeLine, pdfFilenameMismatchNote, stripReceiptMimics, isGmailCheckAsk } from "./agent";
 import { dupWarning } from "./tools";
 import { normalizeOwaspYear } from "./security";
 import { chunkText } from "../channels/replyChunk";
@@ -1319,5 +1319,24 @@ describe("structured action receipt (collectActionRecords triple-sourcing)", () 
     expect(recs.length).toBe(1);
     expect(recs[0].result).toBe(EXECUTED_PLACEHOLDER);
     expect(recs[0].prior).toBe(true);
+  });
+});
+
+describe("isGmailCheckAsk — narrow gmail-check intent (fact-first prefetch gate)", () => {
+  it("fires on the live asks", () => {
+    expect(isGmailCheckAsk("cek gmail ku dong")).toBe(true);
+    expect(isGmailCheckAsk("Cek emailku dong")).toBe(true);
+    expect(isGmailCheckAsk("coba buka email")).toBe(true);
+    expect(isGmailCheckAsk("ada email baru?")).toBe(true);
+    expect(isGmailCheckAsk("read my inbox")).toBe(true);
+    expect(isGmailCheckAsk("email masuk belum dibaca ada?")).toBe(true);
+  });
+  it("stays silent on send intents and unrelated asks", () => {
+    expect(isGmailCheckAsk("kirim email ke budi")).toBe(false);
+    expect(isGmailCheckAsk("tolong balas emailnya")).toBe(false);
+    expect(isGmailCheckAsk("cek gmail dan kirim ke ayah")).toBe(false);
+    expect(isGmailCheckAsk("apa kabar")).toBe(false);
+    expect(isGmailCheckAsk("cek cuaca dong")).toBe(false);
+    expect(isGmailCheckAsk("")).toBe(false);
   });
 });

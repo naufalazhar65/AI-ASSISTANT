@@ -18,7 +18,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GeminiLiveSession, frameText, type GeminiLiveEvent } from "./geminiLive";
+import { GeminiLiveSession, frameText, saveLiveTurnToMemory, type GeminiLiveEvent } from "./geminiLive";
 
 /** Minimal WebSocket stand-in: the session only needs open/message/error/close. */
 class FakeSocket {
@@ -338,6 +338,25 @@ describe("GeminiLiveSession — transcripts accumulate per turn instead of overw
     expect(lastOf(events, "input_transcript")).toBe("putar lagu M2M");
     expect(lastOf(events, "output_transcript")).toBe("Oke,");
   });
+
+  it("strips the 🌸 flower from Live transcripts (owner 2026-09-30: emoji stutters the voice)", async () => {
+    const { events } = await startListening();
+    FakeSocket.last?.frame({ serverContent: { outputTranscription: { text: "Halo 🌸" } } });
+    FakeSocket.last?.frame({ serverContent: { outputTranscription: { text: "apa kabar? 🌸" } } });
+    await vi.advanceTimersByTimeAsync(0);
+    const said = lastOf(events, "output_transcript");
+    expect(said).not.toContain("🌸");
+    expect(said).toContain("Halo");
+    expect(said).toContain("apa kabar?");
+  });
+
+  it("ignores a flower-only chunk instead of appending a dangling space", async () => {
+    const { events } = await startListening();
+    FakeSocket.last?.frame({ serverContent: { outputTranscription: { text: "Halo" } } });
+    FakeSocket.last?.frame({ serverContent: { outputTranscription: { text: "🌸" } } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lastOf(events, "output_transcript")).toBe("Halo");
+  });
 });
 
 describe("GeminiLiveSession — a binary handshake and binary audio are actually delivered", () => {
@@ -527,6 +546,27 @@ describe("GeminiLiveSession — tool calling (Phase B)", () => {
     expect(sent?.length ?? 0).toBe(before);
   });
 
+  it("drops outgoing audio while muted but keeps the session alive", async () => {
+    const session = await startReady();
+    expect(session.isAudioMuted).toBe(false);
+
+    const framesBefore = FakeSocket.last?.sent.length ?? 0;
+    session.sendAudioFrame(new Uint8Array([1, 2, 3, 4]), "AQIDBA==");
+    expect((FakeSocket.last?.sent.length ?? 0)).toBe(framesBefore + 1);
+
+    // Muting drops frames instead of ending anything: the socket stays open
+    // and no close/error may be emitted for a mute.
+    session.setAudioMuted(true);
+    expect(session.isAudioMuted).toBe(true);
+    session.sendAudioFrame(new Uint8Array([5, 6, 7, 8]), "BQYHCA==");
+    expect(FakeSocket.last?.sent.length).toBe(framesBefore + 1);
+    expect(session.currentStatus).toBe("ready");
+
+    session.setAudioMuted(false);
+    session.sendAudioFrame(new Uint8Array([9]), "CQ==");
+    expect(FakeSocket.last?.sent.length).toBe(framesBefore + 2);
+  });
+
   it("sends the resolved owner key as x-mia-user so the server loads the owner's persona", async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: { headers?: Record<string, string> }) => tokenReply());
     vi.stubGlobal("fetch", fetchMock);
@@ -546,5 +586,35 @@ describe("GeminiLiveSession — tool calling (Phase B)", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const init = fetchMock.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined;
     expect(init?.headers?.["x-mia-user"]).toBe("naufalazhar652952");
+  });
+});
+
+describe("saveLiveTurnToMemory — fire-and-forget write-back, never throws", () => {
+  const post = (body: unknown, user = "naufalazhar652952") =>
+    vi.fn(async () => ({ ok: true, json: async () => ({}) }) as unknown as Response);
+
+  it("POSTs heard/said with the user header for a real turn", async () => {
+    const fetchMock = post({});
+    await saveLiveTurnToMemory("halo beb", "halo juga", { "x-mia-user": "naufalazhar652952" }, fetchMock);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, { headers?: Record<string, string>; body?: string }];
+    expect(url).toBe("/api/gemini-live/memory");
+    expect(init.headers?.["x-mia-user"]).toBe("naufalazhar652952");
+    expect(JSON.parse(init.body ?? "{}")).toEqual({ heard: "halo beb", said: "halo juga" });
+  });
+
+  it("skips the network entirely on an empty turn", async () => {
+    const fetchMock = post({});
+    await saveLiveTurnToMemory("   ", "", { "x-mia-user": "naufalazhar652952" }, fetchMock);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never throws when the network fails", async () => {
+    const failing = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    await expect(
+      saveLiveTurnToMemory("halo", "hai", { "x-mia-user": "naufalazhar652952" }, failing as unknown as typeof fetch)
+    ).resolves.toBe(false);
   });
 });

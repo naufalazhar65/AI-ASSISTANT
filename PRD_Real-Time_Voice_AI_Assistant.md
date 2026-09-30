@@ -5,7 +5,7 @@
 **Versi Dokumen:** 2.0 (revisi besar dari v1.0 "Real-Time Voice AI Assistant")
 **Status:** Fase 0–5 selesai (rincian per fase di `ROADMAP.md`) — fondasi + core assistant + channel Telegram/Discord + kapabilitas personal (tools, scheduling, memory, monitoring, insight mingguan, habits) + stabilitas/security (auth, audit, rate-limit, config, backup, observability) sudah dikerjakan. Sisa hanya integrasi opsional (WhatsApp/Email send, calendar/email/smart-home lebih dalam, Google Maps Places)
 **Jenis Dokumen:** Product Requirements Document
-**Target Platform:** Web (voice + text), Telegram Bot, Discord Bot, (future: channel lain)
+**Target Platform:** Web (voice-only, Gemini Live duplex), Telegram Bot, Discord Bot, (future: channel lain)
 **Interaksi Utama:** Multi-channel — chat text real-time, voice conversation, task automation
 **Inspirasi Produk:** Mia, Siri, ChatGPT Voice, Gemini Live
 
@@ -58,7 +58,7 @@ Tujuan: satu asisten (Mia) dengan satu memory & satu set tools, diakses dari ban
 
 ### 4.1 Primary Goals
 
-- **Multi-channel** — dapat diakses via web (text + voice) dan bot Telegram/Discord.
+- **Multi-channel** — dapat diakses via web (voice) dan bot Telegram/Discord.
 - **Konsisten** — memory, persona, dan tools sama di semua channel.
 - **Bermanfaat sehari-hari** — mampu menjalankan task (reminder, catatan, pencarian, file) sebagai asisten pribadi.
 - **Extensible** — arsitektur memungkinkan penambahan channel/platform baru dengan mudah.

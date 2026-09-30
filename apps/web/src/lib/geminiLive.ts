@@ -85,6 +85,22 @@ export interface LiveToolCall {
   args: Record<string, unknown>;
 }
 
+/**
+ * Strip the 🌸 signature flower from Live transcripts.
+ *
+ * Live-only: the persona asks for 🌸 in *text* replies, but a Live turn is
+ * voice — the model speaks the transcript, and an emoji in the spoken line
+ * makes the audio stutter (owner report 2026-09-30). The chat path keeps its
+ * flower; only the Live transcript path calls this.
+ *
+ * Pure and exported so the transcript accumulation and the memory write-back
+ * share one definition. Collapses the gap the flower leaves so words never
+ * glue together and never double-space.
+ */
+export function stripLiveFlower(text: string): string {
+  return text.replace(/🌸\uFE0F?/g, "").replace(/[ \t]{2,}/g, " ");
+}
+
 /** A Gemini `functionDeclarations` entry, as served by our token route. */
 export interface LiveToolDeclaration {
   name: string;
@@ -190,6 +206,15 @@ export class GeminiLiveSession {
   private status: GeminiLiveStatus = "idle";
   private closing = false;
   private model = "";
+  /**
+   * Mic mute for the session. While set, `sendAudioFrame` drops frames instead
+   * of sending them: the socket stays open and the server hears silence, so a
+   * mute never ends the conversation. This exists because the UI presents the
+   * mic button as mute (MicOff icon while live) — and an earlier version of
+   * this code actually STOPPED the session there, which is exactly the bug the
+   * owner reported ("tekan mic malah mengakhiri obrolan").
+   */
+  private audioMuted = false;
   /** Bounded grace after the setup frame, so `start()` always settles. */
   private settleTimer: ReturnType<typeof setTimeout> | null = null;
   /** Hard ceiling on `start()`, so a dead socket can never hang the UI. */
@@ -413,6 +438,9 @@ export class GeminiLiveSession {
 
   /** Send one 16 kHz PCM frame. Silently ignored when not connected. */
   sendAudioFrame(pcm: Uint8Array, base64: string): void {
+    // Muted: hear nothing, end nothing. Dropping here (not by stopping the
+    // capture) keeps the mic permission/stream alive so unmuting is instant.
+    if (this.audioMuted) return;
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.send({
       realtimeInput: {
@@ -457,6 +485,20 @@ export class GeminiLiveSession {
     this.send({ interrupt: true });
     this.emit({ type: "interrupted" });
     this.emit({ type: "speaking", speaking: false });
+  }
+
+  /**
+   * Mute or unmute the mic WITHOUT touching the session. Muting drops
+   * outgoing frames (the server hears silence); the socket, the token and
+   * the conversation all survive it.
+   */
+  setAudioMuted(muted: boolean): void {
+    this.audioMuted = muted;
+  }
+
+  /** Whether outgoing audio is currently dropped. */
+  get isAudioMuted(): boolean {
+    return this.audioMuted;
   }
 
   /** Close the socket. Safe to call repeatedly. */
@@ -606,8 +648,14 @@ export class GeminiLiveSession {
       this.outputBuf = "";
       this.turnClosed = false;
     }
+    // Live is voice: the 🌸 signature flower the persona asks for in text
+    // replies would be spoken here and stutters the audio (owner 2026-09-30),
+    // so it never reaches the transcript, the subtitles, or the memory
+    // write-back. A flower-only chunk appends nothing.
+    const clean = stripLiveFlower(chunk);
+    if (!clean.trim()) return side === "input" ? this.inputBuf : this.outputBuf;
     const buf = side === "input" ? this.inputBuf : this.outputBuf;
-    const next = !buf ? chunk : /[\s(>"'\-–—]$/.test(buf) || /^[\s.,!?;:)"'\-–—]/.test(chunk) ? buf + chunk : `${buf} ${chunk}`;
+    const next = !buf ? clean : /[\s(>"'\-–—]$/.test(buf) || /^[\s.,!?;:)"'\-–—]/.test(clean) ? buf + clean : `${buf} ${clean}`;
     if (side === "input") this.inputBuf = next;
     else this.outputBuf = next;
     return next;
@@ -676,5 +724,35 @@ export class GeminiLiveSession {
         // One bad listener must not kill the audio stream.
       }
     }
+  }
+}
+
+/**
+ * Persist one completed Live turn into today's daily memory. Fire-and-forget
+ * by contract: returns whether the server confirmed the write, but NEVER
+ * throws and NEVER blocks — losing one turn's note must not disturb a voice
+ * session. Empty turns (both sides blank) skip the network entirely.
+ *
+ * `fetchImpl` exists so tests can assert URL, header and body without a
+ * server; production passes the global fetch.
+ */
+export async function saveLiveTurnToMemory(
+  heard: string,
+  said: string,
+  userHeader: Record<string, string>,
+  fetchImpl: typeof fetch = fetch
+): Promise<boolean> {
+  if (!heard.trim() && !said.trim()) return false;
+  try {
+    const res = await fetchImpl("/api/gemini-live/memory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...userHeader },
+      body: JSON.stringify({ heard: heard.slice(0, 2_000), said: said.slice(0, 2_000) }),
+    });
+    if (!res.ok) return false;
+    const json = (await res.json().catch(() => ({}))) as { saved?: unknown };
+    return json.saved === true;
+  } catch {
+    return false;
   }
 }

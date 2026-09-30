@@ -17,7 +17,7 @@ import { useVoice } from "@/hooks/useVoice";
  * pipeline.
  */
 export default function Home() {
-  const { micState, mediaStream, ensureMic, releaseMic } = useVoice();
+  const { micState, mediaStream, ensureMic, releaseMic, reminders, dismissReminder } = useVoice();
 
   return (
     <main className="relative h-dvh w-full flex flex-col overflow-hidden bg-black safe-top safe-bottom">
@@ -38,6 +38,8 @@ export default function Home() {
           micDenied={micState.status === "denied"}
           onEnsureMic={ensureMic}
           onReleaseMic={releaseMic}
+          reminders={reminders}
+          dismissReminder={dismissReminder}
         />
       </div>
     </main>

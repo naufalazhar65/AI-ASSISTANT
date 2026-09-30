@@ -1,17 +1,22 @@
 # 🌸 Mia — Personal AI Assistant & Security Copilot
 
-> **One brain, many faces.** Web (text + voice) · Telegram · Discord — one memory, one persona, one toolset.
+> **One brain, many faces.** Web (voice-only) · Telegram · Discord — one memory, one persona, one toolset.
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-334-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
-[![Playbooks](https://img.shields.io/badge/security%20playbooks-85-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
+[![Tools](https://img.shields.io/badge/tools-335-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Playbooks](https://img.shields.io/badge/security%20playbooks-86-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 Mia (*she/her* 🌸) is a proactive personal assistant **and** an authorized
 security copilot. One core turn engine (`lib/agent.ts`) powers every channel and
 every capability — voice, chat, automation, memory, and the full pentest
 workflow (recon → hunt → verify → report).
+
+> **Web voice:** the web app is a voice-only console on Gemini Live duplex —
+> persona + 3-day memory recap + WIB clock in every session, 28 voice tools
+> (Spotify, memory, daily cluster, Gmail) with spoken confirmation before any
+> write, and every Live turn written back to daily memory.
 
 ---
 
@@ -23,7 +28,7 @@ workflow (recon → hunt → verify → report).
 
 ### 🏠 Daily assistant
 Warm, proactive, remembers you.
-- Voice-first: Whisper ASR → LLM → Orpheus TTS, VAD, barge-in
+- Voice-first: Gemini Live duplex voice on web (voice-only console), VAD, barge-in
 - Reminders, tasks, calendar, habits, mood, health
 - Notes + long-term memory (persona, `.memory`, RAG)
 - Travel & live data (Waze, weather, hotel, cinema, train, bus)
@@ -107,7 +112,7 @@ flowchart LR
 ```
 
 - **Core:** `lib/agent.ts` — one turn (`stream → tools → follow-up → auto-memory → reminder → mood → toolsForUrl cap`) for **every** channel.
-- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `9router` = current default brain (64-tool window); `opencodego` = full 334-tool window (quota exhausted 2026-09-21, returns after reset); `groq` = STT/TTS; `openrouter` = freeride fallback.
+- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `9router` = current default brain (64-tool window); `opencodego` = full 335-tool window (quota exhausted 2026-09-21, returns after reset); `groq` = STT/TTS; `openrouter` = freeride fallback.
 - **Adapter:** `channels/{telegram,discord}.ts` + `pushTarget.ts`. Discord DM needs `partials:[Channel,Message]` + `msg.fetch()`.
 - **State:** `packages/state-machine` — `IDLE → LISTENING → PROCESSING → SPEAKING → TURN_END/INTERRUPTED` (invalid transitions impossible).
 
@@ -128,12 +133,12 @@ authorization + scope) → recon → `security_hunt` /
 | **Recon (attack surface)** | `recon_subdomains` · `recon_httpx` · `recon_params` · `recon_takeover` · `recon_dnsbrute` · `recon_ports` · `recon_diff` · `recon_screenshot` · `recon_list` · `bucket_enum` |
 | **Autonomous hunt** | `security_hunt` (header/CSP/CORS + discovery + crawl + JS mining + params → **LEADS**) · `suite_hunt` (satu konfirmasi: security + auth + api hunt, auto `hunt_log`) · `auth_hunt` (auth-flow surface) · `api_hunt` (spec-driven unauth probe) |
 | **Web / API** | `web_audit` · `domain_audit` · `cors_audit` · `csp_audit` · `content_discover` · `crawl` · `js_mine` · **`js_deobfuscate`** (string-array/concat/source-map restore) · `api_spec` · `graphql_probe` · **`graphql_hunt`** (introspection/suggestions/batching/depth) · `oauth_hunt` · `param_discover` · `param_fuzz` · **`prompt_injection_hunt`** (LLM prompt-injection) · **`llm_hunt`** (LLM red-team: jailbreak/rag/agency/exfil/pii → OWASP LLM Top 10) · **`mcp_hunt`** (audit server MCP JSON-RPC/SSE) |
-| **Exploit-aid (authorized)** | **`exploit_chain`** (15 chains: idor/auth_bypass/ssrf/session_fixation + race/graphql/xxe/open_redirect/cache_poison + bypass403/otp/proto_pollute + cache_decep/nosql/blind_ssrf) · **`auth_setup`** (wizard sesi uji → session_a/b) · **`vuln_compose`** (chain lintas-kelas E2E) · **`exploit_build`** (artefak replay standalone di disk) · `http_request` · `cdp_status` · `cdp_request` · `cdp_eval` · `cdp_open` · `bola_diff` · `jwt_attack` · **`xss_hunt`** (reflect + breakout + OAST correlate) · **`idor_enum`** (range enum A/B + anon control) · **`host_header_hunt`** (8-header matrix + reset poisoning) · **`recon_full`** (6-stage one-shot pipeline) · **`csrf_prove`** (token-less replay + PoC HTML artifact) · **`mass_assignment`** (privileged-field injection + persist check) · **`exposure_hunt`** (predictable-resource scanner) · **`upload_fuzz`** (upload-bypass matrix + access verify) · **`race_attack`** (N-parallel + NONCE duplicate-creation proof) · **`ws_hunt`** (CSWSH handshake matrix + CDP tab) · **`cache_poison_prover`** (host-header/decompression matrix + fat-GET) · **`xxe_chain`** (auto-OAST file-read/OOB/param-entity) · **`open_redirect_chain`** (19 param × bypass, host-based verdict) · **`ato_prove`** (credential-leak → login → protected URL) · `oast_create/poll` · `oast_dns_create/poll` · `http_session` · `tamper_script` · **`workflow_fuzz`** (business-logic state-transition fuzz: skip/repeat/reorder/value) |
+| **Exploit-aid (authorized)** | **`exploit_chain`** (21 chains: idor/auth_bypass/ssrf/session_fixation + race/graphql/xxe/open_redirect/cache_poison + bypass403/otp/proto_pollute + cache_decep/nosql/blind_ssrf + traversal/otp_hunt/recovery/csv/cmdi_blind/ssti) · **`auth_setup`** (wizard sesi uji → session_a/b) · **`vuln_compose`** (chain lintas-kelas E2E) · **`exploit_build`** (artefak replay standalone di disk) · `http_request` · `cdp_status` · `cdp_request` · `cdp_eval` · `cdp_open` · `bola_diff` · `jwt_attack` · **`xss_hunt`** (reflect + breakout + OAST correlate) · **`idor_enum`** (range enum A/B + anon control) · **`host_header_hunt`** (8-header matrix + reset poisoning) · **`recon_full`** (6-stage one-shot pipeline) · **`csrf_prove`** (token-less replay + PoC HTML artifact) · **`mass_assignment`** (privileged-field injection + persist check) · **`exposure_hunt`** (predictable-resource scanner) · **`upload_fuzz`** (upload-bypass matrix + access verify) · **`race_attack`** (N-parallel + NONCE duplicate-creation proof) · **`ws_hunt`** (CSWSH handshake matrix + CDP tab) · **`cache_poison_prover`** (host-header/decompression matrix + fat-GET) · **`xxe_chain`** (auto-OAST file-read/OOB/param-entity) · **`open_redirect_chain`** (19 param × bypass, host-based verdict) · **`ato_prove`** (credential-leak → login → protected URL) · `oast_create/poll` · `oast_dns_create/poll` · `http_session` · `tamper_script` · **`workflow_fuzz`** (business-logic state-transition fuzz: skip/repeat/reorder/value) |
 | **OSINT & session import** | **`github_osint`** (code dorks + commit-history secret scan, redacted) · **`har_import`** (DevTools HAR → `http_session` ready, credentials masked) |
 | **Scanners (lab/engagement)** | `pentest_scan` (nmap/nuclei/nikto/ffuf) · `nuclei_custom` · `sqlmap_scan` · `zap_scan` · `trivy_scan` |
 | **Analysis** | `password_strength` · `hash_identify` · `jwt_inspect` · `ioc_extract` · `cvss_score` |
 | **Findings & reports** | `finding_add/list/resolve/export` · `poc_verify` · `writeup` · `hardening_plan/pdf` · `report_generate/save/pdf` · `platform_severity` · `submission_track` |
-| **Knowledge & agility** | `security_playbook` (85 packs) · `hunt_log` (per-target hunt memory: dead/lead/finding + auto-pivot) · `engagement_targets` (ready worklist from active engagements) · **`target_brain`** (persistent per-target memory: endpoints, tech, auth, proofs, safe-tested) · **`retest_*`** (regression suite: save → run → verdict) · **`auth_matrix`** (N-role authorization matrix) · **`dom_taint`** (DOM XSS taint analysis) · **`learning_*`** (disclosed report patterns) |
+| **Knowledge & agility** | `security_playbook` (86 packs) · `hunt_log` (per-target hunt memory: dead/lead/finding + auto-pivot) · `engagement_targets` (ready worklist from active engagements) · **`target_brain`** (persistent per-target memory: endpoints, tech, auth, proofs, safe-tested) · **`retest_*`** (regression suite: save → run → verdict) · **`auth_matrix`** (N-role authorization matrix) · **`dom_taint`** (DOM XSS taint analysis) · **`learning_*`** (disclosed report patterns) |
 | **Cloud & tech** | `cloud_misconfig` (S3/GCS/Azure/Firebase/Supabase, keyless) · `tech_watch` (stack fingerprint + CVE on change) |
 | **Autonomy & workflow** | **`bounty_run`** (one command, draft-only: engagement → ROI worklist → campaign → **auto exploit_chain** → **auto browser evidence** → draft findings + **PDF** → handoff) · `program_score` (ROI ranking) · `policy_set`/`policy_show` (scoped auto-approve) · `campaign_run` (bounded hunt loop) · `flow_run`/`flow_list` (multi-step sequences + assertions) · `dup_check` · `bounty_status` |
 | **Lab & practice** | `lab_start` → `http://127.0.0.1:4010` (SQLi/XSS/IDOR/SSRF/JWT/CSRF/…, no Docker) · `pentest_resources` |
@@ -167,7 +172,7 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
 | **Superpower** | `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query`, `coverage`, `threat_model` | Per-target memory, regression suite, N-role matrix, DOM XSS taint, disclosed patterns, **coverage ledger** (which risk class was tested + how it closed, evidence required), **threat model** (4 mandatory sections per target) |
 
-**334 tools total.** Full list derives from the registry — see
+**335 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---
@@ -209,7 +214,7 @@ apps/web                  Next.js 15 (UI, hooks, audio, persona, /api/*)
   src/ai                  ConversationManager, GroqStreamingProvider, VAD
   src/lib                 tools, agent, providers, persona, autoMemory, hunt, recon, security, tamper, huntLog, …
   src/channels            telegram.ts, discord.ts, pushTarget.ts, replyChunk.ts
-  security-playbooks/     85 playbook packs (categories: methodology, vulnerabilities, …)
+  security-playbooks/     86 playbook packs (categories: methodology, vulnerabilities, …)
   persona/                IDENTITY.md, SOUL.md, USER.md, DREAMS.md
   verify.ts               offline proofs (tsx)
 packages/state-machine    Explicit state machine
@@ -228,7 +233,7 @@ npm run dev -w @voice/web        # http://localhost:3000
 npm run typecheck
 npm run lint
 npm run build
-npm test                         # vitest (1110 tests, 68 files)
+npm test                         # vitest (1555 tests, 92 files)
 npx tsx apps/web/verify.ts       # offline proofs (tsx, must EXIT 0)
 npx tsx packages/state-machine/verify.ts
 ```

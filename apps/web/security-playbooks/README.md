@@ -16,8 +16,8 @@ edits for Mia's workflow.
 ## Layout
 
 `<category>/<name>.md` with YAML frontmatter (`name`, `description`) + a
-Markdown body. **85 packs** across 11 categories: `vulnerabilities` (34),
-`tooling` (13), `methodology` (9), `technologies` (7), `custom` (5),
+Markdown body. **86 packs** across 11 categories: `vulnerabilities` (34),
+`tooling` (13), `methodology` (10), `technologies` (7), `custom` (5),
 `analysis` (4), `cloud` (4), `frameworks` (4), `protocols` (2),
 `reconnaissance` (2), `scan_modes` (1).
 

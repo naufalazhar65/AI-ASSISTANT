@@ -12,6 +12,7 @@ import { MockProvider } from "@ai-provider/mock";
 import { findPublicProvider, PUBLIC_PROVIDERS, ProviderId, PUBLIC_DEFAULT_PROVIDER } from "@/lib/providers";
 import { OWNER_KEY, resolveBrowserUserKey } from "@/lib/identity";
 import { SessionMeta } from "@/lib/sessions";
+import { isDismissedReceipt, loadDismissedReceipts, saveDismissedReceipt } from "@/lib/reminderClient";
 
 export interface UseVoiceResult {
   state: State;
@@ -433,7 +434,16 @@ export function useVoice(): UseVoiceResult {
       try {
         const data = JSON.parse(e.data) as { id?: string; text?: string };
         if (typeof data.text === "string" && data.text.trim()) {
-          setReminders((prev) => [...prev, data.text!.trim()].slice(-5));
+          const text = data.text.trim();
+          // A dismissed banner must stay dismissed: the server replays recent
+          // fired receipts on every connect, so without this check the
+          // receipt twin of a dismissed live banner resurrects on the next
+          // refresh (the double-refresh bug). The twin rule lives in
+          // isDismissedReceipt: only seeded receipts are ever suppressed, and
+          // only when they fired no later than the dismissal — a later firing
+          // of the same text still shows.
+          if (isDismissedReceipt(data.id, text, loadDismissedReceipts())) return;
+          setReminders((prev) => [...prev, text].slice(-5));
         }
       } catch {
         /* ignore malformed frames */
@@ -443,7 +453,18 @@ export function useVoice(): UseVoiceResult {
   }, []);
 
   const dismissReminder = useCallback((index: number) => {
-    setReminders((prev) => prev.filter((_, i) => i !== index));
+    setReminders((prev) => {
+      const item = prev[index];
+      // Persist EVERY dismissal with its timestamp (idempotent, so a
+      // StrictMode double-invoked updater is harmless). Suppression itself is
+      // narrow — see isDismissedReceipt: only a seeded receipt whose text
+      // contains the dismissed text AND which fired no later than the
+      // dismissal is skipped. Live due-reminders stay server-driven: they are
+      // genuinely due, so the next connect may legitimately show them again,
+      // and a same-id daily firing tomorrow is never silenced.
+      if (typeof item === "string") saveDismissedReceipt(item);
+      return prev.filter((_, i) => i !== index);
+    });
   }, []);
 
   // --- Multi-session management ---

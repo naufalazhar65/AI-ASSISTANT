@@ -66,6 +66,22 @@ describe("POST /api/gemini-live/tool", () => {
     expect((body.results?.[0]?.result ?? "").length).toBeLessThanOrEqual(2_000);
   });
 
+  it("dispatches a Gmail read for an unlinked user instead of throwing", async () => {
+    const user = `verify_livetool_${Date.now()}`;
+    const res = await POST(post({ calls: [{ id: "g1", name: "gmail_list", args: {} }] }, user));
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(typeof body.results?.[0]?.result).toBe("string");
+    expect((body.results?.[0]?.result ?? "").length).toBeGreaterThan(0);
+  });
+
+  it("dispatches a daily-cluster read end to end (pure calculator)", async () => {
+    const res = await POST(post({ calls: [{ id: "d1", name: "calculate", args: { expression: "12*8" } }] }, "naufalazhar652952"));
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.results?.[0]?.result).toContain("96");
+  });
+
   it("dispatches memory reads for a user with no store instead of throwing", async () => {
     const user = `verify_livetool_${Date.now()}`;
     const res = await POST(
@@ -84,5 +100,37 @@ describe("POST /api/gemini-live/tool", () => {
     expect(res.status).toBe(200);
     const body = await json(res);
     expect(typeof body.results?.[0]?.result).toBe("string");
+  });
+
+  it("refuses an unconfirmed write tool instead of executing it (FR-014 backstop)", async () => {
+    const user = `verify_livetool_${Date.now()}`;
+    for (const args of [{}, { text: "minum", when: "jam 7" }, { text: "minum", when: "jam 7", confirmed: false }]) {
+      const res = await POST(post({ calls: [{ id: "w1", name: "remind_me", args }] }, user));
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      expect(body.results?.[0]?.result ?? "").toMatch(/konfirmasi/i);
+    }
+  });
+
+  it("executes a confirmed write tool for a throwaway user, then cleans up", async () => {
+    const { rmSync, existsSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { userDataRoot } = await import("@/lib/users");
+    const user = `verify_livewrite_${Date.now()}`;
+    try {
+      const res = await POST(
+        post({
+          calls: [{ id: "w2", name: "remind_me", args: { text: "tes live", when: "2026-10-01T07:00:00+07:00", confirmed: true } }],
+        }, user)
+      );
+      expect(res.status).toBe(200);
+      const body = await json(res);
+      // Either scheduled honestly or refused with a reason — never silent, never a crash.
+      expect(typeof body.results?.[0]?.result).toBe("string");
+      expect((body.results?.[0]?.result ?? "").length).toBeGreaterThan(0);
+    } finally {
+      const dir = join(userDataRoot(), user);
+      if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -3,7 +3,8 @@
 // The client opens this stream (EventSource) and receives one event per
 // reminder. Two sources feed it:
 //  - on connect, reminders that came due while the tab was closed are replayed
-//    immediately.
+//    immediately — plus recent fired receipts ("Udah bunyi …"), so a tab
+//    opened after a fire still shows what it missed instead of silence.
 //  - a shared scheduler (lib/reminders) pushes reminders that come due live.
 //
 // Event shape: `data: {"id":"…","text":"…"}\n\n` (default message type).
@@ -14,6 +15,11 @@
 
 import { NextRequest } from "next/server";
 import { takeDueReminders, subscribeReminders, Reminder } from "@/lib/reminders";
+import {
+  FIRED_BANNER_FRESH_MS,
+  formatFiredBanner,
+  recentFiredReceipts,
+} from "@/lib/reminders";
 import { sanitizeUser } from "@/lib/users";
 import { checkRateLimit, RateLimitError } from "@/lib/rateLimit";
 
@@ -57,6 +63,26 @@ export async function GET(request: NextRequest) {
       };
       unsubscribe = subscribeReminders(push);
       if (userKey) takeDueReminders(userKey);
+      // Seed banners for reminders that fired while the tab was closed: the
+      // rows are pruned on fire, so without this a reconnect shows nothing and
+      // a follow-up "kamu ingat?" reads an empty list. Receipts fresher than
+      // FIRED_BANNER_FRESH_MS are skipped — a just-fired alarm arrives through
+      // its own live frame, and replaying it too would double the banner.
+      if (userKey) {
+        const now = Date.now();
+        for (const r of recentFiredReceipts(userKey)) {
+          if ((r.deliveredAt ?? r.at) >= now - FIRED_BANNER_FRESH_MS) continue;
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ id: `fired-${r.deliveredAt ?? r.at}`, text: formatFiredBanner(r) })}\n\n`
+              )
+            );
+          } catch {
+            break; // stream gone — stop seeding, live frames matter more
+          }
+        }
+      }
       heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(": keepalive\n\n"));

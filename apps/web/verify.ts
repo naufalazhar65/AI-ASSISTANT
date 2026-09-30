@@ -1744,7 +1744,7 @@ async function main() {
     console.log("security_hunt (scope + url guards): OK");
   }
   {
-    const { toolsForUrl, CORE_TOOL_NAMES } = await import("./src/lib/agent");
+    const { toolsForUrl, CORE_TOOL_NAMES, HINT_UNDELIVERED } = await import("./src/lib/agent");
     // CORE invariant (silent-shrink guard): CORE must be exactly 128 unique
     // names, all resolvable in the registry — otherwise toolsForUrl fills the
     // leftover window slots with random registry tools and the whole pentest
@@ -1761,8 +1761,12 @@ async function main() {
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
     if (r9.length > 64) throw new Error(`9router tool cap exceeded (${r9.length})`);
-    for (const n of ["workflow_fuzz", "race_attack", "graphql_hunt", "prompt_injection_hunt", "http_request", "poc_verify", "finding_add", "llm_hunt", "mcp_hunt", "lab_add", "coverage", "threat_model", "report_generate", "report_save", "writeup", "submission_preflight"]) {
+    for (const n of ["workflow_fuzz", "race_attack", "graphql_hunt", "prompt_injection_hunt", "http_request", "poc_verify", "finding_add", "llm_hunt", "mcp_hunt", "lab_add", "coverage", "threat_model", "report_generate", "report_save", "writeup", "submission_preflight", "gmail_list", "gmail_link", "mac_open"]) {
       if (!r9.some((t) => t.function.name === n)) throw new Error(`9router 64-window missing ${n}`);
+    }
+    for (const n of ["waze_route", "spotify_next", "spotify_volume"]) {
+      if (r9.some((t) => t.function.name === n)) throw new Error(`${n} should be demoted out of the 9router window`);
+      if (!HINT_UNDELIVERED.includes(n)) throw new Error(`${n} must be in HINT_UNDELIVERED`);
     }
     // report_pdf sits at CORE position 65, ONE slot past the cut — verified live
     // 2026-09-25/26: the deterministic delivery path (tryDeliverReportPdf) is
@@ -6254,6 +6258,43 @@ async function main() {
       void expectedActualFor;
       void expectedActualPair;
       console.log("bounty checklist (endpoint-matched evidence, live expected/actual + vector, overclaim gate, PII residue, baseline remediation, duplicate merge, 20-item preflight via dispatch): OK");
+    } finally {
+      rmSync(join(userDataRoot(), U), { recursive: true, force: true });
+    }
+  }
+
+  // ── Live write-back (2026-09-30): spoken turns persist like chat turns ────
+  // A Live conversation used to vanish: nothing ever wrote it anywhere. The
+  // route + format + sender are each unit-tested; this block pins the three
+  // together against the real store with a throwaway user.
+  {
+    const U = `verify_livemem_${Date.now()}`;
+    const { formatLiveMemoryEntry, LIVE_MEMORY_SIDE_CHARS } = await import("./src/lib/liveTools");
+    const { saveLiveTurnToMemory } = await import("./src/lib/geminiLive");
+    const { appendDailyMemory, readDailyMemory } = await import("./src/lib/dailyMemory");
+    const { wibDay } = await import("./src/lib/time");
+    try {
+      if (formatLiveMemoryEntry("", "  ") !== "") throw new Error("empty Live turn formatted non-empty");
+      const entry = formatLiveMemoryEntry("u".repeat(5000), "m".repeat(5000));
+      if (entry.length > LIVE_MEMORY_SIDE_CHARS * 2 + 20) throw new Error("Live entry not capped");
+      // The sender posts heard/said with the user header and never throws.
+      let seen: { url: unknown; init: unknown } | null = null;
+      const stubFetch = (async (url: unknown, init: unknown) => {
+        seen = { url, init };
+        return { ok: true, json: async () => ({ saved: true }) };
+      }) as unknown as typeof fetch;
+      const okSaved = await saveLiveTurnToMemory("halo beb", "halo juga", { "x-mia-user": U }, stubFetch);
+      if (!okSaved) throw new Error("saveLiveTurn reported failure on an ok route");
+      const init = (seen as unknown as { init: { headers?: Record<string, string>; body?: string } }).init;
+      if (init.headers?.["x-mia-user"] !== U) throw new Error("write-back went to the wrong user");
+      if (JSON.parse(init.body ?? "{}").heard !== "halo beb") throw new Error("write-back body wrong");
+      const failing = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
+      if (await saveLiveTurnToMemory("halo", "hai", { "x-mia-user": U }, failing)) throw new Error("offline write-back did not fail closed");
+      // The stored shape is the chat shape, so recall needs no special case.
+      appendDailyMemory(U, formatLiveMemoryEntry("ingat kucingku Moly", "iya, Moly"));
+      const content = readDailyMemory(U, wibDay());
+      if (!content.includes("User: ingat kucingku Moly") || !content.includes("Mia: iya, Moly")) throw new Error("Live entry not readable as chat memory");
+      console.log("live write-back (format cap, header-routed POST, offline-safe, chat-shaped store): OK");
     } finally {
       rmSync(join(userDataRoot(), U), { recursive: true, force: true });
     }

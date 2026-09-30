@@ -4,7 +4,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { detectMoodIntent } from "./moodIntent";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
 import { asBodyString, asNumber, asStringArray, redactArgsForDisplay } from "./args";
-import { addReminder, readReminders, type Reminder } from "./reminders";
+import { addReminder, readFiredReceipts, readReminders, type Reminder } from "./reminders";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addOrMergeAutomation, describeSchedule } from "./automations";
@@ -46,11 +46,22 @@ function reminderDeliveryStamp(r: Reminder): string {
 function remindersListText(rawUser: unknown): string {
   const now = Date.now();
   const rs = readReminders(rawUser);
-  if (!rs.length) return "Belum ada reminder beb — mau aku ingetin apa? 🌸";
   const fmt = (ms: number): string =>
     new Date(ms).toLocaleString("id-ID", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  // Fired-receipts (2026-09-30): one-shots vanish after delivery, so without
+  // this a follow-up "kamu ingat?" is answered from an empty list. Newest first.
+  // Read once: the no-receipt paths below must stay byte-identical (verify.ts
+  // asserts them for throwaway users, who never have receipts).
+  const fired = readFiredReceipts(rawUser, 1);
+  const firedTail = fired.length
+    ? ` Ngomong-ngomong, yang terakhir udah bunyi ${fmt(fired[0].deliveredAt ?? fired[0].at)}: "${fired[0].text}" 🌸`
+    : "";
+  if (!rs.length) {
+    if (!fired.length) return "Belum ada reminder beb — mau aku ingetin apa? 🌸";
+    return `Belum ada reminder aktif beb — yang terakhir udah bunyi ${fmt(fired[0].deliveredAt ?? fired[0].at)}: "${fired[0].text}" 🌸`;
+  }
   const upcoming = rs.filter((r) => !r.fired && r.at >= now).sort((a, b) => a.at - b.at).slice(0, 10);
-  if (!upcoming.length) return "Belum ada reminder terjadwal beb — semuanya udah lewat, mau bikin baru? 🌸";
+  if (!upcoming.length) return "Belum ada reminder terjadwal beb — semuanya udah lewat, mau bikin baru? 🌸" + firedTail;
   // Single → natural warm, not stiff list (maximal anti-kaku, soul: short punchy) — keep "terjadwal" for verify/honesty
   if (upcoming.length === 1 && upcoming[0].repeat === "daily") {
     const r = upcoming[0];
@@ -2520,8 +2531,15 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (_, ctx) => {
       if (!gmailConfigured()) return "Gmail belum dikonfigurasi — hubungi admin untuk set GMAIL_CLIENT_ID/SECRET.";
-      if (gmailConnected(ctx.rawUser)) return "Gmail sudah terhubung ✓";
-      return `Buka link ini untuk hubungkan Gmail: ${gmailAuthUrl(ctx.rawUser)}`;
+      // Always include the re-authorize URL, even when a token file exists:
+      // a stored token can be dead (revoked/expired) while the file remains,
+      // and then "sudah terhubung" would be a lie that blocks the only fix
+      // (measured 2026-09-30: refresh failed Bad Request, yet the tool claimed
+      // connected, so no relink path existed). Re-authorizing is idempotent.
+      const url = gmailAuthUrl(ctx.rawUser);
+      if (gmailConnected(ctx.rawUser))
+        return `Gmail sudah terhubung ✓ (kalau baca email gagal, tokennya mati — hubungkan ulang di sini: ${url})`;
+      return `Buka link ini untuk hubungkan Gmail: ${url}`;
     },
   },
   {

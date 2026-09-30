@@ -11,14 +11,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   LIVE_TOOL_NAMES,
+  LIVE_MEMORY_SIDE_CHARS,
   buildMemoryRecap,
+  formatLiveMemoryEntry,
   isLiveToolName,
   liveToolDeclarations,
   loadRecentMemory,
 } from "./liveTools";
 
 describe("liveToolDeclarations — built from the registry, not hand-kept", () => {
-  it("declares exactly the allowlisted Spotify subset", () => {
+  it("declares exactly the allowlisted voice subset (Spotify + memory + daily)", () => {
     expect([...LIVE_TOOL_NAMES]).toEqual([
       "spotify_status",
       "spotify_search",
@@ -30,6 +32,24 @@ describe("liveToolDeclarations — built from the registry, not hand-kept", () =
       "spotify_devices",
       "search_memory",
       "memory_get",
+      "list_notes",
+      "list_tasks",
+      "reminders_list",
+      "calendar_list",
+      "mood_recent",
+      "habit_stats",
+      "health",
+      "weather",
+      "web_search",
+      "calculate",
+      "briefing",
+      "recap",
+      "weekly_insight",
+      "gmail_list",
+      "gmail_read",
+      "gmail_search",
+      "remind_me",
+      "save_note",
     ]);
     const decls = liveToolDeclarations();
     expect(decls.map((d) => d.name)).toEqual([...LIVE_TOOL_NAMES]);
@@ -89,5 +109,34 @@ describe("buildMemoryRecap — the tail of recent days, capped", () => {
 
   it("loadRecentMemory reads nothing for an unknown user instead of throwing", () => {
     expect(loadRecentMemory(`verify_recap_${Date.now()}`)).toEqual([]);
+  });
+});
+
+describe("formatLiveMemoryEntry — Live turns reuse the chat memory shape", () => {
+  it("formats heard/said as User:/Mia: lines, capped per side", () => {
+    const out = formatLiveMemoryEntry("halo beb", "halo juga");
+    expect(out).toBe("User: halo beb\nMia: halo juga");
+  });
+
+  it("keeps a one-sided turn instead of dropping it", () => {
+    expect(formatLiveMemoryEntry("halo?", "")).toBe("User: halo?");
+    expect(formatLiveMemoryEntry("", "ya?")).toBe("Mia: ya?");
+  });
+
+  it("returns empty for blank, non-string, or missing input", () => {
+    expect(formatLiveMemoryEntry("", "")).toBe("");
+    expect(formatLiveMemoryEntry("   ", "\n ")).toBe("");
+    expect(formatLiveMemoryEntry(undefined, undefined)).toBe("");
+    expect(formatLiveMemoryEntry(42, null)).toBe("");
+  });
+
+  it("truncates each side so one long monologue cannot evict the other", () => {
+    const out = formatLiveMemoryEntry("u".repeat(2000), "m".repeat(2000));
+    expect(out.length).toBeLessThanOrEqual(LIVE_MEMORY_SIDE_CHARS * 2 + 20);
+    expect(out).toContain("Mia: ");
+  });
+
+  it("strips the 🌸 flower so recalled memory is never spoken aloud", () => {
+    expect(formatLiveMemoryEntry("halo 🌸", "hai 🌸")).toBe("User: halo\nMia: hai");
   });
 });

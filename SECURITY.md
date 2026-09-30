@@ -353,7 +353,7 @@ Lima modul pentest canggih yang terintegrasi ke `bounty_run` untuk alur one-comm
 
 **Live test (Discord, Netlify Lab):** 7 findings (2 Critical: SQLi + no-auth admin-data; 3 High: BOLA, header spoof, IDOR PII; 2 Medium: Stored XSS, missing headers) + **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
 
-**Total tools: 334** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **85 playbook** · **vitest 1110**
+**Total tools: 335** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **86 playbook** · **vitest 1555**
 
 ### 9.11 Scope: lab milik owner bisa dideklarasi (`lab_add`, 2026-09-27)
 
@@ -498,3 +498,10 @@ Sinyal → `poc_verify` → `finding_add` (OWASP LLM01/02/03/04/05/06/08/11).
 - **`bypass403`** (write/confirm, CORE, groq-only): matriks bypass 403/401 — path (%2e, //, /..;/, trailing ./;), X-Original-URL/X-Rewrite-URL, loopback headers, verb override, _method body; verdict host-based (2xx + body beda dari deny = LEAD; SPA catch-all body-sama bukan temuan). Bounded 20.
 - **`otp_probe`** (write/confirm, CORE, groq-only): rate-limit + oracle OTP (bounded ≤15 kode salah, BUKAN brute) + entropy code-space dari samples milik user; no-rate-limit + space kecil = HIGH-signal (CWE-307/330).
 - **`proto_pollute`** (write/confirm, CORE, groq-only): prototype pollution server (query+JSON __proto__/constructor.prototype; STRONG bila marker muncul/persisten) + client gadget (source→merge sink) (CWE-1321).
+
+### 9.14 Keamanan voice Gemini Live (2026-09-30)
+- `GEMINI_API_KEY` server-side only; browser hanya terima ephemeral token sekali-pakai 30 mnt. Header `x-mia-user` memilih persona owner (fallback template default bila absen).
+- Route tool cek ulang SETIAP nama melawan allowlist `LIVE_TOOL_NAMES` (28): klien yang dimodifikasi tak bisa menjangkau 300+ tool lain. Hasil dipotong 2000 char, abort 30 dtk.
+- Write tools (`remind_me`/`save_note`) wajib `confirmed:true` + loop konfirmasi lisan 3 mnt; server menolak tanpa itu (FR-014 berlaku di voice).
+- Route memory: user hanya dari header (400 tanpa user, tak pernah tulis ke `shared`); menulis baris `User:`/`Mia:` yang sama dengan chat.
+- Caveat free-tier: konten dipakai Google untuk improve produk (Yes) — keputusan owner, jangan diubah diam-diam.

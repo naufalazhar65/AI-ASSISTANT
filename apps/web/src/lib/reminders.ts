@@ -156,6 +156,116 @@ function writeReminders(reminders: Reminder[], userKey: string): void {
 }
 
 /**
+ * Fired-receipt: proof a one-shot reminder actually went out (2026-09-30).
+ *
+ * One-shots are dropped after delivery and pruned on read, so a fired
+ * reminder leaves NO trace — and a later "kamu ingat?" is answered from an
+ * empty list. That is exactly how Mia confessed a miss she never made (the
+ * 20:10 dinner reminder fired, was pruned, and she apologized for "kelewat").
+ * Every acked one-shot now leaves one receipt here; `reminders_list` reads
+ * them back, so the answer comes from a fact.
+ */
+export interface FiredReceipt {
+  text: string;
+  at: number;
+  deliveredAt: number;
+}
+const MAX_FIRED_RECEIPTS = 20;
+const FIRED_RECEIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function firedPath(userKey: string): string {
+  return join(userDataRoot(), userKey, "reminders-fired.json");
+}
+
+export function readFiredReceipts(rawUser: unknown, limit = MAX_FIRED_RECEIPTS): FiredReceipt[] {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return [];
+  try {
+    const rows = JSON.parse(readFileSync(firedPath(userKey), "utf8")) as FiredReceipt[];
+    if (!Array.isArray(rows)) return [];
+    const cutoff = Date.now() - FIRED_RECEIPT_TTL_MS;
+    return rows
+      .filter(
+        (r) =>
+          r &&
+          typeof r.text === "string" &&
+          typeof r.at === "number" &&
+          (r.deliveredAt ?? r.at) >= cutoff
+      )
+      .sort((a, b) => (b.deliveredAt ?? b.at) - (a.deliveredAt ?? a.at))
+      .slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
+export function appendFiredReceipt(userKey: string, receipt: FiredReceipt): void {
+  try {
+    const prev = readFiredReceipts(userKey, MAX_FIRED_RECEIPTS);
+    const next = [...prev, receipt]
+      .sort((a, b) => (b.deliveredAt ?? b.at) - (a.deliveredAt ?? a.at))
+      .slice(0, MAX_FIRED_RECEIPTS);
+    const file = firedPath(userKey);
+    mkdirSync(dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, JSON.stringify(next, null, 2));
+    renameSync(tmp, file);
+  } catch {
+    // A receipt must never break delivery.
+  }
+}
+
+/** Banner seeding policy: how many recent fired receipts a fresh web stream
+ *  replays, and how far back they may go. A reconnect hours after a fire
+ *  should still show what was missed — but not last week's history. */
+export const FIRED_BANNER_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const FIRED_BANNER_MAX = 3;
+/** Receipts fresher than this are skipped on connect replay: a just-fired
+ *  reminder arrives through its own live frame, so replaying it too would
+ *  show the same alarm twice. */
+export const FIRED_BANNER_FRESH_MS = 60 * 1000;
+
+/**
+ * Recent fired receipts for banner seeding, oldest-first (chronological
+ * display). Pure read over `readFiredReceipts`; never throws.
+ */
+export function recentFiredReceipts(
+  rawUser: unknown,
+  withinMs: number = FIRED_BANNER_WINDOW_MS,
+  limit: number = FIRED_BANNER_MAX
+): FiredReceipt[] {
+  try {
+    const cutoff = Date.now() - Math.max(0, withinMs);
+    return readFiredReceipts(rawUser, MAX_FIRED_RECEIPTS)
+      .filter((r) => (r.deliveredAt ?? r.at) >= cutoff)
+      .sort((a, b) => (a.deliveredAt ?? a.at) - (b.deliveredAt ?? b.at))
+      .slice(-Math.max(1, limit));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Render one fired receipt as a banner line. Pure. The "Udah bunyi" prefix is
+ * load-bearing: the panel's voice-announce effect skips lines carrying it
+ * (already-fired history must display but never re-announce).
+ */
+export function formatFiredBanner(r: FiredReceipt): string {
+  const at = r.deliveredAt ?? r.at;
+  let clock: string;
+  try {
+    clock = new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Jakarta",
+    }).format(new Date(at));
+  } catch {
+    clock = new Date(at).toISOString();
+  }
+  return `Udah bunyi: ${r.text} · jam ${clock}`;
+}
+
+/**
  * Atomic add of a reminder for a raw (unsanitized) user string. Throws on
  * empty text. `atMs` is an epoch millisecond deadline; any past time fires on
  * the next scheduler pass.
@@ -313,6 +423,11 @@ export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[
           : { ...r, missedAt: r.at, delivered: false }
       );
     } else if (wasAcked) {
+      // Delivered one-shot: leave a fired-receipt so a later "kamu ingat?"
+      // is answered from a fact, not from the pruned (empty) list (2026-09-30:
+      // the 20:10 dinner reminder fired, was pruned, and Mia confessed a miss
+      // she never made).
+      appendFiredReceipt(userKey, { text: r.text, at: r.at, deliveredAt: now });
       continue; // delivered one-shot → dropped, never accumulates
     } else {
       next.push({ ...r, missedAt: r.at, delivered: false });

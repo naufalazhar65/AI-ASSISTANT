@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { executeTool } from "@/lib/tools";
-import { isLiveToolName } from "@/lib/liveTools";
+import { LIVE_WRITE_TOOLS, isLiveToolName } from "@/lib/liveTools";
 import { sanitizeUser } from "@/lib/users";
 
 export const runtime = "nodejs";
@@ -51,6 +51,24 @@ export async function POST(request: NextRequest) {
     const name = typeof call.name === "string" ? call.name : "";
     if (!isLiveToolName(name)) {
       results.push({ id, name, result: `Error: tool "${name || "(missing)"}" is not available in voice mode.` });
+      continue;
+    }
+    // Voice write actions (gap #2, FR-014): the spoken-confirmation loop lives
+    // in the client (`liveConfirm.ts`), and this route enforces its outcome
+    // statelessly — a write call without `confirmed: true` executes nothing,
+    // so skipping the client still cannot produce an unconsented side effect.
+    const argsObj = (call.args && typeof call.args === "object" && !Array.isArray(call.args)
+      ? call.args
+      : {}) as Record<string, unknown>;
+    if ((LIVE_WRITE_TOOLS as readonly string[]).includes(name) && argsObj.confirmed !== true) {
+      results.push({
+        id,
+        name,
+        result:
+          `Error: '${name}' butuh konfirmasi lisan dulu (FR-014). ` +
+          `Tanyakan ke user dengan suara dan panggil lagi dengan confirmed:true ` +
+          `hanya kalau user menjawab ya/iya/boleh/oke.`,
+      });
       continue;
     }
     let argsJson = "{}";
