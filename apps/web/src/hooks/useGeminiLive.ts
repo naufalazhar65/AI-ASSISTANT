@@ -25,9 +25,21 @@ import { PcmCapture } from "@/audio/PcmCapture";
 import {
   GeminiLiveSession,
   type GeminiLiveStatus,
+  type LiveToolCall,
   type StartResult,
 } from "@/lib/geminiLive";
 import { bytesToBase64, floatTo16BitPcm, pcmToWav, LIVE_OUTPUT_SAMPLE_RATE } from "@/lib/pcm";
+import { resolveBrowserUserKey } from "@/lib/identity";
+
+/** The browser's resolved key, so tool execution runs as the right person. */
+function browserUserHeader(): Record<string, string> {
+  try {
+    if (typeof window === "undefined") return {};
+    return { "x-mia-user": resolveBrowserUserKey(window.localStorage.getItem("voice-ai.user")) };
+  } catch {
+    return {};
+  }
+}
 
 export interface UseGeminiLiveResult {
   /** `connecting` while the socket opens, `ready` once the setup frame is written. */
@@ -147,6 +159,11 @@ export function useGeminiLive(): UseGeminiLiveResult {
             playerRef.current?.stop();
             setSpeaking(false);
             break;
+          case "tool_call":
+            // Never awaited: the session stays usable while tools run, and the
+            // answer is delivered through `sendToolResponse` when ready.
+            void runLiveToolCalls(session, event.calls);
+            break;
           case "text":
             // Plain-text turns are outside this phase's scope (voice only), so
             // surface nothing rather than half-render a code block as speech.
@@ -216,4 +233,59 @@ export function useGeminiLive(): UseGeminiLiveResult {
     interrupt,
     sendText,
   };
+}
+
+/**
+ * Execute Live tool calls server-side and answer the model — ALWAYS, even on
+ * failure. Live calls are synchronous (the model is silent until every call
+ * has a result), so a missing answer hangs the conversation, while an
+ * `Error: ...` answer lets the model speak honestly about what happened.
+ * Module-level (not a hook) so it stays callable from the session listener.
+ */
+async function runLiveToolCalls(session: GeminiLiveSession, calls: LiveToolCall[]): Promise<void> {
+  const answer = (results: Array<{ id: string; name: string; result: string }>) => {
+    try {
+      session.sendToolResponse(results);
+    } catch {
+      // A dead socket needs no answer.
+    }
+  };
+  let results: Array<{ id: string; name: string; result: string }>;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch("/api/gemini-live/tool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...browserUserHeader() },
+        body: JSON.stringify({
+          calls: calls.map((c) => ({ id: c.id, name: c.name, args: c.args })),
+        }),
+        signal: controller.signal,
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        results?: Array<{ id?: unknown; name?: unknown; result?: unknown }>;
+        error?: string;
+      };
+      if (!res.ok || !Array.isArray(json.results)) {
+        throw new Error(typeof json.error === "string" ? json.error : `tool route HTTP ${res.status}`);
+      }
+      results = calls.map((c, index) => {
+        const r = json.results?.[index];
+        return {
+          id: c.id,
+          name: c.name,
+          result: typeof r?.result === "string" ? r.result : "Error: no result from tool route.",
+        };
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (err) {
+    const message = err instanceof Error && err.name === "AbortError"
+      ? "Error: the tool took too long (30s) and was stopped."
+      : `Error: could not reach the tool route (${err instanceof Error ? err.message : String(err)}).`;
+    results = calls.map((c) => ({ id: c.id, name: c.name, result: message }));
+  }
+  answer(results);
 }

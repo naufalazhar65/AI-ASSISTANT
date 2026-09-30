@@ -7,6 +7,7 @@ import SignInForm, { useAuth } from "@/components/SignInForm";
 import { VoiceConsole } from "@/components/ui/voice/VoiceConsole";
 import { LiveVoicePanel } from "@/components/ui/voice/LiveVoicePanel";
 import { useVoice } from "@/hooks/useVoice";
+import { OWNER_LABEL } from "@/lib/identity";
 
 /**
  * Web surface: VOICE ONLY.
@@ -84,7 +85,7 @@ export default function Home() {
               mock
             </span>
           )}
-          <span className="text-xs text-white/40">Hi, {user}</span>
+          <span className="text-xs text-white/40">Hi, {OWNER_LABEL}</span>
           <button
             type="button"
             onClick={signOut}

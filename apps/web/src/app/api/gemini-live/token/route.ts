@@ -30,6 +30,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { loadPersonaPrompt } from "@/lib/persona";
+import { buildMemoryRecap, liveToolDeclarations, loadRecentMemory } from "@/lib/liveTools";
 
 export const runtime = "nodejs";
 
@@ -94,9 +95,11 @@ function isoInMinutes(minutes: number): string {
 /**
  * POST /api/gemini-live/token
  *
- * Returns `{ token, model, expiresInSeconds }`. A 400 means the feature is not
+ * Returns `{ token, model, systemInstruction, tools, expiresInSeconds }`. A 400 means the feature is not
  * configured (no API key); the caller is expected to degrade to the Groq
- * pipeline rather than surface an error to the user.
+ * pipeline rather than surface an error to the user. `tools` are the Gemini
+ * function declarations the browser must put in `setup.tools` (built from the
+ * live registry by `liveTools.ts`).
  */
 export async function POST(request: NextRequest) {
   let apiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
@@ -118,12 +121,22 @@ export async function POST(request: NextRequest) {
     // which puts it in the `setup` frame. It CANNOT be pinned into the token:
     // the deployed API rejects `liveConnectConstraints` (see the header). An
     // optional body may only add a short task hint; it can never replace the
-    // persona.
+    // persona. The recent-conversation recap rides along the same way, AFTER
+    // the persona, so the truncation below always cuts memory first, facts
+    // never: identity outranks recall.
     let systemInstruction: string;
     try {
       const hint = await readTaskHint(request);
-      const persona = loadPersonaPrompt(readRawUser(request)).trim();
-      systemInstruction = [persona, hint].filter(Boolean).join("\n\n");
+      const rawUser = readRawUser(request);
+      const persona = loadPersonaPrompt(rawUser).trim();
+      let memoryRecap = "";
+      try {
+        memoryRecap = buildMemoryRecap(loadRecentMemory(rawUser));
+      } catch {
+        // No recent memory: the session still starts with the persona.
+        memoryRecap = "";
+      }
+      systemInstruction = [persona, memoryRecap, hint].filter(Boolean).join("\n\n");
     } catch {
       // Persona load failed: still start the session, just without the persona.
       // Losing the persona degrades the voice; refusing the session loses the
@@ -180,6 +193,9 @@ export async function POST(request: NextRequest) {
       // The browser must send this in `setup.systemInstruction`; it cannot be
       // pinned into the token (see the header).
       systemInstruction,
+      // The browser must declare these in `setup.tools`; it cannot invent
+      // them, and the tool route re-checks every call name before executing.
+      tools: liveToolDeclarations(),
       expiresInSeconds: SESSION_MINUTES * 60,
     });
   } catch (err) {

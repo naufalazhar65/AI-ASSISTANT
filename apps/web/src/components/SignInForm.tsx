@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { LogIn } from "lucide-react";
 import FloatingParticles from "@/components/FloatingParticles";
+import { resolveBrowserUserKey, OWNER_KEY, OWNER_LABEL } from "@/lib/identity";
 
 const STORAGE_KEY = "voice-ai.user";
 
@@ -12,12 +13,22 @@ export function useAuth() {
 
   useEffect(() => {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored) setUser(stored);
+    if (!stored) return;
+    // OVERRIDE, never fold. This used to be `canonicalUserKey(stored) ?? OWNER_KEY`,
+    // which looked safe and was not: a fold returns the key unchanged when the key
+    // is valid but simply absent from the alias table — which is exactly the stale
+    // `s` this migration exists to repair. The `?? OWNER_KEY` therefore could
+    // never fire, and the owner kept talking to a stranger. There is one user of
+    // this app, so the browser's identity is a constant, not a lookup.
+    const resolved = resolveBrowserUserKey(stored);
+    if (resolved !== stored) window.localStorage.setItem(STORAGE_KEY, resolved);
+    setUser(resolved);
   }, []);
 
-  const signIn = (name: string) => {
-    window.localStorage.setItem(STORAGE_KEY, name);
-    setUser(name);
+  const signIn = () => {
+    // Sign-in is a door, not an identity claim: there is nothing to choose.
+    window.localStorage.setItem(STORAGE_KEY, OWNER_KEY);
+    setUser(OWNER_KEY);
   };
 
   const signOut = () => {
@@ -28,13 +39,19 @@ export function useAuth() {
   return { user, signIn, signOut };
 }
 
-export default function SignInForm({ onSignIn }: { onSignIn: (name: string) => void }) {
-  const [name, setName] = useState("");
-
+/**
+ * Sign-in is a DOOR, not an identity claim.
+ *
+ * It used to be a free-text name box, and that is precisely how the browser
+ * ended up talking to a different person: the owner typed one letter, `s`, and
+ * a whole session went to a Mia with 4 facts instead of 22 (including a wrong
+ * `city: Jakarta` and a hallucinated `plan: free`). There is exactly one user
+ * of this app, so the honest UI states who you are instead of asking.
+ */
+export default function SignInForm({ onSignIn }: { onSignIn: () => void }) {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    onSignIn(name.trim());
+    onSignIn();
   };
 
   return (
@@ -72,23 +89,17 @@ export default function SignInForm({ onSignIn }: { onSignIn: (name: string) => v
               <h1 className="text-xl font-bold tracking-tight text-white">Mia</h1>
             </div>
             <p className="text-sm text-white/40">
-              Enter a name to start. This is a local stand-in for full authentication.
+              Masuk untuk mulai. Satu akun, satu memori — sama dengan Discord
+              dan Telegram.
             </p>
           </div>
 
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your name"
-            autoFocus
-            className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-colors"
-          />
-
           <button
             type="submit"
+            autoFocus
             className="rounded-xl bg-primary/90 py-3 text-sm font-semibold text-white hover:bg-primary transition-all duration-300 hover:shadow-[0_0_20px_rgba(59,130,246,0.3)]"
           >
-            Continue
+            Masuk sebagai {OWNER_LABEL}
           </button>
         </form>
       </motion.div>

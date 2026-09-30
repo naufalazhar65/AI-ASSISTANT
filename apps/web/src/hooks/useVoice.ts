@@ -10,6 +10,7 @@ import { AIProvider, ConfirmationRequest, ProviderEvent } from "@voice/ai-provid
 import { State } from "@voice/state-machine";
 import { MockProvider } from "@ai-provider/mock";
 import { findPublicProvider, PUBLIC_PROVIDERS, ProviderId, PUBLIC_DEFAULT_PROVIDER } from "@/lib/providers";
+import { OWNER_KEY, resolveBrowserUserKey } from "@/lib/identity";
 import { SessionMeta } from "@/lib/sessions";
 
 export interface UseVoiceResult {
@@ -107,11 +108,36 @@ function reconcileModel(provider: string, model: string | undefined): string | u
   return spec.models.includes(model) ? model : undefined;
 }
 
+/**
+ * Read the signed-in user key out of localStorage and RESOLVE it to the single
+ * owner key, rewriting storage whenever it differs.
+ *
+ * This must resolve here, at READ time, and not only where the user signs in.
+ * `page.tsx` renders the sign-in form only while `user` is empty, so once
+ * somebody is signed in that component never mounts again and any migration
+ * living there would never run for an existing session. Measured: the stale
+ * one-character key kept being re-read and the running server silently
+ * recreated the retired store for it. This hook always mounts, so the read
+ * path is the one choke point that cannot be skipped.
+ *
+ * It must also OVERRIDE, not merely FOLD, and that is the correction of a real
+ * shipped bug: the previous version called `canonicalUserKey`, which only folds
+ * the keys listed in `OWNER_ALIASES`, so the stale value `s` — valid, but not
+ * listed — passed through unchanged. The owner tested it in a real browser and
+ * Mia still said he lived in Jakarta and did not know his cat. An unknown value
+ * is not a second user to honour; this app serves one human, so the browser's
+ * identity is fixed. See `resolveBrowserUserKey` for the full reasoning.
+ */
 function historyUser(): string | null {
   try {
-    return window.localStorage.getItem("voice-ai.user");
+    const stored = window.localStorage.getItem("voice-ai.user");
+    const resolved = resolveBrowserUserKey(stored);
+    if (resolved !== stored) {
+      window.localStorage.setItem("voice-ai.user", resolved);
+    }
+    return resolved;
   } catch {
-    return null;
+    return OWNER_KEY;
   }
 }
 

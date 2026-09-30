@@ -149,6 +149,30 @@ describe("GeminiLiveSession.start — the promise always settles", () => {
     await expect(session.start()).resolves.toEqual({ ok: false, error: "no key" });
     expect(FakeSocket.last).toBeNull();
   });
+
+  it("sends the resolved owner key as x-mia-user so the server loads the owner's persona", async () => {
+    // A stale browser value the alias table does not know: the override must
+    // still resolve it to the owner, never send it through (live 2026-09-30:
+    // every Live turn spoke as generic Mia — no city, no cat — because the
+    // token route fell back to the default persona).
+    const fetchMock = vi.fn(async (_url: string, _init?: { headers?: Record<string, string> }) => tokenReply());
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("window", {
+      localStorage: { getItem: () => "s", setItem: () => {} },
+    });
+    const session = new GeminiLiveSession();
+    const pending = session.start();
+
+    await vi.advanceTimersByTimeAsync(0);
+    FakeSocket.last?.open();
+    FakeSocket.last?.frame({ setupComplete: {} });
+    await vi.advanceTimersByTimeAsync(2_600);
+
+    await expect(pending).resolves.toEqual({ ok: true, via: "setup-complete" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const init = fetchMock.mock.calls[0][1];
+    expect(init?.headers?.["x-mia-user"]).toBe("naufalazhar652952");
+  });
 });
 
 describe("GeminiLiveSession — a connected but silent session is named, not spun on", () => {
@@ -332,5 +356,133 @@ describe("GeminiLiveSession — a binary handshake and binary audio are actually
 
     // Undecodable, so it must not be mistaken for a handshake.
     await expect(pending).resolves.toEqual({ ok: true, via: "grace" });
+  });
+});
+
+describe("GeminiLiveSession — tool calling (Phase B)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeSocket.last = null;
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeSocket;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function startReady(tools?: Array<{ name: string; description: string }>): Promise<GeminiLiveSession> {
+    vi.stubGlobal("fetch", vi.fn(async () => tokenReply(tools ? { tools } : {})));
+    const session = new GeminiLiveSession();
+    const pending = session.start();
+    await vi.advanceTimersByTimeAsync(0);
+    FakeSocket.last?.open();
+    FakeSocket.last?.frame({ setupComplete: {} });
+    await vi.advanceTimersByTimeAsync(0);
+    await pending;
+    return session;
+  }
+
+  it("declares the server's tools in setup and nothing when it sent none", async () => {
+    await startReady([{ name: "spotify_play", description: "Play a song." }]);
+    const setup = JSON.parse(FakeSocket.last?.sent[0] ?? "{}") as {
+      setup?: { tools?: Array<{ functionDeclarations?: unknown[] }> };
+    };
+    expect(setup.setup?.tools?.[0]?.functionDeclarations).toHaveLength(1);
+
+    FakeSocket.last = null;
+    await startReady();
+    // Narrowing note: the assignment above narrows the static to `null`, so
+    // read it back through a fresh binding instead of `FakeSocket.last?.`.
+    const bareSent = (FakeSocket.last as unknown as FakeSocket | null)?.sent[0] ?? "{}";
+    const bare = JSON.parse(bareSent) as {
+      setup?: Record<string, unknown>;
+    };
+    expect(bare.setup && "tools" in bare.setup).toBe(false);
+  });
+
+  it("fans out a top-level toolCall frame and drops malformed entries", async () => {
+    const session = await startReady();
+    const events: GeminiLiveEvent[] = [];
+    session.on((e) => events.push(e));
+
+    FakeSocket.last?.frame({
+      toolCall: {
+        functionCalls: [
+          { name: "spotify_play", args: { query: "M2M" }, id: "call_1" },
+          { name: "", args: {} },
+          { args: { query: "x" } },
+          { name: "spotify_status", args: null, id: "" },
+        ],
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const toolEvents = events.filter((e) => e.type === "tool_call");
+    expect(toolEvents).toHaveLength(1);
+    const calls = (toolEvents[0] as { calls: Array<{ id: string; name: string; args: unknown }> }).calls;
+    expect(calls).toEqual([
+      { id: "call_1", name: "spotify_play", args: { query: "M2M" } },
+      { id: "live-3", name: "spotify_status", args: {} },
+    ]);
+  });
+
+  it("stays silent on a toolCall frame with no usable calls", async () => {
+    const session = await startReady();
+    const events: GeminiLiveEvent[] = [];
+    session.on((e) => events.push(e));
+
+    FakeSocket.last?.frame({ toolCall: { functionCalls: [{ name: "", args: {} }] } });
+    FakeSocket.last?.frame({ toolCall: {} });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(events.filter((e) => e.type === "tool_call")).toHaveLength(0);
+  });
+
+  it("answers with toolResponse.functionResponses, one entry per call", async () => {
+    const session = await startReady();
+    session.sendToolResponse([
+      { id: "call_1", name: "spotify_play", result: "(Sudah kuputar: M2M)" },
+      { id: "call_2", name: "spotify_status", result: "Error: not connected" },
+    ]);
+
+    const last = JSON.parse(FakeSocket.last?.sent.at(-1) ?? "{}");
+    expect(last).toEqual({
+      toolResponse: {
+        functionResponses: [
+          { id: "call_1", name: "spotify_play", response: { result: "(Sudah kuputar: M2M)" } },
+          { id: "call_2", name: "spotify_status", response: { result: "Error: not connected" } },
+        ],
+      },
+    });
+  });
+
+  it("sends nothing for an empty result list", async () => {
+    const session = await startReady();
+    const sent = FakeSocket.last?.sent;
+    const before = sent?.length ?? 0;
+    session.sendToolResponse([]);
+    expect(sent?.length ?? 0).toBe(before);
+  });
+
+  it("sends the resolved owner key as x-mia-user so the server loads the owner's persona", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: { headers?: Record<string, string> }) => tokenReply());
+    vi.stubGlobal("fetch", fetchMock);
+    // A stale browser value the alias table does not know: the override must
+    // still resolve it to the owner, never send it through.
+    vi.stubGlobal("window", {
+      localStorage: { getItem: () => "s", setItem: () => {} },
+    });
+    const session = new GeminiLiveSession();
+    const pending = session.start();
+    await vi.advanceTimersByTimeAsync(0);
+    FakeSocket.last?.open();
+    FakeSocket.last?.frame({ setupComplete: {} });
+    await vi.advanceTimersByTimeAsync(2_600);
+    await expect(pending).resolves.toEqual({ ok: true, via: "setup-complete" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const init = fetchMock.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined;
+    expect(init?.headers?.["x-mia-user"]).toBe("naufalazhar652952");
   });
 });

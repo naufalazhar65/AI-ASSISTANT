@@ -1,0 +1,74 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import { executeTool } from "@/lib/tools";
+import { isLiveToolName } from "@/lib/liveTools";
+import { sanitizeUser } from "@/lib/users";
+
+export const runtime = "nodejs";
+
+/**
+ * POST /api/gemini-live/tool — execute Gemini Live function calls server-side.
+ *
+ * The browser's Live session speaks to Google directly, so when the model
+ * invokes a declared tool the browser POSTs here and this route runs the real
+ * implementation. Body: `{ calls: [{ id?, name, args? }] }`. The user is read
+ * from the `x-mia-user` header (same contract as the token route); without it
+ * the owner's store cannot be reached, so per-user tools answer honestly
+ * instead of executing against the wrong person.
+ *
+ * Every call name is re-checked against `LIVE_TOOL_NAMES`: a declaration in
+ * `setup` without a matching allowlist entry here executes nothing, so a
+ * tampered client cannot reach the other 300+ tools by naming them.
+ *
+ * Results are truncated: a tool dump must fit back into a voice turn, and an
+ * unbounded result would stall the synchronous Live call even longer.
+ */
+const RESULT_MAX_CHARS = 2_000;
+
+interface LiveToolCall {
+  id?: unknown;
+  name?: unknown;
+  args?: unknown;
+}
+
+export async function POST(request: NextRequest) {
+  let body: { calls?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+  if (!body || !Array.isArray(body.calls)) {
+    return NextResponse.json({ error: "body.calls must be an array" }, { status: 400 });
+  }
+
+  const rawUser = request.headers.get("x-mia-user")?.trim() || undefined;
+  const userKey = sanitizeUser(rawUser);
+  const results = [];
+  for (const [index, raw] of (body.calls as LiveToolCall[]).entries()) {
+    const call = (raw ?? {}) as LiveToolCall;
+    const id = typeof call.id === "string" && call.id ? call.id : `live-${index}`;
+    const name = typeof call.name === "string" ? call.name : "";
+    if (!isLiveToolName(name)) {
+      results.push({ id, name, result: `Error: tool "${name || "(missing)"}" is not available in voice mode.` });
+      continue;
+    }
+    let argsJson = "{}";
+    try {
+      argsJson = JSON.stringify(call.args ?? {});
+    } catch {
+      argsJson = "{}";
+    }
+    try {
+      const out = await executeTool({ id, name, arguments: argsJson }, rawUser ?? userKey ?? undefined);
+      results.push({ id, name, result: (out ?? "").slice(0, RESULT_MAX_CHARS) });
+    } catch (err) {
+      results.push({
+        id,
+        name,
+        result: `Error: ${err instanceof Error ? err.message.slice(0, 200) : "tool execution failed"}`,
+      });
+    }
+  }
+  return NextResponse.json({ results });
+}

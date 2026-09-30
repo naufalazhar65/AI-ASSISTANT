@@ -1,4 +1,5 @@
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { canonicalUserKey } from "./identity";
 
 /**
  * Per-user isolation key. `user` arrives from the client and is used to build
@@ -7,27 +8,22 @@ import { dirname, isAbsolute, join, resolve, sep } from "node:path";
  * safe key: non-empty, only [A-Za-z0-9._-], ≤60 chars. Anything else is
  * rejected (returns null) so callers fall back to the shared/default store
  * rather than creating an arbitrary directory.
+ *
+ * SEMANTICS CHANGED 2026-09-30 — the name now under-states what it does. It
+ * validates AND folds owner aliases, because it is the single function every
+ * store already called: ~100 modules resolve their per-user directory through
+ * here, and they were all validating WITHOUT folding, which is how one human
+ * ended up with three memories (`naufalazhar652952` on Discord,
+ * `naufalazhar65` on Telegram, `s` in the browser). The validator and the
+ * alias table now live in `./identity` so the browser can share them; the
+ * legacy name is kept because ~100 call sites depend on it.
+ *
+ * If you need the literal key you were handed, use `validateUserKey`.
  */
-export function sanitizeUser(user: unknown): string | null {
-  if (typeof user !== "string") return null;
-  const trimmed = user.trim();
-  if (!trimmed || trimmed.length > 60) return null;
-  if (!/^[A-Za-z0-9._-]+$/.test(trimmed)) return null;
-  if (trimmed === "." || trimmed === "..") return null;
-  return trimmed;
-}
+export const sanitizeUser = canonicalUserKey;
 
-// Owner aliases — same person, one inbox/memory (Zigen = naufalazhar652952 on Discord)
-const OWNER_ALIASES: Record<string, string> = {
-  Zigen: "naufalazhar652952",
-  naufalazhar65: "naufalazhar652952",
-};
-
-export function canonicalUserKey(user: unknown): string | null {
-  const k = sanitizeUser(user);
-  if (!k) return null;
-  return OWNER_ALIASES[k] || k;
-}
+/** Canonical key for an incoming user — validate, then fold owner aliases. */
+export { canonicalUserKey } from "./identity";
 
 /**
  * Stable repo-root anchor. The dev server starts with cwd = `apps/web`, but
