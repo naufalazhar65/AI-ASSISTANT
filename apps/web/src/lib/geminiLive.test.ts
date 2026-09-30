@@ -278,6 +278,68 @@ describe("frameText — Google sends every Live frame as BINARY (measured 2026-0
   });
 });
 
+describe("GeminiLiveSession — transcripts accumulate per turn instead of overwriting", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeSocket.last = null;
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeSocket;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function startListening(): Promise<{ session: GeminiLiveSession; events: GeminiLiveEvent[] }> {
+    vi.stubGlobal("fetch", vi.fn(async () => tokenReply()));
+    const events: GeminiLiveEvent[] = [];
+    const session = new GeminiLiveSession();
+    session.on((e) => events.push(e));
+    const pending = session.start();
+    await vi.advanceTimersByTimeAsync(0);
+    FakeSocket.last?.open();
+    FakeSocket.last?.frame({ setupComplete: {} });
+    await vi.advanceTimersByTimeAsync(0);
+    await pending;
+    events.length = 0;
+    return { session, events };
+  }
+
+  function lastOf(events: GeminiLiveEvent[], type: "input_transcript" | "output_transcript"): string {
+    const found = events.filter((e) => e.type === type).at(-1) as { text: string } | undefined;
+    return found?.text ?? "";
+  }
+
+  it("appends chunks so subtitles never look cut off mid-sentence", async () => {
+    const { events } = await startListening();
+    FakeSocket.last?.frame({ serverContent: { outputTranscription: { text: "Halo," } } });
+    FakeSocket.last?.frame({ serverContent: { outputTranscription: { text: "kabar kamu?" } } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lastOf(events, "output_transcript")).toBe("Halo, kabar kamu?");
+  });
+
+  it("starts fresh on the next turn but keeps the finished turn readable until then", async () => {
+    const { events } = await startListening();
+    FakeSocket.last?.frame({ serverContent: { outputTranscription: { text: "Siap." }, turnComplete: true } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lastOf(events, "output_transcript")).toBe("Siap.");
+    // No wipe on complete: the words stay until the next turn speaks.
+    FakeSocket.last?.frame({ serverContent: { outputTranscription: { text: "Lanjut." } } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lastOf(events, "output_transcript")).toBe("Lanjut.");
+  });
+
+  it("accumulates the user's side independently from the model's", async () => {
+    const { events } = await startListening();
+    FakeSocket.last?.frame({ serverContent: { inputTranscription: { text: "putar" } } });
+    FakeSocket.last?.frame({ serverContent: { outputTranscription: { text: "Oke," } } });
+    FakeSocket.last?.frame({ serverContent: { inputTranscription: { text: "lagu M2M" } } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lastOf(events, "input_transcript")).toBe("putar lagu M2M");
+    expect(lastOf(events, "output_transcript")).toBe("Oke,");
+  });
+});
+
 describe("GeminiLiveSession — a binary handshake and binary audio are actually delivered", () => {
   beforeEach(() => {
     vi.useFakeTimers();

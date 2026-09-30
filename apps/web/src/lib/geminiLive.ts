@@ -198,6 +198,15 @@ export class GeminiLiveSession {
   private stallTimer: ReturnType<typeof setTimeout> | null = null;
   /** Server frames seen this session; the watchdog only fires while this is 0. */
   private frameCount = 0;
+  /**
+   * Per-turn transcript buffers. Transcription events carry INCREMENTAL chunks,
+   * so the lib accumulates them here and always emits the whole turn so far —
+   * overwriting per event is what made subtitles look "cut off mid-sentence".
+   * Reset when a new turn starts after a `turnComplete`, never mid-turn.
+   */
+  private inputBuf = "";
+  private outputBuf = "";
+  private turnClosed = false;
 
   constructor(private readonly options: GeminiLiveOptions = {}) {}
 
@@ -554,14 +563,14 @@ export class GeminiLiveSession {
     if (typeof serverContent.inputTranscription?.text === "string") {
       this.emit({
         type: "input_transcript",
-        text: serverContent.inputTranscription.text,
+        text: this.appendTranscript("input", serverContent.inputTranscription.text),
         final: false,
       });
     }
     if (typeof serverContent.outputTranscription?.text === "string") {
       this.emit({
         type: "output_transcript",
-        text: serverContent.outputTranscription.text,
+        text: this.appendTranscript("output", serverContent.outputTranscription.text),
         final: false,
       });
     }
@@ -576,7 +585,32 @@ export class GeminiLiveSession {
       }
     }
     if (sawAudio) this.emit({ type: "speaking", speaking: true });
-    if (serverContent.turnComplete) this.emit({ type: "speaking", speaking: false });
+    if (serverContent.turnComplete) {
+      // The turn is over but the words stay on screen: the NEXT transcription
+      // starts fresh (see appendTranscript), it is never wiped here, so the
+      // user can still read what was just said.
+      this.turnClosed = true;
+      this.emit({ type: "speaking", speaking: false });
+    }
+  }
+
+  /**
+   * Append one incremental transcription chunk to the current turn's buffer
+   * and return the whole turn so far. A new turn after a `turnComplete`
+   * starts empty; chunks join with a space only when neither side supplies
+   * one, so words never glue together and never double-space.
+   */
+  private appendTranscript(side: "input" | "output", chunk: string): string {
+    if (this.turnClosed) {
+      this.inputBuf = "";
+      this.outputBuf = "";
+      this.turnClosed = false;
+    }
+    const buf = side === "input" ? this.inputBuf : this.outputBuf;
+    const next = !buf ? chunk : /[\s(>"'\-–—]$/.test(buf) || /^[\s.,!?;:)"'\-–—]/.test(chunk) ? buf + chunk : `${buf} ${chunk}`;
+    if (side === "input") this.inputBuf = next;
+    else this.outputBuf = next;
+    return next;
   }
 
   /** base64 -> bytes, tolerant of a malformed frame. */
