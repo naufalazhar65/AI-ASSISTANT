@@ -1,15 +1,16 @@
 /**
- * `LiveVoicePanel` — the Gemini Live (duplex) voice surface.
+ * `LiveVoicePanel` — the Gemini Live (duplex) voice surface, and the only
+ * voice UI the web app ships (the old turn-based `VoiceConsole` was deleted
+ * in the Live-only refactor).
  *
- * This is a SIBLING of `VoiceConsole`, not a mode inside it, and that is
- * deliberate. `VoiceConsole` is bound to `useVoice`, which is bound to
- * `ConversationManager` + `AutoTurnManager` + the Groq pipeline; Live runs its
- * own socket and its own audio graph and does its own turn-taking. Folding one
- * into the other would couple two state machines that share nothing, and a bug
- * in the new path would then break the working pipeline.
+ * It is deliberately NOT wired into `useVoice`/`ConversationManager`. That
+ * machinery is turn-based (`MediaRecorder` -> Whisper -> LLM -> TTS) and Live
+ * runs its own socket, its own audio graph and its own turn-taking. Folding
+ * one into the other would couple two state machines that share nothing.
+ * `useVoice` is still mounted by the page, but only as the mic-stream owner
+ * (`ensureMic`/`releaseMic`/`mediaStream`).
  *
- * The orb is REUSED (it already accepts the app's shared `MediaStream`) so the
- * two surfaces look and behave alike; only the surrounding controls differ.
+ * The orb is REUSED (it already accepts the app's shared `MediaStream`).
  */
 
 import { useState } from "react";
@@ -56,7 +57,7 @@ export function LiveVoicePanel({
     try {
       const stream = mediaStream ?? (await onEnsureMic());
       // A failure here is reported through `live.error`, not thrown: the
-      // console simply stays on the Groq pipeline.
+      // panel simply stays idle with the error shown.
       const result = await live.start(stream);
       if (!result.ok && !mediaStream) {
         // We opened the mic ourselves and the session never came up. Leaving
@@ -163,11 +164,6 @@ export function LiveVoicePanel({
         {micDenied && (
           <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
             Mikrofon ditolak browser, jadi mode live belum bisa nyambung.
-          </p>
-        )}
-        {!on && !live.error && !micDenied && (
-          <p className="text-xs text-white/35">
-            Tekan mic buat nyambung voice real-time. Butuh GEMINI_API_KEY di server.
           </p>
         )}
       </div>
