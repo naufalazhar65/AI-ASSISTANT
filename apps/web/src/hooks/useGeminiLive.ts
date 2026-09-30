@@ -29,7 +29,7 @@ import {
   type LiveToolCall,
   type StartResult,
 } from "@/lib/geminiLive";
-import { bytesToBase64, createPcmChunker, floatTo16BitPcm, pcmToWav, LIVE_OUTPUT_SAMPLE_RATE, LIVE_PREBUFFER_BYTES } from "@/lib/pcm";
+import { applyFadeOut, bytesToBase64, createPcmChunker, floatTo16BitPcm, pcmToWav, LIVE_OUTPUT_SAMPLE_RATE, LIVE_PREBUFFER_BYTES } from "@/lib/pcm";
 import { resolveBrowserUserKey } from "@/lib/identity";
 import {
   askFirstInstruction,
@@ -247,7 +247,9 @@ export function useGeminiLive(): UseGeminiLiveResult {
               // Empty unless audio arrived.
               releasePrime();
               const tail = chunkerRef.current.flush();
-              if (tail && tail.length) playPiece(tail);
+              // Fade the tail: it is the last sound of the turn, and stopping
+              // dead on a non-zero sample is an end-click (owner 2026-10-01).
+              if (tail && tail.length) playPiece(applyFadeOut(tail, LIVE_OUTPUT_SAMPLE_RATE));
               // And remember the turn: without this, Live conversations vanish
               // the moment the socket closes and chat memory never learns them.
               flushTurnMemory();

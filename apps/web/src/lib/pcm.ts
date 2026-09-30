@@ -125,6 +125,28 @@ export function pcmToWav(pcm: Uint8Array, sampleRate: number): Uint8Array {
   return out;
 }
 
+/**
+ * Fade the tail of raw 16-bit LE mono PCM to silence over the last `ms`.
+ *
+ * Why (owner 2026-10-01): a turn's last chunk stops dead on a non-zero sample
+ * and the instant drop to silence is an audible end-click ("noise di akhir
+ * suara"). Ramping the final milliseconds to zero removes it; the head of the
+ * chunk is untouched so only the very end changes. Returns a copy.
+ */
+export function applyFadeOut(pcm: Uint8Array, sampleRate: number = 24_000, ms: number = 15): Uint8Array {
+  const out = new Uint8Array(pcm);
+  const frames = Math.floor(out.length / 2);
+  const fadeFrames = Math.min(frames, Math.max(1, Math.round((sampleRate * ms) / 1000)));
+  const view = new DataView(out.buffer);
+  for (let i = 0; i < fadeFrames; i += 1) {
+    const idx = frames - fadeFrames + i;
+    const gain = 1 - (i + 1) / (fadeFrames + 1);
+    const s = view.getInt16(idx * 2, true);
+    view.setInt16(idx * 2, Math.round(s * gain), true);
+  }
+  return out;
+}
+
 /** Encode raw PCM bytes as base64 (no `Buffer` — this runs in the browser). */
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";

@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyFadeOut,
   bytesToBase64,
   base64ToBytes,
   BYTES_PER_SAMPLE,
@@ -266,5 +267,44 @@ describe("createPcmChunker — fixed-size playout pieces for jittered frames", (
 
   it("the default chunk is half a second of 24 kHz mono 16-bit audio", () => {
     expect(LIVE_PLAY_CHUNK_BYTES).toBe(24_000);
+  });
+});
+
+describe("applyFadeOut — no end-click on a turn's last chunk", () => {
+  const sample = (v: number): Uint8Array => {
+    const out = new Uint8Array(2);
+    new DataView(out.buffer).setInt16(0, v, true);
+    return out;
+  };
+  const concat = (parts: Uint8Array[]): Uint8Array => {
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let at = 0;
+    for (const p of parts) {
+      out.set(p, at);
+      at += p.length;
+    }
+    return out;
+  };
+  const read = (pcm: Uint8Array, i: number): number => new DataView(pcm.buffer, pcm.byteOffset, pcm.length).getInt16(i * 2, true);
+
+  it("ramps the last samples to near-zero and leaves the head untouched", () => {
+    // 1000 max-scale frames at 24 kHz; 15 ms fade = 360 frames.
+    const pcm = concat(Array.from({ length: 1000 }, () => sample(0x7fff)));
+    const out = applyFadeOut(pcm, 24_000, 15);
+    expect(out.length).toBe(pcm.length);
+    expect(read(out, 0)).toBe(0x7fff);
+    expect(read(out, 639)).toBe(0x7fff);
+    expect(Math.abs(read(out, 999))).toBeLessThan(100);
+    // Monotonic decay across the fade.
+    expect(Math.abs(read(out, 800))).toBeGreaterThan(Math.abs(read(out, 950)));
+  });
+
+  it("never touches the input and survives tiny/empty input", () => {
+    const pcm = sample(1000);
+    const out = applyFadeOut(pcm, 24_000, 15);
+    expect(read(pcm, 0)).toBe(1000);
+    expect(out.length).toBe(2);
+    expect(applyFadeOut(new Uint8Array(0)).length).toBe(0);
+    expect(applyFadeOut(new Uint8Array([0x01])).length).toBe(1);
   });
 });
