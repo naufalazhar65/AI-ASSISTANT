@@ -133,18 +133,52 @@ export async function addToMacCalendar(title: string, start: Date, end: Date): P
     ${toAppleDate("startDate", start)}
     ${toAppleDate("endDate", end)}
     tell application "Calendar"
-      activate
       tell calendar 1
         make new event at end with properties {summary:"${title.replace(/"/g, '\\"')}", start date:startDate, end date:endDate}
       end tell
     end tell
   `;
-  return new Promise((resolve, reject) => {
+  // NOTE (owner 2026-10-01): no `activate` here on purpose. It used to bring
+  // Calendar to the front on every write — slow (~10 s app launch steals the
+  // race: the model narrates "done" before the tool returns, the user checks
+  // mid-race and concludes "gagal") and it yanks focus off the user's work.
+  // Event creation does not need activation.
+  const created: string = await new Promise((resolve, reject) => {
     execFile("osascript", ["-e", script], { timeout: 30000 }, (err, stdout, stderr) => {
       if (err) return reject(new Error(stderr?.trim() || err.message || "Calendar AppleScript failed — check Calendar permission"));
       resolve(stdout.trim() || "Added to Mac Calendar");
     });
   });
+  // Verify-after-write (owner 2026-10-01: two confirmed mac_add runs vanished —
+  // osascript exited 0 but nothing persisted, and the model claimed success).
+  // A missing event is an honest Error, never a success claim. The calendar
+  // name rides along so the reply can say WHERE to look ("Rumah", not Kantor).
+  const verify = await readMacCalendarNameAndCount(title).catch(() => null);
+  if (!verify || verify.count < 1) {
+    throw new Error(`event "${title}" tidak ditemukan di Kalender Mac setelah ditulis (buat: ${created}) — coba lagi`);
+  }
+  return `${created} — tersimpan di kalender "${verify.name}", ${verify.count} event berjudul sama`;
+}
+
+/** Name of `calendar 1` + how many events carry this exact summary. Best-effort (null on any failure). */
+async function readMacCalendarNameAndCount(summary: string): Promise<{ name: string; count: number } | null> {
+  const esc = summary.replace(/"/g, '\\"');
+  const script = `tell application "Calendar"
+    set calName to name of calendar 1
+    set hitCount to count (every event of calendar 1 whose summary is "${esc}")
+  end tell
+  return calName & "|" & hitCount`;
+  const out: string = await new Promise((resolve, reject) => {
+    execFile("osascript", ["-e", script], { timeout: 15000 }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(stderr?.trim() || err.message));
+      resolve(stdout.trim());
+    });
+  });
+  const sep = out.lastIndexOf("|");
+  if (sep < 0) return null;
+  const count = Number(out.slice(sep + 1));
+  if (!Number.isFinite(count)) return null;
+  return { name: out.slice(0, sep), count };
 }
 
 export async function listMacCalendar(days = 7): Promise<string> {
@@ -183,7 +217,6 @@ export async function addToMacReminders(title: string, due: Date, notes?: string
   const script = `
     ${toAppleDate("dueDate", due)}
     tell application "Reminders"
-      activate
       set targetList to list 1
       try
         set targetList to list "Reminders"
@@ -192,6 +225,9 @@ export async function addToMacReminders(title: string, due: Date, notes?: string
       set remind me date of newReminder to dueDate
     end tell
   `;
+  // NOTE: no `activate` — same reason as addToMacCalendar (owner 2026-10-01):
+  // launching the app to the front is slow and steals focus; the write does
+  // not need it.
   return new Promise((resolve, reject) => {
     execFile("osascript", ["-e", script], { timeout: 30000 }, (err, stdout, stderr) => {
       if (err) return reject(new Error(stderr?.trim() || err.message || "Reminders AppleScript failed — check Reminders permission"));

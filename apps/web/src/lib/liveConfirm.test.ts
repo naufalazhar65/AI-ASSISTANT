@@ -15,6 +15,7 @@ import {
   askFirstInstruction,
   decideLiveToolCalls,
   emptyConfirmState,
+  isAffirmation,
   markUserSpoke,
 } from "./liveConfirm";
 
@@ -24,7 +25,7 @@ const note = (args: Record<string, unknown>, id = "c2") => ({ id, name: "save_no
 describe("decideLiveToolCalls — reads always execute", () => {
   it("executes read tools without any confirmation dance", () => {
     const st = emptyConfirmState();
-    const d = decideLiveToolCalls(st, [{ id: "r1", name: "spotify_play", args: { query: "M2M" } }], 0);
+    const d = decideLiveToolCalls(st, [{ id: "r1", name: "spotify_play", args: { query: "M2M" } }], "", 0);
     expect(d.execute.map((c) => c.name)).toEqual(["spotify_play"]);
     expect(d.ask).toEqual([]);
   });
@@ -36,7 +37,7 @@ describe("decideLiveToolCalls — first sighting always asks", () => {
     const d = decideLiveToolCalls(
       st,
       [remind({ text: "minum", when: "jam 7", confirmed: true })],
-      0
+      "", 0
     );
     expect(d.execute).toEqual([]);
     expect(d.ask.map((c) => c.name)).toEqual(["remind_me"]);
@@ -44,7 +45,7 @@ describe("decideLiveToolCalls — first sighting always asks", () => {
 
   it("asks on a fresh save_note call", () => {
     const st = emptyConfirmState();
-    const d = decideLiveToolCalls(st, [note({ content: "ide bagus" })], 0);
+    const d = decideLiveToolCalls(st, [note({ content: "ide bagus" })], "", 0);
     expect(d.execute).toEqual([]);
     expect(d.ask).toHaveLength(1);
   });
@@ -53,12 +54,12 @@ describe("decideLiveToolCalls — first sighting always asks", () => {
 describe("decideLiveToolCalls — the full loop", () => {
   it("executes only after ask, then user speech, then a confirmed re-call", () => {
     let st = emptyConfirmState();
-    const first = decideLiveToolCalls(st, [remind({ text: "minum", when: "jam 7" })], 0);
+    const first = decideLiveToolCalls(st, [remind({ text: "minum", when: "jam 7" })], "", 0);
     expect(first.ask).toHaveLength(1);
     st = first.state;
 
     // Model repeats with confirmed:true but the user said nothing: still ask.
-    const faked = decideLiveToolCalls(st, [remind({ text: "minum", when: "jam 7", confirmed: true })], 1_000);
+    const faked = decideLiveToolCalls(st, [remind({ text: "minum", when: "jam 7", confirmed: true })], "", 1_000);
     expect(faked.execute).toEqual([]);
     expect(faked.ask).toHaveLength(1);
     st = faked.state;
@@ -68,7 +69,7 @@ describe("decideLiveToolCalls — the full loop", () => {
     st = markUserSpoke(st, 2_000);
 
     // ...but speech alone without an explicit re-confirmation still asks.
-    const speechOnly = decideLiveToolCalls(st, [remind({ text: "minum", when: "jam 7" })], 3_000);
+    const speechOnly = decideLiveToolCalls(st, [remind({ text: "minum", when: "jam 7" })], "", 3_000);
     expect(speechOnly.execute).toEqual([]);
     st = speechOnly.state;
 
@@ -76,6 +77,7 @@ describe("decideLiveToolCalls — the full loop", () => {
     const confirmed = decideLiveToolCalls(
       st,
       [remind({ text: "minum", when: "jam 7", confirmed: true })],
+      "",
       5_000
     );
     expect(confirmed.execute.map((c) => c.name)).toEqual(["remind_me"]);
@@ -84,17 +86,17 @@ describe("decideLiveToolCalls — the full loop", () => {
 
   it("a different request is a different pending entry", () => {
     let st = emptyConfirmState();
-    st = decideLiveToolCalls(st, [remind({ text: "a", when: "jam 7" })], 0).state;
-    const d = decideLiveToolCalls(st, [remind({ text: "b", when: "jam 8", confirmed: true })], 1_000);
+    st = decideLiveToolCalls(st, [remind({ text: "a", when: "jam 7" })], "", 0).state;
+    const d = decideLiveToolCalls(st, [remind({ text: "b", when: "jam 8", confirmed: true })], "", 1_000);
     expect(d.execute).toEqual([]);
     expect(d.ask.map((c) => c.args)).toEqual([{ text: "b", when: "jam 8", confirmed: true }]);
   });
 
   it("expired pending entries ask again instead of executing", () => {
     let st = emptyConfirmState();
-    st = decideLiveToolCalls(st, [note({ content: "x" })], 0).state;
+    st = decideLiveToolCalls(st, [note({ content: "x" })], "", 0).state;
     st = markUserSpoke(st, 1_000);
-    const d = decideLiveToolCalls(st, [note({ content: "x", confirmed: true })], 10 * 60_000);
+    const d = decideLiveToolCalls(st, [note({ content: "x", confirmed: true })], "", 10 * 60_000);
     expect(d.execute).toEqual([]);
     expect(d.ask).toHaveLength(1);
   });
@@ -119,7 +121,38 @@ describe("askFirstInstruction — the spoken question", () => {
     expect(text).not.toContain("remind_me");
   });
 
-  it("LIVE_WRITE_TOOLS is exactly the two FR-014 write tools", () => {
-    expect([...LIVE_WRITE_TOOLS]).toEqual(["remind_me", "save_note"]);
+  it("names the task/event concretely for the three task/calendar writes", () => {
+    expect(askFirstInstruction({ id: "a", name: "add_task", args: { text: "beli susu" } })).toContain("beli susu");
+    expect(askFirstInstruction({ id: "b", name: "complete_task", args: { match: "susu" } })).toContain("susu");
+    expect(askFirstInstruction({ id: "c", name: "complete_task", args: { number: "2" } })).toContain("nomor 2");
+    expect(askFirstInstruction({ id: "d", name: "calendar_add", args: { title: "rapat" } })).toContain("rapat");
+  });
+
+  it("LIVE_WRITE_TOOLS is exactly the six FR-014 write tools", () => {
+    expect([...LIVE_WRITE_TOOLS]).toEqual(["remind_me", "save_note", "add_task", "complete_task", "calendar_add", "calendar_mac_add"]);
+  });
+});
+
+describe("isAffirmation — consent grounded in the user's own speech", () => {
+  it("accepts Indonesian affirmations and common variants", () => {
+    for (const h of ["Ya", "iya", "Iyaa", "boleh", "oke", "OK", "setuju", "lanjut", "baik", "siap"]) {
+      expect(isAffirmation(h)).toBe(true);
+    }
+  });
+
+  it("fails closed on refusal words, even next to a yes", () => {
+    for (const h of ["jangan", "tidak", "nggak jadi", "gak usah", "batal", "nanti aja", "ya, tapi jangan", ""]) {
+      expect(isAffirmation(h)).toBe(false);
+    }
+  });
+
+  it("a flag-less re-call executes when the user affirmed, holds on refusal", () => {
+    const first = decideLiveToolCalls(emptyConfirmState(), [{ id: "a", name: "calendar_mac_add", args: { title: "M" } }]);
+    expect(first.ask).toHaveLength(1);
+    const spoken = markUserSpoke(first.state);
+    const reNoFlag = { id: "b", name: "calendar_mac_add", args: { title: "M" } };
+    expect(decideLiveToolCalls(spoken, [reNoFlag], "Ya").execute).toHaveLength(1);
+    expect(decideLiveToolCalls(spoken, [reNoFlag], "jangan dulu").ask).toHaveLength(1);
+    expect(decideLiveToolCalls(spoken, [reNoFlag], "").ask).toHaveLength(1);
   });
 });

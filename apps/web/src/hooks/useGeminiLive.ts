@@ -114,8 +114,9 @@ export function useGeminiLive(): UseGeminiLiveResult {
   // Reset the moment a save is initiated: the POST is async, and a second
   // flush before it resolves must find nothing, never save twice.
   const turnRef = useRef({ heard: "", said: "" });
-  // Pending voice write actions awaiting spoken confirmation (gap #2). A
-  // first-seen remind_me/save_note is held here, the model asks aloud, and
+  // Pending voice write actions awaiting spoken confirmation (gap #2,
+  // extended 2026-10-01 to task/calendar writes). A first-seen write is held
+  // here, the model asks aloud, and
   // only a re-call with confirmed:true after the user spoke executes.
   const pendingRef = useRef<LiveConfirmState>(emptyConfirmState());
   // Raw incoming PCM this session, capped: the noise diagnostic (owner
@@ -306,12 +307,26 @@ export function useGeminiLive(): UseGeminiLiveResult {
             setSpeaking(false);
             break;
           case "tool_call": {
+            // Diagnostic beacon (owner 2026-10-01): the model sometimes chats
+            // through the whole confirm flow without emitting a single call,
+            // which is invisible server-side (no POST ever arrives). This
+            // fire-and-forget line makes emissions observable; the names only,
+            // never args (privacy).
+            try {
+              void fetch("/api/gemini-live/tool-ping", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ names: event.calls.map((c) => c.name) }),
+              }).catch(() => undefined);
+            } catch {
+              /* diagnostic only */
+            }
             // Voice write actions (gap #2, FR-014) never execute on first
             // sight: reads run now, writes are held until the spoken loop
             // completes (model asks aloud -> user answers -> re-call with
             // confirmed:true). Never awaited; each answer is delivered
             // through `sendToolResponse` as it becomes ready.
-            const decision = decideLiveToolCalls(pendingRef.current, event.calls);
+            const decision = decideLiveToolCalls(pendingRef.current, event.calls, turnRef.current.heard);
             pendingRef.current = decision.state;
             if (decision.ask.length) {
               session.sendToolResponse(

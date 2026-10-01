@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { executeTool } from "@/lib/tools";
+import { auditLog } from "@/lib/auditLog";
 import { LIVE_WRITE_TOOLS, isLiveToolName } from "@/lib/liveTools";
 import { sanitizeUser } from "@/lib/users";
 
@@ -50,6 +51,14 @@ export async function POST(request: NextRequest) {
     const id = typeof call.id === "string" && call.id ? call.id : `live-${index}`;
     const name = typeof call.name === "string" ? call.name : "";
     if (!isLiveToolName(name)) {
+      // No-trace refusals are undebuggable (owner 2026-10-01: a confirm re-call
+      // without the flag vanishes here while the model claims success). Log the
+      // decision best-effort — never let logging break the route.
+      try {
+        auditLog(rawUser ?? userKey ?? undefined, `tool:${name || "(missing)"}::live-refused-unknown`, "");
+      } catch {
+        /* logging is best-effort */
+      }
       results.push({ id, name, result: `Error: tool "${name || "(missing)"}" is not available in voice mode.` });
       continue;
     }
@@ -61,6 +70,11 @@ export async function POST(request: NextRequest) {
       ? call.args
       : {}) as Record<string, unknown>;
     if ((LIVE_WRITE_TOOLS as readonly string[]).includes(name) && argsObj.confirmed !== true) {
+      try {
+        auditLog(rawUser ?? userKey ?? undefined, `tool:${name}::live-refused-unconfirmed`, "");
+      } catch {
+        /* logging is best-effort */
+      }
       results.push({
         id,
         name,

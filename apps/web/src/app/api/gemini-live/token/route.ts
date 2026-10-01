@@ -156,7 +156,26 @@ export async function POST(request: NextRequest) {
       // truncation cuts memory first, rules never.
       const voiceRule =
         `Aturan suara Live: jangan pakai emoji sama sekali (termasuk 🌸), baik ` +
-        `di ucapan maupun di transcript. Bicara dengan kata-kata saja.`;
+        `di ucapan maupun di transcript. Bicara dengan kata-kata saja. ` +
+        `Berita terbaru WAJIB via tool google_news (jangan web_search, jangan ` +
+        `dari ingatan). Jangan pernah menawarkan memesan/membooking tiket, ` +
+        `hotel, atau apapun — kamu tidak punya tool booking; cukup beri info ` +
+        `dan arahkan user ke aplikasinya. Bedakan dua kalender: calendar_add ` +
+        `hanya mencatat di kalender Mia, calendar_mac_add menulis ke aplikasi ` +
+        `Kalender Mac — kalau user bilang "kalender" tanpa keterangan pakai ` +
+        `calendar_add dan sebut "kalender Mia", kalau menyebut aplikasi/` +
+        `Kalender Mac pakai calendar_mac_add. Setelah tool kalender mengembalikan ` +
+        `hasil, sebutkan NAMA KALENDER dari hasil itu ("tersimpan di kalender ` +
+        `Rumah") supaya user tahu harus melihat ke mana — jangan pernah ` +
+        `menghilangkan info lokasi itu. Kalau hasil tool menyebut kegagalan ` +
+        `di salah satu sisi ("...but Mac Calendar failed"), WAJIB terus-terang: ` +
+        `"hanya masuk kalender Mia, GAGAL masuk app" (atau sebaliknya) — jangan ` +
+        `pernah merangkumnya jadi "udah berhasil". Untuk SEMUA aksi tulis ` +
+        `(reminder/catatan/tugas/kalender): JANGAN bertanya konfirmasi dengan ` +
+        `kata-katamu sendiri — PANGGIL tool-nya dulu tanpa confirmed, lalu ` +
+        `bacakan pertanyaan konfirmasi dari hasil tool; PANGGIL LAGI dengan ` +
+        `confirmed:true hanya setelah user menjawab ya. Tanya dua kali ` +
+        `(sekali karanganmu, sekali dari sistem) itu bug — satu tanya saja.`;
       let memoryRecap = "";
       try {
         memoryRecap = buildMemoryRecap(loadRecentMemory(rawUser));

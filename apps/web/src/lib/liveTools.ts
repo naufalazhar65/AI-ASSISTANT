@@ -41,8 +41,9 @@ export { LIVE_WRITE_TOOLS };
  *     Travel live-data (`waze_route`/`hotel_search`), added 2026-10-01 at the
  *     owner's ask — both fast and speakable ("44 km, 86 menit").
  *     WRITE tools go through a SPOKEN confirmation loop instead of
- *     executing on first sight (owner-approved 2026-09-30, gap #2):
- *     `remind_me` and `save_note` are held by `liveConfirm.ts`, the model
+ *     executing on first sight (owner-approved 2026-09-30, gap #2,
+ *     extended 2026-10-01 to task/calendar writes): `remind_me`, `save_note`,
+ *     `add_task`, `complete_task` and `calendar_add` are held by `liveConfirm.ts`, the model
  *     asks aloud, and only a re-call with `confirmed: true` after the user
  *     spoke executes. The tool route independently refuses them unconfirmed.
  * Extend by appending a registry name here AND the tool route's allowlist;
@@ -61,8 +62,12 @@ export const LIVE_TOOL_NAMES = [
   "memory_get",
   "list_notes",
   "list_tasks",
+  "add_task",
+  "complete_task",
   "reminders_list",
   "calendar_list",
+  "calendar_add",
+  "calendar_mac_add",
   "mood_recent",
   "habit_stats",
   "health",
