@@ -18,6 +18,7 @@ import {
   liveToolDeclarations,
   loadRecentMemory,
 } from "./liveTools";
+import { liveToolNote } from "./liveToolNote";
 
 describe("liveToolDeclarations — built from the registry, not hand-kept", () => {
   it("declares exactly the allowlisted voice subset (Spotify + memory + daily)", () => {
@@ -44,11 +45,13 @@ describe("liveToolDeclarations — built from the registry, not hand-kept", () =
       "habit_stats",
       "health",
       "device_battery",
+      "mac_open",
       "google_news",
       "weather",
       "waze_route",
       "gmaps_route",
       "hotel_search",
+      "cinema_showtimes",
       "web_search",
       "calculate",
       "briefing",
@@ -147,5 +150,16 @@ describe("formatLiveMemoryEntry — Live turns reuse the chat memory shape", () 
 
   it("strips the 🌸 flower so recalled memory is never spoken aloud", () => {
     expect(formatLiveMemoryEntry("halo 🌸", "hai 🌸")).toBe("User: halo\nMia: hai");
+  });
+});
+
+describe("liveToolNote — busy line while a tool batch runs", () => {
+  it("maps known tools to friendly verbs and joins batches", () => {
+    expect(liveToolNote(["gmail_list"])).toBe("⏳ mengecek email...");
+    expect(liveToolNote(["gmaps_route", "google_news"])).toBe("⏳ mengecek rute + mencari berita...");
+  });
+
+  it("falls back to the raw name instead of rendering blank", () => {
+    expect(liveToolNote(["some_future_tool"])).toBe("⏳ some_future_tool...");
   });
 });

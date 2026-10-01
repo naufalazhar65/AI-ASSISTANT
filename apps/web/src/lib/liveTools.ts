@@ -72,11 +72,13 @@ export const LIVE_TOOL_NAMES = [
   "habit_stats",
   "health",
   "device_battery",
+  "mac_open",
   "google_news",
   "weather",
   "waze_route",
   "gmaps_route",
   "hotel_search",
+  "cinema_showtimes",
   "web_search",
   "calculate",
   "briefing",
@@ -153,6 +155,11 @@ export const MEMORY_RECAP_DAYS = 3;
  * of the system instruction, so the recap is what gets cut, not the facts.
  */
 export const MEMORY_RECAP_MAX_CHARS = 2_500;
+
+/** Re-exported from `./liveToolNote` (client-safe, zero imports) so the
+ * browser may show busy notes without pulling the server registry in.
+ * See that file for why the implementation cannot live here. */
+export { liveToolNote } from "./liveToolNote";
 
 /**
  * Load the most recent non-empty day files, oldest-first. Server-only (reads

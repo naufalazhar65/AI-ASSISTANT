@@ -146,6 +146,14 @@ export function LiveVoicePanel({
         </div>
       </div>
 
+      {/* Tool activity: a synchronous call is seconds of dead air otherwise.
+          Shown while a batch runs, cleared when Mia starts answering. */}
+      {live.toolNote && (
+        <p role="status" className="max-w-sm text-center text-xs leading-relaxed text-sky-300/90">
+          {live.toolNote}
+        </p>
+      )}
+
       {/* The connected-but-silent case gets its own line: it is neither a
           connection failure nor a working session, and the spinner could only
           ever describe one of the two. */}

@@ -664,4 +664,18 @@ describe("GeminiLiveSession — prebuilt voice in setup (owner 2026-10-01: gadis
     expect(gen.responseModalities).toEqual(["AUDIO"]);
     expect("speechConfig" in gen).toBe(false);
   });
+
+  it("asks the server to wait through breathing pauses before ending a turn", async () => {
+    await startWithVoice();
+    const setup = (setupFrame().setup ?? {}) as Record<string, unknown>;
+    const vad = (setup.realtimeInputConfig ?? {}) as Record<string, unknown>;
+    const aad = (vad.automaticActivityDetection ?? {}) as Record<string, unknown>;
+    expect(aad.silenceDurationMs).toBe(1200);
+  });
+
+  it("leaves affective dialog OUT (Constrained endpoint kills sessions on it)", async () => {
+    await startWithVoice();
+    const setup = (setupFrame().setup ?? {}) as Record<string, unknown>;
+    expect("enableAffectiveDialog" in setup).toBe(false);
+  });
 });

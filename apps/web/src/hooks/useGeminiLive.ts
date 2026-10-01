@@ -29,8 +29,9 @@ import {
   type LiveToolCall,
   type StartResult,
 } from "@/lib/geminiLive";
-import { applyFadeOut, bytesToBase64, createPcmChunker, floatTo16BitPcm, pcmToWav, LIVE_OUTPUT_SAMPLE_RATE, LIVE_PREBUFFER_BYTES } from "@/lib/pcm";
+import { applyFadeOut, bytesToBase64, createPcmChunker, detectLaughter, floatTo16BitPcm, pcmToWav, rmsFloat32, LIVE_OUTPUT_SAMPLE_RATE, LIVE_PREBUFFER_BYTES } from "@/lib/pcm";
 import { resolveBrowserUserKey } from "@/lib/identity";
+import { liveToolNote } from "@/lib/liveToolNote";
 import {
   askFirstInstruction,
   decideLiveToolCalls,
@@ -79,6 +80,14 @@ export interface UseGeminiLiveResult {
   muted: boolean;
   /** Mute/unmute the mic. No-op when no session is open. */
   toggleMute: () => void;
+  /**
+   * What the model is doing right now ("⏳ mengecek email..."). Set when a
+   * tool batch starts, cleared when Mia starts answering. Empty when idle.
+   * Exists because a synchronous tool call is minutes-or-seconds of dead air
+   * otherwise (owner 2026-10-01: interrupting mid-tool felt impossible with
+   * no visible state at all).
+   */
+  toolNote: string;
   /** Stop Gemini mid-sentence (barge-in). */
   interrupt: () => void;
   /** Send text as if spoken. */
@@ -98,10 +107,14 @@ export function useGeminiLive(): UseGeminiLiveResult {
    * still arrive — a red error would misdescribe a healthy connection.
    */
   const [stalled, setStalled] = useState("");
+  /** What the model is doing right now (set on tool_call, cleared on speech). */
+  const [toolNote, setToolNote] = useState("");
 
   // Everything below is a long-lived object, not render state: the WebSocket,
   // the audio graph, and the player must survive re-renders untouched.
   const sessionRef = useRef<GeminiLiveSession | null>(null);
+  /** When the current session started (lets support tell stale sessions apart). */
+  const startedAtRef = useRef(0);
   const captureRef = useRef<PcmCapture | null>(null);
   const playerRef = useRef<AudioPlayer | null>(null);
   // Playout buffer: Google's PCM frames are small and jittered, so each one
@@ -119,6 +132,40 @@ export function useGeminiLive(): UseGeminiLiveResult {
   // here, the model asks aloud, and
   // only a re-call with confirmed:true after the user spoke executes.
   const pendingRef = useRef<LiveConfirmState>(emptyConfirmState());
+  /**
+   * Client-side barge-in (owner 2026-10-01: talking over Mia often produces
+   * no `interrupted` frame from Google at all — mic hears, subtitles print,
+   * but the turn never yields). Same recipe as the old turn-based pipeline:
+   * energy threshold + consecutive-frame hold, armed shortly after Mia starts
+   * so her own greeting can't trigger it. The server frame stays as backup.
+   * The shared mic stream has echoCancellation, so speaker echo alone should
+   * not cross the threshold — a real voice does.
+   */
+  const BARGE_RMS = 0.015;
+  const BARGE_HOLD_FRAMES = 4;
+  const BARGE_ARM_MS = 800;
+  const speakingRef = useRef(false);
+  const mutedRef = useRef(false);
+  const speakingSinceRef = useRef(0);
+  const hotStreakRef = useRef(0);
+  /** Last mic frame energy (for the barge snapshot below). */
+  const bargeRmsRef = useRef(0);
+  /** Peak mic energy since Mia started speaking (mistimed prints still tell). */
+  const bargePeakRef = useRef(0);
+  /** Recent mic RMS for the laughter detector (ring, ~3.4 s at 85 ms/frame). */
+  const laughRmsRef = useRef<number[]>([]);
+  /** A "[tertawa]" tag was already sent this Mia turn (max one per turn). */
+  const laughSentRef = useRef(false);
+  /**
+   * Duck window: while this is in the future, incoming model audio is
+   * DROPPED instead of buffered (owner 2026-10-01: the `{interrupt: true}`
+   * frame is not a real Live API client message — Google ignores it and
+   * keeps generating, so local fade alone just re-fills and replays).
+   * Refreshed while the user keeps talking (cap 5 s), so sustained speech
+   * holds the floor and a cough costs at most one window.
+   */
+  const duckUntilRef = useRef(0);
+  const duckStartRef = useRef(0);
   // Raw incoming PCM this session, capped: the noise diagnostic (owner
   // 2026-10-01 — "seperti noise", voice intelligible, Swift build smooth).
   // `downloadRaw` below writes exactly what Google sent, so a clean file
@@ -192,6 +239,8 @@ export function useGeminiLive(): UseGeminiLiveResult {
     playerRef.current?.stop();
     chunkerRef.current.reset();
     dropPrime();
+    duckUntilRef.current = 0;
+    duckStartRef.current = 0;
     // NOTE: rawRef is deliberately NOT cleared here — downloadRaw() is meant
     // to run AFTER a call ends (owner 2026-10-01 ran it post-call and got
     // "no audio received yet"). It resets on the next start() instead.
@@ -200,6 +249,7 @@ export function useGeminiLive(): UseGeminiLiveResult {
     pendingRef.current = emptyConfirmState();
     setSpeaking(false);
     setMuted(false);
+    setToolNote("");
     setStatus("idle");
   }, [flushTurnMemory, dropPrime]);
 
@@ -239,6 +289,21 @@ export function useGeminiLive(): UseGeminiLiveResult {
             break;
           case "speaking":
             setSpeaking(event.speaking);
+            // Arm timestamp on the FALSE→TRUE transition only. Speaking:true
+            // fires on EVERY audio frame, so stamping unconditionally keeps
+            // `now - armedAt < BARGE_ARM_MS` true forever and the barge-in can
+            // never arm (owner 2026-10-01: trigger never fired at any
+            // threshold). Same for the duck refs: a fresh turn starts clean.
+            if (event.speaking && !speakingRef.current) {
+              speakingSinceRef.current = Date.now();
+              bargePeakRef.current = 0;
+              hotStreakRef.current = 0;
+              // New Mia turn = new window for one laugh tag.
+              laughSentRef.current = false;
+            }
+            speakingRef.current = event.speaking;
+            if (!event.speaking) hotStreakRef.current = 0;
+            else setToolNote("");
             // The model is producing something, so the silence notice is stale.
             setStalled("");
             if (!event.speaking) {
@@ -277,6 +342,11 @@ export function useGeminiLive(): UseGeminiLiveResult {
               rawRef.current.push(event.pcm);
               rawBytesRef.current += event.pcm.length;
             }
+            // Floor held after a local barge-in: the model often keeps
+            // generating despite the interrupt, so its audio is dropped here
+            // instead of rebutting the speakers mid-sentence. Transcripts and
+            // tool calls still flow — only playout is held.
+            if (Date.now() < duckUntilRef.current) return;
             // Through the playout buffer, never straight to the player: one
             // WAV per jittered network frame is what made the voice stutter.
             // PCM goes in synchronously (no decodeAudioData hop) and the first
@@ -297,16 +367,26 @@ export function useGeminiLive(): UseGeminiLiveResult {
             }
             break;
           }
-          case "interrupted":
-            playerRef.current?.stop();
+          case "interrupted": {
+            // eslint-disable-next-line no-console
+            console.debug("[mia-live] interrupted frame from Google");
+            {
+              const pl = playerRef.current;
+              if (pl && typeof pl.fadeStop === "function") pl.fadeStop(300);
+              else pl?.stop();
+            }
             chunkerRef.current.reset();
             dropPrime();
+            duckUntilRef.current = 0;
+            duckStartRef.current = 0;
             // A cut-off turn is still a turn: save the partial exchange before
             // it is lost. Idempotent with the speaking:false flush below.
             flushTurnMemory();
             setSpeaking(false);
             break;
+          }
           case "tool_call": {
+            setToolNote(liveToolNote(event.calls.map((c) => c.name)));
             // Diagnostic beacon (owner 2026-10-01): the model sometimes chats
             // through the whole confirm flow without emitting a single call,
             // which is invisible server-side (no POST ever arrives). This
@@ -351,12 +431,84 @@ export function useGeminiLive(): UseGeminiLiveResult {
         setStatus("error");
         return result;
       }
+      startedAtRef.current = Date.now();
 
       const capture = new PcmCapture();
       captureRef.current = capture;
       capture.onFrame((frame) => {
         const pcm = floatTo16BitPcm(frame);
         session.sendAudioFrame(pcm, bytesToBase64(pcm));
+        const rms = rmsFloat32(frame);
+        bargeRmsRef.current = rms;
+        if (rms > bargePeakRef.current) bargePeakRef.current = rms;
+        // Laughter tag (owner 2026-10-01): rhythmic bursts ("ha-ha-ha")
+        // become a "[tertawa]" context marker the model reads — the only
+        // prosody channel this endpoint allows (affective_dialog kills the
+        // session). Max once per Mia turn; the voiceRule bracket rule tells
+        // the model what it means. Never throws into the audio path.
+        laughRmsRef.current.push(rms);
+        if (laughRmsRef.current.length > 40) laughRmsRef.current.shift();
+        if (!mutedRef.current && sessionRef.current && !laughSentRef.current && detectLaughter(laughRmsRef.current)) {
+          laughSentRef.current = true;
+          try {
+            sessionRef.current.sendText("[tertawa]");
+          } catch {
+            /* a dead socket needs no tag */
+          }
+        }
+        // Client-side barge-in: hot mic energy while Mia is audible cuts her
+        // off locally instead of waiting for Google's `interrupted` frame
+        // (which often never comes). Same actions as the `interrupted` event
+        // below — all idempotent — so whichever fires first wins and the other
+        // is a harmless repeat.
+        if (!speakingRef.current || mutedRef.current || !sessionRef.current) {
+          hotStreakRef.current = 0;
+          return;
+        }
+        if (Date.now() - speakingSinceRef.current < BARGE_ARM_MS || rms < BARGE_RMS) {
+          hotStreakRef.current = 0;
+          return;
+        }
+        // Leaky bucket, not a hard reset: syllable gaps (1-2 cold frames)
+        // must not erase a hot run (owner 2026-10-01: peak 0.0405 clears a
+        // 0.015 threshold yet the streak never reaches HOLD). Hot frames add,
+        // cold frames drain one at a time; sustained speech still trips it
+        // within ~0.5 s, while room noise (0.0008) never accumulates.
+        if (rms >= BARGE_RMS) hotStreakRef.current = Math.min(hotStreakRef.current + 1, BARGE_HOLD_FRAMES);
+        else hotStreakRef.current = Math.max(hotStreakRef.current - 1, 0);
+        if (hotStreakRef.current < BARGE_HOLD_FRAMES) return;
+        hotStreakRef.current = 0;
+        // Hold the floor: drop everything Google keeps sending while the
+        // user talks (it often never yields). Refreshed per hot frame, cap
+        // 5 s from the first trigger so a stuck mic can't mute Mia forever.
+        const nowHold = Date.now();
+        const fresh = nowHold >= duckUntilRef.current;
+        if (fresh) {
+          duckStartRef.current = nowHold;
+          try {
+            // eslint-disable-next-line no-console
+            console.debug("[mia-live] local barge-in: holding floor");
+          } catch {
+            /* console unavailable */
+          }
+        }
+        duckUntilRef.current = Math.min(nowHold + 2500, duckStartRef.current + 5000);
+        try {
+          sessionRef.current.interrupt();
+        } catch {
+          /* a dead socket needs no interrupt */
+        }
+        try {
+          const pl = playerRef.current;
+          if (pl && typeof pl.fadeStop === "function") pl.fadeStop(300);
+          else pl?.stop();
+        } catch {
+          /* player already torn down */
+        }
+        chunkerRef.current.reset();
+        flushTurnMemory();
+        setSpeaking(false);
+        speakingRef.current = false;
       });
       try {
         await capture.start(stream);
@@ -379,8 +531,21 @@ export function useGeminiLive(): UseGeminiLiveResult {
   );
 
   const interrupt = useCallback(() => {
+    try {
+      // eslint-disable-next-line no-console
+      console.debug("[mia-live] interrupt() called");
+    } catch {
+      /* console unavailable */
+    }
     sessionRef.current?.interrupt();
-    playerRef.current?.stop();
+    // Glide out, don't chop: the user cut in mid-word and the tail should
+    // fade like GPT realtime (owner 2026-10-01), not click to silence.
+    // Defensive call (owner 2026-10-01: a stale bundle without fadeStop made
+    // `?.fadeStop()` throw, which killed the whole interrupt and Mia talked
+    // to the end — `?.` guards null, not a missing method).
+    const p = playerRef.current;
+    if (p && typeof p.fadeStop === "function") p.fadeStop(300);
+    else p?.stop();
     setSpeaking(false);
   }, []);
 
@@ -396,6 +561,7 @@ export function useGeminiLive(): UseGeminiLiveResult {
     // updater — StrictMode double-invokes those).
     const next = !session.isAudioMuted;
     session.setAudioMuted(next);
+    mutedRef.current = next;
     setMuted(next);
   }, [status]);
 
@@ -418,7 +584,27 @@ export function useGeminiLive(): UseGeminiLiveResult {
   useEffect(() => {
     const w = window as unknown as { __miaLive?: unknown };
     w.__miaLive = {
+      // Bump when the Live client changes: lets support verify the tab runs
+      // fresh code (owner 2026-10-01 ran a stale bundle for an hour thinking
+      // fixes did nothing). Print __miaLive.version in the console.
+      version: "2026-10-01-bargehold",
+      // Wall-clock ISO of the live session start. Compare against deploy
+      // times to prove a test ran on fresh instructions, not a stale session
+      // (owner 2026-10-01: "tidak berpengaruh" fought stale sessions thrice).
+      startedAt: () => (startedAtRef.current ? new Date(startedAtRef.current).toISOString() : "(no session yet)"),
       stats: () => ({ rawFrames: rawRef.current.length, rawBytes: rawBytesRef.current }),
+      // Barge snapshot: print WHILE talking over Mia. speaking=false → the
+      // client doesn't know she's audible; streak stuck at 0-2 with high rms
+      // → threshold/hold too strict; duckUntil in the past with hot mic →
+      // the drop is bypassed.
+      barge: () => ({
+        speaking: speakingRef.current,
+        muted: mutedRef.current,
+        streak: hotStreakRef.current,
+        lastRms: Number(bargeRmsRef.current.toFixed(4)),
+        peakRms: Number(bargePeakRef.current.toFixed(4)),
+        duckUntilInMs: Math.max(0, duckUntilRef.current - Date.now()),
+      }),
       downloadRaw: () => {
         const total = rawBytesRef.current;
         if (!total) return "no audio received yet";
@@ -465,6 +651,7 @@ export function useGeminiLive(): UseGeminiLiveResult {
     said,
     error,
     stalled,
+    toolNote,
     active: status === "ready",
     start,
     stop,

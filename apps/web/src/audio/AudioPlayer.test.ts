@@ -20,17 +20,39 @@ class FakeSource {
   buffer: { duration: number } | null = null;
   onended: (() => void) | null = null;
   startedAt: number | null = null;
+  stoppedAt: number | null = null;
   stopped = false;
-  connect(): void {}
+  connect(_dest?: unknown): void {}
   start(when?: number): void {
     this.startedAt = when ?? FakeContext.now;
   }
-  stop(): void {
+  stop(when?: number): void {
     this.stopped = true;
+    this.stoppedAt = when ?? FakeContext.now;
   }
   end(): void {
     this.onended?.();
   }
+}
+
+class FakeGainParam {
+  value = 1;
+  events: Array<{ type: string; at?: number; value?: number }> = [];
+  cancelScheduledValues(at: number): void {
+    this.events.push({ type: "cancel", at });
+  }
+  setValueAtTime(value: number, at: number): void {
+    this.value = value;
+    this.events.push({ type: "set", at, value });
+  }
+  linearRampToValueAtTime(value: number, at: number): void {
+    this.events.push({ type: "ramp", at, value });
+  }
+}
+
+class FakeGain {
+  readonly gain = new FakeGainParam();
+  connect(_dest?: unknown): void {}
 }
 
 class FakeBuffer {
@@ -72,6 +94,9 @@ class FakeContext {
   }
   createBuffer(_channels: number, frames: number, sampleRate: number): FakeBuffer {
     return new FakeBuffer(frames, sampleRate);
+  }
+  createGain(): FakeGain {
+    return new FakeGain();
   }
   createBufferSource(): FakeSource {
     const s = new FakeSource();
@@ -202,6 +227,32 @@ describe("AudioPlayer.enqueuePcm — sync PCM path for Live voice (owner 2026-10
     player.enqueuePcm(new Uint8Array([0x01]), 24_000);
     await flush();
     expect(FakeContext.sources).toHaveLength(0);
+  });
+
+  it("fadeStop glides the audible node out instead of chopping it", async () => {
+    const player = new AudioPlayer();
+    void player.enqueue(new ArrayBuffer(8));
+    void player.enqueue(new ArrayBuffer(8));
+    await flush();
+    expect(FakeContext.sources).toHaveLength(2);
+
+    FakeContext.now = 0.1;
+    player.fadeStop();
+    await flush();
+
+    // Every scheduled node ramps to zero over ~180 ms and stops just past
+    // it — no hard cut, no click, no stale tail leaking through.
+    for (const s of FakeContext.sources) {
+      expect(s.stoppedAt).toBeCloseTo(0.1 + 0.18 + 0.02, 9);
+    }
+    // Queued-but-unplayed audio never sounds.
+    expect(FakeContext.sources).toHaveLength(2);
+    // A new turn starts at now against silence, overlapping the fading tail.
+    FakeContext.now = 0.15;
+    void player.enqueue(new ArrayBuffer(8));
+    await flush();
+    expect(FakeContext.sources).toHaveLength(3);
+    expect(FakeContext.sources[2]?.startedAt).toBe(0.15);
   });
 
   it("upsamples to the device rate so Chrome never resamples per chunk", async () => {

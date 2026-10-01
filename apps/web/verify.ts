@@ -209,6 +209,57 @@ async function main() {
   }
   console.log("cinema showtimes parsers: OK");
 
+  // --- cinema showtime routing: web_search redirects schedule asks (2026-10-01) ---
+  const { isShowtimeQuery } = await import("./src/lib/cinema");
+  for (const q of ["film apa yang tayang di bioskop", "jadwal film horror minggu ini", "film terbaru di bioskop ada apa aja", "harga tiket bioskop hari ini", "yang sedang tayang di XXI"]) {
+    if (!isShowtimeQuery(q)) throw new Error(`isShowtimeQuery missed: ${q}`);
+  }
+  for (const q of ["film terbaru Jason Statham", "Jason Statham filmography", "sejarah film Indonesia", "berita film terbaru", "resensi film Hope", "gedung bioskop tertua"]) {
+    if (isShowtimeQuery(q)) throw new Error(`isShowtimeQuery overfired: ${q}`);
+  }
+  const { executeTool: runTool } = await import("./src/lib/tools");
+  const redir = await runTool({ id: "t", name: "web_search", arguments: JSON.stringify({ query: "film apa yang tayang" }) }, "verify_cinema");
+  if (!/^Jadwal bioskop tidak dicari via web/.test(String(redir))) throw new Error("web_search showtime redirect missing");
+  // Data-first (2026-10-01): the redirect text alone was ignored (delivered,
+  // zero cinema calls, "susah" claimed anyway) — the result must CARRY the
+  // live list, not an instruction to fetch it. Network-tolerant: a live-site
+  // outage must surface as the honest-failure branch, never a throw.
+  const redirS = String(redir);
+  if (!/SUDAH dicarikan via cinema_showtimes/.test(redirS)) throw new Error("web_search showtime head missing");
+  if (!/menit|Rp |Skor/.test(redirS) && !/cinema_showtimes ikut gagal/.test(redirS)) {
+    throw new Error("web_search showtime result carries neither live data nor honest failure");
+  }
+  console.log("cinema showtime routing (redirect + live data + two-directional lock): OK");
+
+  // --- cinema synopsis off film pages (owner 2026-10-01: "tentang apa?" died twice in web_search) ---
+  const { parseFilmSynopsis } = await import("./src/lib/cinema");
+  const synFx =
+    '<div class="col-sm-8 mvd-detail-txt synop pull-right" id="tr_synf"><h3>Trailer & Sinopsis</h3><iframe title="x trailer" src="https://www.youtube.com/embed/abc"></iframe> Sekelompok&nbsp;komplotan copet yang beraksi di festival. Film Tayang sejak 27 Agustus 2026 s/d hari ini Baca juga : Review Seru JADWAL DI JAKARTA';
+  const syn = parseFilmSynopsis(synFx);
+  if (!syn.startsWith("Sekelompok komplotan copet") || /Baca juga|iframe|JADWAL/.test(syn) || syn.length > 600) {
+    throw new Error(`parseFilmSynopsis wrong: ${syn.slice(0, 120)}`);
+  }
+  if (parseFilmSynopsis("<html><body>no synopsis here</body></html>") !== "") {
+    throw new Error("parseFilmSynopsis must return empty when absent");
+  }
+  console.log("cinema synopsis (film page parse, schedules untouched on miss): OK");
+
+  // --- cinema directory rides city mode (owner 2026-10-01: nearby asks) ---
+  const dirProbe = await runTool({ id: "t", name: "cinema_showtimes", arguments: JSON.stringify({ city: "Tangerang" }) }, "verify_cinema");
+  const dirS = String(dirProbe);
+  const dirNames = /Bioskop di Tangerang: ([^\n]+)/.exec(dirS)?.[1]?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+  if (dirNames.length < 3) {
+    throw new Error("cinema directory missing or thin in city output");
+  }
+  console.log("cinema directory (nearby names grounded, bounded): OK");
+
+  // --- cinema fuzzy match (owner 2026-10-01: "Teras Kota" vs "CGV Teraskota") ---
+  const fuzzy = await runTool({ id: "t", name: "cinema_showtimes", arguments: JSON.stringify({ city: "Tangerang", cinema: "Teras Kota" }) }, "verify_cinema");
+  if (!/^CGV Teraskota —/.test(String(fuzzy)) || !/Rp /.test(String(fuzzy))) {
+    throw new Error(`cinema fuzzy miss: ${String(fuzzy).slice(0, 160)}`);
+  }
+  console.log("cinema fuzzy match (spacing/prefix variants + prices): OK");
+
   // --- hotel helpers (offline; live Booking fetch is network/Playwright-gated) ---
   const { parseBudget, resolveStay, parseScore } = await import("./src/lib/hotel");
   if (parseBudget("400rb") !== 400000 || parseBudget("1.5jt") !== 1500000 || parseBudget("600000") !== 600000 || parseBudget("abc") !== null) {

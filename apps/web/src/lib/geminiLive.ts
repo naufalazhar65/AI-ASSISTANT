@@ -401,6 +401,22 @@ export class GeminiLiveSession {
             // `sessionResumption` is accepted as a top-level field (measured),
             // and lets the browser reconnect with the same token after a drop.
             sessionResumption: {},
+            // Affective dialog NOT enabled: `enableAffectiveDialog: true` was
+            // tried 2026-10-01 and every session died on mic-press with "The
+            // Gemini Live session ended" — the Constrained endpoint
+            // (ephemeral-token variant) rejects it even though the docs list
+            // it for the full endpoint. Same class as the top-level
+            // `responseModalities` rejection. Laughter/tone stays prompt-only.
+            // Do NOT re-add without a live session-start proof.
+            // Let the user finish thinking: the server ends their turn after
+            // this much silence, and the default (~800 ms) cuts breathing
+            // pauses mid-sentence. 1200 ms keeps answers snappy while giving
+            // clause boundaries room (owner 2026-10-01: natural overlap).
+            // If the deployed API ever rejects this field, delete it — the
+            // session must never fail to start over a tuning knob.
+            realtimeInputConfig: {
+              automaticActivityDetection: { silenceDurationMs: 1200 },
+            },
             ...(serverInstruction
               ? { systemInstruction: { parts: [{ text: serverInstruction }] } }
               : {}),
@@ -505,13 +521,18 @@ export class GeminiLiveSession {
   }
 
   /**
-   * Stop Gemini mid-sentence.
+   * Stop Gemini mid-sentence — locally.
    *
-   * Sends the interrupt frame AND clears the local player, because the audio
-   * already in flight would otherwise keep playing until it drained.
+   * Deliberately sends NOTHING over the socket: `{interrupt: true}` is not a
+   * valid `BidiGenerateContentClientMessage` field, and the deployed API
+   * closes the session on unknown top-level fields (owner 2026-10-01: every
+   * local barge-in ended with "The Gemini Live session ended"). Interruption
+   * is achieved by silencing locally (the caller fades/drops) while the mic
+   * keeps streaming — the server yields to sustained user speech on its own
+   * VAD, or the duck-hold covers it. The emits below keep UI/orb/memory
+   * consistent, and clear the local player like before.
    */
   interrupt(): void {
-    this.send({ interrupt: true });
     this.emit({ type: "interrupted" });
     this.emit({ type: "speaking", speaking: false });
   }

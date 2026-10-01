@@ -16,6 +16,7 @@ import {
   base64ToBytes,
   BYTES_PER_SAMPLE,
   createPcmChunker,
+  detectLaughter,
   floatTo16BitPcm,
   LIVE_INPUT_SAMPLE_RATE,
   LIVE_OUTPUT_SAMPLE_RATE,
@@ -23,6 +24,7 @@ import {
   pcm16ToFloat32,
   pcmToWav,
   resampleFloat32,
+  rmsFloat32,
 } from "./pcm";
 
 describe("resampleFloat32", () => {
@@ -306,5 +308,39 @@ describe("applyFadeOut — no end-click on a turn's last chunk", () => {
     expect(out.length).toBe(2);
     expect(applyFadeOut(new Uint8Array(0)).length).toBe(0);
     expect(applyFadeOut(new Uint8Array([0x01])).length).toBe(1);
+  });
+});
+
+describe("rmsFloat32 — mic energy for client-side barge-in", () => {
+  it("is 0 for silence and empty input", () => {
+    expect(rmsFloat32(new Float32Array(0))).toBe(0);
+    expect(rmsFloat32(new Float32Array(1024))).toBe(0);
+  });
+
+  it("measures a constant level and a full-scale sine correctly", () => {
+    const dc = new Float32Array(512).fill(0.5);
+    expect(rmsFloat32(dc)).toBeCloseTo(0.5, 6);
+    const sine = new Float32Array(1000);
+    for (let i = 0; i < sine.length; i += 1) sine[i] = Math.sin((i / sine.length) * Math.PI * 2);
+    expect(rmsFloat32(sine)).toBeCloseTo(Math.SQRT1_2, 3);
+  });
+});
+
+describe("detectLaughter — rhythmic bursts, not loud speech", () => {
+  // 85 ms frames: a "ha-ha-ha" at ~200 ms syllables.
+  const laugh = [0.005, 0.09, 0.01, 0.1, 0.012, 0.095, 0.008, 0.004];
+  it("fires on rhythmic laugh bursts", () => {
+    expect(detectLaughter(laugh)).toBe(true);
+  });
+  it("stays silent on sustained loud speech (no dips)", () => {
+    expect(detectLaughter([0.09, 0.1, 0.08, 0.11, 0.09, 0.1, 0.08, 0.09])).toBe(false);
+  });
+  it("stays silent on silence, one cough, and too-slow bursts", () => {
+    expect(detectLaughter([0.004, 0.005, 0.003])).toBe(false);
+    expect(detectLaughter([0.004, 0.2, 0.004, 0.005])).toBe(false);
+    // Two bursts only — need three.
+    expect(detectLaughter([0.09, 0.01, 0.1, 0.005])).toBe(false);
+    // Bursts 600 ms apart are separate events, not one laugh.
+    expect(detectLaughter([0.09, 0.01, 0.005, 0.005, 0.005, 0.005, 0.005, 0.005, 0.01, 0.09, 0.01, 0.005, 0.005, 0.005, 0.005, 0.005, 0.01, 0.09])).toBe(false);
   });
 });

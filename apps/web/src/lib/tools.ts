@@ -275,7 +275,35 @@ const toolRegistry: ToolPlugin[] = [
         },
       },
     },
-    execute: (args) => webSearch(typeof args.query === "string" ? args.query : ""),
+    execute: async (args) => {
+      const q = typeof args.query === "string" ? args.query : "";
+      // Deterministic routing (owner 2026-10-01): schedule asks answered from
+      // web/news sources are always junk (portal front pages), and the model
+      // follows in-context precedent over the cinema description — then
+      // IGNORED even the redirect text (same session: redirect delivered,
+      // zero cinema calls, "susah" claimed anyway). So don't instruct: FETCH.
+      // The data rides back in the same result; defiance becomes impossible
+      // because there is nothing left to decide. Pure predicate,
+      // two-directional lock in verify.ts.
+      try {
+        const { isShowtimeQuery, cinemaShowtimes } = await import("./cinema");
+        if (isShowtimeQuery(q)) {
+          const head =
+            `Jadwal bioskop tidak dicari via web (sumber salah). ` +
+            `Data di bawah SUDAH dicarikan via cinema_showtimes — sampaikan ` +
+            `langsung, jangan bilang susah/tidak bisa:`;
+          try {
+            const live = await cinemaShowtimes({ city: "Tangerang" });
+            return `${head}\n\n${live}`;
+          } catch (e2) {
+            return `${head}\n\n(cinema_showtimes ikut gagal: ${e2 instanceof Error ? e2.message : String(e2)} — sampaikan kegagalan ini apa adanya.)`;
+          }
+        }
+      } catch {
+        /* predicate failed to load — fall through to normal search */
+      }
+      return webSearch(q);
+    },
   },
   {
     definition: {
@@ -2667,7 +2695,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "gmaps_route",
         description:
-          "Rute + traffic LIVE via Google Maps headless (gratis, tanpa API key). WAJIB untuk semua pertanyaan rute/durasi/macet antarkota ('ke Bandung berapa jam', 'Serpong ke PIK macet ga') — Waze diblokir server (403), jadi ini satu-satunya sumber traffic live. Beri durasi + jarak + via + label live. ~10-15 detik per cek.",
+          "Rute + traffic LIVE via Google Maps headless (gratis, tanpa API key). PENTING: tool ini lambat (~10 detik) — ucapkan SATU hold-line dulu ('oke, bentar ya...') SEBELUM memanggil, jangan hening mendadak. WAJIB untuk semua pertanyaan rute/durasi/macet antarkota ('ke Bandung berapa jam', 'Serpong ke PIK macet ga') — Waze diblokir server (403), jadi ini satu-satunya sumber traffic live. Beri durasi + jarak + via + label live. ~10-15 detik per cek.",
         parameters: {
           type: "object",
           properties: {
@@ -2772,7 +2800,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "hotel_search",
         description:
-          "Cari harga hotel live via Booking.com (Playwright, no key). WAJIB untuk semua pertanyaan hotel/lodging — jangan jawab dari memori. Beri nama + harga/malam + rating + link. Opsi: checkin/checkout (YYYY-MM-DD), adults/rooms, sort (price|rating|popularity), minRating, stars.",
+          "Cari harga hotel live via Booking.com (Playwright, no key). PENTING: tool ini lambat (~15 detik) — ucapkan SATU hold-line dulu ('oke, bentar ya...') SEBELUM memanggil, jangan hening mendadak. WAJIB untuk semua pertanyaan hotel/lodging — jangan jawab dari memori. Beri nama + harga/malam + rating + link. Opsi: checkin/checkout (YYYY-MM-DD), adults/rooms, sort (price|rating|popularity), minRating, stars.",
         parameters: {
           type: "object",
           properties: {
@@ -2821,7 +2849,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "cinema_showtimes",
         description:
-          "Jadwal film + harga tiket bioskop live (Indonesia, sumber jadwalnonton.com). WAJIB dipakai untuk pertanyaan 'film apa yang tayang / jam berapa / harga tiket di bioskop X / kota Y' — JANGAN jawab dari memori. Isi `city` dulu; `cinema` (nama bioskop), `film` (judul), atau `genre` (mis. horror) opsional. Tanpa cinema/film → daftar film tayang di kota itu.",
+          "Jadwal film + harga tiket bioskop live (Indonesia, sumber jadwalnonton.com). WAJIB dipakai untuk pertanyaan 'film apa yang tayang / jam berapa / harga tiket di bioskop X / kota Y' — JANGAN jawab dari memori dan JANGAN pakai web_search/google_news untuk jadwal (sumbernya salah). PENTING: tool ini lambat (~10 detik) — ucapkan SATU hold-line dulu ('oke, bentar ya...') SEBELUM memanggil, jangan hening mendadak. `city` opsional (default Tangerang, kota owner) — JANGAN tanya kota dulu, langsung cari; `cinema` (nama bioskop — untuk HARGA tiket per bioskop), `film` (judul + otomatis sinopsis), atau `genre` (mis. horror) juga opsional. Tanpa cinema/film → daftar film tayang + direktori bioskop di kota itu.",
         parameters: {
           type: "object",
           properties: {
@@ -2830,15 +2858,20 @@ const toolRegistry: ToolPlugin[] = [
             film: { type: "string", description: "Judul film (kata kunci), mis. 'Munafik'" },
             genre: { type: "string", description: "Filter genre saat tak ada cinema/film, mis. 'horror'" },
           },
-          required: ["city"],
+          required: [],
         },
       },
     },
     execute: async (args) => {
       try {
         const { cinemaShowtimes } = await import("./cinema");
+        // Owner default (single-owner assistant): a voice ask rarely carries
+        // a city ("film apa yang tayang?"), and a required-but-empty city
+        // made the model avoid this tool entirely (owner 2026-10-01: 5 calls
+        // burned on web_search/google_news, zero on cinema, then deflection).
+        const rawCity = typeof args.city === "string" ? args.city.trim() : "";
         return await cinemaShowtimes({
-          city: typeof args.city === "string" ? args.city : "",
+          city: rawCity || "Tangerang",
           cinema: typeof args.cinema === "string" ? args.cinema : undefined,
           film: typeof args.film === "string" ? args.film : undefined,
           genre: typeof args.genre === "string" ? args.genre : undefined,

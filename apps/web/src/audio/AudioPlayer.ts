@@ -10,7 +10,7 @@ import { resampleFloat32 } from "@/lib/pcm";
 export class AudioPlayer {
   private ctx: AudioContext | null = null;
   private queue: AudioBuffer[] = [];
-  private current: { node: AudioBufferSourceNode; token: number } | null = null;
+  private current: { node: AudioBufferSourceNode; gain: GainNode; token: number } | null = null;
   private playToken = 0;
   /**
    * End time of the last scheduled chunk. Consecutive chunks are chained
@@ -80,13 +80,53 @@ export class AudioPlayer {
     this.queue = [];
     this.nextTime = 0;
     this.pending = 0;
-    if (this.current) {
+    for (const h of [...this.live]) {
       try {
-        this.current.node.stop();
+        h.node.stop();
       } catch {
         // Already stopped.
       }
-      this.current = null;
+    }
+    this.live.clear();
+    this.current = null;
+    // Unpark a parked pump so it can observe the new token and bail.
+    this.wake?.();
+  }
+
+  /**
+   * Stop speaking with a quick fade-out instead of a hard cut (owner
+   * 2026-10-01: every barge-in should glide like GPT realtime).
+   *
+   * EVERY scheduled node ramps to zero over `fadeMs` and stops just past the
+   * ramp — no timers, so the pump loop observes it through the normal
+   * `onended` path. The next turn chains from `now`, so it overlaps the
+   * fading tails: a crossfade, not a hole. Queue is dropped at once (stale
+   * audio must never play); only live nodes glide out.
+   */
+  fadeStop(fadeMs = 180): void {
+    this.playToken += 1;
+    this.queue = [];
+    this.nextTime = 0;
+    this.pending = 0;
+    const ctx = this.ctx;
+    const targets = [...this.live];
+    this.live.clear();
+    this.current = null;
+    if (!ctx || !targets.length) return;
+    const t = ctx.currentTime;
+    for (const h of targets) {
+      try {
+        h.gain.gain.cancelScheduledValues(t);
+        h.gain.gain.setValueAtTime(h.gain.gain.value, t);
+        h.gain.gain.linearRampToValueAtTime(0, t + fadeMs / 1000);
+        h.node.stop(t + fadeMs / 1000 + 0.02);
+      } catch {
+        try {
+          h.node.stop();
+        } catch {
+          // Already stopped.
+        }
+      }
     }
     // Unpark a parked pump so it can observe the new token and bail.
     this.wake?.();
@@ -101,6 +141,12 @@ export class AudioPlayer {
    * exiting and losing the chain.
    */
   private pending = 0;
+  /**
+   * Every scheduled-but-unended node with its gain. `fadeStop` glides ALL of
+   * them out at once — fading only the last-scheduled node would let earlier
+   * ones keep playing stale audio for up to a full chunk.
+   */
+  private live = new Set<{ node: AudioBufferSourceNode; gain: GainNode }>();
   /** Resolves the parked loop when a chunk lands, all audio ends, or stop(). */
   private wake: (() => void) | null = null;
 
@@ -123,8 +169,15 @@ export class AudioPlayer {
           const ctx = this.ensureContext();
           const node = ctx.createBufferSource();
           node.buffer = buffer;
-          node.connect(ctx.destination);
-          this.current = { node, token };
+          // Per-node gain (unity): `fadeStop` ramps THIS node out without
+          // touching anything scheduled after it.
+          const gain = ctx.createGain();
+          gain.gain.value = 1;
+          node.connect(gain);
+          gain.connect(ctx.destination);
+          this.current = { node, gain, token };
+          const handle = { node, gain };
+          this.live.add(handle);
 
           // Chain the start time so chunks play gaplessly (see `nextTime`).
           // A stale cursor (long idle, clock jump) self-heals via Math.max.
@@ -133,6 +186,7 @@ export class AudioPlayer {
           this.nextTime = startAt + buffer.duration;
           this.pending += 1;
           node.onended = () => {
+            this.live.delete(handle);
             if (this.pending > 0) this.pending -= 1;
             if (this.current?.node === node) this.current = null;
             if (this.playToken === token && this.pending === 0 && this.queue.length === 0) {

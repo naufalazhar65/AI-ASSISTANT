@@ -12,6 +12,24 @@ const TIMEOUT_MS = 15_000;
 const MAX_HTML = 3_000_000;
 const MAX_OUT = 3500;
 
+/**
+ * True for unambiguous NOW-SHOWING asks (vs filmography/news/research).
+ * Used by `web_search` to redirect to `cinema_showtimes` deterministically:
+ * the model kept burning calls on web/news sources for schedule asks
+ * (owner 2026-10-01: 5 wasted calls, zero on cinema, then deflection), and
+ * in-context precedent beats prompt rules. Kept narrow on purpose —
+ * "film terbaru Jason Statham" (filmography) and "sejarah film" must pass
+ * through to web search untouched.
+ */
+export function isShowtimeQuery(query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return false;
+  const medium = /(film|movie|cinema|bioskop|xxi|cgv|tiket)\b/.test(q);
+  if (!medium) return false;
+  return /\b(tayang|jadwal|showtimes?|jam tayang|sedang tayang)\b/.test(q) ||
+    (/\bbioskop\b/.test(q) && /\b(terbaru|ada apa|sekarang|hari ini|tiket|jam)\b/.test(q));
+}
+
 /** City aliases for names the source files under a different slug. */
 const CITY_ALIASES: Record<string, string> = {
   tangsel: "tangerang",
@@ -158,6 +176,27 @@ export function parseFilmCityPage(html: string): FilmAtCinema[] {
   return out;
 }
 
+/**
+ * Synopsis off a film detail page (`/film/YYYY/slug/`). The text lives in the
+ * `#tr_synf` block after an embedded trailer iframe; everything from
+ * "Baca juga :" on is site chrome, not story. Returns "" when absent —
+ * callers fall back to schedules-only instead of inventing a plot.
+ * Pure — fixture-locked in verify.ts.
+ */
+export function parseFilmSynopsis(html: string): string {
+  const i = html.indexOf('id="tr_synf"');
+  if (i < 0) return "";
+  let seg = html.slice(i, i + 4000);
+  seg = seg.replace(/<iframe.*?<\/iframe>/gs, " ");
+  seg = seg.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+  const cut = seg.search(/Baca juga :|JADWAL|Trailer (Terbaru|Terbarunya)/i);
+  if (cut > 0) seg = seg.slice(0, cut).trim();
+  // Tag-stripping leaves the div's own attribute text at the head
+  // (`id="tr_synf">`), then the section header — remove both, keep story.
+  seg = seg.replace(/^id="tr_synf">\s*/i, "").replace(/^(Trailer & Sinopsis|Sinopsis)\s*/i, "").trim();
+  return seg.slice(0, 600);
+}
+
 function pageDate(html: string): string {
   // The date sits behind a tag (e.g. "JADWAL HARI INI <span>Senin, 14 September 2026</span>")
   const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
@@ -186,7 +225,21 @@ export async function cinemaShowtimes(q: CinemaQuery): Promise<string> {
   if (cinemaQ) {
     const cinemas = await listCinemas(slug);
     if (!cinemas.length) throw new Error(`tidak ada bioskop ditemukan untuk kota "${city}"`);
-    const matches = cinemas.filter((c) => c.name.toLowerCase().includes(cinemaQ));
+    // Fuzzy match (owner 2026-10-01): "Teras Kota" must find "CGV Teraskota".
+    // Normalize spaces/punctuation on both sides, and accept token overlap so
+    // chain prefixes (CGV/XXI) and spacing variants never cause a miss.
+    const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const cinemaTokens = (s: string): string[] =>
+      s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 2 && !/^(xxi|cgv|cinepolis|cineplex|the|mall|plaza|city|kota|grand|supermal|living|world|icon|walk|aeon|bale|bandara|foodmosphere|batavia|ciputra|paradise|transmart|bintaro|cikupa|karawaci|serpong|cileduks?|kutabumi|maxxbox|village|ecoplaza|alamsutera)$/.test(t));
+    const qNorm = norm(cinemaQ);
+    const qToks = cinemaTokens(cinemaQ);
+    const matches = cinemas.filter((c) => {
+      const name = c.name.toLowerCase();
+      const nNorm = norm(name);
+      if (name.includes(cinemaQ) || nNorm.includes(qNorm) || qNorm.includes(nNorm)) return true;
+      const nToks = cinemaTokens(name);
+      return qToks.some((t) => nToks.some((n) => n.includes(t) || t.includes(n)));
+    });
     if (!matches.length) {
       return `Bioskop "${q.cinema}" tidak ada di ${city}. Pilihan: ${cinemas.map((c) => c.name).join(", ").slice(0, 1400)}`;
     }
@@ -226,15 +279,38 @@ export async function cinemaShowtimes(q: CinemaQuery): Promise<string> {
     const body = rows
       .map((r) => `• ${r.cinema}\n  ` + r.shows.map((s) => `${s.format} ${money(s.price)}: ${s.times.join(", ")}`).join("\n  "))
       .join("\n");
-    return `${hit.title}${hit.genre ? ` (${hit.genre}${hit.duration ? `, ${hit.duration}` : ""})` : ""} di ${city}:\n${body}`.slice(0, MAX_OUT);
+    // Synopsis rides along when a film is named (owner 2026-10-01: "tentang
+    // apa?" died in web_search twice). Best-effort: a missing block leaves
+    // schedules untouched, never an invented plot.
+    let synopsis = "";
+    try {
+      const filmPage = await getHtml(hit.url);
+      const parsed = parseFilmSynopsis(filmPage);
+      if (parsed) synopsis = `\nSinopsis: ${parsed}`;
+    } catch {
+      /* schedules stand on their own */
+    }
+    return `${hit.title}${hit.genre ? ` (${hit.genre}${hit.duration ? `, ${hit.duration}` : ""})` : ""} di ${city}:\n${body}${synopsis}`.slice(0, MAX_OUT);
   }
 
   const filtered = genreQ ? films.filter((f) => `${f.genre} ${f.title}`.toLowerCase().includes(genreQ)) : films;
   if (!filtered.length) {
     return `Tidak ada film ${genreQ ? `genre "${q.genre}" ` : ""}yang sedang tayang di ${city}.`;
   }
+  // Cinema directory rides along (owner 2026-10-01: "bioskop terdekat dari
+  // rumahku" had no dedicated tool, so the answer came from memory).
+  // Best-effort and bounded: names only, never a failure.
+  let directory = "";
+  try {
+    const cinemas = await listCinemas(slug);
+    const names = [...new Set(cinemas.map((c) => c.name))].slice(0, 10);
+    if (names.length) directory = `\nBioskop di ${city}: ${names.join(", ")}`;
+  } catch {
+    /* films stand on their own */
+  }
   return (
     `Film sedang tayang di ${city}${genreQ ? ` (genre ${q.genre})` : ""}:\n` +
-    filtered.map((f) => `• ${f.title}${f.genre ? ` — ${f.genre}` : ""}${f.duration ? ` (${f.duration})` : ""}`).join("\n")
+    filtered.map((f) => `• ${f.title}${f.genre ? ` — ${f.genre}` : ""}${f.duration ? ` (${f.duration})` : ""}`).join("\n") +
+    directory
   ).slice(0, MAX_OUT);
 }

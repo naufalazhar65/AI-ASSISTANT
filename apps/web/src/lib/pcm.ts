@@ -92,6 +92,64 @@ export function pcm16ToFloat32(bytes: Uint8Array): Float32Array {
 }
 
 /**
+ * RMS energy of mono float samples (0 = silence, ~0.7 = full-scale sine).
+ * Pure — the client-side barge-in detector runs this on every mic frame.
+ */
+export function rmsFloat32(input: Float32Array): number {
+  if (!input.length) return 0;
+  let sum = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    const s = input[i];
+    sum += s * s;
+  }
+  return Math.sqrt(sum / input.length);
+}
+
+/**
+ * Laughter-vs-speech gate for the mic RMS stream (owner 2026-10-01).
+ *
+ * Laughter is rhythmic: voiced bursts ("ha-ha-ha") at ~3–8 syllables/s with
+ * dips between them. Plain loud speech is sustained energy without the dips;
+ * a cough is one spike. So: ≥3 upward crossings through HI, each pair
+ * separated by a dip below LO, intervals within [120, 400] ms. Conservative
+ * on purpose — a missed laugh is invisible, a false "[tertawa]" tag makes
+ * Mia comment on laughter that never happened.
+ *
+ * @param rms      Recent per-frame RMS, oldest-first (one entry per mic frame).
+ * @param frameMs  Mic frame period in ms (≈85 for the 4096-sample processor).
+ */
+export function detectLaughter(rms: number[], frameMs = 85): boolean {
+  const HI = 0.06;
+  const LO = 0.025;
+  const MIN_GAP_MS = 120;
+  const MAX_GAP_MS = 400;
+  const NEED_BURSTS = 3;
+  let bursts = 0;
+  let lastBurstAt = -Infinity;
+  let dipped = true; // require a dip before the first counted burst
+  for (let i = 0; i < rms.length; i += 1) {
+    const v = rms[i] ?? 0;
+    if (v < LO) {
+      dipped = true;
+      continue;
+    }
+    if (v >= HI && dipped) {
+      const at = i * frameMs;
+      if (bursts === 0 || (at - lastBurstAt >= MIN_GAP_MS && at - lastBurstAt <= MAX_GAP_MS)) {
+        bursts += 1;
+        lastBurstAt = at;
+        if (bursts >= NEED_BURSTS) return true;
+      } else if (at - lastBurstAt > MAX_GAP_MS) {
+        bursts = 1;
+        lastBurstAt = at;
+      }
+      dipped = false;
+    }
+  }
+  return false;
+}
+
+/**
  * Wrap raw 16-bit mono PCM in a 44-byte WAV container.
  *
  * This is what lets the Live path reuse the existing `AudioPlayer` unchanged:
