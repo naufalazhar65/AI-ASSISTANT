@@ -227,7 +227,9 @@ async function main() {
 
   // --- provider tool cap: Groq rejects >128 tools per request ---
   const { toolsForUrl } = await import("./src/lib/agent");
-  const liveToolsBoth = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "spotify_play", "spotify_mode", "spotify_queue", "spotify_sleep_timer"];
+  const liveToolsBoth = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "spotify_play", "spotify_mode", "spotify_queue", "gmaps_route"];
+  // spotify_sleep_timer demoted from CORE 2026-10-01 (0 executions; room for
+  // gmaps_route in 9r64) — replaced here by gmaps_route, which rides both caps.
   // transcribe demoted from CORE 2026-09-24 (csv_inject balance): the voice
   // pipeline calls Groq STT directly, never this tool — and Groq free STT 413s
   // on big prompts anyway. Tool stays registered for uncapped providers.
