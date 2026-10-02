@@ -312,13 +312,13 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "places_search",
         description:
-          "Cari tempat/venue NYATA (kafe, resto, warung, dsb.) via OpenStreetMap — gratis, tanpa API key (hasil: nama + alamat + jam buka). WAJIB dipakai untuk SEMUA pertanyaan rekomendasi tempat ('kafe tenang di Cipete', 'kopi dekat BSD', 'makan enak di Jaksel') — JANGAN pakai web_search untuk venue (hasil web keyless untuk venue lokal adalah sampah: kontak WhatsApp, spam Togel). Bila hasilnya 'No places found.', jawab dari pengetahuan + label jujur.",
+          "Cari tempat/venue NYATA (kafe, resto, warung, minimarket, apotek, dsb.) via OpenStreetMap — gratis, tanpa API key (hasil: nama + alamat + jam buka). WAJIB dipakai untuk SEMUA pertanyaan rekomendasi tempat ('kafe tenang di Cipete', 'kopi dekat BSD', 'makan enak di Jaksel', 'Indomaret di Pamulang') — JANGAN pakai web_search untuk venue (hasil web keyless untuk venue lokal adalah sampah: kontak WhatsApp, spam Togel). Bila hasilnya 'No places found.', jawab dari pengetahuan + label jujur.",
         parameters: {
           type: "object",
           properties: {
             query: {
               type: "string",
-              description: "Jenis/nama tempat, mis. 'cafe', 'kopi', 'makan', 'Turning Point Coffee'",
+              description: "Jenis/nama tempat, mis. 'cafe', 'kopi', 'makan', 'Turning Point Coffee', 'Indomaret', 'apotek'",
             },
             area: {
               type: "string",

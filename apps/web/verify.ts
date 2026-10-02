@@ -1854,6 +1854,15 @@ async function main() {
     const live = await executeTool({ id: "tpl", name: "places_search", arguments: JSON.stringify({ query: "cafe", area: "Cipete, Jakarta Selatan" }) }, "verify_places");
     if (/No places found|^Error:/.test(live)) throw new Error(`places_search live should list Cipete cafes: ${live.slice(0, 120)}`);
     if (!/^\d+\. .+ — /m.test(live)) throw new Error(`places_search live shape wrong: ${live.slice(0, 120)}`);
+    // Shop category (2026-10-02): pure routing + live dispatch shape (string-only, flake-free).
+    const { categoryFor: cfShop } = await import("./src/lib/places");
+    if (cfShop("Indomaret Fresh di Pamulang") !== "shop") throw new Error("Indomaret ask must route shop");
+    if (cfShop("alfamart terdekat") !== "shop") throw new Error("alfamart ask must route shop");
+    if (cfShop("apotek 24 jam") !== "shop") throw new Error("apotek ask must route shop");
+    if (cfShop("kafe di Cipete") !== "cafe") throw new Error("cafe routing must stay cafe");
+    const shopLive = await executeTool({ id: "tps", name: "places_search", arguments: JSON.stringify({ query: "Indomaret", area: "Pamulang" }) }, "verify_places");
+    if (typeof shopLive !== "string") throw new Error("places_search shop dispatch must return a string");
+    if (!/No places found\.|^\d+\. .+ — /m.test(shopLive)) throw new Error(`places_search shop shape wrong: ${shopLive.slice(0, 120)}`);
     const zonk = await executeTool({ id: "tpz", name: "places_search", arguments: JSON.stringify({ query: "cafe", area: "Xyzzy Nowhere Qqq" }) }, "verify_places");
     if (zonk !== "No places found.") throw new Error(`un-geocodable area must be honest: ${zonk.slice(0, 80)}`);
     const empty = await executeTool({ id: "tpe", name: "places_search", arguments: JSON.stringify({ query: "", area: "" }) }, "verify_places");

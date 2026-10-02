@@ -29,6 +29,15 @@ describe("categoryFor", () => {
     expect(categoryFor("tempat nongkrong")).toBe("both");
     expect(categoryFor("")).toBe("both");
   });
+  it("routes shop words to shop", () => {
+    expect(categoryFor("Indomaret Fresh di Pamulang")).toBe("shop");
+    expect(categoryFor("alfamart dekat sini")).toBe("shop");
+    expect(categoryFor("apotek buka 24 jam")).toBe("shop");
+  });
+  it("routes shop+food mixed to all", () => {
+    expect(categoryFor("indomaret dan kafe")).toBe("all");
+    expect(categoryFor("apotek atau makan")).toBe("all");
+  });
 });
 
 describe("nameTokens", () => {
@@ -45,6 +54,11 @@ describe("nameTokens", () => {
     expect(queryNameTokens("Turning Point Coffee di BSD", "BSD")).toEqual(
       expect.arrayContaining(["turning", "point"])
     );
+  });
+  it("strips the generic word fresh but keeps the brand name", () => {
+    const t = queryNameTokens("Indomaret Fresh di Pamulang", "Pamulang");
+    expect(t).toContain("indomaret");
+    expect(t).not.toContain("fresh");
   });
 });
 
@@ -77,6 +91,18 @@ describe("buildOverpassQuery", () => {
     expect(wq).toContain("way(around:");
     expect(wq).not.toMatch(/node\(around/);
   });
+  it("shop queries cover the shop key and pharmacy", () => {
+    const nq = buildNodeQuery(-6.33, 106.72, 3000, "shop");
+    expect(nq).toContain('["shop"~"');
+    expect(nq).toContain('["amenity"="pharmacy"]');
+    expect(nq).not.toContain("way(");
+    const wq = buildWayQuery(-6.33, 106.72, 3000, "shop");
+    expect(wq).toContain('["shop"~"');
+    expect(wq).toContain('["amenity"="pharmacy"]');
+    const all = buildOverpassQuery(-6.33, 106.72, 3000, "all");
+    expect(all).toContain('["shop"~"');
+    expect(all).toContain("cafe");
+  });
 });
 
 describe("formatPlaces", () => {
@@ -107,5 +133,14 @@ describe("formatPlaces", () => {
     expect(rows[0].name).toBe("Fore Coffee");
     expect(renderPlaces(rows, 8)).toContain("1. Fore Coffee");
     expect(renderPlaces([], 8)).toBe("No places found.");
+  });
+  it("collect keeps the shop kind for convenience stores", () => {
+    const shopEls: OverpassElement[] = [
+      { tags: { name: "Indomaret Fresh Pamulang", shop: "convenience" }, lat: -6.33, lon: 106.72 },
+    ];
+    const rows = collectPlaces(shopEls, "Indomaret di Pamulang", "Pamulang");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe("convenience");
+    expect(renderPlaces(rows, 8)).toContain("1. Indomaret Fresh Pamulang");
   });
 });

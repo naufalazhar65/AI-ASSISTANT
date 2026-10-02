@@ -18,7 +18,7 @@ const OVERPASS_URLS = [
 ];
 const UA = { "User-Agent": "mia-assistant/1.0 (personal assistant)" };
 
-export type PlaceKind = "cafe" | "restaurant" | "both";
+export type PlaceKind = "cafe" | "restaurant" | "shop" | "both" | "all";
 
 export interface OverpassElement {
   tags?: Record<string, string>;
@@ -44,6 +44,18 @@ const RESTO_WORDS = new Set([
   "makan", "makanan", "resto", "restaurant", "restoran", "warung",
   "sarapan", "kuliner", "food", "depot", "rumah makan", "makan malam",
 ]);
+/**
+ * Shop words (2026-10-02): minimarket/supermarket/apotek were unsearchable —
+ * categoryFor only knew cafe/restaurant, so "Indomaret Fresh di Pamulang"
+ * fell into food-venue search. OSM tags: shop=convenience|supermarket|general,
+ * amenity=pharmacy. Brand names (indomaret/alfamart/...) double as name-match
+ * tokens; only GENERIC words go to NAME_STOPWORDS below.
+ */
+const SHOP_WORDS = new Set([
+  "indomaret", "alfamart", "alfamidi", "lawson", "familymart", "circle k",
+  "minimarket", "mini market", "supermarket", "swalayan", "toko", "market",
+  "convenience", "fresh", "apotek", "apotik", "pharmacy", "farmasi",
+]);
 /** Tokens that are never a venue NAME (areas, filler, verbs). */
 const NAME_STOPWORDS = new Set([
   "yang", "dan", "atau", "dengan", "dekat", "sekitar", "area", "daerah",
@@ -51,6 +63,8 @@ const NAME_STOPWORDS = new Set([
   "outdoor", "cozy", "santai", "nongkrong", "hangout", "kerja",
   "rekomendasi", "rekomendasikan", "cari", "carikan", "tolong", "dong",
   "kafe", "cafe", "coffee", "kopi", "resto", "makan", "di", "ke", "the", "jakarta",
+  "minimarket", "supermarket", "swalayan", "toko", "market", "convenience",
+  "fresh", "apotek", "apotik", "pharmacy", "farmasi",
   "selatan", "utara", "timur", "barat", "pusat", "jaksel", "jakut",
   "jaktim", "jakbar", "jakpus",
 ]);
@@ -60,6 +74,9 @@ export function categoryFor(query: string): PlaceKind {
   const q = (query || "").toLowerCase();
   const hasCafe = [...CAFE_WORDS].some((w) => q.includes(w));
   const hasResto = [...RESTO_WORDS].some((w) => q.includes(w));
+  const hasShop = [...SHOP_WORDS].some((w) => q.includes(w));
+  if (hasShop && !hasCafe && !hasResto) return "shop";
+  if (hasShop && (hasCafe || hasResto)) return "all";
   if (hasCafe && !hasResto) return "cafe";
   if (hasResto && !hasCafe) return "restaurant";
   return "both";
@@ -101,6 +118,21 @@ function amenityRe(kind: PlaceKind): string {
       : "^(cafe|restaurant|fast_food|ice_cream)$";
 }
 
+/**
+ * Shop/pharmacy union members (2026-10-02): minimarket & apotek live under
+ * the `shop` key (convenience/supermarket/general) and `amenity=pharmacy` —
+ * NOT the food amenity family. Pure.
+ */
+const SHOP_RE = "^(convenience|supermarket|general)$";
+
+function shopNodeFilter(at: string): string {
+  return `node${at}["shop"~"${SHOP_RE}"]["name"];node${at}["amenity"="pharmacy"]["name"];`;
+}
+
+function shopWayFilter(at: string): string {
+  return `way${at}["shop"~"${SHOP_RE}"]["name"];way${at}["amenity"="pharmacy"]["name"];`;
+}
+
 function around(lat: number, lon: number, radiusM: number): string {
   const r = Math.max(500, Math.min(20000, Math.round(radiusM)));
   return `(around:${r},${lat},${lon})`;
@@ -108,11 +140,19 @@ function around(lat: number, lon: number, radiusM: number): string {
 
 /** Node-only query — cheap; the production path runs this first. Pure. */
 export function buildNodeQuery(lat: number, lon: number, radiusM: number, kind: PlaceKind): string {
+  const at = around(lat, lon, radiusM);
+  if (kind === "shop") return `[out:json][timeout:20];(${shopNodeFilter(at)});out tags 30;`;
+  if (kind === "all")
+    return `[out:json][timeout:20];(node${at}["amenity"~"${amenityRe("both")}"]["name"];${shopNodeFilter(at)});out tags 30;`;
   return `[out:json][timeout:20];node${around(lat, lon, radiusM)}["amenity"~"${amenityRe(kind)}"]["name"];out tags 30;`;
 }
 
 /** Way-only query — expensive under load; backfill path only. Pure. */
 export function buildWayQuery(lat: number, lon: number, radiusM: number, kind: PlaceKind): string {
+  const at = around(lat, lon, radiusM);
+  if (kind === "shop") return `[out:json][timeout:20];(${shopWayFilter(at)});out center tags 30;`;
+  if (kind === "all")
+    return `[out:json][timeout:20];(way${at}["amenity"~"${amenityRe("both")}"]["name"];${shopWayFilter(at)});out center tags 30;`;
   return `[out:json][timeout:20];way${around(lat, lon, radiusM)}["amenity"~"${amenityRe(kind)}"]["name"];out center tags 30;`;
 }
 
@@ -123,6 +163,12 @@ export function buildWayQuery(lat: number, lon: number, radiusM: number, kind: P
  * Pure.
  */
 export function buildOverpassQuery(lat: number, lon: number, radiusM: number, kind: PlaceKind): string {
+  const at = around(lat, lon, radiusM);
+  if (kind === "shop" || kind === "all") {
+    const foodFilt =
+      kind === "all" ? `node${at}["amenity"~"${amenityRe("both")}"]["name"];way${at}["amenity"~"${amenityRe("both")}"]["name"];` : "";
+    return `[out:json][timeout:20];(${foodFilt}${shopNodeFilter(at)}${shopWayFilter(at)});out center tags 30;`;
+  }
   const filt = `${around(lat, lon, radiusM)}["amenity"~"${amenityRe(kind)}"]["name"]`;
   return `[out:json][timeout:20];(node${filt};way${filt};);out center tags 30;`;
 }
@@ -151,7 +197,7 @@ export function collectPlaces(
     if (!name || !placeNameMatches(name, tokens)) continue;
     rows.push({
       name,
-      kind: tags.amenity || "tempat",
+      kind: tags.amenity || tags.shop || "tempat",
       address: addressOf(tags),
       hours: (tags.opening_hours || "").trim(),
       lat: el.lat ?? el.center?.lat ?? 0,
