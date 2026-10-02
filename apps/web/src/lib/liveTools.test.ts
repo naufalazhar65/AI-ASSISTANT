@@ -52,6 +52,7 @@ describe("liveToolDeclarations — built from the registry, not hand-kept", () =
       "gmaps_route",
       "hotel_search",
       "cinema_showtimes",
+      "places_search",
       "web_search",
       "calculate",
       "briefing",

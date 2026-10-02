@@ -40,6 +40,9 @@ export { LIVE_WRITE_TOOLS };
  *     allowlist gap, not a missing credential.
  *     Travel live-data (`waze_route`/`hotel_search`), added 2026-10-01 at the
  *     owner's ask — both fast and speakable ("44 km, 86 menit").
+  *     Venue search (`places_search`), added 2026-10-02 at the owner's ask:
+  *     keyless web_search is dead for Indonesian venue long-tail (Bing junk),
+  *     so venue asks stalled — Overpass returns real mapped venues.
  *     WRITE tools go through a SPOKEN confirmation loop instead of
  *     executing on first sight (owner-approved 2026-09-30, gap #2,
  *     extended 2026-10-01 to task/calendar writes): `remind_me`, `save_note`,
@@ -79,6 +82,7 @@ export const LIVE_TOOL_NAMES = [
   "gmaps_route",
   "hotel_search",
   "cinema_showtimes",
+  "places_search",
   "web_search",
   "calculate",
   "briefing",

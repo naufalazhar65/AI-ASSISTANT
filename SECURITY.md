@@ -353,7 +353,7 @@ Lima modul pentest canggih yang terintegrasi ke `bounty_run` untuk alur one-comm
 
 **Live test (Discord, Netlify Lab):** 7 findings (2 Critical: SQLi + no-auth admin-data; 3 High: BOLA, header spoof, IDOR PII; 2 Medium: Stored XSS, missing headers) + **PDF scoped ke target** (`report-2026-09-19T17-19-40-437Z.pdf` 157KB)
 
-**Total tools: 335** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **86 playbook** · **vitest 1555**
+**Total tools: 337** · **CORE 128** (jendela Groq; 9router membawa 64 = chain analisis) · **86 playbook** · **vitest 1555**
 
 ### 9.11 Scope: lab milik owner bisa dideklarasi (`lab_add`, 2026-09-27)
 

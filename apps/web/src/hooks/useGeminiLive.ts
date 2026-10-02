@@ -303,7 +303,9 @@ export function useGeminiLive(): UseGeminiLiveResult {
             }
             speakingRef.current = event.speaking;
             if (!event.speaking) hotStreakRef.current = 0;
-            else setToolNote("");
+            else {
+              setToolNote("");
+            }
             // The model is producing something, so the silence notice is stale.
             setStalled("");
             if (!event.speaking) {

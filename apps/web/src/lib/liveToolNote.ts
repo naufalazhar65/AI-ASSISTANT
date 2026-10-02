@@ -19,6 +19,7 @@ const LIVE_TOOL_VERBS: Record<string, string> = {
   web_search: "mencari",
   weather: "mengecek cuaca",
   hotel_search: "mencari hotel",
+  places_search: "mencari tempat",
   cinema_showtimes: "mencari jadwal film",
   spotify_play: "memutar lagu",
   spotify_search: "mencari lagu",

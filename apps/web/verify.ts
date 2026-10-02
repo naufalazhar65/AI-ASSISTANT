@@ -278,7 +278,7 @@ async function main() {
 
   // --- provider tool cap: Groq rejects >128 tools per request ---
   const { toolsForUrl } = await import("./src/lib/agent");
-  const liveToolsBoth = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "spotify_play", "spotify_mode", "spotify_queue", "gmaps_route"];
+  const liveToolsBoth = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "spotify_play", "spotify_mode", "spotify_queue", "gmaps_route", "places_search"];
   // spotify_sleep_timer demoted from CORE 2026-10-01 (0 executions; room for
   // gmaps_route in 9r64) — replaced here by gmaps_route, which rides both caps.
   // transcribe demoted from CORE 2026-09-24 (csv_inject balance): the voice
@@ -1809,15 +1809,15 @@ async function main() {
     if (unresolved.length) throw new Error(`CORE names not in registry: ${unresolved.join(",")}`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "ato_prove", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt", "bypass403", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "coverage", "threat_model", "submission_preflight"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt", "bypass403", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "coverage", "threat_model", "submission_preflight"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
     if (r9.length > 64) throw new Error(`9router tool cap exceeded (${r9.length})`);
-    for (const n of ["workflow_fuzz", "race_attack", "graphql_hunt", "prompt_injection_hunt", "http_request", "poc_verify", "finding_add", "llm_hunt", "mcp_hunt", "lab_add", "coverage", "threat_model", "report_generate", "report_save", "writeup", "submission_preflight", "gmail_list", "gmail_link", "mac_open"]) {
+    for (const n of ["workflow_fuzz", "race_attack", "graphql_hunt", "prompt_injection_hunt", "http_request", "poc_verify", "finding_add", "llm_hunt", "mcp_hunt", "lab_add", "coverage", "threat_model", "report_generate", "report_save", "writeup", "submission_preflight", "gmail_list", "gmail_link", "mac_open", "places_search"]) {
       if (!r9.some((t) => t.function.name === n)) throw new Error(`9router 64-window missing ${n}`);
     }
-    for (const n of ["waze_route", "spotify_next", "spotify_volume"]) {
+    for (const n of ["waze_route", "spotify_next", "spotify_volume", "ato_prove"]) {
       if (r9.some((t) => t.function.name === n)) throw new Error(`${n} should be demoted out of the 9router window`);
       if (!HINT_UNDELIVERED.includes(n)) throw new Error(`${n} must be in HINT_UNDELIVERED`);
     }
@@ -1830,6 +1830,35 @@ async function main() {
       throw new Error("report_pdf unexpectedly in the 9router window — update the CORE comment + this assertion together");
     }
     console.log("provider tool caps (groq keeps pentest suite): OK");
+  }
+  {
+    // --- places_search (2026-10-02): keyless venue search via Overpass ---
+    const { getTool, executeTool } = await import("./src/lib/tools");
+    const { CORE_TOOL_NAMES: core2, toolsForUrl: tfu2, HINT_UNDELIVERED: hint2, buildSystemPrompt } = await import("./src/lib/agent");
+    const { isLiveToolName, liveToolDeclarations } = await import("./src/lib/liveTools");
+    const plug = getTool("places_search");
+    if (!plug) throw new Error("places_search not registered");
+    if (plug.definition.risk !== "read") throw new Error("places_search must be risk read (auto-run, no confirm)");
+    if (!core2.has("places_search")) throw new Error("places_search must be CORE (9router-64 window)");
+    if (core2.has("ato_prove")) throw new Error("ato_prove must stay demoted (places_search balance)");
+    if (core2.size !== 128) throw new Error(`CORE must stay 128, got ${core2.size}`);
+    const r9p = tfu2("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name);
+    if (!r9p.includes("places_search")) throw new Error("9router-64 must carry places_search (venue asks on Discord)");
+    if (r9p.includes("ato_prove")) throw new Error("9router-64 must NOT carry ato_prove (demoted 2026-10-02)");
+    if (!hint2.includes("ato_prove")) throw new Error("ato_prove must be in HINT_UNDELIVERED");
+    if (!isLiveToolName("places_search")) throw new Error("places_search must be in LIVE_TOOL_NAMES (voice stall fix)");
+    if (!liveToolDeclarations().some((d) => d.name === "places_search")) throw new Error("places_search missing from Live declarations");
+    const full = buildSystemPrompt("verify_places");
+    if (!full.includes("places_search")) throw new Error("system prompt must route venue asks to places_search");
+    // Live dispatch against real Overpass: Cipete must return named venues.
+    const live = await executeTool({ id: "tpl", name: "places_search", arguments: JSON.stringify({ query: "cafe", area: "Cipete, Jakarta Selatan" }) }, "verify_places");
+    if (/No places found|^Error:/.test(live)) throw new Error(`places_search live should list Cipete cafes: ${live.slice(0, 120)}`);
+    if (!/^\d+\. .+ — /m.test(live)) throw new Error(`places_search live shape wrong: ${live.slice(0, 120)}`);
+    const zonk = await executeTool({ id: "tpz", name: "places_search", arguments: JSON.stringify({ query: "cafe", area: "Xyzzy Nowhere Qqq" }) }, "verify_places");
+    if (zonk !== "No places found.") throw new Error(`un-geocodable area must be honest: ${zonk.slice(0, 80)}`);
+    const empty = await executeTool({ id: "tpe", name: "places_search", arguments: JSON.stringify({ query: "", area: "" }) }, "verify_places");
+    if (!/^Error:/.test(empty)) throw new Error("places_search must reject empty args");
+    console.log("places_search (Overpass keyless venue search + CORE swap + Live): OK");
   }
   {
     // Preserve the owner's REAL engagements.json (this test must never destroy

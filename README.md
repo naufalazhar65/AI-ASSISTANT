@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-335-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-337-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![Playbooks](https://img.shields.io/badge/security%20playbooks-86-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
@@ -172,7 +172,7 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
 | **Superpower** | `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query`, `coverage`, `threat_model` | Per-target memory, regression suite, N-role matrix, DOM XSS taint, disclosed patterns, **coverage ledger** (which risk class was tested + how it closed, evidence required), **threat model** (4 mandatory sections per target) |
 
-**335 tools total.** Full list derives from the registry — see
+**337 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---

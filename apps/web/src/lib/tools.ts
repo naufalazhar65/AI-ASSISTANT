@@ -310,6 +310,51 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "places_search",
+        description:
+          "Cari tempat/venue NYATA (kafe, resto, warung, dsb.) via OpenStreetMap — gratis, tanpa API key (hasil: nama + alamat + jam buka). WAJIB dipakai untuk SEMUA pertanyaan rekomendasi tempat ('kafe tenang di Cipete', 'kopi dekat BSD', 'makan enak di Jaksel') — JANGAN pakai web_search untuk venue (hasil web keyless untuk venue lokal adalah sampah: kontak WhatsApp, spam Togel). Bila hasilnya 'No places found.', jawab dari pengetahuan + label jujur.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Jenis/nama tempat, mis. 'cafe', 'kopi', 'makan', 'Turning Point Coffee'",
+            },
+            area: {
+              type: "string",
+              description: "Wilayah, mis. 'Cipete, Jakarta Selatan', 'BSD, Tangerang'",
+            },
+            radiusM: {
+              type: "number",
+              description: "Radius meter (default 3000, maks 20000)",
+            },
+            limit: {
+              type: "number",
+              description: "Maks hasil (default 8, maks 15)",
+            },
+          },
+          required: ["query", "area"],
+        },
+      },
+    },
+    execute: async (args) => {
+      const query = typeof args.query === "string" ? args.query : "";
+      const area = typeof args.area === "string" ? args.area : "";
+      const radiusM = typeof args.radiusM === "number" ? args.radiusM : 3000;
+      const limit = typeof args.limit === "number" ? args.limit : 8;
+      try {
+        const { placesSearch } = await import("./places");
+        return await placesSearch({ query, area, radiusM, limit });
+      } catch (e) {
+        return `Error: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "google_news",
         description:
           "Fetch Google News headlines — top stories, or a keyword search scoped to one or more language editions, deduped across outlets. Use when the user asks about current news, breaking stories, or 'berita terbaru'.",
@@ -6367,6 +6412,38 @@ function cleanSearchQuery(raw: string): string {
     .replace(/\b(\w+)\s+\1\b/gi, "$1");
 }
 
+/**
+ * Relevance guard: Bing returns junk for Indonesian long-tail queries
+ * (measured 2026-10-02 — "kafe tenang indoor Cipete Jakarta Selatan"
+ * returned WhatsApp/BT-Community pages, both HTML and RSS). A junk result
+ * presented as success makes the model stall ("aku carikan...") then refuse
+ * instead of answering from knowledge. So a parsed result with ZERO content-
+ * word overlap with the query is treated as no result — the existing
+ * "jawab dari pengetahuan" guidance then fires instead of a junk-backed
+ * refusal. Pure + two-directional lock in verify.ts.
+ */
+const SEARCH_STOPWORDS = new Set([
+  "yang", "dan", "di", "dari", "untuk", "dengan", "pada", "ini", "itu",
+  "akan", "tidak", "para", "saat", "dalam", "karena", "apa", "ada", "saja",
+  "the", "a", "an", "of", "to", "in", "on", "and", "for", "is", "are",
+  "was", "were", "by", "at", "as", "or", "ke", "set",
+]);
+/** Spelling variants that count as the same token (ID ↔ EN). */
+const SEARCH_ALIASES: Record<string, string> = {
+  kafe: "cafe",
+  jaksel: "jakarta",
+};
+export function searchResultsRelevant(query: string, resultText: string): boolean {
+  const tokens = query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !SEARCH_STOPWORDS.has(w));
+  if (!tokens.length) return true;
+  const hay = resultText.toLowerCase();
+  return tokens.some((t) => hay.includes(t) || (SEARCH_ALIASES[t] !== undefined && hay.includes(SEARCH_ALIASES[t])));
+}
+
 async function webSearch(query: string): Promise<string> {
   const q = cleanSearchQuery(query.trim().slice(0, 200));
   if (!q) return "Error: empty search query";
@@ -6374,7 +6451,19 @@ async function webSearch(query: string): Promise<string> {
   const instant = await fetchInstantAnswer(q);
   if (instant) return instant;
 
-  // 1) DuckDuckGo HTML
+  // 1) Bing HTML (DDG HTML often returns degraded/CJK garbage — Bing first)
+  try {
+    const res = await fetch(`${BING_HTML}?q=${encodeURIComponent(q)}`, {
+      headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
+      signal: AbortSignal.timeout(9000),
+    });
+    if (res.ok) {
+      const parsed = parseBingResults(await res.text());
+      if (parsed !== "No results found." && searchResultsRelevant(q, parsed)) return parsed;
+    }
+  } catch { /* fall through to DDG */ }
+
+  // 2) DuckDuckGo HTML fallback
   try {
     const res = await fetch(DDG_HTML, {
       method: "POST",
@@ -6388,21 +6477,10 @@ async function webSearch(query: string): Promise<string> {
     });
     if (res.ok) {
       const parsed = parseResults(await res.text());
-      if (parsed !== "No results found.") return parsed;
+      if (parsed !== "No results found." && searchResultsRelevant(q, parsed)) return parsed;
     }
-  } catch { /* fall through to Bing */ }
-
-  // 2) Bing HTML fallback
-  try {
-    const res = await fetch(`${BING_HTML}?q=${encodeURIComponent(q)}&setlang=id&cc=ID`, {
-      headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
-      signal: AbortSignal.timeout(9000),
-    });
-    if (!res.ok) return "Error: web search failed";
-    return parseBingResults(await res.text());
-  } catch {
-    return "Error: web search failed";
-  }
+  } catch { /* fall through */ }
+  return "No results found.";
 }
 
 /** Resolve Bing's /ck redirect wrapper into the real publisher URL (or passthrough). */

@@ -39,7 +39,7 @@ export const HELP_TEXT = [
   "  `/status` — status sistem (waktu, uptime, provider, data)",
   "  `/backup` — backup data user ke .data/backups/<ts>/",
   "",
-  "Kamu bisa minta aku menyetel reminder, menyimpan catatan, mencari di web, membaca file/link, atau menghitung.",
+  "Kamu bisa minta aku menyetel reminder, menyimpan catatan, mencari di web, mencari kafe/tempat & hotel, membaca file/link, atau menghitung.",
 ].join("\n");
 
 export const VALID_PROVIDERS = ["groq", "opencode", "opencodego", "9router", "openrouter", "mock"];
