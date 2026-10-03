@@ -4,7 +4,8 @@
 // hits the right track/playlist instead of the whole sentence.
 
 const NOUN = "(?:lagu|song|musik|music|playlist|album)";
-const VERB = "(?:putar(?:in|kan)?|play|mainkan|dengerin|stel|nyalain)";
+// "setel" and "stel" are both common spellings of the same play verb.
+const VERB = "(?:putar(?:in|kan)?|play|mainkan|dengerin|s(?:e)?tel|nyalain)";
 // A play verb or a polite particle followed by the music noun:
 //   "putar lagu X", "coba lagu X", "tolong lagu X", "mau dengerin lagu X".
 const STRONG_RE = new RegExp(
@@ -73,6 +74,54 @@ export function detectSpotifyIntent(text: string): SpotifyIntent | null {
   // return null so the caller falls back to the model's own (context-aware) query.
   if (!cleaned) return null;
   return { query: cleaned, kind };
+}
+
+/**
+ * True for a status question ("lagu apa yang diputar") — never a play ask.
+ * Exported so callers can exclude it without duplicating the pattern.
+ */
+export function isSpotifyStatusAsk(text: string): boolean {
+  return !!text && NOW_PLAYING_Q_RE.test(text);
+}
+
+/**
+ * Tokens that carry no searchable content in a `spotify_play` query: music
+ * nouns, play verbs, the app name, and polite/filler particles. A query made
+ * ONLY of these (or empty) names no song — executing it would resume the
+ * queue and be heard as "random play". Pure — unit-tested.
+ */
+const BARE_QUERY_TOKENS: ReadonlySet<string> = new Set([
+  "lagu", "lagunya", "musik", "musiknya", "nyanyian", "song", "songs",
+  "music", "track", "tracks", "playlist", "album",
+  "putar", "putarkan", "putarin", "play", "mainkan", "mainin",
+  "dengerin", "dengarkan", "dengar", "stel", "setel", "nyalakan", "nyalain",
+  "spotify",
+  "dong", "ya", "yuk", "deh", "donk", "lah", "beb", "mas", "bang", "kak",
+  "plis", "please", "tolong", "coba", "lagi", "dulu", "aja", "saja",
+  "kan", "sih", "kok", "nih", "itu", "ini", "apa", "yang", "di", "ke",
+  "mau",
+]);
+
+export function isBareMusicQuery(query: string): boolean {
+  const t = (query || "").trim().toLowerCase();
+  if (!t) return true;
+  const tokens = t.split(/[\s,.;:!?()"'\-]+/).filter(Boolean);
+  if (!tokens.length) return true;
+  return tokens.every((w) => BARE_QUERY_TOKENS.has(w));
+}
+
+/**
+ * True for a bare play ask naming NO song ("setel lagu", "play musik dong")
+ * that is not a resume ("play lagi") and not a status question ("lagu apa
+ * yang diputar"). The `spotify_play` plugin uses this to ask which song
+ * instead of executing a title-less call that would resume the queue.
+ * Pure — unit-tested.
+ */
+export function isBarePlayAsk(text: string): boolean {
+  if (!text || !isPlaybackCommand(text)) return false;
+  if (detectSpotifyResume(text)) return false;
+  if (isSpotifyStatusAsk(text)) return false;
+  return detectSpotifyIntent(text) === null;
 }
 
 export type SpotifyControl = "pause" | "next" | "previous" | "volume";

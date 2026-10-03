@@ -113,6 +113,7 @@ import {
   spotifySetVolume,
   spotifyDevices,
 } from "./spotify";
+import { isBareMusicQuery, isBarePlayAsk } from "./spotifyIntent";
 
 export interface ToolCall {
   id: string;
@@ -2223,11 +2224,11 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "spotify_play",
         description:
-          "Play a song on Spotify. Provide `query` to search and play the top result; omit `query` to resume paused playback. Runs immediately (no confirmation).",
+          "Play a song on Spotify. Provide `query` to search and play the top result. Omit `query` ONLY to resume paused playback when the user says 'lagi'/'lanjutkan'. If the user names no song ('setel lagu', 'play musik', 'putar lagu dong'), do NOT call — ask which song first. Runs immediately (no confirmation).",
         parameters: {
           type: "object",
           properties: {
-            query: { type: "string", description: "Optional title/artist to play, e.g. 'Harry Styles as it was'. Omit to resume." },
+            query: { type: "string", description: "Title/artist to play, e.g. 'Harry Styles as it was'. Omit ONLY to resume paused playback." },
           },
           required: [],
         },
@@ -2235,7 +2236,16 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: async (args, ctx) => {
       try {
-        return await spotifyPlay(ctx.rawUser, typeof args.query === "string" ? args.query : "");
+        // A title-less call resumes the queue and is heard as "random play".
+        // On a bare play ask (no song named, not a resume), ask first instead
+        // of executing. Fail-open when the user's text is unavailable (e.g.
+        // the Live route) so the established resume behavior is preserved.
+        const q = typeof args.query === "string" ? args.query : "";
+        const last = ctx.lastUserText ?? "";
+        if (isBareMusicQuery(q) && last && isBarePlayAsk(last)) {
+          return "Tanya dulu: user tidak menyebut judul lagu apa pun dan ini bukan 'lagi'/lanjutkan — tanyakan mau dengar lagu apa, JANGAN memutar atau menyentuh playback.";
+        }
+        return await spotifyPlay(ctx.rawUser, q);
       } catch (err) {
         return spotifyToolError(err, ctx.rawUser);
       }

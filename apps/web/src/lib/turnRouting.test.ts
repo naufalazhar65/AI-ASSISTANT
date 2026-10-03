@@ -24,7 +24,7 @@ describe("metaProseNote (stage-direction register leak)", () => {
   });
 });
 
-import { planSpotifyTurn, detectSpotifyAfterTrack, detectSpotifyControl, isPlaybackCommand } from "./spotifyIntent";
+import { planSpotifyTurn, detectSpotifyAfterTrack, detectSpotifyControl, isPlaybackCommand, isBareMusicQuery, isBarePlayAsk, detectSpotifyIntent } from "./spotifyIntent";
 import { moodTone } from "./mood";
 import { isFillerLine } from "./memoryNoise";
 import { clockLabel, wibDay, wibDayIndex, wibDailyNext } from "./time";
@@ -78,6 +78,33 @@ describe("spotify turn routing (no double action)", () => {
     expect(resolveFavoriteQuery("lagu favoritku dari m2m", "The Day You Went Away (M2M)", "M2M"))
       .toBe("The Day You Went Away M2M");
     expect(resolveFavoriteQuery("The Day You Went Away M2M", null, null)).toBe("The Day You Went Away M2M");
+  });
+});
+
+describe("bare play asks first (no title-less resume)", () => {
+  it("flags queries that name no song", () => {
+    // NOTE: "favorit"/"favoritku" are deliberately NOT bare tokens — a
+    // "lagu favoritku" query must pass through to persona resolution.
+    for (const q of ["", "  ", "lagu", "lagu dong", "setel lagu", "musik", "apa", "play"]) {
+      expect(isBareMusicQuery(q), JSON.stringify(q)).toBe(true);
+    }
+    for (const q of ["Tulus", "Sapphire", "lagu favoritku", "lagu favorit", "play lagu Tulus", "top 50 indonesia", "The Day You Went Away"]) {
+      expect(isBareMusicQuery(q), JSON.stringify(q)).toBe(false);
+    }
+  });
+
+  it("flags bare play asks but never resume or status questions", () => {
+    for (const s of ["setel lagu", "stel lagu dong", "play musik", "putar lagu dong", "coba setel lagu", "mia play lagu"]) {
+      expect(isBarePlayAsk(s), s).toBe(true);
+    }
+    for (const s of ["putar lagu Tulus", "setel lagu Tulus", "play lagi", "putar lagi lagunya", "lagu apa yang diputar", "sedang putar lagu apa", "apa kabar?", "Cek cuaca. Kalau ada tanda hujan kirim pesan singkat"]) {
+      expect(isBarePlayAsk(s), s).toBe(false);
+    }
+  });
+
+  it("extracts a title after the 'setel' spelling", () => {
+    expect(detectSpotifyIntent("setel lagu Tulus")?.query).toBe("Tulus");
+    expect(detectSpotifyIntent("setel lagu")).toBeNull();
   });
 });
 
