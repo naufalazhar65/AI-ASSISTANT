@@ -106,4 +106,38 @@ describe("fired-receipts — a delivered one-shot leaves a trace", () => {
     const out = await executeTool({ id: "t2", name: "reminders_list", arguments: "{}" }, u);
     expect(out).toBe("Belum ada reminder beb — mau aku ingetin apa? 🌸");
   });
+
+  it("fan-out reaches every listener, but only the slot owner's ack consumes", () => {
+    const a = track(freshUser("scopeA"));
+    const b = track(freshUser("scopeB"));
+    const seenA: Array<{ id: string; owner: string }> = [];
+    const seenB: Array<{ id: string; owner: string }> = [];
+    // Production shape (discord/telegram/stream): decline foreign slots.
+    const unsubA = subscribeReminders((r, owner) => {
+      seenA.push({ id: r.id, owner });
+      if (owner !== a) return false;
+      return true;
+    });
+    const unsubB = subscribeReminders((r, owner) => {
+      seenB.push({ id: r.id, owner });
+      if (owner !== b) return false;
+      return true;
+    });
+    try {
+      addReminder("untuk A", Date.now() - 1000, a);
+      takeDueReminders(a);
+      // Both listeners were called with A's key (fan-out is shared)...
+      expect(seenA.length).toBe(1);
+      expect(seenA[0].owner).toBe(a);
+      expect(seenB.length).toBe(1);
+      expect(seenB[0].owner).toBe(a);
+      // ...but only A's ack consumed the slot: receipt written, store clean.
+      expect(readFiredReceipts(a).length).toBe(1);
+      // B's own store is untouched (nothing delivered there, nothing missed).
+      expect(takeDueReminders(b)).toEqual([]);
+    } finally {
+      unsubA();
+      unsubB();
+    }
+  });
 });

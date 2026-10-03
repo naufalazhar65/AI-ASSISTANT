@@ -1,4 +1,5 @@
 import { broadcastMiaState } from "../lib/miaState";
+import { OWNER_KEY, canonicalUserKey } from "../lib/identity";
 import { COMMAND_EMPTY_FALLBACK, DISCORD_MAX, EMPTY_REPLY_FALLBACK, chunkText, clockLabel, parseConfirmReply, pendingConfirmPrompt } from "./replyChunk";
 
 /**
@@ -422,20 +423,52 @@ export async function startDiscordBot(): Promise<void> {
   // Proactive reminder push: deliver due reminders to the owner's channel/dm.
   // Ack: true only when a channel is known (last-seen or owner DM resolvable
   // from the bot's owner id) AND a send is initiated — a slot is never marked
-  // delivered when nothing could receive it.
-  subscribeReminders((reminder: Reminder): boolean => {
-    const ready = !!lastSeenOwnerChannel || (!!activeClient && !!ALLOWED_USER_IDS[0]);
-    if (!ready) return false;
+  // delivered when nothing could receive it. Two guards: (1) owner-scope —
+  // slots owned by another key are ignored, so one human's reminders never
+  // leak into (or get consumed for) another's channel; (2) confirmed-delivery
+  // — the async DM-resolve path returns false until a send truly succeeds, so
+  // an unresolvable target can no longer burn the slot (deliveredIds caps at
+  // 500; a restart may redeliver a still-due slot once — accepted).
+  const deliveredReminderIds = new Set<string>();
+  subscribeReminders((reminder: Reminder, slotOwner: string): boolean => {
+    if (canonicalUserKey(slotOwner) !== OWNER_KEY) return false;
+    if (deliveredReminderIds.has(reminder.id)) return true;
+    if (lastSeenOwnerChannel) {
+      const target = lastSeenOwnerChannel;
+      const at = new Date(reminder.at);
+      const timeLabel = clockLabel(at);
+      void target.send(`🌸 **Mia** — ${reminderMessage(reminder.text, timeLabel)}`).then(
+        () => {
+          deliveredReminderIds.add(reminder.id);
+          if (deliveredReminderIds.size > 500) {
+            const first = deliveredReminderIds.values().next();
+            if (!first.done) deliveredReminderIds.delete(first.value);
+          }
+        },
+        (e: unknown) => {
+          console.warn("[discord] reminder push failed:", e instanceof Error ? e.message : String(e));
+        },
+      );
+      return true;
+    }
+    if (!activeClient || !ALLOWED_USER_IDS[0]) return false;
     void (async () => {
       const target = await resolvePushTarget();
       if (target == null) return;
       const at = new Date(reminder.at);
       const timeLabel = clockLabel(at);
-      target.send(`🌸 **Mia** — ${reminderMessage(reminder.text, timeLabel)}`).catch((e: unknown) => {
+      try {
+        await target.send(`🌸 **Mia** — ${reminderMessage(reminder.text, timeLabel)}`);
+        deliveredReminderIds.add(reminder.id);
+        if (deliveredReminderIds.size > 500) {
+          const first = deliveredReminderIds.values().next();
+          if (!first.done) deliveredReminderIds.delete(first.value);
+        }
+      } catch (e: unknown) {
         console.warn("[discord] reminder push failed:", e instanceof Error ? e.message : String(e));
-      });
+      }
     })();
-    return true;
+    return false;
   });
 
   // Register this bot as the proactive-output sink (scheduled automation results).

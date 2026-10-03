@@ -32,6 +32,10 @@ function frame(r: Reminder): string {
 
 export async function GET(request: NextRequest) {
   const userKey = sanitizeUser(request.nextUrl.searchParams.get("user") ?? undefined);
+  // Peek mode (?peek=1): display-only secondary surface (e.g. the native
+  // app). Frames still go out, but push() never acks, so the slot is never
+  // consumed here — the scheduler/bot path stays the sole claimer.
+  const peek = request.nextUrl.searchParams.get("peek") === "1";
   // Rate-limit SSE opens (prevent EventSource loop DoS); reuses turn limiter
   try {
     if (userKey) checkRateLimit(`stream:${userKey}`);
@@ -53,10 +57,16 @@ export async function GET(request: NextRequest) {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const push: (r: Reminder) => boolean = (r) => {
+      // Peek mode: the frame goes out but the slot is NOT consumed, so the
+      // scheduler/bot path remains the sole claimer and always delivers to
+      // its own channels too. Due-but-unclaimed slots re-broadcast every
+      // SCAN_MS, so peek clients must dedupe repeat frames by id.
+      const push: (r: Reminder, slotOwner: string) => boolean = (r, slotOwner) => {
+        // Owner-scope: another user's slot is not ours to display or consume.
+        if (slotOwner !== userKey) return false;
         try {
           controller.enqueue(encoder.encode(frame(r)));
-          return true;
+          return peek ? false : true;
         } catch {
           return false; // stream gone → slot not delivered → stays due for retry
         }

@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { upsertPersonaFact, PersonaTarget } from "@/lib/persona";
+import { upsertPersonaFact, personaFactsText, forgetPersonaFact, PersonaTarget } from "@/lib/persona";
 
 export const runtime = "nodejs";
+
+function requestUser(request: NextRequest, bodyUser?: unknown): string | undefined {
+  return request.headers.get("x-mia-user")?.trim() || new URL(request.url).searchParams.get("user") || (typeof bodyUser === "string" ? bodyUser : undefined) || undefined;
+}
+
+/** GET /api/persona?user= — list stored facts (memory-unification read path). */
+export async function GET(request: NextRequest) {
+  return NextResponse.json({ facts: personaFactsText(requestUser(request)) });
+}
+
+/** DELETE /api/persona?user=&q= — forget facts matching a query. */
+export async function DELETE(request: NextRequest) {
+  const q = new URL(request.url).searchParams.get("q") ?? "";
+  return NextResponse.json({ result: forgetPersonaFact(requestUser(request), q) });
+}
 
 /**
  * POST /api/persona — Persist a stable user fact or style preference to this
@@ -25,6 +40,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "missing key or value" }, { status: 400 });
   }
 
-  upsertPersonaFact(target, body.key.trim(), body.value.trim(), body.user);
+  upsertPersonaFact(target, body.key.trim(), body.value.trim(), requestUser(request, body.user));
   return NextResponse.json({ ok: true });
 }

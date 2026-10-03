@@ -59,9 +59,28 @@ async function readTaskHint(request: NextRequest): Promise<string> {
   }
 }
 
+/**
+ * Live is voice-only: the transcript IS what gets spoken. The persona and
+ * memory recap are written for text chat and carry emoji (the 🌸 signature,
+ * pasted reactions) — the model imitates whatever examples it sees, so a
+ * "no emoji" rule alone cannot hold while the same instruction shows emoji.
+ * Strip them from the EXAMPLES (persona + recap); the voiceRule itself keeps
+ * naming the flower so the rule stays explicit.
+ * Same ranges as stripEmojiForSpeech (GroqStreamingProvider) — kept as a
+ * local copy on purpose: this module must stay client-importable-safe and
+ * the ranges are stable Unicode blocks.
+ */
+const INSTRUCTION_EMOJI_RE = new RegExp(
+  "[\\u{1F000}-\\u{1FAFF}\\u{2600}-\\u{27BF}\\u{FE0F}\\u{200D}\\u{2B00}-\\u{2BFF}\\u{1F1E6}-\\u{1F1FF}]",
+  "gu"
+);
+
+function stripInstructionEmoji(text: string): string {
+  return text.replace(INSTRUCTION_EMOJI_RE, "").replace(/[ \t]{2,}/g, " ");
+}
+
 /** Gemini model used for the duplex voice path. */
 const LIVE_MODEL = "models/gemini-3.8-live";
-
 /**
  * Prebuilt voice for the session (owner 2026-10-01: "gadis muda").
  * The Live API shares the TTS voice pool — "Leda" is the youthful feminine
@@ -141,7 +160,7 @@ export async function POST(request: NextRequest) {
     try {
       const hint = await readTaskHint(request);
       const rawUser = readRawUser(request);
-      const persona = loadPersonaPrompt(rawUser).trim();
+      const persona = stripInstructionEmoji(loadPersonaPrompt(rawUser)).trim();
       // The Live model has no other clock: without this line it answers "jam
       // berapa" in UTC (measured 2026-09-30 — the chat prompts carry
       // currentTimeLine(), the Live instruction carried nothing). Pinned to
@@ -219,7 +238,7 @@ export async function POST(request: NextRequest) {
         `Sebelum jawab: terdengar natural kalau diucapkan? Kalau kaku, susun ulang.`;
       let memoryRecap = "";
       try {
-        memoryRecap = buildMemoryRecap(loadRecentMemory(rawUser));
+        memoryRecap = stripInstructionEmoji(buildMemoryRecap(loadRecentMemory(rawUser)));
       } catch {
         // No recent memory: the session still starts with the persona.
         memoryRecap = "";

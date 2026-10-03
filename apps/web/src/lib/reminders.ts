@@ -59,8 +59,11 @@ const MAX_REMINDERS = 40;
 const SCAN_MS = 4000;
 
 /** Listener ack: return `true` when the reminder was pushed to a real target
- *  (not merely received), anything else/null = not deliverable right now. */
-export type ReminderListener = (reminder: Reminder) => boolean | void;
+ *  (not merely received), anything else/null = not deliverable right now.
+ *  `slotOwner` is the canonical key owning the due slot — a listener must
+ *  ignore slots it cannot serve (return false): without this, every bot and
+ *  every open stream receives and can consume every user's reminders. */
+export type ReminderListener = (reminder: Reminder, slotOwner: string) => boolean | void;
 
 const listeners = new Set<ReminderListener>();
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -400,7 +403,7 @@ export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[
     let ok = false;
     for (const fn of [...listeners]) {
       try {
-        if (fn(r) === true) ok = true;
+        if (fn(r, userKey) === true) ok = true;
       } catch {
         /* a dead listener must not stop the broadcast */
       }

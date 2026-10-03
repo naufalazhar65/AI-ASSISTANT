@@ -29,6 +29,7 @@ import { Bot, Context, InputFile } from "grammy";
 import { runAssistantTurn, ChatMessage } from "../lib/agent";
 import { ToolCall } from "../lib/tools";
 import { subscribeReminders, Reminder } from "../lib/reminders";
+import { canonicalUserKey, OWNER_KEY } from "../lib/identity";
 import { reminderMessage } from "../lib/reminderMessage";
 import { saveUpload } from "../lib/uploads";
 import { transcribeAudio } from "../lib/stt";
@@ -344,8 +345,10 @@ export async function startTelegramBot(): Promise<void> {
 
   // Proactive reminder push: deliver due reminders to the owner's chat.
   // Ack: true only when a real target exists AND a send was initiated, so a
-  // slot is never marked delivered when nobody could receive it.
-  subscribeReminders((reminder: Reminder): boolean => {
+  // slot is never marked delivered when nobody could receive it. Owner-scope:
+  // slots owned by another key are ignored (same cross-user guard as discord).
+  subscribeReminders((reminder: Reminder, slotOwner: string): boolean => {
+    if (canonicalUserKey(slotOwner) !== OWNER_KEY) return false;
     const target = pushTarget();
     if (target == null) return false;
     const at = new Date(reminder.at);
