@@ -60,7 +60,10 @@ describe("POST /api/gemini-live/memory", () => {
     try {
       const res = await POST(post({ heard: "ingat kucingku Moly", said: "iya, Moly" }, user));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ saved: true });
+      expect(await res.json()).toEqual({
+        saved: true,
+        verification: { verdict: "clean", note: "", executed: [] },
+      });
 
       const { readDailyMemory } = await import("@/lib/dailyMemory");
       const { wibDay } = await import("@/lib/time");
@@ -76,7 +79,10 @@ describe("POST /api/gemini-live/memory", () => {
     try {
       const res = await POST(post({ heard: "u".repeat(5000), said: "m".repeat(5000) }, user));
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ saved: true });
+      expect(await res.json()).toEqual({
+        saved: true,
+        verification: { verdict: "clean", note: "", executed: [] },
+      });
 
       const { readDailyMemory } = await import("@/lib/dailyMemory");
       const { wibDay } = await import("@/lib/time");

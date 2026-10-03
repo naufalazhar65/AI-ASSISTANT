@@ -240,6 +240,11 @@ export function LiveVoicePanel({
           <p className="break-words text-xs text-white/45">kamu: {live.heard}</p>
         )}
         {live.said && <p className="break-words text-sm text-white/75">{live.said}</p>}
+        {live.verifyNote && (
+          <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
+            {live.verifyNote}
+          </p>
+        )}
         {micDenied && (
           <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90">
             Mikrofon ditolak browser, jadi mode live belum bisa nyambung.

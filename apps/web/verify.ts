@@ -6244,6 +6244,49 @@ async function main() {
       } catch { /* best-effort */ }
     }
   }
+  // ── refusal without scope check (live 2026-10-03 12:48 UTC) ─────────────
+  // Host-less ask ("Coba lakukan full penetration testing.") got a blanket
+  // capability refusal with ZERO scope tools in the turn, on an authorized
+  // lab. The prompt's own ATURAN KERAS demands engagement_list AND
+  // pentest_resources BEFORE refusing for scope — this guard enforces it.
+  {
+    const { refusalWithoutScopeCheckNote, ownerLabScopeLine } = await import("./src/lib/agent");
+    const ask = [{ role: "user", content: "Coba lakukan full penetration testing." }] as never;
+    const refusal =
+      "Maaf, aku nggak bisa melakukan penetration testing secara langsung. Tapi aku bisa bantu kamu memahami konsep dasarnya.";
+    const note = refusalWithoutScopeCheckNote(ask, refusal);
+    if (!note || !/engagement_list/.test(note) || !/pentest_resources/.test(note))
+      throw new Error("host-less refusal with no scope check must demand the check-first note");
+    const scopedAsk = [
+      { role: "user", content: "Coba lakukan full penetration testing." },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "t1", type: "function", function: { name: "pentest_resources", arguments: "{}" } }],
+      },
+    ] as never;
+    if (refusalWithoutScopeCheckNote(scopedAsk, refusal) !== "")
+      throw new Error("refusal after a scope check must stay silent");
+    // Epistemic hedging is not a capability refusal (honest-candidate-framing).
+    if (refusalWithoutScopeCheckNote(ask, "Aku belum bisa memastikan ini vuln.") !== "")
+      throw new Error("epistemic hedging must not trigger the scope-check note");
+    // Live 2026-10-03 12:59 UTC: colloquial "jalanin" missed the formal-only
+    // verb list, so the guard stayed silent on a real refusal. Must fire.
+    const jalanin =
+      "Aku nggak bisa jalanin penetration test langsung beb. Itu kan keahlianmu sebagai pentester!";
+    if (!/engagement_list/.test(refusalWithoutScopeCheckNote(ask, jalanin)))
+      throw new Error("colloquial 'jalanin' refusal must trigger the scope-check note");
+    // Live 2026-10-03 12:49 UTC: "nggak pernah bisa" (pernah-infix negation) +
+    // "jalanin" + "hacking" (noun) — three gaps at once. Must fire.
+    const pernahHack = "aku sendiri nggak pernah bisa jalanin aksi hacking-nya sendiri.";
+    if (!/pentest_resources/.test(refusalWithoutScopeCheckNote(ask, pernahHack)))
+      throw new Error("'nggak pernah bisa jalanin hacking' refusal must trigger the scope-check note");
+    // The prompt line itself must carry the host-less rule (both full + slim
+    // prompts build from ownerLabScopeLine).
+    if (!/WITHOUT naming a host/.test(ownerLabScopeLine()))
+      throw new Error("ownerLabScopeLine must carry the host-less continuation rule");
+    console.log("refusal-without-scope-check (host-less refusal flagged · checked-first/hedging silent · prompt rule present): OK");
+  }
   {
     // ── Bounty-report checklist compliance (audit 2026-09-28) ────────────────
     // Each assertion below is a rule the checklist states and the code used to
@@ -6386,6 +6429,70 @@ async function main() {
       const content = readDailyMemory(U, wibDay());
       if (!content.includes("User: ingat kucingku Moly") || !content.includes("Mia: iya, Moly")) throw new Error("Live entry not readable as chat memory");
       console.log("live write-back (format cap, header-routed POST, offline-safe, chat-shaped store): OK");
+    } finally {
+      rmSync(join(userDataRoot(), U), { recursive: true, force: true });
+    }
+  }
+
+  // ── Live post-turn verifier (2026-10-03): spoken claims checked ─────────
+  // Live never calls runAssistantTurn, so the text-path guards never see it.
+  // The ledger (fed by the tool route) is joined with the narration at the
+  // memory route; this block pins the join: fabrication flags, honest turns
+  // stay silent, refusals are named as refused rather than executed, and the
+  // cross-turn lookback covers executions seconds before the turn window.
+  {
+    const U = `verify_liveverify_${Date.now()}`;
+    const { recordLiveToolRun, verifyLiveTurn } = await import("./src/lib/liveVerify");
+    try {
+      // Cozy shape: bare "udah kubuka" with zero executions → flagged.
+      const f = verifyLiveTurn(U, "Udah kubuka di browser-mu ya beb", Date.now() - 60_000);
+      if (f.verdict !== "flagged" || !/tidak ada tool/.test(f.note)) throw new Error("bare Live action claim not flagged");
+      // A real execution in-window legitimizes the same sentence.
+      recordLiveToolRun(U, "mac_open", true);
+      const c = verifyLiveTurn(U, "Udah kubuka di browser-mu ya beb", Date.now() - 60_000);
+      if (c.verdict !== "clean" || c.executed.join() !== "mac_open") throw new Error("executed Live claim not clean");
+      // A refused tool claimed as success is named as refused, not executed.
+      const U2 = `${U}_refused`;
+      recordLiveToolRun(U2, "mac_open", false);
+      const r = verifyLiveTurn(U2, "Udah kubuka di browser ya", Date.now() - 60_000);
+      if (r.verdict !== "flagged" || !/ditolak\/belum dikonfirmasi/.test(r.note)) throw new Error("refused Live claim not named");
+      // Cross-turn lookback (2026-10-03): an execution seconds before the
+      // new turn's window still legitimizes — the turn-split shape stays silent.
+      const w = verifyLiveTurn(U, "Udah kubuka di browser ya", Date.now() + 60_000);
+      if (w.verdict !== "clean") throw new Error("lookback did not cover the just-ran execution");
+      // Lookback boundaries: 9 minutes ago silent, 20 minutes ago flags.
+      const U3 = `${U}_lookback`;
+      recordLiveToolRun(U3, "http_request", true, Date.now() - 9 * 60_000);
+      const n = verifyLiveTurn(U3, "hasil dari http_request menunjukkan 200 OK", Date.now() - 60_000);
+      if (n.verdict !== "clean") throw new Error("9-minute-old execution did not silence the claim");
+      const U4 = `${U3}_stale`;
+      recordLiveToolRun(U4, "http_request", true, Date.now() - 20 * 60_000);
+      const s = verifyLiveTurn(U4, "hasil dari http_request menunjukkan 200 OK", Date.now() - 60_000);
+      if (s.verdict !== "flagged") throw new Error("20-minute-old execution wrongly silenced the claim");
+      // Honest turns stay silent.
+      if (verifyLiveTurn(U, "Halo beb, apa kabar?").verdict !== "clean") throw new Error("plain Live chatter flagged");
+      if (verifyLiveTurn(U, "Belum kubuka linknya, bentar ya").verdict !== "clean") throw new Error("admission flagged");
+      // Blanket capability refusal (Live has no scope tools): fires.
+      const U5 = `${U}_refuse`;
+      const fr = verifyLiveTurn(U5, "Aku nggak bisa jalanin penetration test langsung beb", Date.now() - 60_000);
+      if (fr.verdict !== "flagged" || !/tanpa memeriksa scope/.test(fr.note)) throw new Error("Live refusal without scope check not flagged");
+      // Reason-giving refusal stays silent; refusal after a scope check stays silent.
+      if (verifyLiveTurn(U5, "nggak bisa pentest di website orang lain tanpa izin").verdict !== "clean") throw new Error("reason-giving Live refusal flagged");
+      recordLiveToolRun(U5, "engagement_list", true);
+      if (verifyLiveTurn(U5, "Aku nggak bisa jalanin penetration test langsung beb", Date.now() - 60_000).verdict !== "clean") throw new Error("scope-checked Live refusal flagged");
+      // Completed setup claim (2026-10-03): past marker + adjacent aku + setup verb.
+      const U6 = `${U}_setup`;
+      const st = verifyLiveTurn(U6, "Udah aku setting biar semuanya jalan smoothly", Date.now() - 60_000);
+      if (st.verdict !== "flagged" || !/tidak ada tool/.test(st.note)) throw new Error("setup-verb Live claim not flagged");
+      if (verifyLiveTurn(U6, "kerjaanku udah beres semua", Date.now() - 60_000).verdict !== "clean") throw new Error("impersonal beres flagged");
+      // Completion-state + discovery claims (2026-10-03): past marker + state verb + security noun.
+      const U7 = `${U}_compdisc`;
+      const cd = verifyLiveTurn(U7, "semua modul pengetesan di lab Cozy udah jalan lancar ya", Date.now() - 60_000);
+      if (cd.verdict !== "flagged" || !/tidak ada tool/.test(cd.note)) throw new Error("completion-state Live claim not flagged");
+      const dc = verifyLiveTurn(U7, "aku nemu beberapa celah potensial di server itu", Date.now() - 60_000);
+      if (dc.verdict !== "flagged" || !/tidak ada tool/.test(dc.note)) throw new Error("discovery Live claim not flagged");
+      if (verifyLiveTurn(U7, "makanannya udah selesai semua", Date.now() - 60_000).verdict !== "clean") throw new Error("impersonal selesai flagged");
+      console.log("live post-turn verifier (bare/tool-name/refused/lookback/admission/refusal-scope/setup/completion/discovery): OK");
     } finally {
       rmSync(join(userDataRoot(), U), { recursive: true, force: true });
     }

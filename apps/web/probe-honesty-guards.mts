@@ -335,6 +335,11 @@ if (!urlOk) fail++;
 // third `collector.executedCalls` argument, and this check must not rot every
 // time a guard gains a parameter (it silently failed once already — 2026-09-25).
 const agentSrc = readFileSync(join(import.meta.dirname, "src/lib/agent.ts"), "utf8");
+// Whitespace-flattened copy: guard calls are routinely wrapped across lines
+// by the formatter, so prefix checks must not depend on layout (2026-10-03:
+// the refusal-scope call spans 5 lines — raw check false-failed — and its
+// opening paren is followed by a newline, so `(\s+` is tightened too).
+const agentFlat = agentSrc.replace(/\s+/g, " ").replace(/\(\s+/g, "(");
 for (const w of [
   "toolRunClaimSuffix(messages, text",
   "verdictInflationSuffix(messages, text",
@@ -349,8 +354,9 @@ for (const w of [
   "unrecordedFindingNote(messages, text",
   "pentestDirectionQuestionNote(messages, text",
   "unrecordedFindingClaimNote(messages, text",
+  "refusalWithoutScopeCheckNote(messages, text",
 ]) {
-  const wired = agentSrc.includes(w);
+  const wired = agentFlat.includes(w);
   console.log(`${wired ? "✓" : "✗"} WIRING: ${w})${wired ? "" : " — TIDAK TERPASANG di runAgent!"}`);
   if (!wired) fail++;
 }
@@ -364,8 +370,9 @@ for (const w of [
   "unverifiedFindingClaimNote(messages, text, collector.executedCalls,",
   "pentestDirectionQuestionNote(messages, text, collector.executedCalls)",
   "unrecordedFindingClaimNote(messages, text, collector.executedCalls)",
+  "refusalWithoutScopeCheckNote(messages, text, collector.executedCalls",
 ]) {
-  const fed = agentSrc.includes(w);
+  const fed = agentFlat.includes(w);
   console.log(`${fed ? "✓" : "✗"} LEDGER-FED: ${w.slice(w.indexOf("(") + 1)}${fed ? "" : " — guard tidak menerima ledger!"}`);
   if (!fed) fail++;
 }

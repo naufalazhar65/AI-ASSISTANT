@@ -19,6 +19,7 @@ import {
   REFUSAL_SECURITY_NOUN_RE,
   REFUSAL_REASON_RE,
   refusalContradictionNote,
+  refusalWithoutScopeCheckNote,
   type ChatMessage,
 } from "./agent";
 
@@ -191,5 +192,87 @@ describe("refusalContradictionNote — no false accusation (reason given = legit
 
   it("the Indonesian 'pengujian penetrasi' phrasing is recognised", () => {
     expect(isBlanketRefusalClause("Aku tidak bisa melakukan pengujian penetrasi di sini")).toBe(true);
+  });
+});
+
+describe("refusalWithoutScopeCheckNote — fires only on unchecked capability refusals (live 2026-10-03 12:48 UTC)", () => {
+  // The exact live shape: host-less ask, zero tools, blanket refusal.
+  const HOSTLESS = "Maaf, aku nggak bisa melakukan penetration testing secara langsung. Tapi aku bisa bantu kamu memahami konsep dasarnya.";
+  const userAsk: ChatMessage[] = [
+    { role: "user", content: "Coba lakukan full penetration testing." } as ChatMessage,
+  ];
+
+  it("fires on a capability refusal with neither scope tool in the turn", () => {
+    const note = refusalWithoutScopeCheckNote(userAsk, HOSTLESS);
+    expect(note).not.toBe("");
+    expect(note).toContain("engagement_list");
+    expect(note).toContain("pentest_resources");
+  });
+
+  it("stays silent when engagement_list ran (checked first)", () => {
+    const msgs = [...userAsk, ...ranCalls(["engagement_list"]).slice(1)];
+    expect(refusalWithoutScopeCheckNote(msgs, HOSTLESS)).toBe("");
+  });
+
+  it("stays silent when pentest_resources ran — via the ledger alone", () => {
+    const note = refusalWithoutScopeCheckNote(userAsk, HOSTLESS, [
+      { name: "pentest_resources", executed: true },
+    ]);
+    expect(note).toBe("");
+  });
+
+  it("a ledger entry that did NOT execute is not a scope check", () => {
+    const note = refusalWithoutScopeCheckNote(userAsk, HOSTLESS, [
+      { name: "engagement_list", executed: false },
+    ]);
+    expect(note).not.toBe("");
+  });
+
+  it("stays silent when the refusal gives its reason (legitimate)", () => {
+    const withReason =
+      "Aku tidak bisa melakukan pengujian keamanan pada website orang lain tanpa izin tertulis dari mereka.";
+    expect(refusalWithoutScopeCheckNote(userAsk, withReason)).toBe("");
+  });
+
+  it("stays silent on epistemic hedging — 'memastikan' is not a capability verb (honest-candidate-framing)", () => {
+    const hedge = "Hasil dari pengujian itu: kandidat CSRF di form transfer. Aku belum bisa memastikan ini vuln.";
+    expect(refusalWithoutScopeCheckNote(userAsk, hedge)).toBe("");
+  });
+
+  it("fires on the live 2026-10-03 12:59 shape — colloquial 'jalanin' is a capability verb", () => {
+    const live =
+      "Aku nggak bisa jalanin penetration test langsung beb. Itu kan keahlianmu sebagai pentester!";
+    const note = refusalWithoutScopeCheckNote(userAsk, live);
+    expect(note).not.toBe("");
+    expect(note).toContain("engagement_list");
+  });
+
+  it("fires on the live 2026-10-03 12:49 shape — 'nggak pernah bisa' + 'jalanin' + 'hacking'", () => {
+    const live = "aku sendiri nggak pernah bisa jalanin aksi hacking-nya sendiri.";
+    const note = refusalWithoutScopeCheckNote(userAsk, live);
+    expect(note).not.toBe("");
+    expect(note).toContain("pentest_resources");
+  });
+
+  it("stays silent when negation + security noun appear WITHOUT a capability verb", () => {
+    const noVerb = "Film hacking-nya seru, tapi aku nggak pernah bisa nonton sampai habis.";
+    expect(refusalWithoutScopeCheckNote(userAsk, noVerb)).toBe("");
+  });
+
+  it("stays silent on 'jalanin' outside security work (no security noun)", () => {
+    expect(refusalWithoutScopeCheckNote(userAsk, "Siap, aku jalanin tugasnya sekarang.")).toBe("");
+  });
+
+  it("stays silent on non-refusal prose and on empty text", () => {
+    expect(refusalWithoutScopeCheckNote(userAsk, "Siap, aku jalankan pengujian penetrasi di lab itu.")).toBe("");
+    expect(refusalWithoutScopeCheckNote(userAsk, "")).toBe("");
+  });
+
+  it("the trace sink reports WHY (mirrors the sibling guard)", () => {
+    let r = "";
+    refusalWithoutScopeCheckNote(userAsk, HOSTLESS, undefined, (d) => (r = String(d.reason)));
+    expect(r).toBe("blanket-refusal-no-scope-check");
+    refusalWithoutScopeCheckNote(userAsk, "halo", undefined, (d) => (r = String(d.reason)));
+    expect(r).toBe("no-actionable-refusal-clause");
   });
 });

@@ -617,6 +617,51 @@ describe("saveLiveTurnToMemory — fire-and-forget write-back, never throws", ()
       saveLiveTurnToMemory("halo", "hai", { "x-mia-user": "naufalazhar652952" }, failing as unknown as typeof fetch)
     ).resolves.toBe(false);
   });
+
+  it("passes the parsed verification to onVerification when flagged", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        saved: true,
+        verification: { verdict: "flagged", note: "(Catatan jujur: …)", executed: ["mac_open"] },
+      }),
+    }) as unknown as Response);
+    const seen: Array<unknown> = [];
+    const saved = await saveLiveTurnToMemory("buka x", "udah kubuka", { "x-mia-user": "naufalazhar652952" }, fetchMock, {
+      sinceMs: 1234567890000,
+      onVerification: (v) => seen.push(v),
+    });
+    expect(saved).toBe(true);
+    expect(seen).toEqual([{ verdict: "flagged", note: "(Catatan jujur: …)", executed: ["mac_open"] }]);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body?: string }];
+    expect(JSON.parse(init.body ?? "{}")).toEqual({
+      heard: "buka x",
+      said: "udah kubuka",
+      sinceMs: 1234567890000,
+    });
+  });
+
+  it("passes undefined when the server sent no verification", async () => {
+    const fetchMock = post({});
+    const seen: Array<unknown> = ["sentinel"];
+    await saveLiveTurnToMemory("halo beb", "halo juga", { "x-mia-user": "naufalazhar652952" }, fetchMock, {
+      onVerification: (v) => seen.push(v),
+    });
+    expect(seen).toEqual(["sentinel", undefined]);
+  });
+
+  it("passes undefined on malformed verification and keeps the boolean", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ saved: true, verification: { verdict: "maybe", note: 42 } }),
+    }) as unknown as Response);
+    const seen: Array<unknown> = [];
+    const saved = await saveLiveTurnToMemory("halo", "hai", { "x-mia-user": "naufalazhar652952" }, fetchMock, {
+      onVerification: (v) => seen.push(v),
+    });
+    expect(saved).toBe(true);
+    expect(seen).toEqual([undefined]);
+  });
 });
 
 describe("GeminiLiveSession — prebuilt voice in setup (owner 2026-10-01: gadis muda)", () => {

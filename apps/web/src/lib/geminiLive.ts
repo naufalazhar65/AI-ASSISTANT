@@ -786,23 +786,72 @@ export class GeminiLiveSession {
  * `fetchImpl` exists so tests can assert URL, header and body without a
  * server; production passes the global fetch.
  */
+export interface LiveVerification {
+  verdict: "clean" | "flagged";
+  note: string;
+  executed: string[];
+}
+
+export interface SaveLiveTurnOptions {
+  /** Ledger window start (epoch ms). Omitted = server default window. */
+  sinceMs?: number;
+  /**
+   * Called exactly once per invocation with the parsed verification (or
+   * undefined when the server sent none / the network failed / the turn
+   * was empty). Never throws and never blocks — an observer must not be
+   * able to disturb a voice session.
+   */
+  onVerification?: (v: LiveVerification | undefined) => void;
+}
+
+function parseLiveVerification(json: unknown): LiveVerification | undefined {
+  if (typeof json !== "object" || json === null) return undefined;
+  const v = (json as { verification?: unknown }).verification;
+  if (typeof v !== "object" || v === null) return undefined;
+  const r = v as { verdict?: unknown; note?: unknown; executed?: unknown };
+  if (r.verdict !== "clean" && r.verdict !== "flagged") return undefined;
+  return {
+    verdict: r.verdict,
+    note: typeof r.note === "string" ? r.note : "",
+    executed: Array.isArray(r.executed)
+      ? r.executed.filter((e): e is string => typeof e === "string")
+      : [],
+  };
+}
+
 export async function saveLiveTurnToMemory(
   heard: string,
   said: string,
   userHeader: Record<string, string>,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  opts: SaveLiveTurnOptions = {}
 ): Promise<boolean> {
-  if (!heard.trim() && !said.trim()) return false;
+  const done = (saved: boolean, v: LiveVerification | undefined): boolean => {
+    try {
+      opts.onVerification?.(v);
+    } catch {
+      // An observer must never break the turn.
+    }
+    return saved;
+  };
+  if (!heard.trim() && !said.trim()) return done(false, undefined);
   try {
+    const body: { heard: string; said: string; sinceMs?: number } = {
+      heard: heard.slice(0, 2_000),
+      said: said.slice(0, 2_000),
+    };
+    if (typeof opts.sinceMs === "number" && Number.isFinite(opts.sinceMs)) {
+      body.sinceMs = opts.sinceMs;
+    }
     const res = await fetchImpl("/api/gemini-live/memory", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...userHeader },
-      body: JSON.stringify({ heard: heard.slice(0, 2_000), said: said.slice(0, 2_000) }),
+      body: JSON.stringify(body),
     });
-    if (!res.ok) return false;
+    if (!res.ok) return done(false, undefined);
     const json = (await res.json().catch(() => ({}))) as { saved?: unknown };
-    return json.saved === true;
+    return done(json.saved === true, parseLiveVerification(json));
   } catch {
-    return false;
+    return done(false, undefined);
   }
 }

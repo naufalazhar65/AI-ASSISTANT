@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { executeTool } from "@/lib/tools";
 import { auditLog } from "@/lib/auditLog";
 import { LIVE_WRITE_TOOLS, isLiveToolName } from "@/lib/liveTools";
+import { recordLiveToolRun, toolResultExecuted } from "@/lib/liveVerify";
 import { sanitizeUser } from "@/lib/users";
 
 export const runtime = "nodejs";
@@ -45,6 +46,10 @@ export async function POST(request: NextRequest) {
 
   const rawUser = request.headers.get("x-mia-user")?.trim() || undefined;
   const userKey = sanitizeUser(rawUser);
+  // Join key for the Live tool ledger (lib/liveVerify): the memory route
+  // requires a valid userKey, so header-less calls land under "shared"
+  // and simply never join a turn window. Never throws.
+  const ledgerKey = userKey || "shared";
   const results = [];
   for (const [index, raw] of (body.calls as LiveToolCall[]).entries()) {
     const call = (raw ?? {}) as LiveToolCall;
@@ -60,6 +65,11 @@ export async function POST(request: NextRequest) {
         /* logging is best-effort */
       }
       results.push({ id, name, result: `Error: tool "${name || "(missing)"}" is not available in voice mode.` });
+      try {
+        recordLiveToolRun(ledgerKey, name, false);
+      } catch {
+        /* ledger is best-effort */
+      }
       continue;
     }
     // Voice write actions (gap #2, FR-014): the spoken-confirmation loop lives
@@ -83,6 +93,11 @@ export async function POST(request: NextRequest) {
           `Tanyakan ke user dengan suara dan panggil lagi dengan confirmed:true ` +
           `hanya kalau user menjawab ya/iya/boleh/oke.`,
       });
+      try {
+        recordLiveToolRun(ledgerKey, name, false);
+      } catch {
+        /* ledger is best-effort */
+      }
       continue;
     }
     let argsJson = "{}";
@@ -93,8 +108,18 @@ export async function POST(request: NextRequest) {
     }
     try {
       const out = await executeTool({ id, name, arguments: argsJson }, rawUser ?? userKey ?? undefined);
+      try {
+        recordLiveToolRun(ledgerKey, name, toolResultExecuted(out ?? ""));
+      } catch {
+        /* ledger is best-effort */
+      }
       results.push({ id, name, result: (out ?? "").slice(0, RESULT_MAX_CHARS) });
     } catch (err) {
+      try {
+        recordLiveToolRun(ledgerKey, name, false);
+      } catch {
+        /* ledger is best-effort */
+      }
       results.push({
         id,
         name,

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { appendDailyMemory } from "@/lib/dailyMemory";
+import { auditLog } from "@/lib/auditLog";
 import { formatLiveMemoryEntry } from "@/lib/liveTools";
+import { verifyLiveTurn } from "@/lib/liveVerify";
 import { sanitizeUser } from "@/lib/users";
 
 export const runtime = "nodejs";
@@ -19,6 +21,13 @@ export const runtime = "nodejs";
  * design: the caller fires and forgets, and failures surface as
  * `{ saved: false }`, never as an exception — losing one turn's note must
  * never break a voice session.
+ *
+ * Phase 1 Live honesty guard (annotate-only): the turn narration is verified
+ * against the Live tool ledger (lib/liveVerify) and the verdict rides along
+ * as `verification: { verdict, note, executed }` — old clients ignore the
+ * extra field. The memory write itself is untouched; flagged turns are also
+ * audit-logged best-effort. Optional body `sinceMs` (turn start epoch ms)
+ * scopes the ledger window; without it a 5-minute window applies.
  */
 export async function POST(request: NextRequest) {
   const rawUser = request.headers.get("x-mia-user")?.trim() || undefined;
@@ -26,7 +35,7 @@ export async function POST(request: NextRequest) {
   if (!userKey) {
     return NextResponse.json({ error: "missing x-mia-user" }, { status: 400 });
   }
-  let body: { heard?: unknown; said?: unknown };
+  let body: { heard?: unknown; said?: unknown; sinceMs?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -36,10 +45,18 @@ export async function POST(request: NextRequest) {
   if (!entry) {
     return NextResponse.json({ saved: false });
   }
+  const verification = verifyLiveTurn(userKey, body?.said, body?.sinceMs);
+  if (verification.verdict === "flagged") {
+    try {
+      auditLog(userKey, "live-verify-flagged", verification.note.slice(0, 500));
+    } catch {
+      /* logging is best-effort */
+    }
+  }
   try {
     appendDailyMemory(userKey, entry);
   } catch {
     return NextResponse.json({ error: "could not write memory" }, { status: 502 });
   }
-  return NextResponse.json({ saved: true });
+  return NextResponse.json({ saved: true, verification });
 }

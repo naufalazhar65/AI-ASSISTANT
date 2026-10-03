@@ -59,6 +59,12 @@ export interface UseGeminiLiveResult {
   heard: string;
   /** Live transcript of what GEMINI said. */
   said: string;
+  /**
+   * Honesty note for the just-finished turn, set only when the server
+   * flagged its claims against executed tools. Shown under the transcript,
+   * never spoken. Empty when the last turn was clean.
+   */
+  verifyNote: string;
   /** Last error, already phrased for a user. Empty when healthy. */
   error: string;
   /**
@@ -100,6 +106,7 @@ export function useGeminiLive(): UseGeminiLiveResult {
   const [muted, setMuted] = useState(false);
   const [heard, setHeard] = useState("");
   const [said, setSaid] = useState("");
+  const [verifyNote, setVerifyNote] = useState("");
   const [error, setError] = useState("");
   /**
    * Notice that the session is connected but the model has produced nothing.
@@ -126,7 +133,7 @@ export function useGeminiLive(): UseGeminiLiveResult {
   // write-back below always sees the latest text even from stale closures.
   // Reset the moment a save is initiated: the POST is async, and a second
   // flush before it resolves must find nothing, never save twice.
-  const turnRef = useRef({ heard: "", said: "" });
+  const turnRef = useRef({ heard: "", said: "", startedAt: 0 });
   // Pending voice write actions awaiting spoken confirmation (gap #2,
   // extended 2026-10-01 to task/calendar writes). A first-seen write is held
   // here, the model asks aloud, and
@@ -183,9 +190,15 @@ export function useGeminiLive(): UseGeminiLiveResult {
    */
   const flushTurnMemory = useCallback(() => {
     const turn = turnRef.current;
-    turnRef.current = { heard: "", said: "" };
+    turnRef.current = { heard: "", said: "", startedAt: 0 };
+    setVerifyNote("");
     if (!turn.heard.trim() && !turn.said.trim()) return;
-    void saveLiveTurnToMemory(turn.heard, turn.said, browserUserHeader());
+    void saveLiveTurnToMemory(turn.heard, turn.said, browserUserHeader(), fetch, {
+      sinceMs: turn.startedAt > 0 ? turn.startedAt : undefined,
+      onVerification: (v) => {
+        if (v && v.verdict === "flagged" && v.note) setVerifyNote(v.note);
+      },
+    });
   }, []);
 
   const ensurePlayer = useCallback((): AudioPlayer => {
@@ -324,6 +337,7 @@ export function useGeminiLive(): UseGeminiLiveResult {
             }
             break;
           case "input_transcript":
+            if (turnRef.current.startedAt === 0) turnRef.current.startedAt = Date.now();
             turnRef.current.heard = event.text;
             setHeard(event.text);
             setStalled("");
@@ -331,6 +345,7 @@ export function useGeminiLive(): UseGeminiLiveResult {
             pendingRef.current = markUserSpoke(pendingRef.current);
             break;
           case "output_transcript":
+            if (turnRef.current.startedAt === 0) turnRef.current.startedAt = Date.now();
             turnRef.current.said = event.text;
             setSaid(event.text);
             setStalled("");
@@ -651,6 +666,7 @@ export function useGeminiLive(): UseGeminiLiveResult {
     speaking,
     heard,
     said,
+    verifyNote,
     error,
     stalled,
     toolNote,

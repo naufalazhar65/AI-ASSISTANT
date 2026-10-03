@@ -473,7 +473,7 @@ export function ownerLabScopeLine(): string {
     .filter(Boolean);
   const hosts = [...new Set([...envHosts, ...registered])];
   if (!hosts.length) return "";
-  return `LAB MILIK OWNER (authorized — test DIRECTLY, no engagement/permission questions): ${hosts.join(", ")}. A pentest ask naming one of these hosts is pre-authorized: run the scope-gated tools at once, do NOT ask for an engagement and do NOT refuse for scope reasons.`;
+  return `LAB MILIK OWNER (authorized — test DIRECTLY, no engagement/permission questions): ${hosts.join(", ")}. A pentest ask naming one of these hosts is pre-authorized: run the scope-gated tools at once, do NOT ask for an engagement and do NOT refuse for scope reasons. If the ask says pentest/security testing WITHOUT naming a host while an authorized lab is in context, do NOT issue a blanket capability refusal — continue on that lab (naming it explicitly) or ask which in-scope target to test.`;
 }
 
 export function buildSlimSystemPrompt(rawUser?: unknown, channel?: Channel, url?: string): string {
@@ -4298,13 +4298,13 @@ export function collectActionRecords(
   return mergeReceiptRecords(records, side);
 }
 
-const TOOL_CLAIM_KU_RE = /\bku[-\s]?(?:pakai|pake|gunakan|jalankan|jalanin|eksekusi|uji|tes|test|scan|coba)\b/i;
-const TOOL_CLAIM_AKU_RE = /\baku\s+(?:pakai|pake|gunakan|jalankan|jalanin)\b/i;
-const TOOL_CLAIM_PAST_VERB_RE = /\b(?:sudah|telah|berhasil|barusan)\b[\s\S]{0,28}\b(?:pakai|pake|gunakan|jalankan|jalanin|eksekusi|uji|tes|test|scan)\b/i;
-const TOOL_CLAIM_RESULT_AFTER_RE = /\b(?:menunjukkan|menghasilkan|mengembalikan|memberi(?:kan)?\s+hasil|berhasil)\b/i;
-const TOOL_CLAIM_ADMISSION_RE = /\b(?:belum|nggak\s*(?:sempat|jadi|jalan)|tidak\s*(?:sempat|jadi|jalan|bisa)|gagal|dibatalkan|batal|skip)\b/i;
-const TOOL_CLAIM_FUTURE_RE = /\b(?:nanti|besok|akan|mau|coba|kalau|rencana|sebaiknya|seharusnya|saranku|saran\b|mungkin|idealnya)\b/i;
-const TOOL_CLAIM_PAST_MARK_RE = /\b(?:sudah|telah|berhasil|barusan|tadi)\b/i;
+export const TOOL_CLAIM_KU_RE = /\bku[-\s]?(?:pakai|pake|gunakan|jalankan|jalanin|eksekusi|uji|tes|test|scan|coba)\b/i;
+export const TOOL_CLAIM_AKU_RE = /\baku\s+(?:pakai|pake|gunakan|jalankan|jalanin)\b/i;
+export const TOOL_CLAIM_PAST_VERB_RE = /\b(?:sudah|telah|berhasil|barusan)\b[\s\S]{0,28}\b(?:pakai|pake|gunakan|jalankan|jalanin|eksekusi|uji|tes|test|scan)\b/i;
+export const TOOL_CLAIM_RESULT_AFTER_RE = /\b(?:menunjukkan|menghasilkan|mengembalikan|memberi(?:kan)?\s+hasil|berhasil)\b/i;
+export const TOOL_CLAIM_ADMISSION_RE = /\b(?:belum|nggak\s*(?:sempat|jadi|jalan)|tidak\s*(?:sempat|jadi|jalan|bisa)|gagal|dibatalkan|batal|skip)\b/i;
+export const TOOL_CLAIM_FUTURE_RE = /\b(?:nanti|besok|akan|mau|coba|kalau|rencana|sebaiknya|seharusnya|saranku|saran\b|mungkin|idealnya)\b/i;
+export const TOOL_CLAIM_PAST_MARK_RE = /\b(?:sudah|telah|berhasil|barusan|tadi)\b/i;
 
 /**
  * Honest tool-run guard: a reply that NARRATES a tool as executed ("kuuji pakai
@@ -4939,7 +4939,7 @@ export function absenceSafetyClaim(t: string): boolean {
  * bounds the claim, and the false-accusation defence is REFUSAL_REASON_RE below.
  */
 export const REFUSAL_NEGATION_RE =
-  /\b(?:tidak\s+(?:bisa|dapat|mau|berani|boleh)|belum\s+(?:bisa|dapat)|nggak?\s+(?:bisa|mau|boleh)|gak\s+(?:bisa|mau|boleh)|tidak\s+aku|can'?t|can\s+not|cannot|unable\s+to|not\s+able\s+to|won'?t|will\s+not)\b/i;
+  /\b(?:tidak\s+(?:pernah\s+)?(?:bisa|dapat|mau|berani|boleh)|belum\s+(?:pernah\s+)?(?:bisa|dapat)|nggak?\s+(?:pernah\s+)?(?:bisa|mau|boleh)|gak\s+(?:pernah\s+)?(?:bisa|mau|boleh)|tidak\s+aku|can'?t|can\s+not|cannot|unable\s+to|not\s+able\s+to|won'?t|will\s+not)\b/i;
 
 /**
  * The security-work noun. Two coverage notes, both from live prose:
@@ -4948,9 +4948,11 @@ export const REFUSAL_NEGATION_RE =
  *  - `pengujian\s+penetrasi` is the Indonesian phrasing of "penetration testing".
  *    The English-only `penetration\s+test` missed it, which a unit test caught
  *    when a per-clause case stayed silent on a refusal that plainly said it.
+ *  - `hack\w*` from live prose 2026-10-03 ("nggak pernah bisa jalanin aksi
+ *    hacking-nya") — without it the whole clause was invisible to the guard.
  */
 export const REFUSAL_SECURITY_NOUN_RE =
-  /\b(?:pengujian\s+(?:keamanan|penetrasi)|security\s+(?:test|testing|scan(?:ning)?)|penetration\s+test(?:ing)?|pentest|scan(?:ning)?\s+(?:kerentanan|keamanan|vuln\w*)|vulnerability\s+scan|kerentanan\w*|analisis\s+(?:kerentanan|keamanan)|exploit\w*)\b/i;
+  /\b(?:pengujian\s+(?:keamanan|penetrasi)|security\s+(?:test|testing|scan(?:ning)?)|penetration\s+test(?:ing)?|pentest|scan(?:ning)?\s+(?:kerentanan|keamanan|vuln\w*)|vulnerability\s+scan|kerentanan\w*|analisis\s+(?:kerentanan|keamanan)|hack\w*|exploit\w*)\b/i;
 
 /** Is this one clause a blanket capability refusal? Pure — the shape is unit-tested. */
 export function isBlanketRefusalClause(clause: string): boolean {
@@ -5240,6 +5242,97 @@ export function refusalContradictionNote(
     ? `Host ini sudah terdaftar berizin (lab milik owner / engagement aktif), jadi tidak perlu lab_add lagi — tinggal lanjutkan pengujiannya.`
     : "Kalau target itu milikmu sendiri, sebenarnya sudah berizin: deklarasikan sekali dengan lab_add host=<host> — terdaftar permanen, subdomain ikut — lalu lanjutkan pengujian; cek pentest_resources untuk daftar lab.";
   return ` (Catatan jujur: giliran ini menjalankan ${upto}${more}${where} — jadi kalimat "tidak bisa melakukan pengujian keamanan" bertentangan dengan aksi yang barusan terjadi. ${remedy} Kalau memang bukan milikmu, sebutkan alasan dan target spesifiknya — jangan menolak semua pengujian keamanan.)`;
+}
+
+/**
+ * Refusal issued WITHOUT checking scope first.
+ *
+ * Live 2026-10-03 12:48 UTC: the owner said "Coba lakukan full penetration
+ * testing." (no host — the Cozy lab was the context seconds earlier) and the
+ * model answered "aku nggak bisa melakukan penetration testing secara
+ * langsung". The lab was authorized three times over (PENTEST_LAB_TARGETS +
+ * owner registry + scope line in-prompt), but every scope rule is
+ * host-gated ("an ask NAMING one of these hosts"), so with no host named the
+ * model refused instead of asking which target. refusalContradictionNote is
+ * structurally blind here (zero tools ran), and the prompt alone does not
+ * hold (2026-09-21 lesson) — so this guard enforces the prompt's own
+ * ATURAN KERAS deterministically: SEBELUM menolak karena scope, WAJIB panggil
+ * `engagement_list` DAN `pentest_resources`. A blanket refusal with NEITHER
+ * in the turn is a violation no matter the context, so no context lookup is
+ * needed and none is done.
+ *
+ * Narrow on purpose:
+ *  - same clause/refusal/reason vocabulary as refusalContradictionNote (one
+ *    owner: isBlanketRefusalClause + REFUSAL_REASON_RE), PLUS a capability
+ *    verb (melakukan/menjalankan/…): epistemic hedging ("belum bisa
+ *    memastikan ini vuln" — honest-candidate-framing in the corpus) is not
+ *    a capability refusal and must stay silent.
+ *  - either scope tool silences: the guard targets ZERO checking, not
+ *    partial compliance.
+ *
+ * Pure — tested both ways.
+ */
+export const SCOPE_CHECK_TOOLS = new Set(["engagement_list", "pentest_resources"]);
+
+/** Action verbs that make a refusal about DOING the work (vs concluding). Colloquial
+ *  `jalanin`/`lakuin` from live prose 2026-10-03 ("nggak bisa jalanin penetration
+ *  test") — the formal-only list silently missed Mia's own register. */
+export const REFUSAL_CAPABILITY_VERB_RE =
+  /\b(?:melakukan|lakukan|lakuin|menjalankan|jalankan|jalanin|mengeksekusi|eksekusi|menguji|uji|memindai|memeriksa|periksa|mengerjakan|kerjakan|run(?:ning)?|perform(?:ing)?|execut(?:e|ing)|conduct(?:ing)?)\b/i;
+
+export function refusalWithoutScopeCheckNote(
+  messages: ChatMessage[],
+  text: string,
+  ledger?: Array<{ name: string; executed: boolean }>,
+  trace?: (decision: Record<string, unknown>) => void
+): string {
+  const decision: Record<string, unknown> = { refused: false, reason: "" as string };
+  const clean = modelVoiceText(text || "");
+  if (!clean) {
+    decision.reason = "empty-text";
+    trace?.(decision);
+    return "";
+  }
+  let refused = false;
+  for (const clause of clean.split(/[.!?\n]+/)) {
+    if (!isBlanketRefusalClause(clause)) continue;
+    // A refusal that GIVES a reason is legitimate — same carve-out as the sibling.
+    if (REFUSAL_REASON_RE.test(clause)) continue;
+    // Epistemic hedging is not a capability refusal.
+    if (!REFUSAL_CAPABILITY_VERB_RE.test(clause)) continue;
+    refused = true;
+    decision.refused = true;
+    decision.reason = "blanket-refusal-no-scope-check";
+    decision.clause = clause.slice(0, 80);
+    break;
+  }
+  if (!refused) {
+    decision.reason = "no-actionable-refusal-clause";
+    trace?.(decision);
+    return "";
+  }
+  const checked: string[] = [];
+  const seen = (n: string) => {
+    if (SCOPE_CHECK_TOOLS.has(n) && !checked.includes(n)) checked.push(n);
+  };
+  for (const m of messages) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      const call = tc as { name?: string; function?: { name?: string } };
+      seen(call.function?.name || call.name || "");
+    }
+  }
+  for (const c of ledger ?? []) {
+    if (c?.executed) seen(c.name);
+  }
+  decision.checked = checked;
+  if (checked.length) {
+    decision.reason = "scope-was-checked-first";
+    trace?.(decision);
+    return "";
+  }
+  trace?.(decision);
+  return ` (Catatan jujur: penolakan ini keluar TANPA memanggil engagement_list/pentest_resources dulu — padahal aturannya wajib cek scope sebelum menolak. Kalau lab milik owner sedang dibahas, lanjutkan di lab itu (sebutkan hostnya) atau tanyakan target in-scope mana yang diuji; jangan menolak kapabilitas pengujian keamanan. Cek pentest_resources untuk daftar lab berizin.)`;
 }
 
 /**
@@ -7199,6 +7292,25 @@ async function runAssistantTurnImpl(opts: {
       // silent catch is how the 14:29 turn hid a guard for hours (see guardTrace).
       guardTrace("refusal", null, text, collector, String(err));
       // Never let the correction itself break a reply.
+    }
+  }
+
+  // REFUSAL WITHOUT SCOPE CHECK (live 2026-10-03 12:48 UTC): a blanket
+  // capability refusal with NEITHER engagement_list NOR pentest_resources in
+  // the turn violates the prompt's own ATURAN KERAS no matter the context, so
+  // — unlike the contradiction guard above — it needs no host fact at all.
+  // Same gate (verbatimHit would mean the reply is a verbatim list, not prose).
+  if (text.trim() && !collector.verbatimHit) {
+    try {
+      const scopeNote = refusalWithoutScopeCheckNote(
+        messages,
+        text,
+        collector.executedCalls,
+        (d) => guardTrace("refusal-scope", d, text, collector)
+      );
+      if (scopeNote) text = `${text}${scopeNote}`;
+    } catch (err) {
+      guardTrace("refusal-scope", null, text, collector, String(err));
     }
   }
 

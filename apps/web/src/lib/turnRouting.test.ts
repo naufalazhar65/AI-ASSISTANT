@@ -756,6 +756,19 @@ describe("ownerLabScopeLine (authorized hosts in-prompt)", () => {
       else process.env[KEY] = prev;
     }
   });
+
+  it("covers the host-less ask: never a blanket refusal when an authorized lab is in context (live 2026-10-03 12:48 UTC)", () => {
+    const prev = process.env[KEY];
+    try {
+      process.env[KEY] = "cozy-kangaroo-42f2e0.netlify.app";
+      const line = ownerLabScopeLine();
+      expect(line).toContain("WITHOUT naming a host");
+      expect(line).toContain("do NOT issue a blanket capability refusal");
+    } finally {
+      if (prev === undefined) delete process.env[KEY];
+      else process.env[KEY] = prev;
+    }
+  });
 });
 
 describe("collapseHtmlDumps (no verbatim page dumps in chat)", () => {
