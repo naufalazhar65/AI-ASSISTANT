@@ -3314,8 +3314,35 @@ export function reportScopeNote(target: string, prose = ""): string {
   return ` (Catatan: laporan ini disusun untuk seluruh host ${host}, bukan hanya ${path} — seluruh temuan dicatat per host, dan tidak ada temuan yang benar-benar berada di ${path}. Kalau mau laporan khusus ${path}, bilang saja.)`;
 }
 
+/**
+ * Artifacts the provenance note is actually about. The note says "the report
+ * already contains previously recorded findings", so it is only coherent when
+ * the claim is talking about a report or findings at all.
+ *
+ * Added after a live false positive: asked what her routine task is, Michelle
+ * answered "membaca serta menulis file kode untuk menguji dan memperbaiki bug
+ * sampai tuntas" — testing verb + sealed word, but no report anywhere. The note
+ * fired anyway and said "laporan ini memuat temuan yang SUDAH tercatat", which
+ * is simply unrelated to what she had said.
+ */
+export const REPORT_ARTIFACT_NOUNS: readonly string[] = [
+  "laporan", "report", "temuan", "finding", "findings",
+  "hasil pengujian", "hasil audit", "hasil scan", "hasil pentest",
+];
+
+// Written as a literal rather than built from the list above: `esc` is declared
+// further down this module, so building the RegExp at module-evaluation time
+// threw "Cannot access 'esc' before initialization". The list above is the
+// documentation of intent and is asserted by the tests.
+const REPORT_ARTIFACT_RE =
+  /\b(?:laporan|report|temuan|findings?|hasil\s+(?:pengujian|audit|scan|pentest))\b/i;
+
 export function reportProvenanceNote(messages: ChatMessage[], claimText: string): string {
   if (!claimsTestingConcluded(claimText)) return "";
+  // A concluded testing claim is not a report claim. Requiring the artifact
+  // noun keeps the note's wording tied to what it is commenting on, and closes
+  // the false positive where an agent describes its own job duties.
+  if (!REPORT_ARTIFACT_RE.test(claimText)) return "";
   if (turnRanTool(messages, "finding_add")) return "";
   return " (Catatan: laporan ini memuat temuan yang SUDAH tercatat sebelumnya — giliran ini tidak mencatat temuan baru.)";
 }

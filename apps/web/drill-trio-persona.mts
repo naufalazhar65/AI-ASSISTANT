@@ -68,14 +68,26 @@ function auditToolRuns(user: string): Map<string, number> {
   return out;
 }
 
-async function ask(user: string, text: string, agent?: "agnes" | "michelle") {
-  const r = await runAssistantTurn({
+/**
+ * The full turn result. `ask()` used to return only `text`, which silently hid
+ * one important case: when an agent proposes a write-risk tool it PAUSES for the
+ * owner's approval and returns an empty `text` plus a populated
+ * `needsConfirmation`. In Discord the owner sees that prompt, so the turn is
+ * not silent — but a drill that only reads `text` cannot tell "paused for
+ * approval" apart from "said nothing at all". That is the one that is a bug.
+ */
+async function askTurn(user: string, text: string, agent?: "agnes" | "michelle") {
+  return runAssistantTurn({
     messages: [{ role: "user", content: text }],
     provider: process.env.DEFAULT_AI_PROVIDER || "9router",
     user,
     channel: "discord",
     ...(agent ? { agent } : {}),
   });
+}
+
+async function ask(user: string, text: string, agent?: "agnes" | "michelle") {
+  const r = await askTurn(user, text, agent);
   return (r.text || "").trim();
 }
 
@@ -164,8 +176,26 @@ ok(
   [...agnesCodingRuns.keys()].join(",") || "no tools",
 );
 
-const michCoding = await ask(KEYS.michelle, CODING_ASK, "michelle");
-console.log(`  michelle←coding → ${michCoding.replace(/\s+/g, " ").slice(0, 240)}`);
+const michTurn = await askTurn(KEYS.michelle, CODING_ASK, "michelle");
+const michCoding = (michTurn.text || "").trim();
+const michPending = (michTurn.needsConfirmation || []).length;
+console.log(
+  `  michelle←coding → ${(michCoding || `(paused for approval: ${(michTurn.needsConfirmation || []).map((c: any) => c.name).join(", ")})`)
+    .replace(/\s+/g, " ")
+    .slice(0, 240)}`,
+);
+// An agent must never produce a turn the owner cannot see: either it answers,
+// or it pauses for approval (the owner gets the prompt). Only a turn with
+// neither is a genuine silent turn.
+ok(
+  michCoding.length > 0 || michPending > 0,
+  "T4 michelle: the owner sees something — an answer or an approval prompt, never a silent turn",
+  `text=${michCoding.length} chars, pending=${michPending}`,
+);
+ok(
+  michCoding.length > 0 || michPending > 0,
+  "T4 michelle: answers or asks for approval instead of going silent on the in-role task",
+);
 const michRuns = auditToolRuns(KEYS.michelle);
 console.log(`  audit(michelle) = ${[...michRuns].map(([k, v]) => `${k}×${v}`).join(", ") || "(none)"}`);
 ok(

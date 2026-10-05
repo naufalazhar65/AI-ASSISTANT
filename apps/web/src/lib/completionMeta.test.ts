@@ -197,3 +197,40 @@ describe("OFFER_BEFORE_SEAL_RE (forward offer != conclusion)", () => {
     expect(reportProvenanceNote([], OFFER)).toBe("");
   });
 });
+
+// ---------------------------------------------------------------------------
+// A concluded TESTING claim is not a REPORT claim (live 2026-10-05, trio drill).
+//
+// Asked what her routine task is, Michelle answered "membaca serta menulis file
+// kode untuk menguji dan memperbaiki bug sampai tuntas". That is testing verb +
+// sealed word, so the provenance note fired and appended "laporan ini memuat
+// temuan yang SUDAH tercatat sebelumnya" — which refers to a report nobody
+// mentioned. Requiring the report/finding artifact keeps the note's wording
+// tied to the thing it is actually commenting on.
+// ---------------------------------------------------------------------------
+describe("REPORT_ARTIFACT_NOUN_RE (concluded testing != report claim)", () => {
+  // The live false positive, verbatim in substance.
+  const JOB_DUTY =
+    "Aku Michelle, Coder dari trio Mia, dan tugas rutin yang paling sering kukerjakan adalah membaca serta menulis file kode untuk menguji dan memperbaiki bug sampai tuntas.";
+  const REAL_REPORT_CLAIM =
+    "Pentest-nya sudah aku tuntaskan semua, laporannya sudah kubuat dengan 3 temuan.";
+  const FINDING_ONLY_CLAIM = "Audit sudah selesai, temuannya kucatat di laporan target itu.";
+
+  it("does not fire when the agent is only describing her own job duties", () => {
+    expect(reportProvenanceNote([], JOB_DUTY)).toBe("");
+  });
+
+  it("still fires on a real report claim with no new finding this turn", () => {
+    expect(reportProvenanceNote([], REAL_REPORT_CLAIM)).not.toBe("");
+  });
+
+  it("fires when the claim names findings rather than the word report", () => {
+    expect(reportProvenanceNote([], FINDING_ONLY_CLAIM)).not.toBe("");
+  });
+
+  it("does not change the underlying conclusion detection", () => {
+    // The narrower note must not weaken the wider guard.
+    expect(claimsTestingConcluded(REAL_REPORT_CLAIM)).toBe(true);
+    expect(claimsTestingConcluded(JOB_DUTY)).toBe(true);
+  });
+});
