@@ -964,6 +964,7 @@ async function runTurn(
         model: state.model,
         user,
         channel: "discord",
+        agent,
         confirm_call: confirmCall,
       })
     );

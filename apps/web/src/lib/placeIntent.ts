@@ -11,7 +11,13 @@
  * report on a place's real-world status/openness, so the deterministic
  * post-turn guard can ensure she either verifies or explicitly flags the info
  * as unverified — instead of presenting a stale/guessed list as fact.
+ *
+ * The caveat itself is voice-aware (see placeNudge): this nudge is appended
+ * after the register/glyph firewall, so a hard-coded Mia-shaped string would
+ * smuggle her glyph and her formal closing back into a colleague's reply.
  */
+
+import { isAgentLabel, type AgentLabel } from "./agentRole";
 
 // Request verbs: "rekomendasi/enaknya/dimana/mau ... di <tempat>", "mana yang",
 // "cafe/resto/kopi around here", "yang buka/masih buka", "dekat/terdekat".
@@ -42,16 +48,41 @@ export function detectPlaceIntent(text: string): boolean {
 /** Phrasing the model may have already used to hedge its answer. */
 const ALREADY_HEDGED_RE = /cek dulu|verif|google|coba cek|bisa telat|mungkin (?:udah|sudah) (?:tutup|beda)|infoku|tidak (?:yakin|pasti)|belum tentu/i;
 
+/** Mia's own nudge — unchanged, byte for byte. */
+const MIA_NUDGE =
+  " (Catatan: ini rekomendasi dari ingatanku dan bisa telat — cek dulu di Google ya, siapa tau ada yang udah tutup atau pindah 🌸)";
+
+/**
+ * Agnes / Michelle nudge.
+ *
+ * Live 2026-10-05 23:09 exposed why this needed a second shape. This nudge is
+ * appended by the agent AFTER the voice firewall runs, so the SYSTEM — not the
+ * model — pasted Mia's 🌸 into a colleague's answer and closed it with a formal
+ * delegating clause ("cek dulu di Google ya"), both of which break that
+ * colleague's hard rules (no glyph; no formal closing offer; no handing work
+ * back to the owner).
+ *
+ * So: same honesty, spoken register. Everyday words ("dari ingatan ya", "siapa
+ * tahu" not "siapa tau"), no glyph, no parenthetical formal label, and NO
+ * instruction to the owner to go check it themselves — the caveat is a caveat,
+ * not a to-do list.
+ */
+const TRIO_NUDGE = " (dari ingatan ya, jam bukanya bisa berubah)";
+
 /**
  * Decide + build the honesty nudge for a place-recommendation/status turn.
  * Returns "" (no nudge) when the answer was verified via web_search or already
- * hedged; otherwise a short caveat so Mia never presents unverified local data
- * as confidently-current fact. Pure & deterministic — unit-testable.
+ * hedged; otherwise a short caveat so the assistant never presents unverified
+ * local data as confidently-current fact. Pure & deterministic — unit-testable.
+ *
+ * `agent` selects the register: Mia keeps her original wording byte-for-byte;
+ * the trio members get the casual variant. Fails closed to Mia's shape for an
+ * unknown or missing label.
  */
-export function placeNudge(text: string, usedWebSearch: boolean): string {
+export function placeNudge(text: string, usedWebSearch: boolean, agent?: AgentLabel | null): string {
   if (usedWebSearch) return "";
   const t = (text || "").trim();
   if (!t) return "";
   if (ALREADY_HEDGED_RE.test(t)) return "";
-  return " (Catatan: ini rekomendasi dari ingatanku dan bisa telat — cek dulu di Google ya, siapa tau ada yang udah tutup atau pindah 🌸)";
+  return isAgentLabel(agent) && agent !== "mia" ? TRIO_NUDGE : MIA_NUDGE;
 }

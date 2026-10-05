@@ -1,5 +1,15 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { AGENT_PERSONA_VERSION, agentPersonaNeedsReseed, agentPersonaVersion, applyAgentRole, isAgentLabel, stripMiaSignatureVoice } from "./agentRole";
+import {
+  AGENT_PERSONA_VERSION,
+  agentPersonaNeedsReseed,
+  agentPersonaVersion,
+  applyAgentRole,
+  isAgentLabel,
+  isEncyclopedicRegister,
+  stripFormalRegisterFrame,
+  stripMiaSignatureVoice,
+} from "./agentRole";
 import {
   buildOpenCodeSystemPrompt,
   buildSlimSystemPrompt,
@@ -385,5 +395,369 @@ describe("daily-routine ownership (live role inversion)", () => {
     expect(applyAgentRole(base, "michelle")).not.toBe(base);
     expect(applyAgentRole(base, undefined)).toBe(base);
     expect(applyAgentRole(base, "mia")).toBe(base);
+  });
+});
+/**
+ * Register check (owner request 2026-10-05): "ubah gaya bicara mereka jangan
+ * terlalu kaku dan formal, ubah biar gaul dan seperti anak kantoran jaksel tapi
+ * tidak lebay" — decided as casual BUT WITHOUT emoji, and keeping "Mas" as the
+ * opening.
+ *
+ * These tests exist because a tone change is invisible to every other gate: it
+ * cannot be seen in a return value, only in the prompt text that reaches the
+ * model. If a later edit drops the register, the tests fail instead of the
+ * agents silently going stiff again.
+ */
+describe("speaking register: relaxed Jakarta colleague, not a manual (2026-10-05)", () => {
+  const allPrompts = () => {
+    const slim = buildSlimSystemPrompt("verify_register", "discord");
+    return [slim, buildSystemPrompt("verify_register", "discord"), buildOpenCodeSystemPrompt("verify_register", "discord")].map(
+      (p) => applyAgentRole(p, "agnes"),
+    );
+  };
+
+  it("states the register positively in every prompt variant", () => {
+    for (const p of allPrompts()) {
+      expect(p).toContain("relaxed Jakarta office colleague");
+      expect(p).toContain("not like a manual, a textbook, or a robot");
+    }
+  });
+
+  it("names what to drop, so the model has something concrete to remove", () => {
+    for (const p of allPrompts()) {
+      expect(p).toContain("Drop stiff written-Indonesian phrasing");
+      expect(p).toMatch(/officialdom|deferential distance/);
+    }
+  });
+
+  // "tidak lebay" was half the ask: casual but still measured.
+  it("keeps it measured rather than over the top", () => {
+    for (const p of allPrompts()) {
+      expect(p).toMatch(/no theatrics/);
+      expect(p).toMatch(/no filler enthusiasm/);
+      expect(p).toMatch(/no jokes you have to work at/);
+    }
+  });
+
+  it("keeps the Mas greeting the owner asked to preserve", () => {
+    for (const p of allPrompts()) {
+      expect(p).toContain("Mas plus the name from the USER persona block");
+    }
+  });
+
+  // The 🌸 prohibition must survive the reword: it appears ONLY inside the
+  // "never use it" clause, exactly as before, and never as an example to copy.
+  it("keeps the no-emoji and no-🌸 prohibition intact", () => {
+    for (const p of allPrompts()) {
+      expect(p).toContain("Never use emoji");
+      expect(p).toContain("that belongs to Mia alone");
+    }
+  });
+
+  it("does not introduce the 🌸 glyph as a usage example anywhere in the shared rules", () => {
+    const shared = allPrompts()[0];
+    // The glyph may appear in the prohibition only; count it and make sure the
+    // sentence carrying it is the prohibition, not a demonstration.
+    const occurrences = shared.split("🌸").length - 1;
+    expect(occurrences).toBeLessThanOrEqual(1);
+  });
+
+  it("applies the register to both gated agents, not just one", () => {
+    const slim = buildSlimSystemPrompt("verify_register", "discord");
+    for (const agent of ["agnes", "michelle"] as const) {
+      const out = applyAgentRole(slim, agent);
+      expect(out).toContain("relaxed Jakarta office colleague");
+      expect(out).toContain(`You are ${agent === "agnes" ? "Agnes" : "Michelle"}`);
+    }
+  });
+
+  it("leaves Mia's own prompt byte-identical (she has her own voice)", () => {
+    const slim = buildSlimSystemPrompt("verify_register", "discord");
+    expect(applyAgentRole(slim, "mia")).toBe(slim);
+    expect(applyAgentRole(slim, undefined)).toBe(slim);
+  });
+});
+
+describe("casual persona templates carry the same register (2026-10-05)", () => {
+  const read = (p: string) => readFileSync(p, "utf8");
+  const dir = new URL("../../persona/agents/", import.meta.url).pathname;
+
+  for (const label of ["agnes", "michelle"] as const) {
+    it(`${label}.SOUL.md tone + language bullets are casual and emoji-free`, () => {
+      const soul = read(`${dir}${label}.SOUL.md`);
+      const style = soul.split("## Style")[1]?.split("### ")[0] ?? "";
+      expect(style).toMatch(/- tone:.*santai/);
+      expect(style).toMatch(/- language:.*(sehari-hari|ngobrol)/);
+      expect(style).toMatch(/Mas \+ namanya/);
+      // No emoji, and no borrowed signature glyph, in the injected region.
+      expect(style).not.toContain("🌸");
+      expect(style).not.toMatch(/[😀-🙏🌀-🫿]/u);
+    });
+
+    it(`${label}.SOUL.md is stamped current so the re-seed can happen`, () => {
+      const soul = read(`${dir}${label}.SOUL.md`);
+      expect(soul).toContain(`agent-role:${label}`);
+      expect(agentPersonaNeedsReseed(soul)).toBe(false);
+      expect(agentPersonaVersion(soul)).toBe(AGENT_PERSONA_VERSION);
+    });
+  }
+
+  // The stamp and the constant must move together: a template bumped without
+  // AGENT_PERSONA_VERSION is a silent no-op on already-seeded bots, and a
+  // constant bumped without the templates re-seeds nothing.
+  it("every shipped template carries the current version marker", () => {
+    for (const label of ["agnes", "michelle"] as const) {
+      for (const f of ["IDENTITY.md", "SOUL.md"] as const) {
+        const body = read(`${dir}${label}.${f}`);
+        expect(agentPersonaVersion(body)).toBe(AGENT_PERSONA_VERSION);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Register firewall (live 2026-10-05 22:25).
+//
+// Owner: "hmmm sepertinya gaya bahasa mereka masih kaku". The fixture below is
+// Agnes's REAL answer to the three-word question "tau jaksel?", transcribed
+// verbatim from Discord, while Mia answered the same question warmly. So every
+// test here is two-directional: the live shape must FIRE, and Mia's actual
+// answer to the same question must stay silent — a detector that also flags
+// good writing is worse than no detector.
+// ---------------------------------------------------------------------------
+describe("isEncyclopedicRegister (detects the live stiff answer)", () => {
+  const STIFF =
+    "Tentu saja, Jakarta Selatan adalah salah satu wilayah administratif di DKI Jakarta yang dikenal sebagai pusat bisnis, perkantoran modern, kawasan hunian, serta pusat gaya hidup dan kuliner seperti daerah Senopati, Kemang, dan Blok M Mas Naufal. Ada hal khusus mengenai Jakarta Selatan yang ingin kamu ketahui atau bandingkan hari ini?";
+
+  it("flags the live Agnes answer to a three-word question", () => {
+    expect(isEncyclopedicRegister(STIFF)).toBe(true);
+  });
+
+  it("flags it with the recognisers broken out, so one weak spot cannot hide it", () => {
+    // Definitional opener alone.
+    expect(
+      isEncyclopedicRegister("Jakarta Selatan adalah salah satu wilayah administratif di DKI Jakarta."),
+    ).toBe(true);
+    // Attribute stack alone.
+    expect(
+      isEncyclopedicRegister("Jakarta Selatan terletak di DKI Jakarta, pusat bisnis dan pusat gaya hidup."),
+    ).toBe(true);
+    // The closing offer on its own still counts (it is the live tell).
+    expect(
+      isEncyclopedicRegister("Jaksel itu singkatan dari Jakarta Selatan. Ada hal khusus yang ingin kamu tahu?"),
+    ).toBe(true);
+  });
+
+  it("stays silent on Mia's warm answer to the SAME question", () => {
+    const WARM = [
+      "Jaksel = Jakarta Selatan, Mas Naufal. Areas yang paling Extended: Kemang, Senopati, Blok M.",
+      "Iya, Jaksel itu Jakarta Selatan. Yang paling Segment: Kemang sama Senopati.",
+      "Jakarta Selatan, Mas. Yang paling Ramai: Senopati, Kemang, sama Blok M.",
+    ];
+    for (const w of WARM) expect(isEncyclopedicRegister(w), w).toBe(false);
+  });
+
+  it("stays silent on ordinary prose that happens to contain one marker", () => {
+    // "merupakan" alone is normal Indonesian; it must not be enough.
+    expect(isEncyclopedicRegister("File-nya error karena route-nya tidak ketemu, Mas.")).toBe(false);
+    expect(isEncyclopedicRegister("Hasilnya 200 OK, tapi bodynya kosong semua.")).toBe(false);
+    expect(isEncyclopedicRegister("")).toBe(false);
+    expect(isEncyclopedicRegister("   ")).toBe(false);
+  });
+
+  // A real decision question is NOT a formality offer and must never be caught.
+  it("does not flag a genuine closing question", () => {
+    expect(isEncyclopedicRegister("Test-nya sudah hijau semua. Mau sekalian kubikin PDF-nya?")).toBe(false);
+  });
+});
+
+describe("stripFormalRegisterFrame (removes the frame, never the facts)", () => {
+  const STIFF =
+    "Tentu saja, Jakarta Selatan adalah salah satu wilayah administratif di DKI Jakarta yang dikenal sebagai pusat bisnis. Ada hal khusus mengenai Jakarta Selatan yang ingin kamu tahu atau bandingkan hari ini?";
+
+  it("drops the opening acknowledgement and the closing offer", () => {
+    const out = stripFormalRegisterFrame(STIFF, "agnes");
+    expect(out).not.toMatch(/^Tentu saja/i);
+    expect(out).not.toMatch(/ingin kamu tahu atau bandingkan/);
+    // The factual sentence survives untouched — that is the whole contract.
+    expect(out).toContain("Jakarta Selatan adalah salah satu wilayah administratif di DKI Jakarta");
+    expect(out).toContain("pusat bisnis");
+  });
+
+  it("is byte-identical for Mia, no label, and an unknown label (fails closed)", () => {
+    expect(stripFormalRegisterFrame(STIFF, "mia")).toBe(STIFF);
+    expect(stripFormalRegisterFrame(STIFF)).toBe(STIFF);
+    expect(stripFormalRegisterFrame(STIFF, "mallory" as never)).toBe(STIFF);
+  });
+
+  it("leaves a warm reply completely alone", () => {
+    const WARM = "Jaksel itu Jakarta Selatan, Mas. Yang paling Ramai: Kemang sama Senopati.";
+    expect(stripFormalRegisterFrame(WARM, "agnes")).toBe(WARM);
+    expect(stripFormalRegisterFrame(WARM, "michelle")).toBe(WARM);
+  });
+
+  it("keeps a genuine trailing question (real decision, not an offer)", () => {
+    const Q = "Test hijau semua. Mau sekalian kubikin PDF-nya?";
+    expect(stripFormalRegisterFrame(Q, "michelle")).toBe(Q);
+  });
+
+  it("refuses to empty the reply when the offer is the only sentence", () => {
+    const ONLY = "Ada hal khusus yang ingin kamu tahu?";
+    expect(stripFormalRegisterFrame(ONLY, "agnes")).toBe(ONLY);
+  });
+
+  it("works for Michelle exactly as for Agnes (one rule, both agents)", () => {
+    for (const a of ["agnes", "michelle"] as const) {
+      const out = stripFormalRegisterFrame(STIFF, a);
+      expect(out, a).not.toMatch(/^Tentu saja/i);
+    }
+  });
+});
+
+describe("REGISTER CONTRACT reaches the model in every prompt variant", () => {
+  const prompts = () => {
+    const slim = buildSlimSystemPrompt("verify_register", "discord");
+    return [slim, buildSystemPrompt("verify_register", "discord"), buildOpenCodeSystemPrompt("verify_register", "discord")].map(
+      (p) => applyAgentRole(p, "agnes"),
+    );
+  };
+
+  it("states the length rule the live answer broke", () => {
+    for (const p of prompts()) expect(p).toContain("MATCH THE QUESTION");
+  });
+
+  it("forbids the three shapes the live answer had", () => {
+    for (const p of prompts()) {
+      expect(p).toContain("NEVER DEFINE THE THING YOU WERE ASKED ABOUT");
+      expect(p).toContain("NEVER CLOSE WITH A FORMAL OFFER");
+      expect(p).toContain("CUT WRITTEN-INDONESIAN FILLER");
+    }
+  });
+
+  it("tells the agent to mirror the owner's own register", () => {
+    for (const p of prompts()) expect(p).toContain("MIRROR THE OWNER");
+  });
+
+  // The repo rule: never quote the bad output you are fixing.
+  it("never quotes the live stiff sentence it prevents", () => {
+    for (const p of prompts()) {
+      expect(p).not.toMatch(/salah satu wilayah administratif/i);
+      expect(p).not.toMatch(/ingin kamu (tau|bandingkan|ketahui)/i);
+    }
+  });
+
+  it("applies to both gated agents", () => {
+    const slim = buildSlimSystemPrompt("verify_register", "discord");
+    for (const agent of ["agnes", "michelle"] as const) {
+      expect(applyAgentRole(slim, agent)).toContain("REGISTER CONTRACT");
+    }
+  });
+});
+
+// Live bug 2026-10-05 23:29: the place caveat used to be a hard-coded Mia string
+// appended AFTER this firewall. Once the trio label actually reached the turn
+// (see the discord.ts call-site check in verify.ts), a second leak surfaced: a
+// model that copies an older answer out of channel history keeps the whole
+// parenthetical, because it never contains a sentence terminator of its own.
+describe("SYSTEM_CAVEAT_FRAME (legacy caveat copy, every label)", () => {
+  const LEGACY = "(Catatan: ini rekomendasi dari ingatanku dan bisa telat — cek dulu di Google ya, siapa tau ada yang udah tutup atau pindah \u{1F338})";
+  const body = "Malam-malam gini paling pas bikin kopi hitam tanpa gula atau Americano hangat Mas Naufal.";
+
+  it("drops the legacy caveat copy for the trio", () => {
+    for (const agent of ["agnes", "michelle"] as const) {
+      const out = stripFormalRegisterFrame(`${body} ${LEGACY}`, agent);
+      expect(out).toBe(body);
+      expect(out).not.toContain("Catatan");
+    }
+  });
+
+  it("drops it for Mia too (the caller appends its own, voice-correct, caveat)", () => {
+    expect(stripFormalRegisterFrame(`${body} ${LEGACY}`, "mia")).toBe(body);
+    expect(stripFormalRegisterFrame(`${body} ${LEGACY}`, undefined)).toBe(body);
+  });
+
+  it("leaves an ordinary parenthetical alone", () => {
+    const withParen = "Kopi Praja di Bintaro enak (-industrial vibe), atau Kopi Kenangan lebih aman.";
+    for (const agent of ["agnes", "michelle"] as const) {
+      expect(stripFormalRegisterFrame(withParen, agent)).toBe(withParen);
+    }
+    expect(stripFormalRegisterFrame(withParen, "mia")).toBe(withParen);
+  });
+
+  it("never strips a mid-sentence caveat — only a trailing one", () => {
+    const mid = "Bisa telat kok, tighter lagi ya (Catatan: ini rekomendasi dari ingatanku) asal sesuai.";
+    for (const agent of ["agnes", "michelle"] as const) {
+      expect(stripFormalRegisterFrame(mid, agent)).toContain("Bisa telat");
+    }
+  });
+
+  it("refuses to empty the text when the caveat is all there is", () => {
+    expect(stripFormalRegisterFrame(LEGACY, "michelle")).toBe(LEGACY);
+  });
+
+  it("still strips the glyph on the same shape", () => {
+    const out = stripMiaSignatureVoice(`${body} ${LEGACY}`, "michelle");
+    expect(out).not.toContain("\u{1F338}");
+  });
+});
+
+/**
+ * Live 2026-10-05 23:56 — owner pasted the trio's replies to "malam semua":
+ *   Michelle: "Malam juga Mas Naufal. Ada kode atau file di flowtest-studio yang
+ *              mau kita periksa dan test bareng sekarang?"
+ *   Agnes:    "Halo beb Seneng kamu mampir — gimana harimu? Ada yang bisa kubantu?"
+ * Agnes copied Mia's pet name out of the shared channel history and glued a
+ * greeting to the answer with no punctuation. Both are voice leaks, so both are
+ * removed deterministically — while Mia keeps her own address form.
+ */
+describe("trio address form + glued greeting (live 2026-10-05 23:56)", () => {
+  const AGNES_LIVE = "Halo beb Seneng kamu mampir — gimana harimu? Ada yang bisa kubantu?";
+  const MICHELLE_LIVE =
+    "Malam juga Mas Naufal. Ada kode atau file di flowtest-studio yang mau kita periksa dan test bareng sekarang?";
+
+  it("drops Mia's pet name from a trio reply", () => {
+    for (const label of ["agnes", "michelle"] as const) {
+      expect(stripFormalRegisterFrame(AGNES_LIVE, label)).not.toMatch(/\bbeb\b/i);
+    }
+  });
+
+  it("drops the glued greeting so the answer does not read as a run-on", () => {
+    expect(stripFormalRegisterFrame(AGNES_LIVE, "agnes")).toBe(
+      "Seneng kamu mampir — gimana harimu? Ada yang bisa kubantu?",
+    );
+  });
+
+  it("leaves Michelle's live reply untouched (no leak, no frame)", () => {
+    expect(stripFormalRegisterFrame(MICHELLE_LIVE, "michelle")).toBe(MICHELLE_LIVE);
+  });
+
+  it("keeps a real address greeting ('Halo Mas Naufal')", () => {
+    expect(stripFormalRegisterFrame("Halo Mas Naufal, gimana kabarnya?", "agnes")).toBe(
+      "Halo Mas Naufal, gimana kabarnya?",
+    );
+  });
+
+  it("keeps 'bebek' (a word that merely starts with beb)", () => {
+    expect(stripFormalRegisterFrame("Dia suka makan bebek sore-sore", "michelle")).toBe(
+      "Dia suka makan bebek sore-sore",
+    );
+  });
+
+  it("keeps Mia's own pet name and address form byte-identical", () => {
+    expect(stripFormalRegisterFrame("Halo beb, gimana?", "mia")).toBe("Halo beb, gimana?");
+    expect(stripFormalRegisterFrame(AGNES_LIVE, "mia")).toBe(AGNES_LIVE);
+  });
+
+  it("fails closed with no label or an unknown label", () => {
+    expect(stripFormalRegisterFrame(AGNES_LIVE, undefined)).toBe(AGNES_LIVE);
+    expect(stripFormalRegisterFrame(AGNES_LIVE, "unknown-agent")).toBe(AGNES_LIVE);
+  });
+
+  it("never empties the reply when the leak is all there is", () => {
+    expect(stripFormalRegisterFrame("beb", "agnes")).toBe("beb");
+  });
+
+  it("does not reintroduce the glyph on the same shape", () => {
+    expect(stripMiaSignatureVoice(`${AGNES_LIVE} 🌸`, "agnes")).not.toContain("\u{1F338}");
   });
 });

@@ -40,12 +40,53 @@ const MIA_IDENTITY_SENTENCES: string[] = [
   "same woman everywhere. Answer concisely and naturally as a woman. ",
 ];
 
+/**
+ * Mia's signature glyph, and the fragment of our own prohibition that must stay.
+ */
+const MIA_GLYPH = "🌸";
+const EMOJI_PROHIBITION_MARKER = "Never use emoji, and never use the";
+
+/**
+ * Remove every remaining sentence that carries Mia's glyph.
+ *
+ * MIA_IDENTITY_SENTENCES strips Mia's *identity* sentences, but the shared
+ * prompt body is full of scattered EXAMPLE sentences that still instruct the
+ * agent to use the glyph ("Emoji: 🌸 is my signature", "close a chat message
+ * with 🌸", "Contoh MIA-style: 'Malam! 🌸 …'"). Measured 2026-10-05: the slim
+ * prompt handed Agnes SEVEN such instructions and the full prompt fourteen, all
+ * of them contradicting the shared rule that she must never use emoji. Only the
+ * output voice firewall was hiding it.
+ *
+ * This drops those sentences wholesale rather than growing the exact-substring
+ * list, so a future edit to the shared prompt cannot silently reintroduce them.
+ * The one sentence that MENTIONS the glyph in order to forbid it is preserved.
+ */
+function stripMiaGlyphExamples(prompt: string): string {
+  const sentences = prompt.split(/(?<=[.!?])\s+/);
+  const kept = sentences.filter((s) => !s.includes(MIA_GLYPH) || s.includes(EMOJI_PROHIBITION_MARKER));
+  return kept.join(" ").replace(/[ \t]{2,}/g, " ").trim();
+}
+
 /** Shared rules every trio member obeys regardless of station. */
 const SHARED_TRIO_RULES = [
   "You are one member of a three-agent team serving the SAME owner (Mia, Michelle, Agnes). You are never Mia, and you never introduce yourself as Mia.",
   "You keep NO record of earlier messages beyond what is in the conversation window, so never claim you already did something you cannot point to a tool result for in this turn.",
   "Honesty over fluency: when a fact is not verified, say so plainly and name what you checked. Never invent file names, line numbers, test output, URLs or search findings.",
-  "Answer in natural Indonesian, short paragraphs, addressed to the owner by the name shown in the USER persona block. Never use emoji, and never use the 🌸 character — that belongs to Mia alone.",
+  "Speak like a relaxed Jakarta office colleague — a coworker the owner is comfortable with — not like a manual, a textbook, or a robot. Warm, everyday Indonesian with the rhythm of people who talk all day at work: contractions, ordinary connective words, and the light workplace slang that sounds natural in a real office rather than performed for an audience. Drop stiff written-Indonesian phrasing, ceremonial connectives, and any air of officialdom or deferential distance. Keep it measured: short paragraphs, no filler enthusiasm, no sprinkling of exclamation marks, no theatrics, no jokes you have to work at. Still open by addressing the owner as Mas plus the name from the USER persona block. Never use emoji, and never use the 🌸 character — that belongs to Mia alone.",
+  // REGISTER CONTRACT (2026-10-05, live). The paragraph above states the register
+  // as a vibe, and a small model still wrote an encyclopedia entry for a
+  // three-word question. These are the same intent turned into rules the model
+  // can actually check against what it just wrote.
+  //
+  // Shapes are DESCRIBED in English on purpose: quoting the Indonesian wording to
+  // avoid would be quoted back as an example (repo rule — small models imitate
+  // quoted bad output verbatim).
+  "REGISTER CONTRACT — check your draft against these before you send it. "
+  + "MATCH THE QUESTION: a question of a few words gets a few sentences back. One short question never earns a paragraph, a bulleted explainer, or a summary of a subject nobody asked you to summarise. "
+  + "NEVER DEFINE THE THING YOU WERE ASKED ABOUT: an answer does not open by stating what the subject is, where it sits, or what it is known as, unless the owner literally asked what it is. "
+  + "NEVER CLOSE WITH A FORMAL OFFER: no trailing question that asks whether the owner wants to know or compare more, no invitation to keep asking, no do-not-hesitate phrasing. Ask something at the end only when you genuinely need a decision or a missing fact. "
+  + "MIRROR THE OWNER: he writes short, lowercase and slangy — answer the same way, and keep his slang when he uses it. Everyday second person, never the formal you-form. "
+  + "CUT WRITTEN-INDONESIAN FILLER: no opening acknowledgement of the question itself, no conclusion-announcing phrase, no hedging preamble, no 'as a general rule', no formal permission verb.",
   "A request addressed to you BY NAME is the owner choosing you. When you are addressed directly and you have a tool that can do it, do it — never pass a directly-addressed request to a teammate just because a teammate could also do it. Redirect only when you genuinely have no tool for it; and then do the part you can and say plainly which part you did not do. ",
   "Showing or reading something for the owner is shared work, not one agent's private job: mac_open opens a real visible window on the owner's machine, and browser_open (then browser_snapshot) lets you read a page yourself. Whichever agent is asked does it with its own tool. ",
   "Never say you opened, sent, started or finished doing something unless a tool result in THIS turn shows it. A promise with no tool call behind it is a broken promise — call the tool first, then answer.",
@@ -89,6 +130,10 @@ export function applyAgentRole(prompt: string, agent?: unknown): string {
   if (!isAgentLabel(agent) || agent === "mia") return prompt;
   let out = prompt;
   for (const s of MIA_IDENTITY_SENTENCES) out = out.split(s).join("");
+  // Drop the scattered example sentences that still tell the agent to USE Mia's
+  // glyph (see stripMiaGlyphExamples). Runs after the identity strip because
+  // the identity sentences are the highest-salience ones to remove first.
+  out = stripMiaGlyphExamples(out);
   const role = AGENT_ROLE_BLOCKS[agent];
   return `${role}\n\n${SHARED_TRIO_RULES}\n\n${out}`;
 }
@@ -107,7 +152,7 @@ export function applyAgentRole(prompt: string, agent?: unknown): string {
  */
 
 /** Bump whenever a role template's text changes so seeded bots pick it up. */
-export const AGENT_PERSONA_VERSION = 4;
+export const AGENT_PERSONA_VERSION = 6;
 
 /** Version stamped in a persona file. No marker = 0 (pre-versioning, or Mia's
  *  own template copy sitting in an agent's dir). */
@@ -121,6 +166,144 @@ export function agentPersonaVersion(body: string): number {
 export function agentPersonaNeedsReseed(body: string): boolean {
   return agentPersonaVersion(body) < AGENT_PERSONA_VERSION;
 }
+
+/* ------------------------------------------------------------------ *
+ * Register firewall (2026-10-05, live)
+ *
+ * Live failure this exists for: asked a three-word question, Agnes answered
+ * with an encyclopedia entry — a definitional opening, a stacked list of
+ * attributes, and a closing offer to compare more — while Mia answered the
+ * same question in two warm sentences. The REGISTER CONTRACT in
+ * SHARED_TRIO_RULES states the intent, but a 9router-class model ignores prose
+ * style rules; the repo's own lesson (2026-09-21: "hint saja tidak menahan")
+ * is that a prompt hint needs a deterministic counterpart.
+ *
+ * So the two halves are separated deliberately:
+ *   - `isEncyclopedicRegister`  → DETECT. Feeds the existing polish pass so the
+ *     model itself rewrites the answer (the only way to fix a definitional
+ *     sentence without deleting a fact).
+ *   - `stripFormalRegisterFrame` → deterministic REMOVE of only the parts that
+ *     carry zero information: an opening acknowledgement of the question, and
+ *     a trailing "want to know more?" offer. Facts are never touched.
+ * Pure + unit-tested; both fail CLOSED to Mia exactly like the glyph firewall.
+ * ------------------------------------------------------------------ */
+
+/** Openers that acknowledge the question instead of answering it. */
+const QUESTION_ACK_OPENERS =
+  /^(?:tentu\s+(?:saja|betul|begini)?|baik(?:lah)?|sip|oke|oh|nah|wah|iya(?:h)?|hmm|heh)[,!.—–-]?\s+(?=[a-z])/i;
+
+/**
+ * Mia's pet name for the owner. It belongs to HER voice: the trio persona
+ * files say the owner is addressed as "Mas" plus his name, and Michelle's
+ * reply "Halo beb Seneng kamu mampir" (live 2026-10-05 23:56) shows a small
+ * model copying Mia's address form straight out of the shared Discord channel
+ * history. Stripped for trio labels only; Mia keeps it everywhere.
+ */
+const MIA_PET_NAME = /\bbeb\b[.,]?/gi;
+
+/**
+ * A greeting glued straight into the answer with no punctuation ("Halo beb
+ * Seneng kamu mampir"), which reads as a run-on. Only the greeting word goes,
+ * and only when the next word is a capitalised ordinary word -- a real
+ * "Halo Mas Naufal" (an address) keeps its greeting.
+ */
+const GLUED_GREETING =
+  /^(?:halo|hai|hei|hallo|ohai)\s+(?=[A-Z])(?!(?:Mas|Mb\w*|Bang|Kak\w*|Bu|Pak|Sir|Mam\w*)\b)/i;
+
+/**
+ * A trailing sentence that offers MORE help / asks whether the owner wants to
+ * know or compare more. Deliberately narrow: a genuine question ("mau aku
+ * lanjutin ke Michelle?") is a real decision and must survive.
+ */
+// A leading sentence boundary (not ^) so it matches the closer wherever it
+// sits; each alternative is a full offer question, so a real decision
+// question ("mau kubikin PDF?") can never match it.
+const FORMAL_CLOSER_SENTENCE =
+  /(?:^|[.!?]\s+)ada hal (?:khusus|lain|terbuka)?\s*(?:mengenai|terhadap|tentang)?[^.!?]*?(?:yang )?(?:ingin|inginnya|pengen) (?:kamu|anda)\b[^.!?]*\?/i;
+
+/** A standalone "apakah ada…" / "silakan…" offer, same boundary rule. */
+const FORMAL_OFFER_QUESTION =
+  /(?:^|[.!?]\s+)(?:apakah ada (?:hal|lain|yang)\b[^.!?]*\?|ada yang (?:mau|ingin) (?:kamu|anda) (?:ingin )?(?:tahu|tau|bahas)\b[^.!?]*\?|jangan ragu untuk (?:bertanya|hubungi)\b[^.!?]*\?|silakan (?:bertanya|menanyakan)\b[^.!?]*\?)/i;
+
+/** Definitional / encyclopedic scaffolding that betrays a Wikipedia register. */
+const ENCYCLOPEDIA_MARKERS: RegExp[] = [
+  /\b(?:adalah|merupakan)\s+(?:salah\s+satu|sebuah|lembaga|daerah|wilayah|kawasan)\b/i,
+  /\b(?:terletak|berkedudukan)\s+di\b/i,
+  /\byang\s+dikenal\s+(?:sebagai|luas\s+sebagai)\b/i,
+  /\b(?:dikenal|terbangun|tersusun)\s+(?:sebagai|oleh|atas)\b/i,
+  /\b(?:memiliki|sebuah)\s+karakteristik\b/i,
+  /\bpusat\s+(?:gaya\s+hidup|perkantoran|industri|kuliner|hiburan)\b/i,
+  /\bsalah\s+satu\s+(?:wilayah|kawasan|daerah|provinsi|kota)\b/i,
+  /\b(?:dikenal|terkenal)\s+(?:sebagai|masyarakat)\b/i,
+];
+
+/**
+ * True when the reply reads like an encyclopedia/article entry rather than an
+ * office colleague talking. Two independent signals, each sufficient: a
+ * trailing offer to help further, or a stack of definitional scaffolding.
+ */
+export function isEncyclopedicRegister(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  // The offer-to-help closer is a SIGNAL IN ITS OWN RIGHT, not a tie-breaker:
+  // it is the exact shape the live stiff answer ended on, and its five
+  // alternatives are all offers ("ada hal khusus…", "apakah ada…", "silakan…"),
+  // so a real decision question ("mau kubikin PDF?") cannot match it.
+  if (FORMAL_CLOSER_SENTENCE.test(t) || FORMAL_OFFER_QUESTION.test(t)) return true;
+  // Definitional scaffolding is COUNTED: one such connector is ordinary
+  // Indonesian prose, several together are an encyclopedia entry.
+  return ENCYCLOPEDIA_MARKERS.filter((re) => re.test(t)).length >= 2;
+}
+
+/**
+ * Remove the zero-information frame around an answer: a leading "Tentu saja /"
+ * style acknowledgement of the question, and a trailing formal offer to help
+ * further. Everything factual is left exactly as written, so this can never
+ * delete a claim. Returns the text byte-identical when there is no frame or
+ * when stripping would leave nothing behind.
+ *
+ * Fails CLOSED to Mia: no label, "mia", or an unrecognised label returns the
+ * input untouched (same contract as stripMiaSignatureVoice). The single
+ * exception is a redundant copy of the legacy system caveat, which is dropped
+ * for every label because the caller appends its own voice-correct one.
+ */
+export function stripFormalRegisterFrame(text: string, agent?: unknown): string {
+  // A model-authored copy of the LEGACY system caveat (live 2026-10-05 23:29) is
+  // removed for EVERY label, before the trio gate: the real caveat is appended
+  // after this firewall in the caller's voice, so a copy is always redundant --
+  // and a trailing parenthetical survives the sentence splitter below, so no
+  // later stage would catch it.
+  const deCaveated = text.replace(SYSTEM_CAVEAT_FRAME, "");
+  if (!deCaveated.trim()) return text;
+  if (!isAgentLabel(agent) || agent === "mia") return deCaveated;
+  let out = deCaveated.trim();
+  if (!out) return text;
+  // Mia's address form and a greeting glued to the answer are voice leaks, not
+  // facts: removing them can never delete a claim.
+  out = out.replace(MIA_PET_NAME, "").replace(/[ \t]{2,}/g, " ").trim();
+  out = out.replace(GLUED_GREETING, "").replace(/^[\s,.]+/, "");
+  out = out.replace(QUESTION_ACK_OPENERS, "");
+  // Only a TRAILING offer sentence is removed; a real mid-answer question stays.
+  const sentences = out.split(/(?<=[.!?])\s+/);
+  while (
+    sentences.length > 1 &&
+    (FORMAL_CLOSER_SENTENCE.test(sentences[sentences.length - 1]!) ||
+      FORMAL_OFFER_QUESTION.test(sentences[sentences.length - 1]!))
+  ) {
+    sentences.pop();
+  }
+  out = sentences.join(" ").trim();
+  if (!out) return text;
+  return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+/**
+ * The legacy hard-coded place caveat, recognised only as a TRAILING
+ * parenthetical and only by its distinctive markers (live 2026-10-05 23:29).
+ * A mid-sentence parenthetical or an unrelated bracket is never matched.
+ */
+export const SYSTEM_CAVEAT_FRAME =
+  /\s*\((?:[^()]*(?:\bcek dulu di google\b|\brekomendasi dari ingatanku\b|\bbisa telat\b)[^()]*)\)\s*$/i;
 
 /**
  * Trio voice firewall. Mia's tool results are authored in HER voice and carry

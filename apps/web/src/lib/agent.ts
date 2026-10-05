@@ -32,7 +32,14 @@ import { freerideGetConfig } from "./freeride";
 import { detectPlaceIntent, placeNudge } from "./placeIntent";
 import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume, spotifySleepTimer } from "./spotify";
 import { loadPersonaPrompt } from "./persona";
-import { applyAgentRole, stripMiaSignatureVoice, trioTeamLine, type AgentLabel } from "./agentRole";
+import {
+  applyAgentRole,
+  isEncyclopedicRegister,
+  stripFormalRegisterFrame,
+  stripMiaSignatureVoice,
+  trioTeamLine,
+  type AgentLabel,
+} from "./agentRole";
 import { allowedWorkspaces, sanitizeUser } from "./users";
 import { clockLabel } from "./time";
 import * as CV from "./claimVocab";
@@ -2498,7 +2505,12 @@ async function schedulePriceFromIntent(messages: ChatMessage[], user: unknown, t
  * as a confidently-current fact. It never fabricates data and never fails the
  * turn; it only adds honesty. If the model already hedged, we skip it.
  */
-function schedulePlaceCheckFromIntent(messages: { role: string; content?: unknown }[], text: string, webSearchSuccess?: boolean): string {
+function schedulePlaceCheckFromIntent(
+  messages: { role: string; content?: unknown }[],
+  text: string,
+  webSearchSuccess?: boolean,
+  agent?: AgentLabel,
+): string {
   const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
   if (!lastUser?.content) return text;
   const detected = detectPlaceIntent(messageText(lastUser.content));
@@ -2507,7 +2519,10 @@ function schedulePlaceCheckFromIntent(messages: { role: string; content?: unknow
   // If the turn ran web_search and it succeeded, the answer is grounded in a
   // live result — no caveat needed. A FAILED search ("Error: web search
   // failed") means the model had no verified data, so we still nudge.
-  const caveat = placeNudge(text, Boolean(webSearchSuccess));
+  // `agent` keeps the caveat in the same register as the speaker — this runs
+  // AFTER the voice firewall, so a Mia-shaped string would smuggle 🌸 into a
+  // colleague's reply (live defect, 2026-10-05 23:09).
+  const caveat = placeNudge(text, Boolean(webSearchSuccess), agent);
   if (!caveat) return text;
   const trimmed = (text || "").trim();
   if (trimmed === "") return caveat.trim();
@@ -2780,14 +2795,28 @@ async function polishReplyWithProvider(
   rough: string,
   url: string,
   apiKey: string,
-  defaultModel: string
+  defaultModel: string,
+  registerOnly = false
 ): Promise<string> {
   try {
-    const polishSystem =
-      "Kamu membantu merapikan kalimat. Balas HANYA dengan versi yang sudah " +
-      "dirapikan jadi satu paragraf pendek hangat berbahasa Indonesia santai — " +
-      "tanpa daftar, tanpa poin, tanpa label (Saran:/Catatan:), tanpa '→'. " +
-      "Pertahankan semua informasi penting. Jangan tambah info baru.";
+    // registerOnly: the answer is FLUENT but written like a manual. Rewriting for
+    // warmth alone is not enough — it has to lose the encyclopedia voice too, and
+    // it must be allowed to come out SHORTER (a definitional stack collapses to
+    // two sentences, which the length guard below would otherwise reject).
+    const polishSystem = registerOnly
+      ? "Kamu diminta melepas gaya tulis resmi dari satu jawaban yang kaku, tanpa mengubah faktanya. " +
+        "Balas HANYA dengan versi yang diucapkan rekan kerja kantor: Bahasa Indonesia santai, " +
+        "seperti ngobrol. Aturannya: JANGAN buka dengan menjelaskan apa itu subjeknya atau di mana " +
+        "letaknya, kecuali pertanyaannya memang menanyakan itu; JANGAN tutup dengan pertanyaan " +
+        "penawaran (menawarkan cerita atau perbandingan lebih lanjut); JANGAN pakai kalimat pembuka " +
+        "yang mengangguk (tentu saja/baiklah/oke); JANGAN pakai kata baku seperti merupakan/terletak/" +
+        "dikenal sebagai; pakai kata sehari-hari. Panjang: 1-3 kalimat, sesuai kadar pertanyaan. " +
+        "JANGAN tambah fakta baru, JANGAN tambah daftar, JANGAN pakai emoji. " +
+        "Kalau ownernya santai, jawab santai juga."
+      : "Kamu membantu merapikan kalimat. Balas HANYA dengan versi yang sudah " +
+        "dirapikan jadi satu paragraf pendek hangat berbahasa Indonesia santai — " +
+        "tanpa daftar, tanpa poin, tanpa label (Saran:/Catatan:), tanpa '→'. " +
+        "Pertahankan semua informasi penting. Jangan tambah info baru.";
     const res = await runOneCompletion(
       [{ role: "user", content: rough }],
       url,
@@ -2797,7 +2826,7 @@ async function polishReplyWithProvider(
       false
     );
     const out = (res.text || "").trim();
-    if (!out || out.length < rough.length / 2) return rough;
+    if (!out || out.length < (registerOnly ? rough.length / 3 : rough.length / 2)) return rough;
     if (isTelegraphicReply(out) || isChoppyReply(out)) return rough;
     return out;
   } catch {
@@ -6594,7 +6623,7 @@ async function runAssistantTurnImpl(opts: {
         appendDailyMemory(opts.user, snippet);
       }
     } catch { /* best-effort */ }
-    return { text: schedulePlaceCheckFromIntent(messages, opencodeText || "", false), needsConfirmation: null, messages, providerUsed: "opencode" };
+    return { text: schedulePlaceCheckFromIntent(messages, opencodeText || "", false, opts.agent), needsConfirmation: null, messages, providerUsed: "opencode" };
   }
 
   if (providerId === "opencodego") ensureOpenCodeGoKey();
@@ -7175,10 +7204,16 @@ async function runAssistantTurnImpl(opts: {
   // then the deterministic rewrite as a final fallback. Checking isTelegraphic
   // AFTER the rewrite is wrong: the rewrite already makes it non-telegraphic,
   // so the polish would never fire.
-  const wasStiff = !collector.verbatimHit && (text.trim()) && (isTelegraphicReply(text) || isChoppyReply(text) || isStructuredReply(text));
+  // REGISTER (live 2026-10-05): asked a three-word question, Agnes answered with a
+  // Wikipedia entry — definitional opener, stacked attributes, a closing offer to
+  // compare more. None of the three detectors above see that, and a determinisic
+  // rewrite cannot fix a definitional sentence without deleting a fact, so the
+  // model itself has to redo it. Trio-only (fails closed inside the helper).
+  const registerStiff = isEncyclopedicRegister(text);
+  const wasStiff = !collector.verbatimHit && (text.trim()) && (isTelegraphicReply(text) || isChoppyReply(text) || isStructuredReply(text) || registerStiff);
   if (wasStiff && (providerId === "9router" || providerId === "groq")) {
     try {
-      text = await polishReplyWithProvider(text, resolved.url, resolved.apiKey, resolved.defaultModel);
+      text = await polishReplyWithProvider(text, resolved.url, resolved.apiKey, resolved.defaultModel, registerStiff);
     } catch { /* fall back to existing text */ }
   }
   text = ensureMoodReplyQuality(messages, text, collector.verbatimHit);
@@ -7677,6 +7712,17 @@ async function runAssistantTurnImpl(opts: {
   // Michelle/Agnes; Mia's own turns keep her signature.
   text = stripMiaSignatureVoice(text, opts.agent);
 
+  // Register firewall (live 2026-10-05). Runs LAST, next to the glyph firewall,
+  // so it is the final word on what the user reads. Deliberately narrow: it only
+  // removes the zero-information frame (an opening that acknowledges the
+  // question, and a trailing "want to know more?" offer) — a definitional stack
+  // is never touched here, because deleting a clause could delete a fact. That
+  // case is the polish pass's job (isEncyclopedicRegister above). Trio-only and
+  // list-safe: a markdown list is left alone, since its last line is content.
+  if (!collector.verbatimHit && !looksLikeMarkdownList(text)) {
+    text = stripFormalRegisterFrame(text, opts.agent);
+  }
+
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
   // This provides the YYYY-MM-DD.md files that memory_get reads and that
   // search_memory indexes via rag.ts.
@@ -7707,12 +7753,21 @@ async function runAssistantTurnImpl(opts: {
 
   // Honesty guard: never present unverified real-world place status as fact.
   if (!needsConfirmation?.length) {
-    text = schedulePlaceCheckFromIntent(messages, text, collector.webSearchSuccess);
+    text = schedulePlaceCheckFromIntent(messages, text, collector.webSearchSuccess, opts.agent);
   }
 
   if (!text.trim() && !needsConfirmation?.length) {
     console.error("[agent] empty turn text (debug): user=", JSON.stringify((messages[messages.length - 1]?.content ?? "").slice(0, 80)));
   }
+
+  // Glyph firewall, FINAL pass (live 2026-10-05 23:56 audit). The pass in the
+  // voice block above only sees the model's own prose; every deterministic
+  // appender that runs AFTER it writes in Mia's voice and can re-inject the
+  // glyph — place caveat (MIA_NUDGE), the reminder/plan suffixes, the headless
+  // auto-deny line. Re-stripping here is the single choke point that covers all
+  // of them at once, and it stays a no-op for Mia / no label, so her own turns
+  // keep her signature emoji.
+  text = stripMiaSignatureVoice(text, opts.agent);
 
   return { text: stripNonLatinChars(text), needsConfirmation, messages, providerUsed };
 }

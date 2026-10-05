@@ -2469,7 +2469,25 @@ async function main() {
   if (placeNudge("Coba cek dulu ya di Google ya beb.", false) !== "")
     throw new Error("placeNudge should skip when model already hedged");
   if (placeNudge("", false) !== "") throw new Error("placeNudge should skip empty answers");
-  console.log("place honesty guard: OK");
+  // The nudge is appended AFTER the voice firewall, so its shape is the last word
+  // on register. Live defect 2026-10-05 23:09: the hardcoded Mia string put a \u{1F338}
+  // into Michelle's reply + a formal delegating closer. Mia must stay byte-identical;
+  // the trio must get the casual shape.
+  const miaNudge = placeNudge("Kopi Praja, Bintaro: vibes industrial.", false, "mia");
+  if (miaNudge !== placeNudge("Kopi Praja, Bintaro: vibes industrial.", false))
+    throw new Error("placeNudge: Mia's shape must be identical with or without an explicit mia label");
+  for (const label of ["agnes", "michelle"] as const) {
+    const n = placeNudge("Kopi hitam paling pas.", false, label);
+    if (n.includes("\u{1F338}")) throw new Error(`placeNudge: ${label} must never receive the Mia glyph`);
+    if (/Catatan:|cek dulu di Google|siapa tau/i.test(n))
+      throw new Error(`placeNudge: ${label} must not receive Mia's formal frame: ${n}`);
+    if (/cek|google|verif/i.test(n))
+      throw new Error(`placeNudge: ${label} caveat must not hand a to-do list back: ${n}`);
+    if (n === miaNudge) throw new Error(`placeNudge: ${label} shape is a no-op vs Mia`);
+    if (placeNudge("Kopi hitam paling pas.", true, label) !== "")
+      throw new Error(`placeNudge: ${label} must still stay silent after web_search`);
+  }
+  console.log("place honesty guard: OK (mia frozen, trio casual)");
 
   // --- browser automation — just check tools are registered (no heavy launch in verify) ---
   const { getTool } = await import("./src/lib/tools");
@@ -6933,6 +6951,39 @@ async function main() {
       rmSync(join(userDataRoot(), trioUser), { recursive: true, force: true });
     }
     console.log("discord trio fase 4 (factory routing + trio mention-priority + key isolation + role seeding, no cross-talk by construction): OK");
+
+    // -- TRIO LABEL MUST REACH EVERY runAssistantTurn CALL SITE (live bug
+    // 2026-10-05 23:29) -----------------------------------------------------
+    // The overlay + both voice firewalls are driven by ONE argument: opts.agent.
+    // discord.ts runTurn() declared `agent: AgentLabel = "mia"` and even logged
+    // "(michelle)" from a SEPARATE variable (botTag) -- but it never forwarded
+    // the label into runAssistantTurn. Every normal text turn therefore ran with
+    // agent=undefined: Mia's prompt overlay was skipped (so Michelle/Agnes
+    // answered with Mia's prompt), the glyph firewall was a no-op (so Mia's
+    // signature emoji shipped in their replies), the register firewall was a
+    // no-op, and the place-honesty caveat fell back to Mia's hard-coded
+    // "(Catatan: ... cek dulu di Google ya, siapa tau ... \u{1F338})". Unit
+    // tests and direct runAssistantTurn probes can never catch this: they pass
+    // `agent` by hand. Only a source-level check closes that hole.
+    {
+      const srcDiscord = readFileSync(join(import.meta.dirname, "src", "channels", "discord.ts"), "utf8");
+      const callRe = /runAssistantTurn\(\{/g;
+      let m: RegExpExecArray | null;
+      let sites = 0;
+      while ((m = callRe.exec(srcDiscord))) {
+        const start = m.index + m[0].length;
+        const end = srcDiscord.indexOf("});", start);
+        if (end === -1) throw new Error("runAssistantTurn call site: cannot find the end of its argument object");
+        const args = srcDiscord.slice(start, end);
+        sites += 1;
+        if (!/\bagent\b/.test(args)) {
+          throw new Error(
+            "discord.ts: runAssistantTurn call site #" + sites + " does not pass `agent` -- the trio overlay and both voice firewalls would silently run as Mia (live bug 2026-10-05 23:29)"
+          );
+        }
+      }
+      if (sites < 3) throw new Error("discord.ts: expected at least 3 runAssistantTurn call sites, found " + sites);
+    }
   }
 
   // ── Persona overlay + agent-template versioning (2026-10-05) ────────────────
@@ -6941,7 +6992,7 @@ async function main() {
   // literally begin "You are Mia". Also locks that a template edit actually
   // REACHES already-seeded bots without ever clobbering an owner edit.
   {
-    const { applyAgentRole, AGENT_PERSONA_VERSION, agentPersonaNeedsReseed } = await import(
+    const { applyAgentRole, AGENT_PERSONA_VERSION, agentPersonaNeedsReseed, isEncyclopedicRegister, stripFormalRegisterFrame } = await import(
       "./src/lib/agentRole"
     );
     const { buildSystemPrompt, buildSlimSystemPrompt, buildOpenCodeSystemPrompt } = await import(
@@ -6979,6 +7030,103 @@ async function main() {
           throw new Error(`${name}/${agent}: hand-off rule must say it is NOT the agent's own work`);
         const sibling = agent === "michelle" ? "Agnes" : "Michelle";
         if (!out.includes(sibling)) throw new Error(`${name}/${agent}: sibling ${sibling} not named`);
+      }
+    }
+
+    // REGISTER FIREWALL (live 2026-10-05 22:25). The owner reported the trio as
+    // "kaku" after Agnes answered the three-word question "tau jaksel?" with a
+    // Wikipedia entry while Mia answered it warmly. A tone change is invisible
+    // to a return value, so it is locked three ways: the contract text reaches
+    // every prompt variant, the DETECTOR fires on the transcribed live shape,
+    // and the deterministic STRIP removes the frame without eating a fact.
+    {
+      const LIVE_STIFF =
+        "Tentu saja, Jakarta Selatan adalah salah satu wilayah administratif di DKI Jakarta yang dikenal sebagai pusat bisnis, perkantoran modern, kawasan hunian, serta pusat gaya hidup dan kuliner seperti daerah Senopati, Kemang, dan Blok M Mas Naufal. Ada hal khusus mengenai Jakarta Selatan yang ingin kamu tahu atau bandingkan hari ini?";
+      const LIVE_WARM = "Jaksel itu Jakarta Selatan, Mas Naufal. Yang paling Ramai: Kemang sama Senopati.";
+      if (!isEncyclopedicRegister(LIVE_STIFF)) {
+        throw new Error("register firewall: the live stiff answer is not detected — the trio can go stiff again silently");
+      }
+      if (isEncyclopedicRegister(LIVE_WARM)) {
+        throw new Error("register firewall: a warm answer was flagged as stiff — the detector is too broad to ship");
+      }
+      if (isEncyclopedicRegister("Test-nya sudah hijau semua. Mau sekalian kubikin PDF-nya?")) {
+        throw new Error("register firewall: a genuine decision question must never be treated as a formality offer");
+      }
+      for (const agent of ["agnes", "michelle"] as const) {
+        const stripped = stripFormalRegisterFrame(LIVE_STIFF, agent);
+        if (/^Tentu saja/i.test(stripped)) throw new Error(`${agent}: opening acknowledgement survived the strip`);
+        if (/ingin kamu tahu atau bandingkan/.test(stripped)) throw new Error(`${agent}: closing offer survived the strip`);
+        if (!stripped.includes("pusat bisnis")) throw new Error(`${agent}: the strip deleted a FACT — that is the one thing it must never do`);
+        if (stripFormalRegisterFrame(LIVE_STIFF, "mia") !== LIVE_STIFF) {
+          throw new Error(`${agent}: Mia's own register must stay byte-identical`);
+        }
+      }
+      for (const agent of ["agnes", "michelle"] as const) {
+        for (const [, p] of prompts) {
+          const out = applyAgentRole(p, agent);
+          if (!out.includes("REGISTER CONTRACT")) throw new Error(`register contract missing from the ${agent} overlay`);
+          if (!out.includes("MATCH THE QUESTION") || !out.includes("NEVER CLOSE WITH A FORMAL OFFER")) {
+            throw new Error(`register contract incomplete in the ${agent} overlay`);
+          }
+          if (/salah satu wilayah administratif/i.test(out)) {
+            throw new Error(`register contract quotes the live stiff output it is fixing (${agent})`);
+          }
+        }
+      }
+      // The SOUL bullet is the fully-injected persona region, so the same rules
+      // must be there too — the prompt alone was not enough in production.
+      for (const label of ["agnes", "michelle"] as const) {
+        const soul = readFileSync(join(appRoot(), "persona", "agents", `${label}.SOUL.md`), "utf8");
+        const style = soul.slice(soul.indexOf("## Style"));
+        if (!/Panjang jawaban ikut pertanyaan/.test(style)) {
+          throw new Error(`${label}.SOUL.md: the length rule is missing from the injected persona`);
+        }
+        if (!/Jangan tutup dengan pertanyaan penawaran/.test(style)) {
+          throw new Error(`${label}.SOUL.md: the closing-offer prohibition is missing from the injected persona`);
+        }
+      }
+    }
+    // TRIO VOICE LEAK, second class (live 2026-10-05 23:56). The glyph firewall
+    // ran in the middle of the turn, so every DETERMINISTIC appender after it
+    // (reminder/plan suffixes, the place caveat) could still write in Mia's
+    // voice. Fix = one extra strip on the return path, plus two more voice
+    // leaks the live "malam semua" replies showed: Mia's pet name copied out of
+    // the shared channel history, and a greeting glued to the answer.
+    {
+      const AGNES_LIVE = "Halo beb Seneng kamu mampir — gimana harimu? Ada yang bisa kubantu?";
+      const MICHELLE_LIVE =
+        "Malam juga Mas Naufal. Ada kode atau file di flowtest-studio yang mau kita periksa dan test bareng sekarang?";
+      for (const agent of ["agnes", "michelle"] as const) {
+        const out = stripFormalRegisterFrame(AGNES_LIVE, agent);
+        if (/\bbeb\b/i.test(out)) throw new Error(`${agent}: Mia's pet name survived in a trio reply`);
+        if (/^Halo\b/i.test(out)) throw new Error(`${agent}: the glued greeting survived — the reply still reads as a run-on`);
+        if (stripFormalRegisterFrame(MICHELLE_LIVE, agent) !== MICHELLE_LIVE) {
+          throw new Error(`${agent}: a clean reply must stay byte-identical`);
+        }
+        if (stripFormalRegisterFrame("Halo Mas Naufal, gimana kabarnya?", agent) !== "Halo Mas Naufal, gimana kabarnya?") {
+          throw new Error(`${agent}: a real address greeting must be kept`);
+        }
+        if (stripFormalRegisterFrame("Dia suka makan bebek sore-sore", agent) !== "Dia suka makan bebek sore-sore") {
+          throw new Error(`${agent}: 'bebek' must not be mistaken for the pet name`);
+        }
+      }
+      if (stripFormalRegisterFrame(AGNES_LIVE, "mia") !== AGNES_LIVE) {
+        throw new Error("Mia's own address form must stay byte-identical");
+      }
+      if (stripFormalRegisterFrame(AGNES_LIVE, undefined) !== AGNES_LIVE) {
+        throw new Error("no label must fail closed to Mia");
+      }
+      if (stripFormalRegisterFrame("beb", "agnes") !== "beb") {
+        throw new Error("the strip must refuse to empty the reply");
+      }
+      // The final glyph pass is the choke point that covers every appender; it is
+      // source-level because a return-value test cannot see WHERE it runs.
+      const agentSrc = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+      const retIdx = agentSrc.indexOf("return { text: stripNonLatinChars(text)");
+      if (retIdx < 0) throw new Error("runAgent return path not found — cannot verify the final glyph pass");
+      const tail = agentSrc.slice(Math.max(0, retIdx - 1200), retIdx);
+      if (!/stripMiaSignatureVoice\(text, opts\.agent\)/.test(tail)) {
+        throw new Error("the final glyph pass is missing from the return path — deterministic appenders can re-inject the glyph");
       }
     }
 
