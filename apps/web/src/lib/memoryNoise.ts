@@ -75,7 +75,34 @@ const FILLER_WORDS = new Set([
   // "oke makasi udah ingetin" as something we discussed).
   "makasi", "makasih", "mksh", "thanks", "thank", "thankyou", "thx", "tq",
   "sip", "siap", "mantap", "betul", "bener", "ingetin", "ingatkan", "inget",
+  // The assistants' own names. Live 2026-10-05: the briefing announced the day's
+  // topic as "Hello, miya." — "hello" is filler but "miya" (4 chars, and the
+  // agent's own name) was the single word that kept a pure greeting alive.
+  // Safe to add: the rule only calls a line filler when EVERY word of >= 4 chars
+  // is filler, so a real line still survives on its content words
+  // ("agnes mau research apa" keeps "research").
+  "mia", "miya", "michelle", "agnes",
+  // English time-of-day + vocative glue — same shape of greeting ("good
+  // morning", "hi there", "nice to see you") with no topic in it.
+  "morning", "afternoon", "evening", "night", "greetings", "there", "everyone",
+  "good", "nice", "see", "welcome", "glad", "meet", "again",
 ]);
+
+/**
+ * Count the content-bearing words in a line: words of >= 4 characters that are
+ * not filler. This is the single measure of "does this line say something", so
+ * the filler test and the topic ranking cannot drift apart. Pure.
+ */
+export function contentWordCount(line: string): number {
+  const t = (line || "")
+    .toLowerCase()
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{P}\p{S}\d]/gu, " ")
+    .trim();
+  if (!t) return 0;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (!words.length) return 0;
+  return words.filter((w) => w.length >= 4 && !FILLER_WORDS.has(w)).length;
+}
 
 /**
  * True when a line is pure small-talk with no topic in it (greetings, pet names,
@@ -83,14 +110,7 @@ const FILLER_WORDS = new Set([
  * weekly theme counter. Pure — unit-tested.
  */
 export function isFillerLine(line: string): boolean {
-  const t = (line || "")
-    .toLowerCase()
-    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{P}\p{S}\d]/gu, " ")
-    .trim();
-  if (!t) return true;
-  const words = t.split(/\s+/).filter(Boolean);
-  if (!words.length) return true;
-  return words.filter((w) => w.length >= 4 && !FILLER_WORDS.has(w)).length === 0;
+  return contentWordCount(line) === 0;
 }
 
 /** Mask secret-looking tokens so nothing sensitive is ever surfaced/stored. */

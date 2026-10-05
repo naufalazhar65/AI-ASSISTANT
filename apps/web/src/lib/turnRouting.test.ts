@@ -32,7 +32,7 @@ import { isSilentAutomationReply } from "./automationRunner";
 import { parseLatLonAnywhere } from "./geo";
 import { resolveFavoriteQuery } from "./spotify";
 import { EXECUTED_PLACEHOLDER } from "./actionReceipt";
-import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList, toolRunClaimSuffix, toolResultExecuted, toolActuallyRan, composeBuildClaimSuffix, SLIM_SYSTEM_PROMPT, buildSlimSystemPrompt, buildSystemPrompt, toolsForUrl, collectActionRecords } from "./agent";
+import { isEffectivelyEmpty, looksLikeMarkdownList, stripToolCallProse, summarizeToolResults, userAskedForList, toolRunClaimSuffix, toolResultExecuted, toolActuallyRan, composeBuildClaimSuffix, SLIM_SYSTEM_PROMPT, buildSlimSystemPrompt, buildSystemPrompt, toolsForUrl, collectActionRecords, worldActionClaimNote } from "./agent";
 import { reminderMessage, isTerseReminder, hasOwnCloser } from "./reminderMessage";
 import { scrubToolMarkup } from "../channels/replyChunk";
 
@@ -1378,5 +1378,62 @@ describe("isGmailCheckAsk — narrow gmail-check intent (fact-first prefetch gat
     expect(isGmailCheckAsk("apa kabar")).toBe(false);
     expect(isGmailCheckAsk("cek cuaca dong")).toBe(false);
     expect(isGmailCheckAsk("")).toBe(false);
+  });
+});
+
+describe("world-action claim guard (bare action promise, no tool name, zero tools ran)", () => {
+  // Live case 2026-10-05 11:47 (Discord): "buka youtube dong" -> Mia answered
+  // "Bentar ya Mas Naufal, aku buka YouTube di browsermu sekarang" while the
+  // audit log showed 6 turns and 0 tool calls; mac_open never ran that day.
+  const none: ChatMessage[] = [{ role: "user", content: "buka youtube dong" }];
+  const ranOne: ChatMessage[] = [
+    { role: "user", content: "buka youtube dong" },
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        {
+          id: "c1",
+          type: "function",
+          function: { name: "mac_open", arguments: JSON.stringify({ url: "https://youtube.com" }) },
+        } as never,
+      ],
+    },
+    { role: "tool", tool_call_id: "c1", content: "opened https://youtube.com" },
+  ];
+
+  it("fires on the exact live wording (no tool ran)", () => {
+    const out = worldActionClaimNote(none, "Bentar ya Mas Naufal, aku buka YouTube di browsermu sekarang 🌸");
+    expect(out).not.toBe("");
+    expect(out).toContain("tidak ada satu pun tool yang jalan");
+  });
+
+  it("fires on past-tense first-person claims (kubuka / kukirim)", () => {
+    expect(worldActionClaimNote(none, "sudah kubuka youtube di browser")).not.toBe("");
+    expect(worldActionClaimNote(none, "udah kukirim bosnya ya")).not.toBe("");
+  });
+
+  it("silent when a tool actually ran this turn (cannot know which action it did)", () => {
+    expect(worldActionClaimNote(ranOne, "aku buka YouTube di browsermu sekarang")).toBe("");
+  });
+
+  it("silent on an offer or capability promise", () => {
+    expect(worldActionClaimNote(none, "aku bantu kamu buka youtube ya")).toBe("");
+    expect(worldActionClaimNote(none, "aku akan buka youtube sekarang")).toBe("");
+    expect(worldActionClaimNote(none, "aku bisa buka youtube kok")).toBe("");
+  });
+
+  it("silent on an honest admission", () => {
+    expect(worldActionClaimNote(none, "aku belum buka youtube, toolnya tidak ada di sini")).toBe("");
+  });
+
+  it("silent when there is no first-person subject (advice, not a claim)", () => {
+    expect(worldActionClaimNote(none, "silakan buka youtube dari browser kamu")).toBe("");
+    expect(worldActionClaimNote(none, "kamu tinggal buka youtube")).toBe("");
+  });
+
+  it("silent on a ledger-backed execution (truncation-immune path)", () => {
+    const ledger = [{ name: "mac_open", executed: true }];
+    expect(worldActionClaimNote(none, "aku buka youtube sekarang", ledger)).toBe("");
   });
 });

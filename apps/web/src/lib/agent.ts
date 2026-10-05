@@ -32,7 +32,8 @@ import { freerideGetConfig } from "./freeride";
 import { detectPlaceIntent, placeNudge } from "./placeIntent";
 import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume, spotifySleepTimer } from "./spotify";
 import { loadPersonaPrompt } from "./persona";
-import { allowedWorkspaces } from "./users";
+import { applyAgentRole, stripMiaSignatureVoice, trioTeamLine, type AgentLabel } from "./agentRole";
+import { allowedWorkspaces, sanitizeUser } from "./users";
 import { clockLabel } from "./time";
 import * as CV from "./claimVocab";
 import { readReminders } from "./reminders";
@@ -56,6 +57,8 @@ import {
 import { checkRateLimit, RateLimitError } from "./rateLimit";
 import { recordTurn } from "./turnStats";
 import { auditLog } from "./auditLog";
+import { busTurnContext, emitBusEvent, newBusTurn, withBusTurn } from "./bus";
+import { detectDelegation } from "./delegation";
 import { fixAddressComma } from "./textStyle";
 import { dayRotated } from "./dayRotated";
 import { isProviderRetryable } from "./assistantError";
@@ -343,7 +346,7 @@ const SYSTEM_PROMPT = [
   + "AUDIT SPESIFIK: `cors_audit` (misconfig CORS: refleksi Origin/wildcard+credentials/null), `csp_audit` (CSP longgar → mempermudah XSS), `http_history` (log request ala Burp). `SUPERPOWER — `security_hunt url=<host in-scope> [deep=true]`: satu perintah menjalankan metodologi penuh pada host itu (header/cookie + CSP + CORS + content discovery + crawl + JS mining + param discovery), lalu merangkum LEADS siap diverifikasi. Pakai ini DULU saat user minta uji/audit host X alih-alih memanggil tool satu-satu. ATTACK LANJUTAN: `race_attack` (paralel + nonce unik → duplicate-creation/TOCTOU) dan `ws_hunt` (validasi Origin + bukti CDP) adalah versi PRO dari `race`/`ws_probe` — pakai versi pro dulu. `recon_takeover` kini **mengonfirmasi** kandidat via fingerprint body HTTP (GitHub Pages/S3/Heroku/…) — yang TERKONFIRMASI baru kandidat kuat. `recon_subdomains` kini multi-sumber (crt.sh + certspotter). `browser_eval` (Playwright) menjalankan JS di halaman setelah `browser_open` — enumerate `script[src]`/DOM/endpoint TANPA daemon browser-use eksternal (pakai ini kalau `browser_use_eval` gagal karena daemon mati). API Rapyd: `rapyd_request` (signature HMAC otomatis; sandbox-only; butuh access_key/secret_key sandbox). DNS-OOB: `oast_dns_create` (domain unik via interactsh) → sisipkan ke payload blind SQLi/XXE/SSRF-DNS/log4j → `oast_dns_poll` (hit = bukti) → `oast_dns_stop`. Scope-watch otomatis (env `SECURITY_SCOPE_WATCH=domain1,domain2`) memantau aset BARU via heartbeat." 
   + "AUDIT & ANALISIS (read/auto): web_audit (header/cookie/TLS web, pasif), domain_audit (SPF/DMARC/DKIM/CAA), password_strength (lokal), hash_identify (jenis hash + sha256/sha1/md5), jwt_inspect (decode JWT + flag alg=none), ioc_extract (IP/domain/URL/hash dari teks/log), coverage (ledger pengujian surface×risk_area→outcome ber-evidence), threat_model (model per-target: overview/trust boundaries/attack surface/severity calibration), report_save (simpan laporan ke file)." 
   + "Use transcribe for AUDIO (voice notes, uploaded audio): pass `upload` (name/number from list_uploads) or `path` (a workspace file). It runs Whisper LOCALLY — offline, no API key, no quota (default model small; override with model/language/task). It runs immediately without confirmation. "
-  + "Use git_status (read, auto) for 'status git dong' and git_commit with message for 'Mia commit dong \"feat: X\"' (write, perlu konfirmasi) — git_commit does add -A + commit + push. "
+  + "Use git_status (read, auto) for 'status git dong' and exec_write with command `git add -A` / `git commit -m \"...\"` / `git push` for 'Mia commit dong \"feat: X\"' (write, perlu konfirmasi; exec_write also runs `npm test` / `npm run <script>` for 'tolong run unit test'). "
   + "Use safe_exec_list (read, auto) to list pending SafeExec CRITICAL/HIGH requests needing approval (safe-exec-approve/reject). "
   + "Use cua_doctor/cua_list_apps (read, auto) to check cua-driver, cua_launch (write, confirm) to open native app (only if not already open — if Finder/Downloads already launched at pid 619, skip launch), cua_window_state (read, auto, WAJIB before click, pick window_id with title/Downloads or largest bounds, not the 64x64 helper), cua_click (by element_index or x,y, write, confirm) and cua_type (write, confirm) to drive native GUI without stealing foreground. For click/type in an already-open window, skip launch and go straight to window_state → click/type. For Chromium page content, use cua_start_session (write) + cua_browser_state (read) + cua_browser_click/type (write) per BROWSER.md — typed route, not legacy page tool. "
   + "Native input extras: cua_keys (hotkey/press/type — mis. Copy: action=hotkey keys=[\"cmd\",\"c\"]; Enter: action=press key=return; untuk KETIK ke field: action=type dengan delivery_mode=\"foreground\" setelah snapshot, karena type background sering gagal bila field belum fokus), cua_mouse (scroll/right_click/double_click/drag; koordinat pixel dari cua_window_state), cua_pointer (posisi kursor/resolusi layar), clipboard_get/clipboard_set (baca/tulis clipboard). Snapshot dulu sebelum menarget pid/window. cua_keys/cua_mouse/clipboard_set = write (confirm); cua_pointer/clipboard_get/cua_desktop/cua_screen = read (auto). "
@@ -439,8 +442,8 @@ export const SLIM_SYSTEM_PROMPT = [
   "ERRORS: a tool Error means plain words about what failed + what to do — never silent, never fabricated success. ",
   "PERSONA MEMORY: 'apa yang kamu ingat' → persona_show; 'ingat ini: X' → persona_set; facts save automatically, never ask permission; save_note only on explicit 'catat ini'. ",
   "REAL-WORLD mutable facts (open hours, prices, events, status) must be checked via web_search/fetch_url BEFORE answering; if unverifiable, say so honestly. Personal/user facts need no check. ",
-  "DAILY TOOLS (schemas self-describe): web_search (current/factual), places_search (venue/tempat via peta — WAJIB untuk rekomendasi kafe/resto), calculate, save_note/list_notes/delete_note, remind_me/reminders_list, add_task/list_tasks/complete_task, fetch_url (read a linked page), search_memory/memory_get, codebase_search, file_read/exec (repo sandbox), calendar_list/calendar_add, mood_log/mood_recent, spotify_status/search/play/pause (Premium for control), device_list/device_battery, briefing/recap/weekly_insight, waze_route/weather/gmaps_route/hotel_search/cinema_showtimes/train_search/bus_search, git_status/git_commit, health/habit_log, gmail_list/search, humanize/summarize, learnings_search. ",
-  "RECON+PROVE (delivered here): pentest_resources, pentest_scan, recon_subdomains, recon_httpx, recon_params, security_playbook, sast_scan, cve_intel, js_mine, js_deobfuscate, api_spec, workflow_fuzz, race_attack, graphql_hunt, prompt_injection_hunt, coverage, threat_model, path_traversal, recon_full, http_request, poc_verify, finding_add, finding_list, oast_create, oast_poll, http_session, tamper_script, cdp_status, upload_fuzz. CVE-2026-63077 (TeamCity RCE, KEV aktif): halaman menyebut TeamCity → ambil versi dari login page via http_request + bandingkan manual (<2026.1.3 / <2025.11.7 = RENTAN; tanpa payload deserialisasi apa pun). Saat mengusulkan tool (tunggu 'ya'): tulis usulan + alasan singkat SAJA, jangan kesimpulan final/verdict/nama file/receipt — itu dinarasikan SETELAH approval dari hasil nyata. ",
+  "DAILY TOOLS (schemas self-describe): web_search (current/factual), places_search (venue/tempat via peta — WAJIB untuk rekomendasi kafe/resto), calculate, save_note/list_notes/delete_note, remind_me/reminders_list, add_task/list_tasks/complete_task, fetch_url (read a linked page), search_memory/memory_get, codebase_search, file_read/exec/write_file (repo sandbox; write_file = buat/tulis file, perlu konfirmasi), codebase_search (cari kode di repo+workspace, keluarkan file:line), calendar_list/calendar_add, mood_log/mood_recent, spotify_status/search/play/pause (Premium for control), device_list/device_battery, briefing/recap/weekly_insight, waze_route/weather/gmaps_route/hotel_search/cinema_showtimes/train_search/bus_search, git_status/exec_write (git add/commit/push + npm test/run), health/habit_log, gmail_list/search, humanize/summarize, learnings_search. ",
+  "RECON+PROVE (delivered here): pentest_resources, pentest_scan, recon_httpx, browser_snapshot, sast_scan, cve_intel, js_mine, js_deobfuscate, api_spec, workflow_fuzz, race_attack, graphql_hunt, coverage, threat_model, path_traversal, recon_full, http_request, poc_verify, finding_add, finding_list, oast_create, oast_poll, http_session, tamper_script, cdp_status, upload_fuzz, places_search, google_news, research, content_discover, crawl. CVE-2026-63077 (TeamCity RCE, KEV aktif): halaman menyebut TeamCity → ambil versi dari login page via http_request + bandingkan manual (<2026.1.3 / <2025.11.7 = RENTAN; tanpa payload deserialisasi apa pun). Saat mengusulkan tool (tunggu 'ya'): tulis usulan + alasan singkat SAJA, jangan kesimpulan final/verdict/nama file/receipt — itu dinarasikan SETELAH approval dari hasil nyata. ",
 ].join("");
 
 /**
@@ -477,7 +480,14 @@ export function ownerLabScopeLine(): string {
 }
 
 export function buildSlimSystemPrompt(rawUser?: unknown, channel?: Channel, url?: string): string {
-  const parts = [SLIM_SYSTEM_PROMPT];
+// NOTE on ordering: trioTeamLine() is parts[0] on purpose. The persona and the
+// user `## Facts` are appended AFTER a large static body (measured 2026-10-05:
+// persona/facts sit at ~68% and 96% depth), and a short question such as
+// "kamu tau Michelle?" demonstrably missed facts stored there — the model
+// answered "Siapa lagi tuh Michelle?" and then re-primed that denial from
+// daily memory on later turns. Identity that must survive a one-line question
+// goes first.
+  const parts = [trioTeamLine(), SLIM_SYSTEM_PROMPT];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
   parts.push(
@@ -675,7 +685,14 @@ function openCodeSystemPromptParts(): string {
  * Per-user isolation is keyed by the sanitized `user`.
  */
 export function buildSystemPrompt(rawUser?: unknown, channel?: Channel): string {
-  const parts = [SYSTEM_PROMPT];
+// NOTE on ordering: trioTeamLine() is parts[0] on purpose. The persona and the
+// user `## Facts` are appended AFTER a large static body (measured 2026-10-05:
+// persona/facts sit at ~68% and 96% depth), and a short question such as
+// "kamu tau Michelle?" demonstrably missed facts stored there — the model
+// answered "Siapa lagi tuh Michelle?" and then re-primed that denial from
+// daily memory on later turns. Identity that must survive a one-line question
+// goes first.
+  const parts = [trioTeamLine(), SYSTEM_PROMPT];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
   // Always address the user by the preferred name/honorific stored in USER.md
@@ -704,7 +721,8 @@ export function buildSystemPrompt(rawUser?: unknown, channel?: Channel): string 
  * answer (plain short sentences, TTS-friendly).
  */
 export function buildOpenCodeSystemPrompt(rawUser?: unknown, channel?: Channel): string {
-  const parts = [openCodeSystemPromptParts()];
+  // trioTeamLine() first: see the ordering note in buildSlimSystemPrompt.
+  const parts = [trioTeamLine(), openCodeSystemPromptParts()];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
   // Address the user by their preferred name/honorific from USER.md.
@@ -832,22 +850,30 @@ export const CORE_TOOL_NAMES = new Set<string>([
   // Sep 27–Oct 1 audit; play/pause/status cover control, timer niche;
   // stays registered on Groq/opencodego; room for gmaps_route in 9r64)
   "spotify_search", "spotify_devices", "spotify_link",
-  "gmail_list", "gmail_link", "mac_open",  // (promoted 2026-09-30 — owner-asked Discord asks "cek gmail"/"buka youtube" failed for lack of delivery, not scope; all three are risk-read, auto-execute, no confirm friction)
+  "gmail_list", "gmail_search", "gmail_link", "mac_open",  // (promoted 2026-09-30 — owner-asked Discord asks "cek gmail"/"buka youtube" failed for lack of delivery, not scope; all three are risk-read, auto-execute, no confirm friction)  // (gmail_search added 2026-10-05 — gmail_list alone could only show the inbox head; searching mail ("cari email invoice dari boss") was impossible on the capped window even though gmail_read/search are read-risk and auto-run)
   "hotel_search", "cinema_showtimes", "train_search", "bus_search", "weather", "gmaps_route",
   // (waze_route demoted 2026-09-30 — 0 executions across Sep 25-30 audit;
   // travel niche; hotel/cinema/train/bus stay for the liveToolsBoth lock)
   "fetch_url", "search_memory", "memory_get",
-  "file_read", "exec", "recon_full",  // (codebase_search demoted 2026-09-23 — dev Q&A, 0 Discord uses; still on opencodego)
+  "file_read", "codebase_search", "exec", "recon_full",  // (codebase_search RE-promoted 2026-10-05: the audit of the trio found the Coder agent had no way to search code — file_read reads ONE file and exec can only grep — while codebase_search is the repo's BM25 index over the repo + allowed workspaces returning file:line refs, and it is read-risk/auto (no confirm friction). It was demoted 2026-09-23 for "0 Discord uses"; the measurement that decided instead is per-AGENT: the coding agent is the one role that must have it. codebase_refresh stays demoted to the CORE tail — rebuilding the index is an operator action, not a chat turn.)
   // (calendar_list demoted 2026-09-27 — room for lab_add in the 9router-64
   // window; 0 executions across the entire audit history; calendar_add/
   // calendar_check already demoted, so the personal-calendar surface was
   // prompt-only. Stays registered on opencodego.)
-  "browser_open",
+  "browser_open", "browser_snapshot",  // (browser_snapshot added 2026-10-05 — browser_open alone returns page text but leaves the Researcher unable to SEE or address the interactive elements (buttons/links/inputs) of the page she just opened; browser_snapshot is read-risk/auto and is the documented "call after browser_open" step. browser_click/browser_type/browser_navigate stay demoted — they are risk-write/confirm, and interactive flows still fall back to mac_open for the owner to do it himself.)
   // (transcribe demoted 2026-09-24 — Groq free STT 413 on big prompts anyway,
   // voice pipeline uses STT directly; tool stays registered for uncapped providers.)
-  "git_status", "git_commit", "llm_hunt", "mcp_hunt", "pentest_resources", "upload_fuzz",  // (sast_scan demoted 2026-09-23 — butuh binary semgrep, 0 uses; still on opencodego)
-  "recon_subdomains",
-  "recon_httpx", "recon_params", "security_playbook",
+  // Research depth for the shared capped window (2026-10-04): google_news +
+  // research + content_discover + crawl are the four read-side tools an agent
+  // was missing on 9router-64 — news freshness, multi-source synthesis,
+  // endpoint discovery and same-origin path crawling. Paid for by demoting
+  // llm_hunt + mcp_hunt (0 executions across the whole audit history; both are
+  // LLM/MCP-endpoint-specific red-team, and prompt_injection_hunt at slot 49
+  // already covers the LLM01/LLM02 surface for capped providers). They stay
+  // registered on uncapped providers and stay in HEADLESS_SIDE_EFFECT_TOOLS.
+  "write_file", "exec_write", "google_news", "research", "content_discover", "crawl", "pentest_resources", "upload_fuzz",  // (write_file added 2026-10-05 — the trio audit found the Coder agent could read files and run tests but had NO way to write one: write_file sat outside CORE entirely and was not even named in HINT_UNDELIVERED, so the model neither had it nor knew it existed. file_read + write_file is the minimum coder loop (read → rewrite → exec_write to run the tests); edit_file stays demoted to the CORE tail (surgical edits are reachable by read-then-write, and the confirm friction is identical).  // (git_status demoted to the CORE tail 2026-10-04 — 2 executions in the whole audit history, and `exec` (slot 34, still in-window) already allowlists `git status`; the freed slot is what keeps report_generate/report_save inside the 9router-64 window. Still in CORE so every uncapped provider keeps it, now in HINT_UNDELIVERED.)  // (sast_scan demoted 2026-09-23 — butuh binary semgrep, 0 uses; still on opencodego) (git_commit demoted 2026-10-04 — SUBSUMED by exec_write: git add/commit/push/restore are all in EXEC_WRITE_ALLOWLIST (tools.ts) + npm test/run unlocks "tolong run unit test" on capped channels; 0 executions across the whole audit history; same write-risk/confirm class so no friction change; still registered on opencodego, named in HINT_UNDELIVERED)
+  "recon_httpx",  // (recon_subdomains + recon_params DEMOTED OUT of CORE 2026-10-05 — both measured 0 executions across the ENTIRE audit history; content_discover + crawl + recon_full (122 executions) already cover recon depth inside the capped window, and recon_httpx (134 executions) stays for live host probing. Still registered for uncapped providers, both named in HINT_UNDELIVERED.)
+  // (security_playbook DEMOTED OUT of CORE 2026-10-05 — 0 executions across the whole audit history. It is a knowledge-pack LOADER: the two packs that actually change agent behaviour (reading-prover-results, false-positive-elimination) are already written into the system prompt as rules, so the tool adds prose, not capability, on a 64-slot window. Still registered for uncapped providers, named in HINT_UNDELIVERED.)
   // (2026-09-26 drill-found delivery gap: the §8 writeup could never run through
   // chat — it sat outside every capped window (9router/groq/openrouter). The
   // report-chain deliverable `writeup` took memory's 9router-64 slot; memory is
@@ -878,7 +904,7 @@ export const CORE_TOOL_NAMES = new Set<string>([
   // to manual http_request+http_session, the lib stays used by auth_setup +
   // the session_fixation chain; still registered on opencodego/groq, named
   // in HINT_UNDELIVERED).
-  "prompt_injection_hunt", "pentest_scan", "cvss_score", "poc_verify", "places_search", "http_request",
+  "pentest_scan", "poc_verify", "places_search", "http_request",  // (prompt_injection_hunt DEMOTED OUT of CORE 2026-10-05 — 0 executions across the whole audit history. With llm_hunt + mcp_hunt already demoted (2026-10-04), the LLM-app red-team surface is now entirely off the capped window by design rather than half-present: a half-present red-team invites the model to burn turns probing endpoints that do not exist. Still registered for uncapped providers, named in HINT_UNDELIVERED.)  // (cvss_score demoted to the CORE tail 2026-10-04 — 0 executions in the whole audit history; it is a pure read/auto calculator and report_generate / platform_severity inject severity internally, plus finding_add accepts a raw vector. The freed slot is what keeps report_generate/report_save inside the 9router-64 window. Still in CORE so every uncapped provider keeps it, now in HINT_UNDELIVERED.)
   "finding_add", "finding_list",  "race_attack", "graphql_hunt", "workflow_fuzz",
   // +lab_add (2026-09-27): the writable owner-lab registry — a "this is my
   // lab" ask MUST reach it on the capped provider or the refusal class
@@ -890,9 +916,11 @@ export const CORE_TOOL_NAMES = new Set<string>([
   // +2 (2026-09-26, Strix-adapted) — coverage/threat_model are daily-flow
   // ledger/model tools: they take github_osint+har_import's window slots
   // (input-driven tools, moved to the CORE tail + HINT_UNDELIVERED).
-  // MEASURED 2026-09-28: report_generate=63 and report_save=64 ARE inside the
-  // 9router-64 window, report_pdf=65 is NOT (the old comment here claimed all
-  // three were). That is deliberate and it is why the deterministic delivery
+  // MEASURED 2026-10-04: report_generate=62 and report_save=63 ARE inside the
+  // 9router-64 window, report_pdf=64 is NOT (the slots moved by −1 after the
+  // research-depth promotions rebalanced git_status/cvss_score out of the
+  // window; the arrangement itself is unchanged from the 2026-09-28 measurement).
+  // That is deliberate and it is why the deterministic delivery
   // path exists: the model builds the report with report_generate/report_save and
   // `tryDeliverReportPdf` renders the PDF from the recorded findings, which is
   // the path every live owner PDF request actually took (2026-09-25/26). Making
@@ -907,11 +935,25 @@ export const CORE_TOOL_NAMES = new Set<string>([
   // (git_status/git_commit/calendar_list) is itself named in the prompt, so
   // demoting them only MOVES the contradiction. The dead-end is closed by
   // SCOPE_REMEDY, which works on every provider instead of paying for a slot.
+  "git_status", "cvss_score",  // (both demoted to the CORE tail 2026-10-04 to pay for the research-depth promotions; see the slots where they used to sit for the full reasoning — both remain CORE so uncapped providers keep them)
+  // 2026-10-05 (trio maximality audit round 2): recon_subdomains, recon_params,
+  // security_playbook and prompt_injection_hunt gave up their in-window slots to
+  // write_file + codebase_search + browser_snapshot + gmail_search. All four
+  // measured 0 executions in the whole audit history, and because CORE is exactly
+  // 128 (and the groq window IS those 128), moving them to the tail would have
+  // silently pushed four OTHER tail tools out of groq instead. So they are fully
+  // demoted from CORE — still registered for uncapped providers, and every one is
+  // named in HINT_UNDELIVERED so the model is told rather than silently missing
+  // them. See the demotion notes at their former slots for the full reasoning.
+  // (edit_file and codebase_refresh stay FULLY demoted — not in CORE at all —
+  // because CORE is exactly 128 and both are strictly narrower than what now
+  // rides the window: surgical edits are reachable read-then-write_file, and
+  // rebuilding the code index is an operator action. Both named in HINT_UNDELIVERED.)
   "github_osint", "har_import",
   "engagement_create", "engagement_list",  // (engagement_close demoted 2026-09-23 — 0 prompt refs; still on opencodego)
   "web_audit", "csrf_prove", "oast_create", "oast_poll", "exposure_hunt",  // (domain_audit demoted 2026-09-23 — 0 uses/refs, still on opencodego)  // (oast_stop demoted 2026-09-23 — niche cleanup, still on opencodego)
   "http_session", "cdp_request", "cdp_proxy", "bola_diff", "cache_decep", "nosql_hunt",  // (teamcity_check demoted 2026-09-24 — manual version-check taught in slim prompt; reschedule_task demoted 2026-09-23; both still on opencodego)  // (cdp_status demoted 2026-09-24 — read-only tab lister, room for otp_hunt; cdp_request/eval/open stay) (automation_list demoted 2026-09-24 — room for param_miner)
-  "content_discover",  "param_fuzz", "jwt_attack", "crawl",  // (param_discover demoted 2026-09-23 — 0 prompt refs, param_fuzz covers discovery; still on opencodego)
+  "param_fuzz", "jwt_attack",  // (content_discover + crawl promoted 2026-10-04 into the 9router-64 window — they were CORE but sat at slot ~80/~83, i.e. outside every capped cap, so an agent could never discover endpoints or crawl paths on 9router. param_discover demoted 2026-09-23 — 0 prompt refs, param_fuzz covers discovery; still on opencodego)
   "xss_hunt", "request_run", "js_mine", "js_deobfuscate", "cve_intel",  // (request_save demoted 2026-09-23 — 0 uses; request_run works inline; still on opencodego)  // (api_spec demoted 2026-09-28 — 0 executions in the whole audit history; graphql_hunt covers GraphQL, js_mine/content_discover cover REST surfaces. Still registered, now in HINT_UNDELIVERED.)
   "host_header_hunt", "mass_assignment",  // (cors_audit demoted 2026-09-23 — overlaps security_hunt CORS section; still on opencodego)
   "security_hunt", "suite_hunt", "hunt_log", "auth_hunt",
@@ -4359,6 +4401,62 @@ export function toolRunClaimSuffix(
 }
 
 /**
+ * WORLD-ACTION CLAIM guard (live 2026-10-05 11:47, Discord): the owner said
+ * "buka youtube dong"; Mia answered "Bentar ya Mas Naufal, aku buka YouTube di
+ * browsermu sekarang" and the audit log for that window shows SIX turns and ZERO
+ * tool calls — mac_open had not run that day at all (it had run 7x on 1-3 Oct, so
+ * the tool works; she simply never called it).
+ *
+ * toolRunClaimSuffix cannot see this class: it requires a TOOL NAME in the prose,
+ * and this claim names only the ACTION. This guard closes it on the strongest
+ * possible fact — no tool executed at all this turn — so no tool claim can be
+ * justified, and the prose asserts a world action (open / send / turn on / start)
+ * in the first person.
+ *
+ * Deliberately conservative, so it fails OPEN when anything is ambiguous:
+ *  - any executed tool this turn -> silent (a tool may legitimately have done it);
+ *  - an offer / capability marker before the verb ("aku bantu buka", "aku akan
+ *    buka", "aku bisa buka") -> silent, that is a promise not a claim;
+ *  - a negation before the verb ("aku belum buka") -> silent;
+ *  - no first-person subject ("silakan buka youtube") -> silent, that is advice.
+ * Pure, tested both ways. Returns "" when there is nothing to say.
+ */
+export const WORLD_ACTION_CLAIM_SUBJECT_RE =
+  /(?:\b(?:aku|saya)\b[\s\S]{0,26}?\b|\bku)(buka|bukakan|kirim|kirimkan|nyalakan|matikan|install|masuki|main)\b/i;
+export const WORLD_ACTION_OFFER_BEFORE_RE =
+  /\b(?:akan|mau|bisa|boleh|siap|bantu|membantu|ingin|hantu|help|tolong|kalau|nanti|coba|rencana|saranku|sebaiknya|seharusnya)\b/i;
+export const WORLD_ACTION_NEGATION_BEFORE_RE =
+  /\b(?:tidak|tidaklah|nggak|ngga|gak|ga|belum|jangan|kurang|bukan)\b/i;
+export const WORLD_ACTION_PAST_MARK_RE = /\b(?:sudah|telah|baru|barusan|berhasil)\b/i;
+
+export function worldActionClaimNote(
+  messages: ChatMessage[],
+  text: string,
+  ledger?: Array<{ name: string; executed: boolean }>
+): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  // Strongest fact first: a single executed tool is enough to silence the guard,
+  // because we cannot know which action it performed.
+  if (collectActionRecords(messages, ledger).length > 0) return "";
+  const re = new RegExp(WORLD_ACTION_CLAIM_SUBJECT_RE.source, "gi");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t)) !== null) {
+    const verbStart = m.index + m[0].length - m[1].length;
+    const before = t.slice(Math.max(0, verbStart - 40), verbStart);
+    if (WORLD_ACTION_NEGATION_BEFORE_RE.test(before)) continue;
+    if (
+      WORLD_ACTION_OFFER_BEFORE_RE.test(before) &&
+      !WORLD_ACTION_PAST_MARK_RE.test(before)
+    ) {
+      continue;
+    }
+    return " (Catatan jujur: tidak ada satu pun tool yang jalan di giliran ini, jadi aku belum benar-benar melakukannya. Ulangi permintaannya kalau mau aku kerjakan sekarang dengan toolnya.)";
+  }
+  return "";
+}
+
+/**
  * Unrecorded-finding claim guard (live 2026-09-27 22:52, Discord — owner lab
  * trial): the model called finding_add 3× WITHOUT the required title (all 3
  * errored "judul temuan wajib" — the receipt showed the errors honestly), then
@@ -4757,6 +4855,24 @@ export function claimSentences(text: string): ClaimSentence[] {
  * is the worse failure of the two, because the user is told their own assistant
  * is dishonest.
  */
+/**
+ * A FORWARD-LOOKING OFFER ("siap bantu audit keamanan target sampai tuntas") is a
+ * commitment, not a conclusion — "sampai tuntas" / "sepenuhnya" are completeness
+ * adverbs, and SEALED_WORDS matches the "tuntas" inside them.
+ *
+ * Live 2026-10-05 01:54: asked "siapa disini yg bisa pentest?", Mia answered
+ * "siap bantu audit keamanan target sampai tuntas" and the provenance guard
+ * appended "(Catatan: laporan ini memuat temuan yang SUDAH tercatat sebelumnya
+ * — giliran ini tidak mencatat temuan baru.)" to a turn that ran no report
+ * tool and recorded nothing. A false accusation is the worse failure, exactly as
+ * with CONDITIONAL_BEFORE_SEAL_RE, so this fails open too.
+ *
+ * Marker must appear BEFORE the sealed word, so "pentest sudah tuntas" (a real
+ * conclusion) is still caught.
+ */
+const OFFER_BEFORE_SEAL_RE =
+  /\b(?:siap|siap-siap|akan|masih akan|mau|ingin|bisa|bisa\s+kut|hantu|help|menawarkan|offer|renuddy|bersedia|boleh|ayo|kita\s+(?:bisa|akan|mau)|sampai-sampai|try|want)\b/i;
+
 const CONDITIONAL_BEFORE_SEAL_RE =
   /\b(?:kalau|kalau-kalau|jika|apabila|bila|seandainya|and\s+if|if)\b[^.!?]*$/i;
 
@@ -4775,6 +4891,8 @@ export function hasCompletionClaim(t: string): boolean {
     const sealed = SEALED_RE.exec(body);
     if (!sealed) continue;
     if (CONDITIONAL_BEFORE_SEAL_RE.test(body.slice(0, sealed.index))) continue;
+    // Forward-looking offer, not a conclusion (see OFFER_BEFORE_SEAL_RE).
+    if (OFFER_BEFORE_SEAL_RE.test(body.slice(0, sealed.index))) continue;
     // Either a testing noun or a testing verb satisfies the "testing" half: the
     // model writes "pentest … selesai" and "sudah aku uji" with equal ease, and
     // requiring the noun lost the verb forms twice.
@@ -4802,6 +4920,7 @@ export function hasResultCompletionClaim(t: string): boolean {
     const seal = SEAL_ONLY_RE.exec(body);
     if (!seal) continue;
     if (CONDITIONAL_BEFORE_SEAL_RE.test(body.slice(0, seal.index))) continue;
+    if (OFFER_BEFORE_SEAL_RE.test(body.slice(0, seal.index))) continue;
     if (RESULT_CLAUSE_RE.test(body)) return true;
   }
   return false;
@@ -6126,7 +6245,7 @@ export function composeBuildClaimSuffix(messages: ChatMessage[], text: string): 
  */
 const CHAIN_DEADLINE_MS = 30_000;
 
-export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "report_generate", "report_save", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "content_discover", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "exec_write", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner", "github_osint", "har_import", "api_spec", "memory", "waze_route", "spotify_next", "spotify_volume", "spotify_sleep_timer", "ato_prove"];
+export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "llm_hunt", "mcp_hunt", "git_status", "cvss_score", "recon_subdomains", "recon_params", "security_playbook", "prompt_injection_hunt", "codebase_refresh", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "git_commit", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner", "github_osint", "har_import", "api_spec", "memory", "waze_route", "spotify_next", "spotify_volume", "spotify_sleep_timer", "ato_prove"];
 
 
 /**
@@ -6169,16 +6288,71 @@ export async function runAssistantTurn(opts: {
   autoDenyRisky?: boolean;
   /** Voice (default) keeps replies plain for TTS; "text"/"discord" allow markdown. */
   channel?: Channel;
+  /**
+   * Trio member this turn runs as (Discord Michelle/Agnes). Omitted on every
+   * non-trio path, in which case the prompt stays Mia's byte-for-byte.
+   */
+  agent?: AgentLabel;
 }): Promise<TurnResult> {
   checkRateLimit(opts.user);
   for (const d of confirmDecisions(opts)) {
     if (!d.allow) auditLog(opts.user, "tool_confirm_denied", `${d.call?.name ?? "unknown"}`);
   }
   const t0 = Date.now();
+  // Event Bus Fase 1: satu turn = satu task (task_created → task_started →
+  // tool_called* → task_done/waiting_input/task_failed). Konteks dipasang via
+  // ALS sehingga executeTool di kedalaman loop mana pun terikat ke turn ini.
+  const busCtx = newBusTurn(opts.user);
+  try {
+    emitBusEvent({ user: busCtx.userKey, turn: busCtx.turnId, task_id: busCtx.taskId, type: "task_created", actor: busCtx.actor, summary: "turn dimulai" });
+    emitBusEvent({ user: busCtx.userKey, turn: busCtx.turnId, task_id: busCtx.taskId, type: "task_started", actor: busCtx.actor, summary: "mengerjakan" });
+  } catch {
+    /* bus best-effort */
+  }
+  // Real delegation (Pixel Office trio, PRD §13-14): a delegated turn runs under
+  // a new task owned by the specialist, so tool events attribute to them and the
+  // office avatar walks. NOTE: this bus/delegation attribution is independent of
+  // the prompt overlay — the trio ROLE block comes from `opts.agent`, set by the
+  // Discord adapter per bot, not from detectDelegation. Skipped on confirm
+  // continuations (the original ask already emitted its delegation events).
+  const askText = lastUserTextFrom(opts.messages) ?? "";
+  const skipDelegate = (opts.confirm_calls?.length ?? 0) > 0 || !!opts.confirm_call;
+  const dlg = skipDelegate || !askText ? null : detectDelegation(askText);
+  const dlgCtx = dlg ? { ...newBusTurn(opts.user, dlg.agent), turnId: busCtx.turnId } : null;
+  if (dlg && dlgCtx) {
+    try {
+      emitBusEvent({ user: busCtx.userKey, turn: busCtx.turnId, task_id: dlgCtx.taskId, parent_task_id: busCtx.taskId, type: "agent_delegated", actor: "mia", agent: dlg.agent, summary: `delegasi ke ${dlg.agent}`.slice(0, 200) });
+      emitBusEvent({ user: busCtx.userKey, turn: busCtx.turnId, task_id: dlgCtx.taskId, parent_task_id: busCtx.taskId, type: "task_assigned", actor: dlg.agent, agent: dlg.agent, station: dlg.station, summary: `${dlg.agent} → ${dlg.station}`.slice(0, 200) });
+    } catch {
+      /* bus best-effort */
+    }
+  }
   let ok = true;
   let kind: string | undefined;
   try {
-    const result = await runAssistantTurnImpl(opts);
+    const result = await withBusTurn(dlgCtx ?? busCtx, () => runAssistantTurnImpl(opts));
+    try {
+      if (result.needsConfirmation?.length) {
+        const names = result.needsConfirmation.map((c) => c.name).join(", ");
+        emitBusEvent({ user: busCtx.userKey, turn: busCtx.turnId, task_id: busCtx.taskId, type: "waiting_input", actor: busCtx.actor, summary: `menunggu konfirmasi: ${names}`.slice(0, 200), data: { names } });
+      } else {
+        emitBusEvent({ user: busCtx.userKey, turn: busCtx.turnId, task_id: busCtx.taskId, type: "task_done", actor: busCtx.actor, summary: "turn selesai" });
+      }
+    } catch {
+      /* bus best-effort */
+    }
+    if (dlg && dlgCtx) {
+      try {
+        if (result.needsConfirmation?.length) {
+          const names = result.needsConfirmation.map((c) => c.name).join(", ");
+          emitBusEvent({ user: busCtx.userKey, turn: busCtx.turnId, task_id: dlgCtx.taskId, type: "waiting_input", actor: dlg.agent, summary: `menunggu konfirmasi: ${names}`.slice(0, 200), data: { names } });
+        } else {
+          emitBusEvent({ user: busCtx.userKey, turn: busCtx.turnId, task_id: dlgCtx.taskId, type: "task_done", actor: dlg.agent, summary: "tugas selesai" });
+        }
+      } catch {
+        /* bus best-effort */
+      }
+    }
     return { ...result, text: collapseHtmlDumps(stripToolCallProse(fixAddressComma(result.text))) };
   } catch (err) {
     ok = false;
@@ -6187,6 +6361,14 @@ export async function runAssistantTurn(opts: {
       auditLog(opts.user, "turn_rate_limited", err.message.slice(0, 80));
     } else {
       auditLog(opts.user, "turn_error", `${kind}: ${err instanceof Error ? String(err.message).slice(0, 200) : String(err)}`);
+    }
+    try {
+      emitBusEvent({ user: busCtx.userKey, turn: busCtx.turnId, task_id: busCtx.taskId, type: "task_failed", actor: busCtx.actor, summary: `gagal: ${kind}`.slice(0, 200) });
+      if (dlg && dlgCtx) {
+        emitBusEvent({ user: busCtx.userKey, turn: busCtx.turnId, task_id: dlgCtx.taskId, type: "task_failed", actor: dlg.agent, summary: `gagal: ${kind}`.slice(0, 200) });
+      }
+    } catch {
+      /* bus best-effort */
     }
     throw err;
   } finally {
@@ -6206,6 +6388,11 @@ async function runAssistantTurnImpl(opts: {
   autoDenyRisky?: boolean;
   /** Voice (default) keeps replies plain for TTS; "text"/"discord" allow markdown. */
   channel?: Channel;
+  /**
+   * Trio member this turn runs as (Discord Michelle/Agnes). Omitted on every
+   * non-trio path, in which case the prompt stays Mia's byte-for-byte.
+   */
+  agent?: AgentLabel;
 }): Promise<TurnResult> {
   const { messages: inputMessages } = opts;
   const model = opts.model?.trim() || undefined;
@@ -6222,6 +6409,10 @@ async function runAssistantTurnImpl(opts: {
   } else {
     systemPrompt = buildSystemPrompt(opts.user, channel);
   }
+  // Trio overlay (Michelle/Agnes): neutralise the hard-coded "You are Mia…"
+  // identity sentences and prepend that agent's ROLE block. One choke point
+  // covers the slim, full AND opencode variants. No label = untouched prompt.
+  systemPrompt = applyAgentRole(systemPrompt, opts.agent);
   // 9router (qwen-class) ignores warm-style instructions and defaults to
   // stiff, listy output. Append a concise, format-level tone memo so even
   // when the base prompt is ignored, this small addendum nudges the model.
@@ -6498,6 +6689,23 @@ async function runAssistantTurnImpl(opts: {
         }
       } else {
         toolResult = "The user declined this action. Do NOT execute it; briefly tell the user you skipped it.";
+        // Event Bus Fase 2: penolakan eksplisit = task dibatalkan. "Not
+        // selected" di bawah TIDAK ikut memancarkan ini — itu penundaan
+        // (model boleh mengusulkan lagi), bukan pembatalan.
+        try {
+          const bc = busTurnContext();
+          emitBusEvent({
+            user: bc?.userKey ?? sanitizeUser(opts.user) ?? "shared",
+            turn: bc?.turnId,
+            task_id: bc?.taskId,
+            type: "task_cancelled",
+            actor: bc?.actor ?? "mia",
+            summary: `dibatalkan: ${call.name || "unknown"}`.slice(0, 200),
+            data: { name: call.name || "unknown" },
+          });
+        } catch {
+          /* bus best-effort */
+        }
       }
       messages.push({ role: "tool", tool_call_id: call.id, content: toolResult });
       // Model-authored reminder variety: when a remind_me was just CONFIRMED, ask
@@ -7180,6 +7388,11 @@ async function runAssistantTurnImpl(opts: {
   if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
     const runNote = toolRunClaimSuffix(messages, text, collector.executedCalls);
     if (runNote) text = `${text}${runNote}`;
+    // World-action claim guard: "aku buka YouTube di browsermu sekarang" with
+    // ZERO tools run this turn (live 2026-10-05 — audit showed 6 turns, 0 calls).
+    // toolRunClaimSuffix needs a tool NAME in the prose; this names only the action.
+    const worldNote = worldActionClaimNote(messages, text, collector.executedCalls);
+    if (worldNote) text = `${text}${worldNote}`;
     // Verdict-inflation guard: "kandidat → terkonfirmasi" upgrades are invented
     // verdicts (the tool ran; the CLAIM is the lie). Same gates as the run-claim
     // guard; pure, tested.
@@ -7419,6 +7632,14 @@ async function runAssistantTurnImpl(opts: {
   } catch {
     /* best-effort: narration must never break the turn */
   }
+
+  // Trio voice firewall (drill 2026-10-05): Mia's TOOL RESULTS are written in
+  // her voice and carry her signature emoji (e.g. google_news formats
+  // "Nih berita soal X — N hasil 🌸"). The overlay cannot stop that: the glyph
+  // reaches the model through tool output, not the prompt, and small models
+  // copy it straight into their answer. Strip it deterministically for
+  // Michelle/Agnes; Mia's own turns keep her signature.
+  text = stripMiaSignatureVoice(text, opts.agent);
 
   // Append to daily memory log (per-user, per-day markdown; fire-and-forget).
   // This provides the YYYY-MM-DD.md files that memory_get reads and that

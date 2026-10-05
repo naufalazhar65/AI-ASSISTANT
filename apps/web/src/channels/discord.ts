@@ -21,11 +21,25 @@ import { COMMAND_EMPTY_FALLBACK, DISCORD_MAX, EMPTY_REPLY_FALLBACK, chunkText, c
  * (from env), and the bot token lives server-side only.
  *
  * Env (apps/web/.env.local):
- *   DISCORD_BOT_TOKEN             required
+ *   DISCORD_BOT_TOKEN             required (Mia)
+ *   DISCORD_BOT_TOKEN_AGNES       optional (Agnes researcher bot)
+ *   DISCORD_BOT_TOKEN_MICHELLE    optional (Michelle coder bot)
  *   DISCORD_ALLOWED_USER_ID       owner discord user id (snowflake string, or comma list)
  *   DISCORD_ALLOWED_CHANNEL_ID    optional: only serve this channel id (or comma list)
+ *   DISCORD_CHANNEL_ID_MIA / _AGNES / _MICHELLE
+ *                                 optional per-agent dedicated channel (that agent
+ *                                 replies there without needing a mention)
  *   DISCORD_PROVIDER              default AI provider (default "groq")
  *   DISCORD_USER                  fallback user key for persona (default "naufal")
+ * Trio (PRD Pixel Office §8 / ROADMAP Fase 4): one Next process can host up to
+ * three bots — Mia (legacy reply-all behavior, unchanged), Agnes and Michelle
+ * (reply only when mentioned, DM'd, or in their dedicated channel). Each bot
+ * keeps its own sessions, confirmations, reminder scope, and push label, and
+ * agent turns run under a suffixed user key (`owner`, `owner.agnes`,
+ * `owner.michelle`) so memory/persona never bleed across agents. Agent role
+ * files live at `persona/agents/<label>.{IDENTITY,SOUL}.md` and are seeded
+ * idempotently into each agent user dir on first contact (Mia keeps her
+ * existing persona untouched).
  */
 
 import { Client, Events, GatewayIntentBits, Message, MessageFlags, Partials, REST, Routes, SlashCommandBuilder} from "discord.js";
@@ -42,6 +56,11 @@ import { defaultProviderId } from "../lib/providers";
 import { buildStatusReport } from "../lib/status";
 import { handleUnifiedCommand, ChatSessionState } from "../lib/channelMessage";
 import { alreadyProcessed, alreadyStarted } from "../lib/once";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { appRoot, userDataRoot } from "../lib/users";
+import { ensureUserPersona } from "../lib/persona";
+import { agentPersonaNeedsReseed } from "../lib/agentRole";
 
 /** Minimal sendable text surface we rely on (any discord.js text channel). */
 type SendableChannel = { send: (content: string) => Promise<Message> };
@@ -86,28 +105,290 @@ const ALLOWED_CHANNEL_IDS = (process.env.DISCORD_ALLOWED_CHANNEL_ID || "")
   .map((s) => s.trim())
   .filter(Boolean);
 
+function parseIdList(value: string | undefined): string[] {
+  return (value || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Trio agent label. "mia" is the legacy bot; behavior for Mia is unchanged. */
+export type AgentLabel = "mia" | "agnes" | "michelle";
+
+export interface AgentBotConfig {
+  label: AgentLabel;
+  displayName: string;
+  statusName: string;
+  token: string;
+  providerDefault: string;
+  allowedUsers: string[];
+  allowedChannels: string[];
+  /** Dedicated channel(s) where this agent replies without needing a mention. */
+  dedicatedChannels: string[];
+  userFallback: string;
+  /** Suffix appended to the resolved user key ("" for Mia). Dots are
+   *  sanitize-safe, so `owner.agnes` is a distinct user dir automatically. */
+  userSuffix: string;
+  pushLabels: string[];
+  reminderBrand: string;
+  /** Reminder slots are delivered only when the slot owner equals this key. */
+  reminderScope: string;
+  /** Owner gate for startup (same rule as the legacy single bot). */
+  ownerConfigured: boolean;
+  /** True when >1 trio bot is starting (mention-priority + gated Mia). */
+  trioMode: boolean;
+}
+
+type AgentSpec = {
+  label: AgentLabel;
+  displayName: string;
+  tokenEnv: string;
+  envSuffix: string;
+  providerEnv: string;
+  userEnv: string;
+  channelEnv: string;
+  dedicatedEnv: string;
+  userSuffix: string;
+  pushLabels: string[];
+};
+
+const AGENT_SPECS: AgentSpec[] = [
+  {
+    label: "mia",
+    displayName: "Mia",
+    tokenEnv: "DISCORD_BOT_TOKEN",
+    envSuffix: "",
+    providerEnv: "DISCORD_PROVIDER",
+    userEnv: "DISCORD_USER",
+    channelEnv: "DISCORD_ALLOWED_CHANNEL_ID",
+    dedicatedEnv: "DISCORD_CHANNEL_ID_MIA",
+    userSuffix: "",
+    pushLabels: ["discord", "discord-mia"],
+  },
+  {
+    label: "agnes",
+    displayName: "Agnes",
+    tokenEnv: "DISCORD_BOT_TOKEN_AGNES",
+    envSuffix: "_AGNES",
+    providerEnv: "DISCORD_PROVIDER_AGNES",
+    userEnv: "DISCORD_USER_AGNES",
+    channelEnv: "DISCORD_ALLOWED_CHANNEL_ID_AGNES",
+    dedicatedEnv: "DISCORD_CHANNEL_ID_AGNES",
+    userSuffix: ".agnes",
+    pushLabels: ["discord-agnes"],
+  },
+  {
+    label: "michelle",
+    displayName: "Michelle",
+    tokenEnv: "DISCORD_BOT_TOKEN_MICHELLE",
+    envSuffix: "_MICHELLE",
+    providerEnv: "DISCORD_PROVIDER_MICHELLE",
+    userEnv: "DISCORD_USER_MICHELLE",
+    channelEnv: "DISCORD_ALLOWED_CHANNEL_ID_MICHELLE",
+    dedicatedEnv: "DISCORD_CHANNEL_ID_MICHELLE",
+    userSuffix: ".michelle",
+    pushLabels: ["discord-michelle"],
+  },
+];
+
+/** Full per-agent config resolved from env (shared values are fallbacks). */
+export function agentConfigsFromEnv(): AgentBotConfig[] {
+  return AGENT_SPECS.map((s) => {
+    const userFallback = process.env[s.userEnv] || process.env.DISCORD_USER || "naufal";
+    const ownUsers = parseIdList(process.env[`DISCORD_ALLOWED_USER_ID${s.envSuffix}`]);
+    const allowedUsers = ownUsers.length > 0 ? ownUsers : ALLOWED_USER_IDS;
+    const ownChannels = parseIdList(process.env[s.channelEnv]);
+    const allowedChannels = ownChannels.length > 0 ? ownChannels : ALLOWED_CHANNEL_IDS;
+    return {
+      label: s.label,
+      displayName: s.displayName,
+      statusName: `${s.displayName} 2026.9`,
+      token: process.env[s.tokenEnv] || "",
+      providerDefault: process.env[s.providerEnv] || PROVIDER_DEFAULT,
+      allowedUsers,
+      allowedChannels,
+      dedicatedChannels: parseIdList(process.env[s.dedicatedEnv]),
+      userFallback,
+      userSuffix: s.userSuffix,
+      pushLabels: s.pushLabels,
+      reminderBrand: s.displayName,
+      reminderScope: s.label === "mia" ? OWNER_KEY : `${OWNER_KEY}${s.userSuffix}`,
+      ownerConfigured:
+        allowedUsers.length > 0 || !!process.env[s.userEnv] || !!process.env.DISCORD_USER,
+      trioMode: false, // set by startDiscordBot once the enabled set is known
+    };
+  });
+}
+
+/** Agents with a token and an owner gate (same rule as the legacy single bot). */
+export function enabledAgentConfigs(): AgentBotConfig[] {
+  return agentConfigsFromEnv().filter((c) => !!c.token && c.ownerConfigured);
+}
+
+/** User key for an agent turn: Mia keeps the legacy key, agents get a
+ *  suffixed key (distinct user dir → isolated memory/persona/sessions). */
+export function userKeyForAgent(base: string, label: AgentLabel): string {
+  const suffix = AGENT_SPECS.find((s) => s.label === label)?.userSuffix ?? "";
+  return `${base}${suffix}`;
+}
+
+/** Trio routing (prevents triple replies). Solo Mia keeps legacy reply-all.
+ *  In trio mode an explicit mention (member `<@id>` or role `<@&id>`
+ *  name-match, resolved by trioMentionFlags) wins: a message addressing
+ *  sibling bot(s) suppresses everyone not mentioned (DMs always reply).
+ *  Unaddressed chatter goes to Mia alone (trio concierge — Mia stays the
+ *  center of the owner's experience); a sibling joins unaddressed chatter
+ *  only inside its OWN dedicated channel. Pure — unit-tested in verify.ts. */
+export function shouldRespondToAgent(
+  label: AgentLabel,
+  opts: {
+    mentioned: boolean;
+    isDM: boolean;
+    inDedicatedChannel: boolean;
+    mentionedOtherTrioBot: boolean;
+    trioMode: boolean;
+  }
+): boolean {
+  if (!opts.trioMode) {
+    if (label === "mia") return true;
+    return opts.mentioned || opts.isDM || opts.inDedicatedChannel;
+  }
+  if (opts.mentioned) return true;
+  if (opts.isDM) return true;
+  if (opts.mentionedOtherTrioBot) return false;
+  if (label === "mia") return true;
+  return opts.inDedicatedChannel;
+}
+
+/** Extract lowercase role names from a mentions.roles shape. Accepts arrays
+ *  and iterables of roles, plus discord.js Collections (iterables of
+ *  [key, role] entries). Anything else yields []. Never throws — a malformed
+ *  mentions shape must never break routing. */
+function roleNamesFrom(roles: unknown): string[] {
+  const out: string[] = [];
+  try {
+    if (!roles) return out;
+    const arr: unknown[] = Array.isArray(roles)
+      ? roles
+      : typeof (roles as { [Symbol.iterator]?: unknown })[Symbol.iterator] === "function"
+        ? Array.from(roles as Iterable<unknown>)
+        : [];
+    for (const item of arr) {
+      const r = (Array.isArray(item) ? item[1] : item) as { name?: unknown } | undefined;
+      if (typeof r?.name === "string" && r.name) out.push(r.name.toLowerCase());
+    }
+  } catch {
+    // ignore — treated as "no role mentions"
+  }
+  return out;
+}
+
+/** Role-mention-aware mention flags. The owner addresses bots by ROLE name
+ *  (`<@&id>`), so `mentions.has(botId)` (member `<@id>` only) misses it.
+ *  `mentioned` = member-mention OR a mentioned role named like this agent;
+ *  `mentionedOther` = member-mention of a known sibling bot id OR a mentioned
+ *  role named like a sibling. Name matching is case-insensitive exact
+ *  (`"agnes"` matches role `"Agnes"`, not `"Agnes-fan"`). Pure —
+ *  unit-tested in verify.ts (incl. the exact reported `<@&…> halo` shape). */
+export function trioMentionFlags(
+  mentions: { has: (id: string) => boolean; roles?: unknown },
+  botId: string,
+  myName: string,
+  siblingNames: string[]
+): { mentioned: boolean; mentionedOther: boolean } {
+  const roleNames = roleNamesFrom(mentions.roles);
+  const mine = myName.toLowerCase();
+  const mentioned =
+    (!!botId && mentions.has(botId)) || roleNames.includes(mine);
+  const mentionedOther =
+    [...trioBotIds].some((id) => id !== botId && mentions.has(id)) ||
+    siblingNames.some((s) => {
+      const n = s.toLowerCase();
+      return n !== mine && roleNames.includes(n);
+    });
+  return { mentioned, mentionedOther };
+}
+
+/** Seed an agent's role identity files (IDENTITY.md + SOUL.md) from
+ *  `persona/agents/<label>.*.md`, idempotently: a file already at
+ *  AGENT_PERSONA_VERSION is never touched (owner-customised), an older one is
+ *  refreshed from the template. Mia keeps her existing persona. */
+export function ensureAgentPersona(label: AgentLabel, rawUser: unknown): void {
+  if (label === "mia") return;
+  try {
+    const userKey = ensureUserPersona(rawUser);
+    if (!userKey) return;
+    // Guard (added 2026-10-05 after a real mistake): agent personas live in
+    // per-agent user dirs (`<owner>.agnes`, `<owner>.michelle`). Seeding with a
+    // key that has no agent suffix would write Michelle's/Agnes' persona over
+    // the OWNER's own IDENTITY.md + SOUL.md — which happened once during a
+    // manual re-seed and was only noticed by inspecting the files afterwards.
+    // Refuse rather than clobber: the caller must pass the suffixed key.
+    if (!userKey.includes(".")) return;
+    const dir = join(userDataRoot(), userKey, "persona");
+    mkdirSync(dir, { recursive: true });
+    for (const file of ["IDENTITY.md", "SOUL.md"] as const) {
+      const target = join(dir, file);
+      let body = "";
+      try {
+        body = existsSync(target) ? readFileSync(target, "utf8") : "";
+      } catch {
+        body = "";
+      }
+      if (body && !agentPersonaNeedsReseed(body)) continue;
+      const template = join(appRoot(), "persona", "agents", `${label}.${file}`);
+      if (!existsSync(template)) continue;
+      writeFileSync(target, readFileSync(template, "utf8"));
+    }
+  } catch {
+    // Role seeding must never break startup or chat.
+  }
+}
+
+const seededAgentPersonas = new Set<string>();
+function seedAgentPersona(cfg: AgentBotConfig, userKey: string): void {
+  if (cfg.label === "mia") return;
+  const k = `${cfg.label}:${userKey}`;
+  if (seededAgentPersonas.has(k)) return;
+  seededAgentPersonas.add(k);
+  ensureAgentPersona(cfg.label, userKey);
+}
+
+/** Live discord.js clients by agent (Mia stays the default for drills). */
+const botClients: Partial<Record<AgentLabel, Client | null>> = {};
+
+/** User IDs of all trio bots in this process (filled on each ClientReady).
+ *  Used for mention-priority: when a message mentions ≥1 trio bot, only the
+ *  mentioned ones reply — even inside a shared dedicated channel. */
+const trioBotIds = new Set<string>();
+export function getDiscordClient(label: AgentLabel): Client | null {
+  return botClients[label] ?? null;
+}
+
 /** Owner DM/channel for proactive reminder pushes; recorded from any owner msg
  *  (the object itself has `.send`, so no cache/id resolution needed — and when a
  *  `DISCORD_ALLOWED_CHANNEL_ID` is set, that channel IS what the owner messages
  *  land in). */
-let lastSeenOwnerChannel: SendableChannel | null = null;
-// Set once the client is ready so proactive pushes / send_channel can fall back
-// to the owner's DM when no owner message has been seen since server start.
-let activeClient: Client | null = null;
-/** Drill/inspection hook: the singleton client of THIS process (null before start).
+export interface BotPushContext {
+  lastSeen: SendableChannel | null;
+  client: Client | null;
+  allowedUsers: string[];
+}
+
+/** Drill/inspection hook: Mia's client (null before start).
  *  Used by adapter-path drills that drive the real messageCreate handler with a
  *  synthetic message (invalid token → login 401 → NO gateway → no 409 risk). */
 export function getActiveDiscordClient(): Client | null {
-  return activeClient;
+  return botClients.mia ?? null;
 }
 
 /**
  * Resolve the owner's DM as a sendable target. Falls back to the first
  * allow-listed owner user id; returns null when unavailable.
  */
-async function ownerDmTarget(): Promise<SendableChannel | null> {
-  const client = activeClient;
-  const ownerId = ALLOWED_USER_IDS[0];
+async function ownerDmTarget(ctx: BotPushContext): Promise<SendableChannel | null> {
+  const client = ctx.client;
+  const ownerId = ctx.allowedUsers[0];
   if (!client || !ownerId) return null;
   try {
     const user = await client.users.fetch(ownerId);
@@ -121,45 +402,50 @@ async function ownerDmTarget(): Promise<SendableChannel | null> {
 /** Best-effort target for proactive pushes: the owner's last-seen channel,
  *  falling back to the owner's DM so a push never fails just because the owner
  *  hasn't messaged since restart. */
-async function resolvePushTarget(): Promise<SendableChannel | null> {
-  return lastSeenOwnerChannel ?? (await ownerDmTarget());
+async function resolvePushTarget(ctx: BotPushContext): Promise<SendableChannel | null> {
+  return ctx.lastSeen ?? (await ownerDmTarget(ctx));
 }
 
-function isAllowedUser(msg: Message): boolean {
-  return !ALLOWED_USER_IDS.length || ALLOWED_USER_IDS.includes(msg.author.id);
+function isAllowedUser(msg: Message, allowedUsers: string[]): boolean {
+  return !allowedUsers.length || allowedUsers.includes(msg.author.id);
 }
-function isAllowedChannel(msg: Message): boolean {
-  return !ALLOWED_CHANNEL_IDS.length || ALLOWED_CHANNEL_IDS.includes(msg.channelId);
+function isAllowedChannel(msg: Message, allowedChannels: string[]): boolean {
+  return !allowedChannels.length || allowedChannels.includes(msg.channelId);
 }
-function isAllowedMessage(msg: Message): boolean {
-  return isAllowedUser(msg) && isAllowedChannel(msg);
+function isAllowedMessage(msg: Message, cfg: AgentBotConfig): boolean {
+  return isAllowedUser(msg, cfg.allowedUsers) && isAllowedChannel(msg, cfg.allowedChannels);
 }
 
 /** User key for per-user persona/memory; falls back to the owner id slug. */
-function userKeyFor(msg: Message): string {
+function userKeyFor(msg: Message, cfg: AgentBotConfig): string {
   const slug = (msg.author.username || msg.author.id).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 60);
-  return slug || process.env.DISCORD_USER || "naufal";
+  return `${slug || cfg.userFallback}${cfg.userSuffix}`;
 }
 
 export function isValidDiscordConfig(): boolean {
-  return !!process.env.DISCORD_BOT_TOKEN && (ALLOWED_USER_IDS.length > 0 || !!process.env.DISCORD_USER);
+  return enabledAgentConfigs().length > 0;
 }
 
 /** Singleton guard: only one client per process (Next invokes register twice). */
 
 export async function startDiscordBot(): Promise<void> {
-  // globalThis guard: a re-evaluated module (HMR) must not start a SECOND client.
-  if (alreadyStarted("discord-bot")) return;
-  const token = process.env.DISCORD_BOT_TOKEN;
-  if (!token) {
-    console.log("[discord] DISCORD_BOT_TOKEN not set — bot not started");
+  const cfgs = enabledAgentConfigs();
+  if (!cfgs.length) {
+    console.log("[discord] no bot token configured — bot not started");
     return;
   }
-  if (!ALLOWED_USER_IDS.length && !process.env.DISCORD_USER) {
-    console.log("[discord] no owner allow-list configured (DISCORD_ALLOWED_USER_ID) — bot not started");
-    return;
+  for (const cfg of cfgs) {
+    // globalThis guard: a re-evaluated module (HMR) must not start a SECOND client.
+    if (alreadyStarted(`discord-bot-${cfg.label}`)) continue;
+    cfg.trioMode = cfgs.length > 1;
+    await startAgentBot(cfg);
   }
+}
 
+/** Start one trio bot. The Mia path below is the legacy single-bot flow,
+ *  parameterized per agent (sessions, allow-list, user keys, push labels). */
+async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
+  const token = cfg.token;
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -172,25 +458,28 @@ export async function startDiscordBot(): Promise<void> {
     // messageCreate event even though the raw MESSAGE_CREATE is received).
     partials: [Partials.Channel, Partials.Message],
   });
-  activeClient = client;
+  botClients[cfg.label] = client;
   const sessions = new Map<string, ChatState>();
 
   const getState = (channelKey: string): ChatState => {
     let s = sessions.get(channelKey);
     if (!s) {
-      s = { provider: PROVIDER_DEFAULT, history: [], pending: null };
+      s = { provider: cfg.providerDefault, history: [], pending: null };
       sessions.set(channelKey, s);
     }
     return s;
   };
 
+  const ctx: BotPushContext = { lastSeen: null, client, allowedUsers: cfg.allowedUsers };
+
   client.on(Events.ClientReady, async () => {
     console.log("[discord] logged in as", client.user?.tag);
+    if (client.user) trioBotIds.add(client.user.id);
     // Register slash commands for Mia so "/status" etc. appear under Mia, not just as prefix.
     // Do it once per startup; Discord dedupes by name. Register both global and per-guild for fast propagation.
     try {
       const commands = [
-        new SlashCommandBuilder().setName("status").setDescription("Show Mia status (provider, uptime, counts)").toJSON(),
+        new SlashCommandBuilder().setName("status").setDescription(`Show ${cfg.displayName} status (provider, uptime, counts)`).toJSON(),
         new SlashCommandBuilder().setName("help").setDescription("Show help").toJSON(),
         new SlashCommandBuilder().setName("reset").setDescription("Clear this chat history").toJSON(),
         new SlashCommandBuilder()
@@ -242,18 +531,18 @@ export async function startDiscordBot(): Promise<void> {
   // directly instead of guiding to prefix. Keep prefix "/" messages working too.
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
-      if (alreadyProcessed("discord-interaction", interaction.id)) return;
+      if (alreadyProcessed(`discord-interaction-${cfg.label}`, interaction.id)) return;
       console.log(`[discord] interaction type=${interaction.type} id=${interaction.id} ${interaction.isChatInputCommand() ? `cmd=${interaction.commandName}` : interaction.isAutocomplete() ? "autocomplete" : "other"}`);
       if (interaction.isChatInputCommand()) {
         const cmd = interaction.commandName;
         // Allow-list check (same as messageCreate)
         const userId = interaction.user.id;
         const channelId = interaction.channelId ?? "dm";
-        if (ALLOWED_USER_IDS.length && !ALLOWED_USER_IDS.includes(userId)) {
+        if (cfg.allowedUsers.length && !cfg.allowedUsers.includes(userId)) {
           await interaction.reply({ content: "Maaf, kamu belum di allow-list.", ephemeral: true }).catch(() => {});
           return;
         }
-        if (ALLOWED_CHANNEL_IDS.length && channelId && !ALLOWED_CHANNEL_IDS.includes(channelId)) {
+        if (cfg.allowedChannels.length && channelId && !cfg.allowedChannels.includes(channelId)) {
           await interaction.reply({ content: "Channel ini belum di allow-list.", ephemeral: true }).catch(() => {});
           return;
         }
@@ -265,15 +554,18 @@ export async function startDiscordBot(): Promise<void> {
           await interaction.reply({ content: "Sebentar ya…", ephemeral: false }).catch(() => {});
           return;
         }
-        const userKey = (interaction.user.username || interaction.user.id).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 60) || "naufal";
+        const userKey = userKeyForAgent(
+          (interaction.user.username || interaction.user.id).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 60) || (cfg.label === "mia" ? "naufal" : cfg.userFallback),
+          cfg.label
+        );
         const state = getState(channelId);
         // Track owner channel for pushes (interaction channel)
         if (interaction.channel && "send" in interaction.channel) {
-          lastSeenOwnerChannel = interaction.channel as unknown as SendableChannel;
+          ctx.lastSeen = interaction.channel as unknown as SendableChannel;
         }
         let replyText: string;
         if (cmd === "status") {
-          replyText = buildStatusReport({ provider: state.provider, model: state.model, historyLen: state.history.length, user: userKey }, "Mia 2026.9");
+          replyText = buildStatusReport({ provider: state.provider, model: state.model, historyLen: state.history.length, user: userKey }, cfg.statusName);
         } else {
           // Reuse unified command handler by faking a text like "/provider 9router"
           const opt = interaction.options.data.map((o) => String(o.value ?? "")).join(" ").trim();
@@ -316,13 +608,42 @@ export async function startDiscordBot(): Promise<void> {
       // One inbound message = one turn, even if Discord redelivers it (gateway
       // resume/replay) — live bug: the same message ran two full turns and sent
       // two `remind_me` confirmation prompts.
-      if (alreadyProcessed("discord", msg.id)) {
+      if (alreadyProcessed(`discord-${cfg.label}`, msg.id)) {
         console.warn(`[discord] duplicate message ignored (${msg.id})`);
         return;
       }
-      console.log(`[discord] msg author=${msg.author.id} channel=${msg.channelId} allowedUser=${isAllowedUser(msg)} allowedChannel=${isAllowedChannel(msg)}`);
-      if (!isAllowedMessage(msg)) return;
-      const user = userKeyFor(msg);
+      console.log(`[discord] msg author=${msg.author.id} channel=${msg.channelId} allowedUser=${isAllowedUser(msg, cfg.allowedUsers)} allowedChannel=${isAllowedChannel(msg, cfg.allowedChannels)}`);
+      if (!isAllowedMessage(msg, cfg)) return;
+      // Trio routing: an explicit mention (member `<@id>` or role `<@&id>`
+      // matching the agent's name) wins — only addressed bots reply. DMs
+      // always reply. Unaddressed chatter goes to Mia alone (concierge);
+      // a sibling joins unaddressed chatter only inside its OWN dedicated
+      // channel. Prevents one message triggering three bots at once.
+      {
+        const botId = client.user?.id ?? "";
+        const mf = trioMentionFlags(
+          msg.mentions,
+          botId,
+          cfg.displayName,
+          AGENT_SPECS.filter((s) => s.label !== cfg.label).map((s) => s.displayName)
+        );
+        const mentioned = mf.mentioned;
+        const isDM = msg.guildId == null;
+        const inDedicated = cfg.dedicatedChannels.includes(msg.channelId);
+        const mentionedOtherTrioBot = mf.mentionedOther;
+        if (
+          !shouldRespondToAgent(cfg.label, {
+            mentioned,
+            isDM,
+            inDedicatedChannel: inDedicated,
+            mentionedOtherTrioBot,
+            trioMode: cfg.trioMode,
+          })
+        )
+          return;
+      }
+      const user = userKeyFor(msg, cfg);
+      seedAgentPersona(cfg, user);
       // Deal with file attachments first (docs/images), then the text.
       let text = (msg.content || "").trim();
       const atts = msg.attachments ? [...msg.attachments.values()] : [];
@@ -388,7 +709,7 @@ export async function startDiscordBot(): Promise<void> {
       // A message that is only a file (no text) still counts if we saved it.
       if (!text && !fileContexts.length) return;
 
-      lastSeenOwnerChannel = msg.channel as unknown as SendableChannel;
+      ctx.lastSeen = msg.channel as unknown as SendableChannel;
       const chatId = msg.channelId;
       const state = getState(chatId);
 
@@ -399,20 +720,20 @@ export async function startDiscordBot(): Promise<void> {
       }
 
       if (!hasVision && text.startsWith("/")) {
-        await handleCommand(msg, state, text, user);
+        await handleCommand(msg, state, text, user, cfg.statusName);
         return;
       }
 
       if (state.pending) {
-        await handleConfirmation(msg, state, user, text);
+        await handleConfirmation(msg, state, user, text, cfg.label);
         return;
       }
 
       if (hasVision) {
         const visionContent = [{ type: "text" as const, text: text || "Tolong jelaskan gambar ini dengan rapi" }, ...visionParts];
-        await runTurnWithVision(msg, state, user, visionContent, isVoice);
+        await runTurnWithVision(msg, state, user, visionContent, isVoice, cfg.label === "mia" ? "" : ` (${cfg.label})`, cfg.label);
       } else {
-        await runTurn(msg, state, user, undefined, text, isVoice);
+        await runTurn(msg, state, user, undefined, text, isVoice, cfg.label === "mia" ? "" : ` (${cfg.label})`, cfg.label);
       }
     } catch (err) {
       console.error("[discord] handler error:", err instanceof Error ? (err.stack || err.message) : String(err));
@@ -431,13 +752,13 @@ export async function startDiscordBot(): Promise<void> {
   // 500; a restart may redeliver a still-due slot once — accepted).
   const deliveredReminderIds = new Set<string>();
   subscribeReminders((reminder: Reminder, slotOwner: string): boolean => {
-    if (canonicalUserKey(slotOwner) !== OWNER_KEY) return false;
+    if (canonicalUserKey(slotOwner) !== cfg.reminderScope) return false;
     if (deliveredReminderIds.has(reminder.id)) return true;
-    if (lastSeenOwnerChannel) {
-      const target = lastSeenOwnerChannel;
+    if (ctx.lastSeen) {
+      const target = ctx.lastSeen;
       const at = new Date(reminder.at);
       const timeLabel = clockLabel(at);
-      void target.send(`🌸 **Mia** — ${reminderMessage(reminder.text, timeLabel)}`).then(
+      void target.send(`🌸 **${cfg.reminderBrand}** — ${reminderMessage(reminder.text, timeLabel)}`).then(
         () => {
           deliveredReminderIds.add(reminder.id);
           if (deliveredReminderIds.size > 500) {
@@ -451,14 +772,14 @@ export async function startDiscordBot(): Promise<void> {
       );
       return true;
     }
-    if (!activeClient || !ALLOWED_USER_IDS[0]) return false;
+    if (!ctx.client || !ctx.allowedUsers[0]) return false;
     void (async () => {
-      const target = await resolvePushTarget();
+      const target = await resolvePushTarget(ctx);
       if (target == null) return;
       const at = new Date(reminder.at);
       const timeLabel = clockLabel(at);
       try {
-        await target.send(`🌸 **Mia** — ${reminderMessage(reminder.text, timeLabel)}`);
+        await target.send(`🌸 **${cfg.reminderBrand}** — ${reminderMessage(reminder.text, timeLabel)}`);
         deliveredReminderIds.add(reminder.id);
         if (deliveredReminderIds.size > 500) {
           const first = deliveredReminderIds.values().next();
@@ -472,13 +793,15 @@ export async function startDiscordBot(): Promise<void> {
   });
 
   // Register this bot as the proactive-output sink (scheduled automation results).
-  registerPushTarget("discord", async (content: string) => {
-    const target = await resolvePushTarget();
-    if (target == null) throw new Error("no discord owner channel seen");
-    return target.send(content);
-  });
+  for (const pushLabel of cfg.pushLabels) {
+    registerPushTarget(pushLabel, async (content: string) => {
+      const target = await resolvePushTarget(ctx);
+      if (target == null) throw new Error("no discord owner channel seen");
+      return target.send(content);
+    });
+  }
 
-  console.log("[discord] connecting gateway…");
+  console.log(`[discord] connecting gateway…${cfg.label === "mia" ? "" : ` (${cfg.label})`}`);
   // Login is one-shot; do NOT block readiness (reflects telegram's fire-and-forget).
   void client.login(token).catch((err) => {
     console.error("[discord] login failed:", err instanceof Error ? err.message : String(err));
@@ -541,13 +864,13 @@ async function replyMiaVoice(msg: Message, text: string, voiceTurn = false): Pro
   await replyMia(msg, text);
 }
 
-async function handleCommand(msg: Message, state: ChatState, text: string, user: string): Promise<void> {
+async function handleCommand(msg: Message, state: ChatState, text: string, user: string, statusTag: string): Promise<void> {
   if (text.startsWith("/status")) {
     await replyMia(
       msg,
       buildStatusReport(
         { provider: state.provider, model: state.model, historyLen: state.history.length, user },
-        "Mia 2026.9 (scheduled automation)"
+        `${statusTag} (scheduled automation)`
       )
     );
     return;
@@ -559,7 +882,13 @@ async function handleCommand(msg: Message, state: ChatState, text: string, user:
   }
 }
 
-async function handleConfirmation(msg: Message, state: ChatState, user: string, text: string): Promise<void> {
+async function handleConfirmation(
+  msg: Message,
+  state: ChatState,
+  user: string,
+  text: string,
+  agent: AgentLabel = "mia"
+): Promise<void> {
   const pending = state.pending!;
   const selection = parseConfirmReply(text, pending.calls.length);
   if (!selection) {
@@ -580,6 +909,7 @@ async function handleConfirmation(msg: Message, state: ChatState, user: string, 
         model: state.model,
         user,
         channel: "discord",
+        agent,
         confirm_calls: decisions,
       })
     );
@@ -612,7 +942,9 @@ async function runTurn(
   user: string,
   confirmCall: { call: ToolCall; allow: boolean } | undefined,
   userText: string | undefined,
-  voiceTurn = false
+  voiceTurn = false,
+  botTag = "",
+  agent: AgentLabel = "mia"
 ): Promise<void> {
   const turnMessages = [...state.history];
   if (userText) {
@@ -623,7 +955,7 @@ async function runTurn(
   // (the old interimWaitText left a permanent extra message before the real reply).
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
-    console.log(`[discord] turn start (provider=${state.provider})`);
+    console.log(`[discord] turn start${botTag} (provider=${state.provider})`);
     broadcastMiaState("PROCESSING");
     result = await withTyping(msg.channel as unknown as SendableChannel, () =>
       runAssistantTurn({
@@ -635,7 +967,7 @@ async function runTurn(
         confirm_call: confirmCall,
       })
     );
-    console.log(`[discord] turn done (text len=${(result.text || "").length})`);
+    console.log(`[discord] turn done${botTag} (text len=${(result.text || "").length})`);
     broadcastMiaState(result.text ? "SPEAKING" : "IDLE", result.text || undefined);
     setTimeout(() => broadcastMiaState("IDLE"), 8000);
   } catch (err) {
@@ -667,18 +999,20 @@ async function runTurnWithVision(
   state: ChatState,
   user: string,
   visionContent: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>,
-  voiceTurn = false
+  voiceTurn = false,
+  botTag = "",
+  agent: AgentLabel = "mia"
 ): Promise<void> {
   const textPart = visionContent.find((p) => p.type === "text")?.text || "";
   const turnMessages = [...state.history, { role: "user", content: visionContent as unknown as string }];
   state.history.push({ role: "user", content: textPart || "[gambar]" });
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
-    broadcastMiaState("PROCESSING"); console.log(`[discord] vision turn start (provider=${state.provider})`);
+    broadcastMiaState("PROCESSING"); console.log(`[discord] vision turn start${botTag} (provider=${state.provider})`);
     result = await withTyping(msg.channel as unknown as SendableChannel, () =>
-      runAssistantTurn({ messages: turnMessages as never, provider: state.provider, model: state.model, user, channel: "discord" })
+      runAssistantTurn({ messages: turnMessages as never, provider: state.provider, model: state.model, user, channel: "discord", agent })
     );
-    console.log(`[discord] vision turn done (text len=${(result.text || "").length})`); broadcastMiaState(result.text ? "SPEAKING" : "IDLE", result.text || undefined); setTimeout(() => broadcastMiaState("IDLE"), 8000);
+    console.log(`[discord] vision turn done${botTag} (text len=${(result.text || "").length})`); broadcastMiaState(result.text ? "SPEAKING" : "IDLE", result.text || undefined); setTimeout(() => broadcastMiaState("IDLE"), 8000);
   } catch (err) {
     broadcastMiaState("IDLE");
     console.error("[discord] vision turn failed:", err instanceof Error ? err.message : String(err));

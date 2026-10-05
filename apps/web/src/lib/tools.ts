@@ -98,6 +98,7 @@ function remindersListText(rawUser: unknown): string {
   return lines.join("\n");
 }
 import { auditLog } from "./auditLog";
+import { busTurnContext, emitBusEvent, fileEventFor } from "./bus";
 import { toolsDeny } from "./config";
 import { recordToolCall } from "./turnStats";
 import {
@@ -5862,14 +5863,89 @@ export async function executeTool(call: ToolCall, rawUser?: unknown, extra?: { l
   } catch { /* no-op */ }
   recordToolCall(rawUser, call.name);
   const userKey = sanitizeUser(rawUser);
+  // Event Bus Fase 2 (satu pemilik, dipakai kedua cabang hasil di bawah):
+  // sukses baca/tulis file → file_read/file_written; hasil Error (atau
+  // plugin yang throw) → task_failed. Path repo-relatif ikut di data
+  // (bukan rahasia); argumen lain tidak pernah naik ke bus.
+  const emitFileOrFailed = (toolName: string, resultText: string) => {
+    try {
+      const bc = busTurnContext();
+      const user = bc?.userKey ?? userKey ?? "shared";
+      const failed = /^error:/i.test(resultText.trim());
+      const fev = fileEventFor(toolName, !failed);
+      if (fev) {
+        const p = typeof args.path === "string" ? args.path.slice(0, 200) : "";
+        emitBusEvent({
+          user,
+          turn: bc?.turnId,
+          task_id: bc?.taskId,
+          type: fev,
+          actor: bc?.actor ?? "mia",
+          summary: `${fev === "file_read" ? "baca" : "tulis"} ${p || toolName}`.slice(0, 200),
+          data: { name: toolName, ok: true, path: p },
+        });
+        return;
+      }
+      if (failed) {
+        const firstLine = (resultText.trim().split("\n")[0] ?? "").slice(0, 120);
+        emitBusEvent({
+          user,
+          turn: bc?.turnId,
+          task_id: bc?.taskId,
+          type: "task_failed",
+          actor: bc?.actor ?? "mia",
+          summary: `${toolName} → ${firstLine || "error"}`,
+          data: { name: toolName, ok: false },
+        });
+      }
+    } catch {
+      /* bus best-effort */
+    }
+  };
   // Defensive: a plugin that throws must surface as an Error string, never
   // bubble up and 500 the whole turn.
   try {
     const out = await plugin.execute(args, { userKey, rawUser, lastUserText: extra?.lastUserText });
-    return out ?? "";
+    const result = out ?? "";
+    // Event Bus Fase 1: setiap eksekusi nyata memancarkan tool_called
+    // (ok maupun Error) — avatar hanya bergerak bila tool benar jalan.
+    try {
+      const bc = busTurnContext();
+      const failed = /^error:/i.test(result.trim());
+      const firstLine = (result.trim().split("\n")[0] ?? "").slice(0, 120);
+      emitBusEvent({
+        user: bc?.userKey ?? userKey ?? "shared",
+        turn: bc?.turnId,
+        task_id: bc?.taskId,
+        type: "tool_called",
+        actor: bc?.actor ?? "mia",
+        summary: `${call.name} → ${failed ? firstLine || "error" : "ok"}`,
+        data: { name: call.name, ok: !failed },
+      });
+    } catch {
+      /* bus best-effort — tidak pernah mengganggu hasil tool */
+    }
+    emitFileOrFailed(call.name, result);
+    return result;
   } catch (err) {
     try { logError({ skill: call.name, summary: `${call.name} threw`, error: err instanceof Error ? err.message.slice(0, 400) : String(err), context: JSON.stringify(args).slice(0, 200), relatedFiles: ["apps/web/src/lib/tools.ts"] }); } catch { /* best-effort */ }
-    return `Error: ${err instanceof Error ? err.message : "tool execution failed"}`;
+    const msg = `Error: ${err instanceof Error ? err.message : "tool execution failed"}`;
+    try {
+      const bc = busTurnContext();
+      emitBusEvent({
+        user: bc?.userKey ?? userKey ?? "shared",
+        turn: bc?.turnId,
+        task_id: bc?.taskId,
+        type: "tool_called",
+        actor: bc?.actor ?? "mia",
+        summary: `${call.name} → ${msg.slice(0, 120)}`,
+        data: { name: call.name, ok: false },
+      });
+    } catch {
+      /* bus best-effort */
+    }
+    emitFileOrFailed(call.name, msg);
+    return msg;
   }
 }
 

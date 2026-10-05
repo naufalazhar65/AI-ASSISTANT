@@ -24,6 +24,7 @@ import {
   claimsTestingConcluded,
   hasCompletionClaim,
   hasResultCompletionClaim,
+  reportProvenanceNote,
 } from "./agent";
 
 /** Sentences that name testing work but assert NOTHING about it concluding. */
@@ -167,5 +168,32 @@ describe("the live shapes this trigger was rebuilt for", () => {
 
   it("catches the 02:23 prose", () => {
     expect(hasCompletionClaim(LIVE_0023)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Forward-looking offer is not a completion claim (live 2026-10-05 01:54).
+//
+// "siap bantu audit keamanan target sampai tuntas" matched SEALED_WORDS
+// ("tuntas") inside a completeness adverb, so the provenance guard appended
+// "laporan ini memuat temuan yang SUDAH tercatat sebelumnya" to a turn that ran
+// no report tool and recorded nothing. A real conclusion must still be caught.
+// ---------------------------------------------------------------------------
+describe("OFFER_BEFORE_SEAL_RE (forward offer != conclusion)", () => {
+  const OFFER = "Michelle dan aku siap bantu audit keamanan target sampai tuntas";
+  const CONCLUSION = "pentest-nya sudah aku tuntaskan semua, 3 temuan kelar";
+
+  it("does not read a forward-looking offer as a completion claim", () => {
+    expect(claimsTestingConcluded(OFFER)).toBe(false);
+    expect(hasCompletionClaim(OFFER)).toBe(false);
+    expect(hasResultCompletionClaim(OFFER)).toBe(false);
+  });
+
+  it("still catches a real conclusion (aspect marker, no offer marker before)", () => {
+    expect(claimsTestingConcluded(CONCLUSION)).toBe(true);
+  });
+
+  it("stops the provenance note from firing on an offer turn", () => {
+    expect(reportProvenanceNote([], OFFER)).toBe("");
   });
 });

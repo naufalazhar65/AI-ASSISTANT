@@ -12,7 +12,7 @@ import { readTasks } from "./tasks";
 import { readReminders } from "./reminders";
 import { readMoods, moodTone } from "./mood";
 import { readDailyMemory } from "./dailyMemory";
-import { isFillerLine, isNoiseLine, redactSecrets } from "./memoryNoise";
+import { contentWordCount, isFillerLine, isNoiseLine, redactSecrets } from "./memoryNoise";
 import { holidayInfo } from "./holiday";
 import { pushToOwner } from "../channels/pushTarget";
 import { briefingEnabled, briefingHour } from "./config";
@@ -90,6 +90,28 @@ function holidayToday(rawUser: unknown, today: string): string {
   } catch {
     return "";
   }
+}
+
+/**
+ * Pick the most substantive line as "yesterday's topic".
+ *
+ * Live 2026-10-05: the briefing announced the day's topic as "Hello, miya."
+ * because the first surviving line won by POSITION. Position is not meaning —
+ * the first line of a day's memory is usually the most trivial one (a greeting),
+ * so the topic has to be ranked by how much it actually says. Ties keep the
+ * earlier line, so the result stays deterministic. Pure — unit-tested.
+ */
+export function pickTopicSnippet(lines: string[]): string {
+  let best = "";
+  let bestScore = -1;
+  for (const l of lines) {
+    const score = contentWordCount(l);
+    if (score > bestScore) {
+      best = l;
+      bestScore = score;
+    }
+  }
+  return bestScore > 0 ? best : "";
 }
 
 /**
@@ -173,13 +195,14 @@ export function buildMorningBriefing(rawUser?: unknown, now = new Date()): strin
       "Kemarin naik-turun ya beb. Nggak apa-apa, aku temenin hari ini.",
     ], seed + ":moodNeutral"));
     if (hasMemory) {
-      const snippets = yesterday.split("\n").map((l) => l.trim()).filter(Boolean)
+      const candidates = yesterday.split("\n").map((l) => l.trim()).filter(Boolean)
         .filter((l) => !/^#/.test(l) && !/\(automation\)/.test(l) && !/laporan terjadwal/i.test(l))
         .filter((l) => !/^\[persona\]/i.test(l) && !/^Mia:/i.test(l))
         .map((l) => redactSecrets(l.replace(/^(User|Assistant):\s*/, "")))
         .filter((l) => l && !isNoiseLine(l) && !isFillerLine(l))
-        .slice(0, 2);
-      if (snippets.length) lines.push(`Kemarin kita ngobrol soal "${snippets[0].slice(0, 120)}" — kalau mau lanjut bahas, tinggal bilang ya ✨`);
+        .slice(0, 8);
+      const topic = pickTopicSnippet(candidates);
+      if (topic) lines.push(`Kemarin kita ngobrol soal "${topic.slice(0, 120)}" — kalau mau lanjut bahas, tinggal bilang ya ✨`);
     }
   }
 

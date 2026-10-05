@@ -303,12 +303,25 @@ async function main() {
   // 9router's 64-slot cap is smaller than CORE and intentionally keeps only the
   // first 64 entries (documented limitation) — assert it there only for the
   // read-side tools that must always be present.
-  const pentestCore = ["cvss_score", "security_playbook", "pentest_scan", "http_request", "finding_add", "report_generate", "poc_verify", "oast_create", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "cdp_proxy"];
+  // security_playbook + prompt_injection_hunt left CORE entirely on 2026-10-05
+  // (0 audit executions each; the behaviour-changing packs are prompt rules, and
+  // the LLM-app red-team surface is now wholly off the capped windows).
+  const pentestCore = ["cvss_score", "pentest_scan", "http_request", "finding_add", "report_generate", "poc_verify", "oast_create", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "cdp_proxy"];
   const groqNames = groqTools.map((t) => t.function.name);
   const pentestMissing = pentestCore.filter((n) => !groqNames.includes(n));
   if (pentestMissing.length) throw new Error(`groq cap dropped pentest tools: ${pentestMissing.join(", ")}`);
   const r9Names = toolsForUrl("http://localhost:20128/v1/chat/completions").map((t) => t.function.name);
-  for (const n of ["cvss_score", "security_playbook", "pentest_scan", "http_request"]) {
+  // cvss_score was deliberately demoted OUT of the 9router window on 2026-10-04
+  // (0 executions in the whole audit history; it is a pure read/auto calculator —
+  // report_generate / platform_severity inject severity internally and
+  // finding_add accepts a raw vector). Its freed slot keeps report_generate +
+  // report_save inside the window, which the deterministic PDF delivery path
+  // needs. It stays in CORE, so groq + every uncapped provider keep it.
+  // security_playbook was demoted to the CORE tail on 2026-10-05 (0 executions
+  // in the whole audit history; it is a knowledge-pack LOADER and the two packs
+  // that change behaviour are already written into the system prompt). It stays
+  // in CORE, so the groq assertion above (line 306) still holds.
+  for (const n of ["pentest_scan", "http_request"]) {
     if (!r9Names.includes(n)) throw new Error(`9router cap dropped read-side pentest tool: ${n}`);
   }
   if (toolsForUrl("https://opencode.ai/zen/go/v1/chat/completions").length <= 128) {
@@ -1809,19 +1822,30 @@ async function main() {
     if (unresolved.length) throw new Error(`CORE names not in registry: ${unresolved.join(",")}`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "security_playbook", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "prompt_injection_hunt", "llm_hunt", "mcp_hunt", "bypass403", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "coverage", "threat_model", "submission_preflight"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "bypass403", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "coverage", "threat_model", "submission_preflight"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
     if (r9.length > 64) throw new Error(`9router tool cap exceeded (${r9.length})`);
-    for (const n of ["workflow_fuzz", "race_attack", "graphql_hunt", "prompt_injection_hunt", "http_request", "poc_verify", "finding_add", "llm_hunt", "mcp_hunt", "lab_add", "coverage", "threat_model", "report_generate", "report_save", "writeup", "submission_preflight", "gmail_list", "gmail_link", "mac_open", "places_search"]) {
+    // llm_hunt + mcp_hunt left this window on 2026-10-04 (demoted to the CORE
+    // tail, 0 executions in the whole audit history); google_news/research/
+    // content_discover/crawl entered it as the research-depth block.
+    // prompt_injection_hunt left the 9router window on 2026-10-05 (0 executions
+    // in the whole audit history; with llm_hunt + mcp_hunt already demoted, the
+    // LLM-app red-team surface is now entirely off the capped window by design
+    // rather than half-present). write_file / codebase_search / browser_snapshot /
+    // gmail_search entered it the same day — the trio audit found the Coder had no
+    // write path and no code search, and the Researcher could open a page but not
+    // see its elements or search mail.
+    for (const n of ["workflow_fuzz", "race_attack", "graphql_hunt", "http_request", "poc_verify", "finding_add", "google_news", "research", "content_discover", "crawl", "lab_add", "coverage", "threat_model", "report_generate", "report_save", "writeup", "submission_preflight", "gmail_list", "gmail_search", "gmail_link", "mac_open", "places_search", "exec_write", "write_file", "codebase_search", "browser_snapshot"]) {
       if (!r9.some((t) => t.function.name === n)) throw new Error(`9router 64-window missing ${n}`);
     }
     for (const n of ["waze_route", "spotify_next", "spotify_volume", "ato_prove"]) {
       if (r9.some((t) => t.function.name === n)) throw new Error(`${n} should be demoted out of the 9router window`);
       if (!HINT_UNDELIVERED.includes(n)) throw new Error(`${n} must be in HINT_UNDELIVERED`);
     }
-    // report_pdf sits at CORE position 65, ONE slot past the cut — verified live
+    // report_pdf sits at CORE position 64 (was 65 before the 2026-10-04
+    // research-depth rebalance), ONE slot past the cut — verified live
     // 2026-09-25/26: the deterministic delivery path (tryDeliverReportPdf) is
     // what actually answers "buatkan pdfnya", so the tool being undelivered is
     // by design, not a gap. Asserted so nobody reshuffles the window to reach
@@ -4913,11 +4937,18 @@ async function main() {
     }
     if ([...CORE_TOOL_NAMES].length !== 128) throw new Error(`CORE must stay 128 (got ${[...CORE_TOOL_NAMES].length})`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
-    for (const n of ["smuggle_probe", "dom_xss_prove", "edit_file", "exec_write"]) {
+    for (const n of ["smuggle_probe", "dom_xss_prove", "edit_file"]) {
       const inGroq = groq.has(n);
       if ((n === "smuggle_probe" || n === "dom_xss_prove") && !inGroq) throw new Error(`groq window missing ${n}`);
-      if ((n === "edit_file" || n === "exec_write") && inGroq) throw new Error(`${n} must stay demoted from the groq window`);
+      if (n === "edit_file" && inGroq) throw new Error(`${n} must stay demoted from the groq window`);
     }
+    // exec_write PROMOTED 2026-10-04 (was demoted alongside edit_file): with
+    // only 9router available, "tolong run unit test" needs npm test/run which
+    // only exec_write allows. Paid for by demoting git_commit (subsumed: git
+    // add/commit/push/restore are all in EXEC_WRITE_ALLOWLIST; 0 executions
+    // across the whole audit history). Must ride CORE = groq-128 + 9router-64.
+    if (!groq.has("exec_write")) throw new Error("exec_write must be in the groq window (promoted 2026-10-04)");
+    if (groq.has("git_commit")) throw new Error("git_commit must stay demoted (subsumed by exec_write 2026-10-04)");
 
     // pure classify/builders
     const sm = await import("./src/lib/smuggleProbe");
@@ -6496,6 +6527,490 @@ async function main() {
     } finally {
       rmSync(join(userDataRoot(), U), { recursive: true, force: true });
     }
+  }
+
+  // ── Event Bus Fase 1 (PRD Pixel Office): named envelope + live fan-out ──
+  // Satu eksekusi tool nyata memancarkan tool_called ber-envelope stabil;
+  // di dalam turn, konteks ALS mengikatnya ke turn+task id yang benar.
+  {
+    const { busCursor, busEventsSince, newBusTurn, withBusTurn } = await import("./src/lib/bus");
+    const { executeTool } = await import("./src/lib/tools");
+    const before = busCursor();
+    const out = await executeTool({ id: "t-bus", name: "calculate", arguments: JSON.stringify({ expression: "2+3" }) }, "verify_bus");
+    if (!/^5$/.test(out.trim())) throw new Error("calculate sanity failed");
+    const called = busEventsSince(before, "verify_bus").events.filter((e) => e.type === "tool_called");
+    if (called.length === 0) throw new Error("tool_called not emitted");
+    const e = called[0];
+    if (!/^evt_\d+$/.test(e.id)) throw new Error("bus id shape");
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(e.ts)) throw new Error("bus ts shape");
+    if (e.turn !== "turn_external" || e.task_id !== "task_ext") throw new Error("external fallback labels");
+    if (e.actor !== "mia" || e.data?.name !== "calculate" || e.data?.ok !== true) throw new Error("bus tool payload");
+    // Di dalam turn: panggilan yang sama terikat ke turn+task id turn itu.
+    const ctx = newBusTurn("verify_bus");
+    if (!/^task_\d{4}$/.test(ctx.taskId)) throw new Error("task numbering");
+    const before2 = busCursor();
+    await withBusTurn(ctx, () => executeTool({ id: "t-bus2", name: "calculate", arguments: JSON.stringify({ expression: "1+1" }) }, "verify_bus"));
+    const bound = busEventsSince(before2, "verify_bus").events.filter((ev) => ev.type === "tool_called").pop();
+    if (!bound || bound.turn !== ctx.turnId || bound.task_id !== ctx.taskId) throw new Error("turn binding");
+    console.log("event bus fase 1 (envelope + external fallback + turn binding via dispatch): OK");
+  }
+
+  // ── Event Bus Fase 2 (PRD Pixel Office): file_*, task_failed, task_cancelled ──
+  // Baca/tulis file yang SUKSES memancarkan file_read/file_written (path ikut
+  // di data); hasil Error → task_failed (bukan file_*); penolakan eksplisit
+  // pada jalur konfirmasi → task_cancelled. waiting_input tetap ter-wire di
+  // wrapper saat needsConfirmation — terbukti di produksi oleh setiap prompt
+  // konfirmasi; tidak ada drive offline karena pause hanya terjadi untuk call
+  // yang diusulkan model dalam turn itu (riwayat yang ditempel tidak memicu).
+  {
+    const { busCursor, busEventsSince } = await import("./src/lib/bus");
+    const { executeTool } = await import("./src/lib/tools");
+    // Sukses baca README → file_read (path + ok di data) + tool_called ok.
+    const b1 = busCursor();
+    const out = await executeTool({ id: "t-busfr", name: "file_read", arguments: JSON.stringify({ path: "README.md" }) }, "verify_busf2");
+    if (/^error:/i.test(out.trim())) throw new Error("file_read sanity failed: " + out.slice(0, 80));
+    const evs1 = busEventsSince(b1, "verify_busf2").events;
+    const fr = evs1.find((e) => e.type === "file_read");
+    if (!fr || fr.data?.path !== "README.md" || fr.data?.ok !== true) throw new Error("file_read event");
+    // Baca yang ditolak sandbox → task_failed, tanpa file_read.
+    const b2 = busCursor();
+    const bad = await executeTool({ id: "t-busfb", name: "file_read", arguments: JSON.stringify({ path: "../etc/passwd" }) }, "verify_busf2");
+    if (!/^error:/i.test(bad.trim())) throw new Error("expected denied read to fail");
+    const evs2 = busEventsSince(b2, "verify_busf2").events;
+    if (!evs2.some((e) => e.type === "task_failed" && e.data?.name === "file_read")) throw new Error("task_failed on denied read");
+    if (evs2.some((e) => e.type === "file_read")) throw new Error("file_read must not fire on failure");
+    // Penolakan eksplisit dilewatkan jalur konfirmasi yang ASLI (bukan tiruan):
+    // completion lanjutan boleh gagal (model/key), tapi task_cancelled
+    // dipancarkan SEBELUM completion dihubungi — jadi event-nya yang diassert.
+    const { runAssistantTurn } = await import("./src/lib/agent");
+    const mkCall = (id: string) => ({
+      id,
+      type: "function" as const,
+      name: "write_file",
+      arguments: JSON.stringify({ path: "verify_tmp_dec.txt", content: "x" }),
+      function: { name: "write_file", arguments: JSON.stringify({ path: "verify_tmp_dec.txt", content: "x" }) },
+    });
+    const b3 = busCursor();
+    try {
+      await runAssistantTurn({
+        messages: [
+          { role: "user", content: "tulis file test" },
+          { role: "assistant", content: null, tool_calls: [mkCall("t-dec2")] },
+        ],
+        provider: "9router",
+        confirm_calls: [{ call: mkCall("t-dec2"), allow: false }],
+        user: "verify_busd2",
+      });
+    } catch { /* completion lanjutan boleh gagal — event sudah tercatat */ }
+    const evs3 = busEventsSince(b3, "verify_busd2").events;
+    if (!evs3.some((e) => e.type === "task_cancelled" && e.data?.name === "write_file")) {
+      throw new Error("task_cancelled on explicit decline");
+    }
+    try {
+      const { rmSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      const { userDataRoot } = await import("./src/lib/users");
+      for (const u of ["verify_busf2", "verify_busd2"]) rmSync(join(userDataRoot(), u), { recursive: true, force: true });
+    } catch { /* best-effort cleanup */ }
+    console.log("event bus fase 2 (file_read/file_written/task_failed/task_cancelled via dispatch): OK");
+  }
+
+  // ── Pixel Office Fase 3 (PRD Pixel Office): engine headless E2E ──────────
+  // Real tool events (genuine calculate execution, re-attributed to michelle
+  // via the turn context) drive a REAL engine: walk→work→done. task_assigned
+  // and task_done below are SYNTHETIC and labeled as such — the trio
+  // orchestrator has no callers yet, so assignment can only be simulated.
+  // States asserted on the engine, never on prose; mia isolation holds.
+  {
+    const { busCursor, busEventsSince, emitBusEvent, newBusTurn, withBusTurn } = await import("./src/lib/bus");
+    const { executeTool } = await import("./src/lib/tools");
+    const eng = await import("../pixel-office/src/engine");
+    const mapJson = (await import("../pixel-office/src/map.json")).default;
+    const U = "verify_pixel3";
+    const map = eng.parseMap(mapJson);
+    const before = busCursor();
+    const ctxM = newBusTurn(U, "michelle");
+    const calc = await withBusTurn(ctxM, () => executeTool({ id: "t-pxcalc", name: "calculate", arguments: JSON.stringify({ expression: "6*7" }) }, U));
+    if (calc.trim() !== "42") throw new Error("calculate sanity failed");
+    emitBusEvent({ user: U, turn: ctxM.turnId, task_id: ctxM.taskId, type: "task_assigned", actor: "michelle", station: "pc-2", summary: "SYNTHETIC assignment for headless E2E (no orchestrator caller yet)" });
+    const turnEvents = busEventsSince(before, U).events;
+    const toolEvs = turnEvents.filter((e) => e.type === "tool_called");
+    if (!toolEvs.some((e) => e.actor === "michelle" && e.data?.name === "calculate" && e.data?.ok === true)) {
+      throw new Error("real michelle tool_called missing");
+    }
+    // The REAL event alone puts her avatar to work at spawn (no assignment).
+    const st = eng.initialState(map);
+    for (const e of toolEvs) eng.applyEvent(st, map, e);
+    if (st.avatars["michelle"]?.status !== "working") throw new Error("real tool_called did not put michelle to work");
+    // Read status through a closure below: applyEvent/stepOffice mutate it,
+    // and direct reads would let tsc narrow the type across those calls.
+    const mStatus = () => st.avatars["michelle"]?.status;
+    // The SYNTHETIC assignment sends her walking to pc-2; arrival → working.
+    for (const e of turnEvents.filter((e) => e.type !== "tool_called")) eng.applyEvent(st, map, e);
+    if (mStatus() !== "walking") throw new Error("michelle not walking after task_assigned");
+    for (let i = 0; i < 200 && mStatus() === "walking"; i++) eng.stepOffice(st, map);
+    if (mStatus() !== "working") throw new Error("michelle never arrived at pc-2");
+    const stop = map.pcs.find((p) => p.id === "pc-2")!.stop;
+    const at = st.avatars["michelle"]!.pos;
+    if (at.x !== stop.x || at.y !== stop.y) throw new Error("michelle not on the pc-2 stop cell");
+    // SYNTHETIC done (labeled) → walks home → idle. Isolation: no mia-actor
+    // events in this turn, and the pre-seeded mia avatar stays idle at spawn.
+    emitBusEvent({ user: U, turn: ctxM.turnId, task_id: ctxM.taskId, type: "task_done", actor: "michelle", summary: "SYNTHETIC done for headless E2E (no orchestrator caller yet)" });
+    const doneEvs = busEventsSince(before, U).events.filter((e) => e.type === "task_done");
+    if (doneEvs.length === 0) throw new Error("synthetic task_done missing");
+    for (const e of doneEvs) eng.applyEvent(st, map, e);
+    for (let i = 0; i < 200 && mStatus() !== "idle"; i++) eng.stepOffice(st, map);
+    if (mStatus() !== "idle") throw new Error("michelle never returned idle");
+    if (turnEvents.some((e) => (e.actor ?? (e as { agent?: string }).agent) === "mia")) {
+      throw new Error("mia-actor event leaked into this turn (isolation)");
+    }
+    const miaHome = map.spawns["mia"];
+    const mia = st.avatars["mia"];
+    if (!mia || mia.status !== "idle" || mia.pos.x !== miaHome.x || mia.pos.y !== miaHome.y || mia.path.length !== 0 || mia.task !== null) {
+      throw new Error("pre-seeded mia avatar moved (isolation)");
+    }
+    console.log("pixel office fase 3 (headless E2E: real tool events → walk→work→done + isolation): OK");
+  }
+
+  // ── Delegation (PRD Pixel Office §13-14: Mia → Agnes/Michelle) ──────────
+  // A REAL mock turn whose ask names Michelle must emit agent_delegated
+  // (actor mia → michelle) + task_assigned (actor michelle, station pc-2),
+  // both parented on the turn task; a pentest ask stays silent (no stealing
+  // security work). Asserts on events, never on prose.
+  {
+    const { busCursor, busEventsSince } = await import("./src/lib/bus");
+    const { runAssistantTurn } = await import("./src/lib/agent");
+    const U = "verify_delegation";
+    const before = busCursor();
+    await runAssistantTurn({
+      messages: [{ role: "user", content: "Tolong suruh michelle buatkan unit test untuk login" }],
+      provider: "mock",
+      user: U,
+    });
+    const evs = busEventsSince(before, U).events;
+    const turnTask = evs.find((e) => e.type === "task_created")?.task_id;
+    if (!turnTask) throw new Error("turn task_created missing");
+    const del = evs.find((e) => e.type === "agent_delegated");
+    if (!del || del.actor !== "mia" || del.agent !== "michelle") {
+      throw new Error("agent_delegated mia→michelle missing");
+    }
+    const asg = evs.find((e) => e.type === "task_assigned");
+    if (!asg || asg.actor !== "michelle" || asg.station !== "pc-2") {
+      throw new Error("task_assigned michelle/pc-2 missing");
+    }
+    if (!del.task_id || del.task_id === turnTask) throw new Error("delegated task id not fresh");
+    if (del.parent_task_id !== turnTask || asg.parent_task_id !== turnTask || asg.task_id !== del.task_id) {
+      throw new Error("delegation parentage broken (both must hang off the turn task)");
+    }
+    const dlgDone = evs.find((e) => e.type === "task_done" && e.task_id === del.task_id);
+    if (!dlgDone || dlgDone.actor !== "michelle") throw new Error("delegated task_done missing");
+    // Negative: a pentest ask must NOT delegate (security work is never stolen).
+    const before2 = busCursor();
+    await runAssistantTurn({
+      messages: [{ role: "user", content: "Tolong lakukan pentest di lab cozy" }],
+      provider: "mock",
+      user: U,
+    });
+    const evs2 = busEventsSince(before2, U).events;
+    if (evs2.some((e) => e.type === "agent_delegated" || e.type === "task_assigned")) {
+      throw new Error("pentest ask must not delegate");
+    }
+    console.log("delegation (mock turn → agent_delegated + task_assigned + parentage; pentest silent): OK");
+  }
+
+  // ── Discord trio (Fase 4: Mia + Agnes + Michelle factory) ─────────────
+  // Pure routing + key isolation + role seeding. No tokens are needed (and no
+  // gateway is ever contacted): agent turns run under suffixed user keys, and
+  // Agnes/Michelle reply only on mention/DM/dedicated-channel.
+  {
+    const {
+      agentConfigsFromEnv,
+      enabledAgentConfigs,
+      userKeyForAgent,
+      shouldRespondToAgent,
+      trioMentionFlags,
+      ensureAgentPersona,
+    } = await import("./src/channels/discord");
+    // Routing: Mia replies to everything (legacy); agents only on mention/DM/dedicated.
+    // Solo mode preserves the legacy contract exactly.
+    const solo = { mentionedOtherTrioBot: false, trioMode: false };
+    if (!shouldRespondToAgent("mia", { mentioned: false, isDM: false, inDedicatedChannel: false, ...solo })) {
+      throw new Error("mia must keep reply-all behavior");
+    }
+    if (shouldRespondToAgent("agnes", { mentioned: false, isDM: false, inDedicatedChannel: false, ...solo })) {
+      throw new Error("agnes must ignore plain guild traffic (no triple replies)");
+    }
+    if (!shouldRespondToAgent("agnes", { mentioned: true, isDM: false, inDedicatedChannel: false, ...solo })) {
+      throw new Error("agnes must reply on mention");
+    }
+    if (!shouldRespondToAgent("agnes", { mentioned: false, isDM: true, inDedicatedChannel: false, ...solo })) {
+      throw new Error("agnes must reply in DM");
+    }
+    if (!shouldRespondToAgent("michelle", { mentioned: false, isDM: false, inDedicatedChannel: true, ...solo })) {
+      throw new Error("michelle must reply in dedicated channel");
+    }
+    // Trio mode: an explicit mention wins — unmentioned bots stay silent even
+    // in a shared dedicated channel (live bug: all three dedicated to one
+    // channel triple-replied to "@Agnes halo").
+    const trio = { trioMode: true };
+    if (!shouldRespondToAgent("mia", { mentioned: false, isDM: false, inDedicatedChannel: false, mentionedOtherTrioBot: false, ...trio })) {
+      throw new Error("trio mia must still reply with no mentions anywhere");
+    }
+    if (shouldRespondToAgent("mia", { mentioned: false, isDM: false, inDedicatedChannel: true, mentionedOtherTrioBot: true, ...trio })) {
+      throw new Error("trio mia must yield when a sibling is mentioned");
+    }
+    if (shouldRespondToAgent("michelle", { mentioned: false, isDM: false, inDedicatedChannel: true, mentionedOtherTrioBot: true, ...trio })) {
+      throw new Error("trio michelle must yield to a mentioned sibling even in her dedicated channel");
+    }
+    if (!shouldRespondToAgent("agnes", { mentioned: true, isDM: false, inDedicatedChannel: true, mentionedOtherTrioBot: false, ...trio })) {
+      throw new Error("trio agnes must reply when mentioned");
+    }
+    if (shouldRespondToAgent("agnes", { mentioned: false, isDM: false, inDedicatedChannel: false, mentionedOtherTrioBot: false, ...trio })) {
+      throw new Error("trio concierge: unaddressed chatter outside owned rooms goes to Mia alone");
+    }
+    // Role mentions (`<@&id>`, how the owner addresses bots): a role named
+    // like the agent counts as a mention; sibling role names count as
+    // mentioned-other. Live bug: "@Agnes halo" arrived as a ROLE mention, so
+    // member-only checks missed it and all three fell through to the shared
+    // dedicated channel.
+    const noMentions = { has: (_id: string) => false };
+    const agnesRole = [{ name: "Agnes" }];
+    const sibsOfMichelle = ["Mia", "Agnes"];
+    const f1 = trioMentionFlags({ ...noMentions, roles: agnesRole }, "michelle-id", "Michelle", sibsOfMichelle);
+    if (f1.mentioned || !f1.mentionedOther) {
+      throw new Error("role mention of a sibling must set mentionedOther only");
+    }
+    // The exact reported shape: role-mentioned Agnes + shared dedicated
+    // channel must silence Michelle in trio mode.
+    if (shouldRespondToAgent("michelle", { mentioned: f1.mentioned, isDM: false, inDedicatedChannel: true, mentionedOtherTrioBot: f1.mentionedOther, ...trio })) {
+      throw new Error("role-mentioned sibling must suppress michelle even in her dedicated channel");
+    }
+    const f2 = trioMentionFlags({ ...noMentions, roles: [{ name: "AGNES" }] }, "agnes-id", "Agnes", ["Mia", "Michelle"]);
+    if (!f2.mentioned || f2.mentionedOther) {
+      throw new Error("own role mention (case-insensitive) must count as mentioned");
+    }
+    const f3 = trioMentionFlags({ has: (id: string) => id === "B", roles: [] }, "B", "Agnes", ["Mia", "Michelle"]);
+    if (!f3.mentioned || f3.mentionedOther) {
+      throw new Error("member mention must keep working");
+    }
+    // discord.js Collections iterate [key, role] entries — must resolve.
+    const f4 = trioMentionFlags(
+      { has: (_id: string) => false, roles: new Map([["x", { name: "Agnes" }]]) as unknown as Array<{ name?: string }> },
+      "michelle-id",
+      "Michelle",
+      sibsOfMichelle
+    );
+    if (f4.mentioned || !f4.mentionedOther) {
+      throw new Error("Map-shaped roles (discord.js Collection) must resolve");
+    }
+    const f5 = trioMentionFlags({ has: (_id: string) => false }, "michelle-id", "Michelle", sibsOfMichelle);
+    if (f5.mentioned || f5.mentionedOther) {
+      throw new Error("absent roles must stay silent");
+    }
+    const f6 = trioMentionFlags({ has: (_id: string) => false, roles: [{ name: "Agnes-fan" }] }, "michelle-id", "Michelle", sibsOfMichelle);
+    if (f6.mentioned || f6.mentionedOther) {
+      throw new Error("role name matching must be exact, not substring");
+    }
+    // Key isolation: Mia keeps the legacy key; agents get suffixed dirs.
+    if (userKeyForAgent("naufal", "mia") !== "naufal") throw new Error("mia key must be unchanged");
+    if (userKeyForAgent("naufal", "agnes") !== "naufal.agnes") throw new Error("agnes key suffix");
+    if (userKeyForAgent("naufal", "michelle") !== "naufal.michelle") throw new Error("michelle key suffix");
+    // Config surface: always 3 agent configs; Mia keeps the legacy push label.
+    const cfgs = agentConfigsFromEnv();
+    if (cfgs.length !== 3 || cfgs[0].label !== "mia" || cfgs[1].label !== "agnes" || cfgs[2].label !== "michelle") {
+      throw new Error("3 agent configs expected (mia/agnes/michelle)");
+    }
+    if (cfgs[0].pushLabels.join(",") !== "discord,discord-mia") throw new Error("mia keeps legacy discord label");
+    if (cfgs[0].reminderScope.includes(".")) throw new Error("mia reminder scope must be the bare owner key");
+    if (!cfgs[1].reminderScope.endsWith(".agnes") || !cfgs[2].reminderScope.endsWith(".michelle")) {
+      throw new Error("agent reminder scopes must be suffixed");
+    }
+    for (const c of enabledAgentConfigs()) {
+      if (!c.token) throw new Error("enabled agent must have a token");
+    }
+    // Role seeding on a temp user: marker present exactly once (idempotent).
+    const trioBase = `verify_trio_${Date.now()}`;
+    const trioUser = `${trioBase}.agnes`;
+    try {
+      ensureAgentPersona("agnes", trioUser);
+      ensureAgentPersona("agnes", trioUser);
+      const soul = readFileSync(join(userDataRoot(), trioUser, "persona", "SOUL.md"), "utf8");
+      if (!soul.includes("agent-role:agnes")) throw new Error("agnes role marker missing");
+      if (!soul.includes("Agnes")) throw new Error("agnes identity missing");
+      if (soul.split("agent-role:agnes").length - 1 !== 1) throw new Error("role seeding must be idempotent");
+      // Mia seeding is a no-op and must not create persona files.
+      ensureAgentPersona("mia", trioBase);
+      if (existsSync(join(userDataRoot(), trioBase, "persona", "SOUL.md"))) {
+        throw new Error("mia must not gain persona files from seeding");
+      }
+    } finally {
+      rmSync(join(userDataRoot(), trioUser), { recursive: true, force: true });
+    }
+    console.log("discord trio fase 4 (factory routing + trio mention-priority + key isolation + role seeding, no cross-talk by construction): OK");
+  }
+
+  // ── Persona overlay + agent-template versioning (2026-10-05) ────────────────
+  // The trio's role must reach the PROMPT, not just the bus attribution: every
+  // base prompt hard-codes Mia's identity, so an un-overlaid Agnes turn used to
+  // literally begin "You are Mia". Also locks that a template edit actually
+  // REACHES already-seeded bots without ever clobbering an owner edit.
+  {
+    const { applyAgentRole, AGENT_PERSONA_VERSION, agentPersonaNeedsReseed } = await import(
+      "./src/lib/agentRole"
+    );
+    const { buildSystemPrompt, buildSlimSystemPrompt, buildOpenCodeSystemPrompt } = await import(
+      "./src/lib/agent"
+    );
+    const overlayUser = "verify_role_overlay";
+    const r9url = "http://127.0.0.1:20128/v1/chat/completions";
+    const prompts: Array<[string, string]> = [
+      ["full", buildSystemPrompt(overlayUser, "discord")],
+      ["slim", buildSlimSystemPrompt(overlayUser, "discord", r9url)],
+      ["opencode", buildOpenCodeSystemPrompt(overlayUser, "discord")],
+    ];
+    rmSync(join(userDataRoot(), overlayUser), { recursive: true, force: true });
+    for (const [name, p] of prompts) {
+      // Mia and every non-trio path must stay byte-identical.
+      if (applyAgentRole(p) !== p) throw new Error(`${name}: no label must not alter the prompt`);
+      if (applyAgentRole(p, "mia") !== p) throw new Error(`${name}: mia label must not alter the prompt`);
+      for (const agent of ["michelle", "agnes"] as const) {
+        const out = applyAgentRole(p, agent);
+        const who = agent === "michelle" ? "Michelle" : "Agnes";
+        if (!out.startsWith(`You are ${who}`)) throw new Error(`${name}/${agent}: role block must lead the prompt`);
+        if (out.includes("You are Mia")) throw new Error(`${name}/${agent}: Mia identity survived the overlay`);
+        if (out.includes("Your signature emoji is 🌸")) throw new Error(`${name}/${agent}: Mia emoji survived the overlay`);
+        if (!out.includes("Tools you should reach for:")) throw new Error(`${name}/${agent}: tool routing missing`);
+        if (!out.includes("Handoff:")) throw new Error(`${name}/${agent}: handoff rule missing`);
+        const sibling = agent === "michelle" ? "Agnes" : "Michelle";
+        if (!out.includes(sibling)) throw new Error(`${name}/${agent}: sibling ${sibling} not named`);
+      }
+    }
+
+    // Shipped templates: versioned and substantive enough to survive injection.
+    const tplDir = join(appRoot(), "persona", "agents");
+    for (const label of ["agnes", "michelle"] as const) {
+      for (const file of ["IDENTITY.md", "SOUL.md"] as const) {
+        const path = join(tplDir, `${label}.${file}`);
+        if (!existsSync(path)) throw new Error(`missing agent template ${label}.${file}`);
+        const body = readFileSync(path, "utf8");
+        if (!body.includes(`agent-role:${label}`)) throw new Error(`${label}.${file}: role marker missing`);
+        if (!body.includes(`persona-v${AGENT_PERSONA_VERSION}`)) {
+          throw new Error(`${label}.${file}: template not stamped persona-v${AGENT_PERSONA_VERSION} — seeded bots would never refresh`);
+        }
+        if (agentPersonaNeedsReseed(body)) throw new Error(`${label}.${file}: current template still reads as outdated`);
+        // VOICE FIREWALL (drill 2026-10-05): the glyph must never appear in an
+        // agent persona. The overlay strips it from the prompt, but one glyph
+        // surviving in the injected `## Style` block is enough for the model to
+        // copy it — which is exactly how Agnes answered a google_news turn with
+        // "2 hasil 🌸". Describe the contrast; never render the character.
+        if (body.includes("\u{1F338}")) {
+          throw new Error(`${label}.${file}: contains the Mia signature glyph — the model copies it verbatim from the injected persona`);
+        }
+        if (file === "SOUL.md") {
+          // SOUL's `## Style` block is the ONLY fully-injected persona region.
+          const style = body.slice(body.indexOf("## Style"));
+          if (style.length < 400) throw new Error(`${label}.SOUL.md: ## Style too thin to carry real guidance`);
+        } else {
+          // IDENTITY collapses to its first non-# line, sliced to 120 chars.
+          const anchor = body.split("\n").find((l) => l.trim() && !l.trim().startsWith("#"))?.trim() ?? "";
+          if (anchor.length < 40 || anchor.length > 120) {
+            throw new Error(`${label}.IDENTITY.md: anchor must be 40-120 chars (got ${anchor.length})`);
+          }
+          const name = label[0].toUpperCase() + label.slice(1);
+          if (!anchor.includes(name)) throw new Error(`${label}.IDENTITY.md: anchor must name the agent`);
+        }
+      }
+    }
+
+    // Migration contract: an outdated seeded file gets refreshed; a file the
+    // owner has edited (still at the current version) is never overwritten.
+    const { ensureAgentPersona } = await import("./src/channels/discord");
+    const migUser = `verify_rolemig_${Date.now()}.agnes`;
+    const soulPath = join(userDataRoot(), migUser, "persona", "SOUL.md");
+    try {
+      ensureAgentPersona("agnes", migUser);
+      const fresh = readFileSync(soulPath, "utf8");
+      if (!fresh.includes(`persona-v${AGENT_PERSONA_VERSION}`)) throw new Error("seed must write the current version");
+      // Simulate a bot seeded before versioning existed.
+      writeFileSync(soulPath, fresh.replace(`persona-v${AGENT_PERSONA_VERSION}`, "persona-v1"));
+      ensureAgentPersona("agnes", migUser);
+      if (!readFileSync(soulPath, "utf8").includes(`persona-v${AGENT_PERSONA_VERSION}`)) {
+        throw new Error("outdated seeded file must be refreshed to the current template");
+      }
+      // Owner edit on top of the current version must survive re-seeding.
+      writeFileSync(soulPath, `${readFileSync(soulPath, "utf8")}\n- tone: OWNER-EDIT-SENTINEL\n`);
+      ensureAgentPersona("agnes", migUser);
+      if (!readFileSync(soulPath, "utf8").includes("OWNER-EDIT-SENTINEL")) {
+        throw new Error("owner-customised persona must never be overwritten");
+      }
+    } finally {
+      rmSync(join(userDataRoot(), migUser), { recursive: true, force: true });
+    }
+    // MIA'S OWN KNOWLEDGE OF HER TEAM (live bug 2026-10-05): Mia answered
+    // "kamu tau agnes?" / "kamu tau Michelle?" with "enggak tahu sama sekali"
+    // — honestly, because nothing in her injected persona ever mentioned her
+    // own teammates. USER.md `## Facts` is one of the two regions that is
+    // always injected (IDENTITY/DREAMS collapse to a single 120-char line), so
+    // that is where the trio facts must live. This locks them so a future
+    // persona edit cannot silently drop the team's existence again.
+    {
+      const { loadPersonaPrompt } = await import("./src/lib/persona");
+      const shipped = readFileSync(join(tplDir, "..", "USER.md"), "utf8");
+      for (const [needle, why] of [
+        ["trio_role", "Mia does not know she leads a team"],
+        ["teammate_agnes", "Mia does not know who Agnes is"],
+        ["teammate_michelle", "Mia does not know who Michelle is"],
+      ] as const) {
+        if (!shipped.includes(`- ${needle}:`)) {
+          throw new Error(`persona/USER.md is missing \`- ${needle}:\` — ${why} (USER.md ## Facts is the only durable injected region)`);
+        }
+      }
+      // Guard added 2026-10-05 after a real mistake: seeding an agent persona
+      // with a key that has NO agent suffix used to write Michelle's persona over
+      // the owner's own IDENTITY.md/SOUL.md (Mia briefly thought she was the
+      // Coder). It must now refuse instead of clobbering.
+      {
+        const baseKey = "verify_role_clobber";
+        (await import("./src/lib/persona")).ensureUserPersona(baseKey);
+        const baseIdentity = join(userDataRoot(), baseKey, "persona", "IDENTITY.md");
+        writeFileSync(baseIdentity, "# IDENTITY.md\n\nMia-shaped sentinel persona.\n");
+        (await import("./src/channels/discord")).ensureAgentPersona("michelle", baseKey);
+        const after = readFileSync(baseIdentity, "utf8");
+        if (!after.includes("Mia-shaped sentinel persona")) {
+          throw new Error("ensureAgentPersona clobbered the owner's persona when given a non-suffixed key — the guard is missing");
+        }
+        rmSync(join(userDataRoot(), baseKey), { recursive: true, force: true });
+      }
+      // The USER.md facts alone are NOT sufficient — measured 2026-10-05: they
+      // were present (and asserted above) at ~68% depth of an 18.5k-char prompt,
+      // and the model still answered "Siapa lagi tuh Michelle?" to a one-line
+      // question, then re-primed that denial from daily memory. The team must
+      // therefore also be IDENTITY at the very front of every prompt variant.
+      for (const [variant, prompt] of [
+        ["full", (await import("./src/lib/agent")).buildSystemPrompt("verify_team_line", "discord")],
+        ["slim", (await import("./src/lib/agent")).buildSlimSystemPrompt("verify_team_line", "discord", "http://127.0.0.1:20128/v1/chat/completions")],
+        ["opencode", (await import("./src/lib/agent")).buildOpenCodeSystemPrompt("verify_team_line", "discord")],
+      ] as const) {
+        if (!prompt.startsWith("YOUR TEAM")) {
+          throw new Error(`${variant} prompt does not START with the trio team line — team knowledge must be identity at the front, not data in the tail`);
+        }
+        for (const who of ["Agnes is the Researcher", "Michelle is the Coder"]) {
+          if (!prompt.includes(who)) {
+            throw new Error(`${variant} prompt team line is missing "${who}" — Mia will answer "kamu tau X?" with a denial`);
+          }
+        }
+      }
+      // Same facts must be present for the LIVE owner persona, otherwise the
+      // shipped template only helps the next fresh seed.
+      const ownerPrompt = loadPersonaPrompt("naufalazhar652952");
+      for (const name of ["agnes", "michelle"]) {
+        if (!new RegExp(`\\b${name}\\b`, "i").test(ownerPrompt)) {
+          throw new Error(`Mia's injected prompt no longer mentions ${name} — she will answer "kamu tau ${name}?" with "enggak tahu"`);
+        }
+      }
+    }
+
+    console.log("trio persona overlay (role leads prompt, Mia identity stripped in all 3 variants, tool routing + handoff) + template versioning (refresh stale, keep owner edits) + Mia knows her own team: OK");
   }
 
   // ── Final sweep: every FIXED-name scratch user this file creates ──────────

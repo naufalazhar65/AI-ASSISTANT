@@ -23,6 +23,7 @@ export default defineConfig({
       "packages/*/src/**/*.test.ts",
       "apps/web/src/**/*.test.ts",
       "apps/web/src/**/*.test.tsx",
+      "apps/pixel-office/src/**/*.test.ts",
     ],
     environment: "node",
   },

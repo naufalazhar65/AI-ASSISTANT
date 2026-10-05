@@ -271,3 +271,22 @@ _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
 - [x] **Guard dari kosakata ke fakta, generasi ke-6 (2026-09-27 → 28)**: `refusalContradictionNote` (penolakan yang bertentangan dengan aksi tool sendiri) · `unrecordedFindingClaimNote` (klaim rekam objek tanpa `finding_add` sukses) · `pentestDirectionQuestionNote` (sweep ditutup pertanyaan arah yang bisa dieksekusi turn itu juga) · `pocCoverageClaimNote` · `endpointTriageVerdict` · `honestyStability.ts` corpus 25 fixture (hanya menilai tuduhan salah & fabrikasi lolos, fact-dependent catch tidak bisa terbaca sebagai coverage)
 - [x] **Harness ikut ter-typecheck (2026-09-28)**: include `"**/*.mts"` di `apps/web/tsconfig.json` — 31 `drill-*.mts` + 17 `probe-*.mts` sebelumnya **tidak pernah** di-typecheck. 22 error di 9 file, nol di `src/**`; 3 di antaranya defect nyata (`cdpEval()` hanya 2 argumen vs 3 call-site, `t2 used before assigned`, `gatewayToolCall()` sebagai satu pemilik bentuk `ChatMessage["tool_calls"]`)
 - Pedoman & scope: `SECURITY.md`. **Total tools 337** · **CORE 128** · **86 playbook** · vitest 1555.
+
+---
+
+## Fase 7 — Pixel Office Trio (Mia / Agnes / Michelle)
+
+Sumber: `PRD_Pixel_Office.md` (Draft v0.2). Prinsip: visualisasi aktivitas agent nyata, bukan animasi pura-pura.
+
+```text
+[x] PRD + desain arsitektur (tujuan/non-tujuan, trio, engine minimal, Event Bus, Discord trio, MVP 4 fase + gates)
+[x] Desain Event Bus (envelope tunggal + 11 tipe event + SSE/resync + redaksi argumen)
+[x] Desain trio + persona namespaces (Mia owner/semua channel; Agnes Researcher; Michelle Coder; persona_set Mia-only)
+[x] Desain engine minimal (1 ruangan, tile JSON sendiri, collision, pc-1..pc-3, A* grid, idle→walk→work→done)
+[x] Desain Discord trio (1 guild + 3 token, createDiscordBot factory, mention/channel routing + per-agent dedupe, push label per-agent, konfirmasi per-agent)
+[x] Implementasi Event Bus formal (Fase 1: envelope + stream + task_started/tool_called/task_done — live: `GET /api/bus/stream`, `lib/bus.ts`, ALS turn-context, no-fake-work; gates typecheck/vitest 1687/verify green)
+[x] Implementasi file + confirmation events (Fase 2: file_read/file_written sukses-only via fileEventFor, task_failed per-kegagalan-tool, task_cancelled pada decline eksplisit — "Not selected" bukan pembatalan; waiting_input tetap ter-wire fase 1 — live: frame SSE + envelope; gates typecheck/vitest 1689/verify green)
+[x] Implementasi Pixel Office MVP (Fase 3: `apps/pixel-office/` TS+Canvas tanpa framework — map JSON 20x12, A* deterministik, FSM idle→walk→work→done + send-home, viewer SSE `/api/bus/stream` — live: halaman 200 + frame SSE turn nyata + headless E2E; gates typecheck/vitest 1705/verify green)
+[ ] Implementasi Discord trio (Fase 4: 3 bot reply sesuai identitas, tanpa cross-talk, konfirmasi terisolasi, dedupe)
+[ ] Keputusan terbuka (7 item di PRD §25): stream route, payload tool_called, DM policy, PC fixed/pool, viewer, movement, return-to-default + delegation rules
+```

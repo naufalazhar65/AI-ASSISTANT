@@ -1,0 +1,11 @@
+{
+  "name": "@mia/pixel-office",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimal pixel-office viewer (TypeScript + Canvas, no framework). Talks to the Mia backend only via SSE/REST. See README.md.",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "mkdir -p ../web/public/pixel-office && tsc -p tsconfig.build.json && cp index.html src/map.json ../web/public/pixel-office/"
+  }
+}
