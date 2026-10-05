@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSy
 import { execFile } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 import { detectMoodIntent } from "./moodIntent";
+import { roleGateRefusal } from "./roleGate";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
 import { asBodyString, asNumber, asStringArray, redactArgsForDisplay } from "./args";
 import { addReminder, readFiredReceipts, readReminders, type Reminder } from "./reminders";
@@ -5836,7 +5837,19 @@ export function registerTool(plugin: ToolPlugin): void {
  * the JSON arguments and routes to the plugin's `execute` (which owns its own
  * per-tool error handling).
  */
-export async function executeTool(call: ToolCall, rawUser?: unknown, extra?: { lastUserText?: string }): Promise<string> {
+export async function executeTool(
+  call: ToolCall,
+  rawUser?: unknown,
+  extra?: { lastUserText?: string; agent?: string },
+): Promise<string> {
+  // Role gate (see roleGate.ts): the trio shares ONE tool window, so nothing
+  // else stops Agnes from running a coder tool. Checked FIRST, before any
+  // argument parsing or dispatch, so a refused call has no side effect at all.
+  // Fails open when no agent label is supplied — every verify.ts / drill-*.mts /
+  // probe-*.mts call and the Live route call this without a label.
+  const roleRefusal = roleGateRefusal(extra?.agent, call.name);
+  if (roleRefusal) return roleRefusal;
+
   let args: Record<string, unknown>;
   try {
     args = JSON.parse(call.arguments || "{}");

@@ -1464,7 +1464,10 @@ async function runAgent(
   round: number,
   model?: string,
   user?: unknown,
-  autoDenyRisky = false
+  autoDenyRisky = false,
+  // Trio member running this turn, forwarded to executeTool's role gate.
+  // Absent on every non-trio path, where the gate fails open.
+  agent?: string
 ): Promise<{ needsConfirmation: ToolCall[] | null }> {
   // Tools are offered on every round EXCEPT the last (round == MAX_TOOL_ROUNDS
   // forces a text answer). This is the off-by-one-correct form of FR-013's
@@ -1505,7 +1508,11 @@ async function runAgent(
   console.error(`[agent] round ${round} tool calls: ${toolCalls.map((c) => c.name).join(", ")}`);
 
   const lastUser = lastUserContent(messages);
-  const toolCtx = { lastUserText: lastUser ? messageText(lastUser) : undefined };
+  // `agent` rides along so executeTool can enforce the role gate: the trio
+  // shares one tool window, so without it nothing stops Agnes running a coder
+  // tool. Undefined on every non-trio path (web/Live/Telegram/automation), where
+  // roleGateRefusal fails open and behaves exactly as before.
+  const toolCtx = { lastUserText: lastUser ? messageText(lastUser) : undefined, agent };
   const toolCalls2 = normalizeCalendarCalls(lastUser, toolCalls);
   if (toolCalls2.length === 0 && toolCalls.length > 0) {
     // The model emitted a calendar call only because the user confirmed
@@ -1639,7 +1646,7 @@ async function runAgent(
       if ((call.name === "web_search" || call.name === "places_search") && !/^error:/i.test(content.trim())) collector.webSearchSuccess = true;
     }
     if (round < maxRounds) {
-      return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
+      return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky, agent);
     }
     collector.collect("");
     return { needsConfirmation: null };
@@ -1698,7 +1705,7 @@ const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan",
         return { needsConfirmation: null };
       }
       messages.push({ role: "tool", tool_call_id: vcall.id, content });
-      return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
+      return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky, agent);
     }
   }
   for (const call of toolCalls2) {
@@ -1724,7 +1731,7 @@ const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan",
   }
 
   if (round < maxRounds) {
-    return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky);
+    return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky, agent);
   }
 
   // Round budget exhausted: the accumulated tool results are already in
@@ -6517,7 +6524,8 @@ async function runAssistantTurnImpl(opts: {
     try {
       const inbox = await executeTool(
         { id: "prefetch-gmail", name: "gmail_list", arguments: "{}" },
-        opts.user
+        opts.user,
+        { agent: opts.agent }
       );
       if (inbox && inbox.trim()) {
         systemPrompt +=
@@ -6710,7 +6718,7 @@ async function runAssistantTurnImpl(opts: {
         } else if (opts.autoDenyRisky && (requiresConfirmation(defNow) || isHeadlessSideEffect(call.name)) && !autoOk) {
           toolResult = "Auto-declined (headless turn). Do NOT execute it; briefly tell the user this needs an attended approval.";
         } else {
-          toolResult = isDedup ? cached!.content : await executeTool(call, opts.user, { lastUserText: lastUserTextFrom(messages) });
+          toolResult = isDedup ? cached!.content : await executeTool(call, opts.user, { lastUserText: lastUserTextFrom(messages), agent: opts.agent });
           if (!isDedup) recordExecuted(collector, call, opts.user);
           confirmExecuted.set(cacheKey, { at: Date.now(), content: toolResult });
         }
@@ -6835,7 +6843,8 @@ async function runAssistantTurnImpl(opts: {
               1,
               freerideChain[fi],
               opts.user,
-              Boolean(opts.autoDenyRisky)
+              Boolean(opts.autoDenyRisky),
+              opts.agent
             );
             innerOk = true;
             innerErr = null;
@@ -7100,7 +7109,7 @@ async function runAssistantTurnImpl(opts: {
           c.arguments = "{}"; // 9router hallucinated raw junk (e.g. a bare id) — drop it
         }
         try {
-          const r = await executeTool(c, opts.user, { lastUserText: lastUserTextFrom(messages) });
+          const r = await executeTool(c, opts.user, { lastUserText: lastUserTextFrom(messages), agent: opts.agent });
           recordExecuted(collector, c, opts.user);
           text = appendTurnResult(text, r);
         } catch {
