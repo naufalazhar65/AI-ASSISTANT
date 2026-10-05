@@ -21,6 +21,57 @@ function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/**
+ * Is a PUBLIC third-party service usable right now?
+ *
+ * Some proofs in this file depend on keyless public APIs (Overpass). Those
+ * endpoints return 504/5xx under load, which is an outage on THEIR side and not
+ * a defect here. Without this probe a single flaky upstream turns the whole
+ * verify gate red, and a red gate has to mean "this repo is broken".
+ *
+ * Deliberately fail-open in the right direction: we only SKIP when we can prove
+ * the service is unusable, so a genuine regression in our own code can never be
+ * masked by this gate. Requires a real 2xx — a cheap liveness endpoint is NOT
+ * enough, because Overpass answers its /api/status with 406 while real queries
+ * are timing out with 504.
+ */
+async function publicServiceUp(url: string, init?: { body?: string; timeoutMs?: number }): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      method: init?.body ? "POST" : "GET",
+      redirect: "follow",
+      signal: AbortSignal.timeout(init?.timeoutMs ?? 15000),
+      headers: {
+        "User-Agent": "mia-assistant/1.0 (verify probe)",
+        ...(init?.body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+      },
+      ...(init?.body ? { body: init.body } : {}),
+    });
+    if (res.status < 200 || res.status >= 300) return false;
+    // A 200 carrying an HTML error page (Overpass does this on gateway timeout)
+    // is still an outage, so require that the body actually parses as JSON.
+    const text = await res.text();
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Run one tiny real Overpass query. This is the availability probe, because it
+ * exercises the same endpoint and shape places_search uses — a status endpoint
+ * proves nothing about whether queries are being served.
+ */
+const OVERPASS_PROBE_QUERY =
+  '[out:json][timeout:15];node["amenity"="cafe"](around:300,-6.378806,106.712563);out ids 1;';
+
+async function overpassServingQueries(): Promise<boolean> {
+  return publicServiceUp("https://overpass-api.de/api/interpreter", {
+    body: `data=${encodeURIComponent(OVERPASS_PROBE_QUERY)}`,
+  });
+}
+
 async function main() {
   // --- normal turn ---
   const provider = new MockProvider();
@@ -1874,23 +1925,34 @@ async function main() {
     if (!liveToolDeclarations().some((d) => d.name === "places_search")) throw new Error("places_search missing from Live declarations");
     const full = buildSystemPrompt("verify_places");
     if (!full.includes("places_search")) throw new Error("system prompt must route venue asks to places_search");
-    // Live dispatch against real Overpass: Cipete must return named venues.
-    const live = await executeTool({ id: "tpl", name: "places_search", arguments: JSON.stringify({ query: "cafe", area: "Cipete, Jakarta Selatan" }) }, "verify_places");
-    if (/No places found|^Error:/.test(live)) throw new Error(`places_search live should list Cipete cafes: ${live.slice(0, 120)}`);
-    if (!/^\d+\. .+ — /m.test(live)) throw new Error(`places_search live shape wrong: ${live.slice(0, 120)}`);
-    // Shop category (2026-10-02): pure routing + live dispatch shape (string-only, flake-free).
+    // Pure routing (2026-10-02): always runs, no network involved.
     const { categoryFor: cfShop } = await import("./src/lib/places");
     if (cfShop("Indomaret Fresh di Pamulang") !== "shop") throw new Error("Indomaret ask must route shop");
     if (cfShop("alfamart terdekat") !== "shop") throw new Error("alfamart ask must route shop");
     if (cfShop("apotek 24 jam") !== "shop") throw new Error("apotek ask must route shop");
     if (cfShop("kafe di Cipete") !== "cafe") throw new Error("cafe routing must stay cafe");
-    const shopLive = await executeTool({ id: "tps", name: "places_search", arguments: JSON.stringify({ query: "Indomaret", area: "Pamulang" }) }, "verify_places");
-    if (typeof shopLive !== "string") throw new Error("places_search shop dispatch must return a string");
-    if (!/No places found\.|^\d+\. .+ — /m.test(shopLive)) throw new Error(`places_search shop shape wrong: ${shopLive.slice(0, 120)}`);
-    const zonk = await executeTool({ id: "tpz", name: "places_search", arguments: JSON.stringify({ query: "cafe", area: "Xyzzy Nowhere Qqq" }) }, "verify_places");
-    if (zonk !== "No places found.") throw new Error(`un-geocodable area must be honest: ${zonk.slice(0, 80)}`);
     const empty = await executeTool({ id: "tpe", name: "places_search", arguments: JSON.stringify({ query: "", area: "" }) }, "verify_places");
     if (!/^Error:/.test(empty)) throw new Error("places_search must reject empty args");
+
+    // Live dispatch against the PUBLIC Overpass API: Cipete must return named
+    // venues. Overpass returns 504 under load, so probe with a real tiny query
+    // first — an outage on their side is reported as an honest SKIP, never as a
+    // failure here, and never masks a real regression.
+    const overpassUp = await overpassServingQueries();
+    if (!overpassUp) {
+      console.log("places_search live Overpass assertions: SKIP (public Overpass API unreachable — third-party outage, not a repo defect)");
+    } else {
+      const live = await executeTool({ id: "tpl", name: "places_search", arguments: JSON.stringify({ query: "cafe", area: "Cipete, Jakarta Selatan" }) }, "verify_places");
+      if (/No places found|^Error:/.test(live)) throw new Error(`places_search live should list Cipete cafes: ${live.slice(0, 120)}`);
+      if (!/^\d+\. .+ — /m.test(live)) throw new Error(`places_search live shape wrong: ${live.slice(0, 120)}`);
+      // Shop category (2026-10-02): live dispatch shape (string-only).
+      const shopLive = await executeTool({ id: "tps", name: "places_search", arguments: JSON.stringify({ query: "Indomaret", area: "Pamulang" }) }, "verify_places");
+      if (typeof shopLive !== "string") throw new Error("places_search shop dispatch must return a string");
+      if (!/No places found\.|^\d+\. .+ — /m.test(shopLive)) throw new Error(`places_search shop shape wrong: ${shopLive.slice(0, 120)}`);
+      const zonk = await executeTool({ id: "tpz", name: "places_search", arguments: JSON.stringify({ query: "cafe", area: "Xyzzy Nowhere Qqq" }) }, "verify_places");
+      if (zonk !== "No places found.") throw new Error(`un-geocodable area must be honest: ${zonk.slice(0, 80)}`);
+      console.log("places_search live Overpass assertions: OK");
+    }
     console.log("places_search (Overpass keyless venue search + CORE swap + Live): OK");
   }
   {
