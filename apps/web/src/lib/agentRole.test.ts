@@ -236,7 +236,9 @@ describe("role ownership: who owns security testing", () => {
     expect(p).toMatch(/this is your job/);
     expect(p).toMatch(/pentest_scan/);
     // Her handoff must not push security testing away to a sibling.
-    expect(p).toMatch(/Security testing does NOT belong to Agnes/);
+    // Wording changed 2026-10-05 (the hand-off list is now framed as
+    // "NOT YOUR WORK"), the meaning did not: security testing stays hers.
+    expect(p).toMatch(/security testing does NOT go to Agnes/i);
   });
 
   it("Agnes explicitly excludes security testing from her scope", () => {
@@ -319,5 +321,69 @@ describe("direct mention overrides the role boundary (buka youtube, live 2026-10
         "A promise with no tool call behind it is a broken promise"
       );
     }
+  });
+});
+
+// Live bug 2026-10-05 19:18: asked "apa tugas rutinmu sehari-hari?", Michelle
+// answered with MIA's job (schedules, notes, daily reminders) and offered to
+// handle routine matters. The information was present but the OWNERSHIP signal
+// was weak: her block listed "reminders, mood, scheduling and everyday personal
+// help belong to Mia", so the vocabulary the owner used sat inside her own
+// prompt attached to someone else. These lock the structural fix: each agent
+// states her own work positively, and the hand-off list is explicitly labelled
+// as what she hands OFF.
+describe("daily-routine ownership (live role inversion)", () => {
+  it("Michelle states her own daily work positively", () => {
+    for (const [, build] of ALL_BUILDERS) {
+      const p = applyAgentRole(build(), "michelle");
+      expect(p).toContain("Your daily work is CODE");
+      expect(p).toMatch(/reading and writing files/i);
+      expect(p).toMatch(/what you do every day/i);
+      // The explicit anti-inversion instruction.
+      expect(p).toContain("what you HAND OFF, not what you DO");
+      expect(p).toMatch(/Reminders, schedules and daily-routine chores are Mia's alone/i);
+    }
+  });
+
+  it("Agnes states her own daily work positively", () => {
+    for (const [, build] of ALL_BUILDERS) {
+      const p = applyAgentRole(build(), "agnes");
+      expect(p).toContain("Your daily work is RESEARCH");
+      expect(p).toMatch(/searching for facts/i);
+      expect(p).toMatch(/what you do every day/i);
+      expect(p).toContain("what you HAND OFF, not what you DO");
+    }
+  });
+
+  // The regression shape itself: a teammate's territory must never appear in a
+  // sentence that reads like a duty of the speaker.
+  it("neither agent states reminders/schedules as their own duty", () => {
+    for (const agent of ["michelle", "agnes"] as const) {
+      for (const [, build] of ALL_BUILDERS) {
+        const p = applyAgentRole(build(), agent);
+        expect(p).not.toMatch(/your (job|duty|duties|responsibilit)\w*\s+(is|are)?\s*[^.]*reminder/i);
+        expect(p).not.toMatch(/^[^.]*\b(reminders?|schedules?)\b[^.]*belongs to (you|your)/im);
+      }
+    }
+  });
+
+  it("the hand-off framing names the real owner for every handed-off domain", () => {
+    for (const [, build] of ALL_BUILDERS) {
+      const m = applyAgentRole(build(), "michelle");
+      expect(m).toMatch(/NOT YOUR WORK/i);
+      expect(m).toMatch(/fact-checking[\s\S]{0,80}go to Agnes/i);
+      expect(m).toMatch(/reminders[\s\S]{0,80}go to Mia/i);
+      const a = applyAgentRole(build(), "agnes");
+      expect(a).toMatch(/NOT YOUR WORK/i);
+      expect(a).toMatch(/files[\s\S]{0,80}go to Michelle/i);
+      expect(a).toMatch(/reminders[\s\S]{0,80}go to Mia/i);
+    }
+  });
+
+  it("the fix survives the no-label control being untouched", () => {
+    const base = buildSlimSystemPrompt("verify_role", "discord");
+    expect(applyAgentRole(base, "michelle")).not.toBe(base);
+    expect(applyAgentRole(base, undefined)).toBe(base);
+    expect(applyAgentRole(base, "mia")).toBe(base);
   });
 });

@@ -156,6 +156,50 @@ for (const [name, role] of [["agnes", "riset|research|fakta|verifikasi"], ["mich
   ok(/🌸/.test(ans), "T6 mia: keeps her own signature emoji (voice firewall does not touch Mia)");
 }
 
+// ── T7: "what is your DAILY ROUTINE job" — live bug 2026-10-05 19:18 ──────
+// Owner asked Michelle "apa tugas rutinmu sehari-hari?" and she answered with
+// MIA's job (schedules, notes, daily reminders) and then OFFERED routine help:
+// "Kalau butuh bantuan soal rutinitas… tinggal bilang ke aku ya".
+//
+// Root cause was structural, not missing information: Michelle's own block listed
+// "reminders, mood, scheduling and everyday personal help belong to Mia", so the
+// owner-facing vocabulary for "rutinitas/jadwal" sat inside HER prompt attached
+// to Mia, and the model claimed it. T1 did not catch it because T1 asks who she
+// is; the owner asked what she does every day. Different question, opposite result.
+console.log("\n— T7 daily-routine ownership (live bug 19:18) —");
+const ROUTINE_ASK = "apa tugas rutinmu sehari-hari?";
+const MIA_TERRITORY = /reminder|ingat(kan)? (jadwal|hari)|jadwal harian|catat(an)? (hari|important)|membantu mengatur keseharian|keseharian/i;
+
+const michRoutine = await ask(KEYS.michelle, ROUTINE_ASK, "michelle");
+console.log(`  michelle←routine → ${michRoutine.replace(/\s+/g, " ").slice(0, 240)}`);
+ok(michRoutine.length > 0, "T7 michelle: answers the routine question at all");
+ok(
+  /kode|file|test|debug|program|implement|repo|sandbox/i.test(michRoutine),
+  "T7 michelle: names code/files/tests/debugging as her daily work",
+  michRoutine.slice(0, 120),
+);
+// The actual defect: claiming reminders/schedules/routine chores as her own.
+ok(!MIA_TERRITORY.test(michRoutine), "T7 michelle: does NOT claim Mia's reminders/schedules/routine", michRoutine.match(MIA_TERRITORY)?.[0] ?? "");
+ok(
+  !/tinggal bilang ke aku|bilang ke aku ya|bilang aja ke aku/i.test(michRoutine) || /kode|file|test|debug/i.test(michRoutine),
+  "T7 michelle: does not OFFER to take over Mia's routine work",
+);
+
+const agnesRoutine = await ask(KEYS.agnes, ROUTINE_ASK, "agnes");
+console.log(`  agnes←routine → ${agnesRoutine.replace(/\s+/g, " ").slice(0, 240)}`);
+ok(agnesRoutine.length > 0, "T7 agnes: answers the routine question at all");
+ok(
+  /riset|research|fakta|sumber|verifikasi|bandingkan/i.test(agnesRoutine),
+  "T7 agnes: names research/verification as her daily work",
+  agnesRoutine.slice(0, 120),
+);
+ok(!MIA_TERRITORY.test(agnesRoutine), "T7 agnes: does NOT claim Mia's reminders/schedules/routine");
+
+const miaRoutine = await ask(KEYS.mia, ROUTINE_ASK);
+console.log(`  mia(control)←routine → ${miaRoutine.replace(/\s+/g, " ").slice(0, 240)}`);
+ok(miaRoutine.length > 0, "T7 mia: answers the routine question at all");
+ok(/🌸/.test(miaRoutine), "T7 mia: control path keeps her signature emoji");
+
 // ── T3 + T4: role boundary + tool routing, live ───────────────────────────
 console.log("\n— T3/T4 role boundary and tool routing —");
 const CODING_ASK =

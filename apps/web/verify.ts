@@ -6966,7 +6966,17 @@ async function main() {
         if (out.includes("You are Mia")) throw new Error(`${name}/${agent}: Mia identity survived the overlay`);
         if (out.includes("Your signature emoji is 🌸")) throw new Error(`${name}/${agent}: Mia emoji survived the overlay`);
         if (!out.includes("Tools you should reach for:")) throw new Error(`${name}/${agent}: tool routing missing`);
-        if (!out.includes("Handoff:")) throw new Error(`${name}/${agent}: handoff rule missing`);
+        // The hand-off rule used to be introduced by the literal word "Handoff:".
+        // On 2026-10-05 it was deliberately reframed as "NOT YOUR WORK — hand it
+        // to the named owner", because listing a teammate's territory inside an
+        // agent's own prompt is what let Michelle claim Mia's reminders and
+        // schedules when the owner asked what she does every day. The lock now
+        // asserts the hand-off rule exists AND that the framing states it is not
+        // the agent's own work, which is the property that actually matters.
+        if (!/NOT YOUR WORK|Handoff:/i.test(out))
+          throw new Error(`${name}/${agent}: hand-off rule missing`);
+        if (/NOT YOUR WORK/i.test(out) && !/not what you DO/i.test(out))
+          throw new Error(`${name}/${agent}: hand-off rule must say it is NOT the agent's own work`);
         const sibling = agent === "michelle" ? "Agnes" : "Michelle";
         if (!out.includes(sibling)) throw new Error(`${name}/${agent}: sibling ${sibling} not named`);
       }
