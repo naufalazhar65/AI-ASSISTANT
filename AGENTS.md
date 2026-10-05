@@ -1,5 +1,16 @@
 # AGENTS.md
 
+## HARD RULE — never commit `agent-office`
+
+`/Users/naufalazhar/Documents/PROJECT/agent-office` is a SEPARATE project that
+this repo does not own. **Never** run `git commit`, `git push`, `git add`, or any
+other state-changing git command in that directory, and never propose it to the
+user. Owner instruction, 2026-10-05: "jangan pernah commit project agent-office".
+
+Work there (the trio persona integration, tool contract, sandbox hardening) stays
+uncommitted by design. That repo has no CI, so its green gates are verified
+locally only — do not read "uncommitted" as "unsafe to change".
+
 ## Project status
 
 Project evolved (2026-09-03) from a **voice-first public app** to a **Personal AI Assistant (Mia)** — a multi-platform, Mia-style personal assistant. Voice/web foundation from v1.0 is retained and becomes the core; the new target is connecting to **Telegram & Discord** as channels around the same core. See `PRD_Real-Time_Voice_AI_Assistant.md` (v2.0) + `ROADMAP.md`.
