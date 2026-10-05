@@ -6376,8 +6376,32 @@ async function main() {
       throw new Error("'nggak pernah bisa jalanin hacking' refusal must trigger the scope-check note");
     // The prompt line itself must carry the host-less rule (both full + slim
     // prompts build from ownerLabScopeLine).
-    if (!/WITHOUT naming a host/.test(ownerLabScopeLine()))
-      throw new Error("ownerLabScopeLine must carry the host-less continuation rule");
+    //
+    // ownerLabScopeLine() returns "" when no authorized lab is in scope, which
+    // is correct behaviour: with no lab there is nothing to pre-authorize. It
+    // reads the owner-lab registry and PENTEST_LAB_TARGETS, and BOTH live
+    // outside git (.data/ is ignored, the env var lives in .env.local), so
+    // calling it bare made this assertion pass on the maintainer's machine and
+    // fail in CI. Set the input explicitly, exactly as the vitest twin does,
+    // and restore it afterwards.
+    const LAB_ENV_KEY = "PENTEST_LAB_TARGETS";
+    const labEnvBefore = process.env[LAB_ENV_KEY];
+    let scopeLine = "";
+    try {
+      process.env[LAB_ENV_KEY] = "verify-lab.example";
+      scopeLine = ownerLabScopeLine();
+    } finally {
+      if (labEnvBefore === undefined) delete process.env[LAB_ENV_KEY];
+      else process.env[LAB_ENV_KEY] = labEnvBefore;
+    }
+    if (!/WITHOUT naming a host/.test(scopeLine))
+      throw new Error(`ownerLabScopeLine must carry the host-less continuation rule (got: ${scopeLine.slice(0, 80)})`);
+    if (!/do NOT issue a blanket capability refusal/.test(scopeLine))
+      throw new Error("ownerLabScopeLine must forbid a blanket capability refusal");
+    // The injected host must actually reach the line, proving the env→union→line
+    // plumbing rather than only the static wording.
+    if (!/verify-lab\.example/.test(scopeLine))
+      throw new Error(`ownerLabScopeLine dropped the injected lab host (got: ${scopeLine.slice(0, 80)})`);
     console.log("refusal-without-scope-check (host-less refusal flagged · checked-first/hedging silent · prompt rule present): OK");
   }
   {
