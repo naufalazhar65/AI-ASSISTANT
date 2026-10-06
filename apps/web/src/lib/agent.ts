@@ -39,6 +39,7 @@ import {
   normalizeOwnerSalutation,
   thinGreetingRescue,
   stripUnearnedWorkClaim,
+  stripSelfIntroduction,
   stripClosingMenuQuestion,
   OFFICE_STYLE_CONTRACT,
   stripFormalRegisterFrame,
@@ -7882,6 +7883,7 @@ async function runAssistantTurnImpl(opts: {
       // greeting the rescue below warms it up instead of the model having filled
       // the silence with a task that never existed (live 2026-10-06 15:30).
       text = stripUnearnedWorkClaim(text, { ranTool: (collector.executedCalls?.length ?? 0) > 0 });
+        text = stripSelfIntroduction(text, { agent: opts.agent });
     } catch {
       /* honesty must never break a turn */
     }
@@ -7892,6 +7894,9 @@ async function runAssistantTurnImpl(opts: {
         agent: opts.agent,
         name: getPersonaFact(opts.user, "name"),
         variant: messages.filter((m) => m.role === "assistant").length,
+        // The pool greets by time of day, so it must be handed the clock the
+        // model itself was given (live 19:48 bug: a "sore-sore" line at 19:50).
+        at: Date.now(),
       });
     } catch {
       /* warmth must never break a turn */

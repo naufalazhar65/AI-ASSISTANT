@@ -25,6 +25,8 @@ export function isAgentLabel(v: unknown): v is AgentLabel {
  * so every variant is listed here. Each entry is an exact substring of the
  * joined prompt; stripping is a plain replace.
  */
+import { wibParts } from "./time";
+
 const MIA_IDENTITY_SENTENCES: string[] = [
   // full prompt
   "You are Mia, a woman, female (perempuan, she/her) — unambiguously a woman. This is core identity, never ambiguous. ",
@@ -282,15 +284,42 @@ const CLOSING_MENU_CHOICE =
  * and pet-name-free one so the fix can never re-introduce the leaks the
  * firewalls just removed.
  */
+/**
+ * Time-of-day bands for greeting copy, pinned to WIB via `wibParts`.
+ *
+ * The pool used to hard-code "sore-sore" in its first line, so a greeting at
+ * 09:00 or 19:50 came back with the wrong part of the day baked in (live
+ * 2026-10-06 19:49: "Santai aja Mas Naufal, lagi apa nih sore-sore?" while the
+ * model itself HAD the clock in its prompt). The model is not clock-blind - a
+ * deterministic template that overwrites it after the fact was.
+ */
+export type DayPart = "pagi" | "siang" | "sore" | "malam";
+
+export function dayPartAt(at: Date | number = Date.now()): DayPart {
+  const h = wibParts(at).h;
+  if (h < 11) return "pagi";
+  if (h < 15) return "siang";
+  if (h < 18) return "sore";
+  return "malam";
+}
+
+/** One warm, clock-correct opener per band. `{name}` is filled by the caller. */
+const PART_CLAUSE: Record<DayPart, string> = {
+  pagi: "Pagi {name}, udah sarapan? Aku juga masih fresh, gas aja.",
+  siang: "Siang {name}, udah makan siang? Jangan kelamaan kosong, gas aja.",
+  sore: "Sore {name}, sudah ngopi? Aku juga mulai lengket nih sore.",
+  malam: "Malam {name}, sudah makan? Kalau belum, aku bantu carikan yang deket.",
+};
+
 export const TRIO_GREETING_WARMUP = [
-  "Santai aja {name}, lagi apa nih sore-sore?",
+  "{part}",
   "Oh halo {name}. Lagi sibuk, atau finally santai?",
   "Hai {name}. Kabarnya gimana hari ini?",
 ];
 
 export function thinGreetingRescue(
   text: string,
-  opts: { greetingTurn: boolean; agent?: unknown; name?: string | null; variant?: number },
+  opts: { greetingTurn: boolean; agent?: unknown; name?: string | null; variant?: number; at?: Date | number },
 ): string {
   const out = (text || "").trim();
   if (!out || !opts.greetingTurn) return text;
@@ -304,9 +333,53 @@ export function thinGreetingRescue(
     // clock or a hash of the echo: hashing collided on the few echoes we really
     // see, while the turn number varies naturally and stays deterministic.
     const idx = Math.abs(Math.trunc(opts.variant ?? 0)) % TRIO_GREETING_WARMUP.length;
-    return TRIO_GREETING_WARMUP[idx]!.replaceAll("{name}", name ? `Mas ${name}` : "Mas");
+    const who = name ? `Mas ${name}` : "Mas";
+    return TRIO_GREETING_WARMUP[idx]!
+      .replaceAll("{part}", PART_CLAUSE[dayPartAt(opts.at)]!.replaceAll("{name}", who))
+      .replaceAll("{name}", who);
   }
   return text;
+}
+
+/**
+ * "Halo Mas Naufal. Aku Agnes, ..." \u2014 an agent naming ITSELF in a greeting.
+ *
+ * Each trio member's role block already forbids re-introducing itself, but a
+ * prompt rule alone did not hold (live 2026-10-06 19:49), and on a bare echo
+ * the name is the one thing the greeting does not need. Only ever removes a
+ * LEADING "aku/saya <own name>" clause, trio labels only (Mia keeps hers, she
+ * introduces herself by name to new people), and never empties the reply.
+ */
+export function stripSelfIntroduction(text: string, opts: { agent?: unknown }): string {
+  if (!isAgentLabel(opts.agent) || opts.agent === "mia") return text;
+  const t = (text || "").trim();
+  if (!t) return text;
+  // Leading, or sentence-initial after a full stop - the live shape put it
+  // second ("Halo Mas Naufal. Aku Agnes, ...").
+  const m = /(^|(?<=[.!?]\s))(?:aku|saya)\s+(?:agnes|michelle|mia)\s*[,;:-]?\s*/i.exec(t);
+  if (!m) return text;
+  const after = t.slice(m.index + m[0].length);
+  let out: string;
+  if (/[A-Za-z0-9]/.test(after)) {
+    out = t.slice(0, m.index) + after;
+  } else {
+    // Nothing survives the self-intro: drop the WHOLE sentence it sits in, or
+    // the reply would be left with a dangling "Halo Mas Naufal. Aku Agnes.".
+    // Any terminator, not just "." ("Halo Mas Naufal! Aku Michelle").
+    const before = t.slice(0, m.index);
+    const head = /[.!?][^.!?]*$/.exec(before);
+    const sentenceStart = head ? m.index - head[0].length + 1 : 0;
+    const stop = /[.!?]/.exec(after);
+    const sentenceEnd = stop ? m.index + m[0].length + stop.index + 1 : t.length;
+    out = t.slice(0, sentenceStart) + t.slice(sentenceEnd);
+  }
+  out = out.replace(/[ \t]{2,}/g, " ").trim();
+  // Refuse rather than leave a stub ("Aku Agnes ya." -> "Ya.").
+  if (out.split(/\s+/).filter(Boolean).length < 2) return text;
+  const recap = out.replace(/([.!?])\s*([A-Za-z])/g, (_all, p1, c2) => `${p1} ${c2.toUpperCase()}`);
+  // A LEADING removal has no terminator before it, so the new first letter
+  // would stay lowercase ("Aku Michelle, siap bantu." -> "siap bantu.").
+  return m.index === 0 ? recap.charAt(0).toUpperCase() + recap.slice(1) : recap;
 }
 
 /**
@@ -327,7 +400,7 @@ export function thinGreetingRescue(
  * worse than the sentence it replaced.
  */
 const WORK_CLAIM_RE =
-  /\b(?:lagi|sedang|baru saja|barusan|tepat saja)\s+(?:nyiapin|menyiapkan|siapin|ngerjain|kerjain|ngumpulin|mengumpulkan|buka|membuka|cek|mengecek|lirik|review|nge-review|jalan|ngejalanin|kirim|mengirim|scan|mencari|nyari|riset|ngeliatin)\b/i;
+  /\b(?:lagi|sedang|baru saja|barusan|tepat saja)\s+(?:siap-siap|siap2|siapin|nyiapin|nyiap-nyiap|menyiapkan|ngerjain|kerjain|ngumpulin|mengumpulkan|buka-buka|membuka|cek-cek|cek|mengecek|dicek|lirik-lirik|lirik|review|nge-review|jalan|ngejalanin|kirim-kirim|mengirim|kirim|scan|mencari|nyari-nyari|nyari|riset|ngeliatin|ubah|diubah|set|reset|rapis|rapikan|atur|disusun|susun|diriset|disaring)\b/i;
 const WORK_DONE_CLAIM_RE =
   /\b(?:sudah|udah)\s+(?:aku\s+)?(?:nyiapin|siapin|ngerjain|kerjain|kirim|scan|riset|nyari|buka)\b/i;
 

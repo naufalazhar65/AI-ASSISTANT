@@ -7564,6 +7564,109 @@ async function main() {
     }
     console.log("live telephone voice (output bus in pump(), 300-3400 Hz band + compressor + makeup gain, hook pref wired): OK");
   }
+
+  // LIVE 19:48 DEFECT (owner: "kenapa dia bilang 'Sore'? padahal sekarang jam
+  // 19:50"). Three causes, all measured: (1) the greeting pool hard-coded a
+  // time of day, (2) the work-claim regex missed a reduplicated verb, (3) a
+  // self-introduction was never stripped. What is locked HERE is the wiring a
+  // return value cannot show: the pool is clock-driven, the call site passes the
+  // clock, and both new guards sit on the return path BEFORE the rescue that
+  // would otherwise "fix" the wreckage they leave.
+  {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { dayPartAt, stripSelfIntroduction, stripUnearnedWorkClaim, thinGreetingRescue } = await import(
+      "./src/lib/agentRole"
+    );
+    const role = readFileSync(join(import.meta.dirname, "src", "lib", "agentRole.ts"), "utf8");
+    const agent = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+
+    // (1) the clock decides the wording, in WIB, on both sides of each boundary
+    const at = (iso: string) => dayPartAt(new Date(iso).getTime());
+    if (at("2026-10-06T19:50:00+07:00") !== "malam" || at("2026-10-06T15:30:00+07:00") !== "sore") {
+      throw new Error("19:48 fix: dayPartAt() no longer maps the WIB bands - the greeting can say 'sore' at 19:50 again");
+    }
+    const evening = thinGreetingRescue("Halo Mas Naufal.", {
+      greetingTurn: true,
+      agent: "michelle",
+      name: "Naufal",
+      variant: 0,
+      at: new Date("2026-10-06T19:50:00+07:00").getTime(),
+    });
+    if (/(sore|pagi|siang)/i.test(evening) || !evening.includes("Mas Naufal")) {
+      throw new Error(`19:48 fix: the greeting pool ignored the clock - got ${JSON.stringify(evening)}`);
+    }
+    if (evening.split(/\s+/).length <= 5) {
+      throw new Error("19:48 fix: the time-of-day greeting is thinner than the bare echo it replaced");
+    }
+
+    // (2) the reduplicated verb the live reply actually used
+    const LIVE_AGN = "Halo Mas Naufal. Aku Agnes, lagi siap-siap buat ngecek data atau riset topik apa pun yang mau kita bahas sekarang.";
+    const claimCut = stripUnearnedWorkClaim(LIVE_AGN);
+    if (claimCut.includes("siap-siap")) {
+      throw new Error("19:48 fix: the unearned work claim survived (reduplicated verb missed again)");
+    }
+    if (claimCut.split(/\s+/).filter(Boolean).length < 3) {
+      throw new Error("19:48 fix: the claim cut left a stub");
+    }
+
+    // (3) the self-introduction, in both positions the model uses
+    const noIntro = stripSelfIntroduction(claimCut, { agent: "agnes" });
+    if (noIntro.includes("Aku Agnes")) {
+      throw new Error("19:48 fix: the self-introduction survived (leading or sentence-initial)");
+    }
+    if (stripSelfIntroduction(LIVE_AGN.replace(", lagi siap-siap buat ngecek data atau riset topik apa pun yang mau kita bahas sekarang", " siap buat ngecek data"), { agent: "agnes" }).includes("Aku Agnes")) {
+      throw new Error("19:48 fix: a self-intro with nothing after it must take its whole sentence, not leave a fragment");
+    }
+    // NB: "Halo Mas Naufal! Aku Michelle!" was a WRONG control here - it IS a
+    // self-introduction (the 19:49 live shape), so it must be rewritten. These
+    // two are genuine prose with no self-intro at all.
+    for (const keep of ["Aku cek weather-nya besok ya.", "Halo Mas Naufal! Aku lagi ngecek kode kamu ya."]) {
+      if (stripSelfIntroduction(keep, { agent: "michelle" }) !== keep) {
+        throw new Error(`19:48 fix: ordinary prose was rewritten - ${keep}`);
+      }
+    }
+
+    // The composition: claim -> self-intro -> rescue ends in a clock-correct line.
+    const rescued = thinGreetingRescue(noIntro, {
+      greetingTurn: true,
+      agent: "agnes",
+      name: "Naufal",
+      variant: 0,
+      at: new Date("2026-10-06T19:50:00+07:00").getTime(),
+    });
+    if (!/^Malam Mas Naufal/.test(rescued) || rescued.includes("Aku Agnes") || rescued.includes("siap-siap")) {
+      throw new Error(`19:48 fix: the three guards do not compose into a clean greeting - got ${JSON.stringify(rescued)}`);
+    }
+
+    // Mia is untouched by all three (they are trio-only).
+    const MIA_LIVE = "Hai Mas Naufal! 🌸 Seneng banget kamu mampir nyapa kita bertiga di sini, gimana kabar harimu?";
+    if (stripUnearnedWorkClaim(MIA_LIVE, { ranTool: true }) !== MIA_LIVE) {
+      throw new Error("19:48 fix: the work-claim guard reached into Mia's own reply");
+    }
+    if (stripSelfIntroduction(MIA_LIVE, { agent: "mia" }) !== MIA_LIVE) {
+      throw new Error("19:48 fix: the self-intro guard reached into Mia's own reply");
+    }
+
+    // WIRING: the clock must reach the pool, and both guards must sit on the
+    // return path BEFORE thinGreetingRescue (a rescue that overwrites wreckage
+    // the guards were meant to remove is the bug we just fixed).
+    if (!/at: Date\.now\(\),/.test(agent)) {
+      throw new Error("19:48 fix: the rescue call site never receives the clock - the pool stays time-blind");
+    }
+    const tail = agent.slice(agent.lastIndexOf("stripUnearnedWorkClaim(text,"));
+    if (tail.indexOf("stripSelfIntroduction(text,") < 0) {
+      throw new Error("19:48 fix: stripSelfIntroduction is no longer wired after the work-claim guard");
+    }
+    if (tail.indexOf("stripSelfIntroduction(text,") > tail.indexOf("thinGreetingRescue(text,")) {
+      throw new Error("19:48 fix: the rescue now runs BEFORE the claim/self-intro guards and hides their work");
+    }
+    if (!/export function stripSelfIntroduction/.test(role) || !/PART_CLAUSE/.test(role)) {
+      throw new Error("19:48 fix: the helpers are gone from agentRole");
+    }
+    console.log("19:48 fixes (clock-driven greeting pool + reduplicated work-claim verbs + self-intro strip, composed, trio-only): OK");
+  }
+
 }
 
 main().catch((err) => {

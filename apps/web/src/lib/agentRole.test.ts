@@ -7,6 +7,8 @@ import {
   normalizeOwnerSalutation,
   stripClosingMenuQuestion,
   stripUnearnedWorkClaim,
+  stripSelfIntroduction,
+  dayPartAt,
   agentPersonaNeedsReseed,
   agentPersonaVersion,
   applyAgentRole,
@@ -1146,7 +1148,10 @@ describe("thinGreetingRescue (bare-echo greeting)", () => {
     for (const name of [null, "", "Naufal"]) {
       expect(thinGreetingRescue("Halo!", { greetingTurn: true, agent: "agnes", name })).not.toContain("{name}");
     }
-    expect(TRIO_GREETING_WARMUP.every((l) => l.includes("{name}"))).toBe(true);
+    // A pool line carries the name either directly or through the {part} slot,
+    // which is itself a {name} template (live 19:48: the time-of-day line).
+    expect(TRIO_GREETING_WARMUP.every((l) => l.includes("{name}") || l.includes("{part}"))).toBe(true);
+    expect(TRIO_GREETING_WARMUP.some((l) => l.includes("{part}"))).toBe(true);
   });
 });
 
@@ -1187,5 +1192,178 @@ describe("stripUnearnedWorkClaim — claiming work that never happened", () => {
     for (const t of ["Aku cekweather-nya besok ya.", "Besok pagi kita ngobrol lagi soal itinerary.", ""]) {
       expect(stripUnearnedWorkClaim(t)).toBe(t);
     }
+  });
+});
+
+describe("dayPartAt — a pool line may never hardcode a time of day (live 2026-10-06 19:48)", () => {
+  const at = (iso: string) => dayPartAt(new Date(iso).getTime());
+
+  it("maps the four bands on WIB boundaries", () => {
+    expect(at("2026-10-06T04:00:00+07:00")).toBe("pagi"); // 04:00
+    expect(at("2026-10-06T10:59:00+07:00")).toBe("pagi");
+    expect(at("2026-10-06T11:00:00+07:00")).toBe("siang");
+    expect(at("2026-10-06T14:59:00+07:00")).toBe("siang");
+    expect(at("2026-10-06T15:00:00+07:00")).toBe("sore");
+    expect(at("2026-10-06T17:59:00+07:00")).toBe("sore");
+    expect(at("2026-10-06T18:00:00+07:00")).toBe("malam");
+  });
+
+  it("reads the hour in Asia/Jakarta, not the host timezone", () => {
+    // 23:30 UTC is already the next morning in WIB (+7).
+    expect(at("2026-10-06T23:30:00Z")).toBe("pagi");
+    // 02:00 UTC is 09:00 WIB - still pagi, though the host may see something else.
+    expect(at("2026-10-07T02:00:00Z")).toBe("pagi");
+  });
+
+  it("is total: any input yields one of the four bands", () => {
+    for (const h of [0, 3, 9, 12, 16, 21, 23]) {
+      expect(["pagi", "siang", "sore", "malam"]).toContain(dayPartAt(new Date(2026, 9, 6, h).getTime()));
+    }
+  });
+});
+
+describe("thinGreetingRescue — the pool must agree with the clock (live 19:48 Michelle said 'sore' at 19:50)", () => {
+  const base = { greetingTurn: true, agent: "michelle" as const, name: "Naufal" };
+
+  it("greets by evening wording at 19:50, never 'sore'", () => {
+    const at = new Date("2026-10-06T19:50:00+07:00").getTime();
+    const out = thinGreetingRescue("Halo Mas Naufal.", { ...base, variant: 0, at });
+    expect(out).toBe("Malam Mas Naufal, sudah makan? Kalau belum, aku bantu carikan yang deket.");
+    expect(out).not.toMatch(/sore|pagi|siang/);
+  });
+
+  it("greets by morning wording at 08:05", () => {
+    const at = new Date("2026-10-06T08:05:00+07:00").getTime();
+    expect(thinGreetingRescue("Halo Mas Naufal.", { ...base, variant: 0, at })).toBe("Pagi Mas Naufal, udah sarapan? Aku juga masih fresh, gas aja.");
+  });
+
+  it("the whole pool is time-correct: no line may contain a foreign time word", () => {
+    const at = new Date("2026-10-06T19:50:00+07:00").getTime();
+    for (let variant = 0; variant < TRIO_GREETING_WARMUP.length; variant++) {
+      const out = thinGreetingRescue("Halo Mas Naufal.", { ...base, variant, at });
+      expect(out.length).toBeGreaterThan(0);
+      expect(out).not.toMatch(/\b(sore|pagi|siang)\b/);
+      expect(out).toContain("Mas Naufal");
+    }
+  });
+
+  it("keeps the two time-neutral lines neutral", () => {
+    const at = new Date("2026-10-06T19:50:00+07:00").getTime();
+    expect(thinGreetingRescue("Halo Mas Naufal.", { ...base, variant: 1, at })).toBe("Oh halo Mas Naufal. Lagi sibuk, atau finally santai?");
+    expect(thinGreetingRescue("Halo Mas Naufal.", { ...base, variant: 2, at })).toBe("Hai Mas Naufal. Kabarnya gimana hari ini?");
+  });
+
+  it("still refuses the cases it always refused (Mia, unknown label, non-greeting, rich reply)", () => {
+    const at = new Date("2026-10-06T19:50:00+07:00").getTime();
+    expect(thinGreetingRescue("Halo Mas Naufal.", { ...base, agent: "mia", variant: 0, at })).toBe("Halo Mas Naufal.");
+    expect(thinGreetingRescue("Halo Mas Naufal.", { ...base, agent: "zzz" as never, variant: 0, at })).toBe("Halo Mas Naufal.");
+    expect(thinGreetingRescue("Halo Mas Naufal.", { ...base, greetingTurn: false, variant: 0, at })).toBe("Halo Mas Naufal.");
+    const rich = "Halo Mas Naufal! Seneng banget kamu mampir, gimana kabarnya?";
+    expect(thinGreetingRescue(rich, { ...base, variant: 0, at })).toBe(rich);
+  });
+});
+
+describe("stripUnearnedWorkClaim — the reduplicated verb the live reply used (live 19:49)", () => {
+  it("cuts the claim the verbatim live reply made", () => {
+    expect(
+      stripUnearnedWorkClaim("Halo Mas Naufal, aku lagi siap-siap buat ngecek data atau riset topik apa pun yang mau kita bahas sekarang.")
+    ).toBe("Halo Mas Naufal.");
+  });
+
+  it("cuts other reduplicated and -di- forms the old list missed", () => {
+    // The head must stay substantial (>=3 words); a bare "Aku" is refused on purpose.
+    for (const t of [
+      "Halo Mas Naufal, aku lagi siap2 buat data.",
+      "Halo Mas Naufal, aku lagi nyari-nyari trending.",
+      "Halo Mas Naufal, aku lagi dicek bahan reputación.",
+      "Halo Mas Naufal, aku lagi ubah jadwalnya.",
+    ]) {
+      expect(stripUnearnedWorkClaim(t)).toBe("Halo Mas Naufal.");
+    }
+  });
+
+  it("refuses when cutting would leave a bare subject (documented, not a bug)", () => {
+    for (const t of ["Aku lagi siap2 buat data.", "Aku lagi nyiapin sesuatu."]) {
+      expect(stripUnearnedWorkClaim(t)).toBe(t);
+    }
+  });
+
+  it("keeps the OWNER's business out of scope (sibuk / di ... are not work claims)", () => {
+    for (const t of ["Santai aja Mas Naufal, lagi apa nih?", "Lagi di kantor hari ini?", "Lagi sibuk, atau finally santai?"]) {
+      expect(stripUnearnedWorkClaim(t)).toBe(t);
+    }
+  });
+
+  it("stays silent once a tool really ran (opts.ranTool)", () => {
+    const t = "Halo Mas Naufal, aku lagi siap-siap buat ngecek data.";
+    expect(stripUnearnedWorkClaim(t, { ranTool: true })).toBe(t);
+    expect(stripUnearnedWorkClaim(t, { ranTool: false })).toBe("Halo Mas Naufal.");
+  });
+});
+
+describe("stripSelfIntroduction — Agnes naming herself (live 19:49)", () => {
+  it("removes a sentence-initial self-intro (the live shape: it came after the greeting)", () => {
+    expect(stripSelfIntroduction("Halo Mas Naufal. Aku Agnes, lagi siap-siap buat ngecek data.", { agent: "agnes" })).toBe(
+      "Halo Mas Naufal. Lagi siap-siap buat ngecek data."
+    );
+  });
+
+  it("removes a leading self-intro too", () => {
+    expect(stripSelfIntroduction("Aku Michelle, siap bantu.", { agent: "michelle" })).toBe("Siap bantu.");
+    // "Saya Agnes ya." would be left as the stub "Ya." - refused instead.
+    expect(stripSelfIntroduction("Saya Agnes ya.", { agent: "agnes" })).toBe("Saya Agnes ya.");
+  });
+
+  it("re-capitalises the sentence that follows the removal", () => {
+    expect(stripSelfIntroduction("Halo Mas Naufal. aku Michelle, cek kode dulu ya.", { agent: "michelle" })).toBe(
+      "Halo Mas Naufal. Cek kode dulu ya."
+    );
+  });
+
+  it("is trio-only: Mia, no label and an unknown label are byte-identical", () => {
+    const t = "Halo Mas Naufal. Aku Agnes, siap.";
+    for (const agent of ["mia", undefined, "zzz"]) {
+      expect(stripSelfIntroduction(t, { agent: agent as never })).toBe(t);
+    }
+  });
+
+  it("never leaves a stub: a self-intro that IS the sentence takes the sentence with it", () => {
+    // "Halo Mas Naufal. Aku Agnes." -> the fragment sentence is dropped entirely.
+    expect(stripSelfIntroduction("Halo Mas Naufal. Aku Agnes.", { agent: "agnes" })).toBe("Halo Mas Naufal.");
+    expect(stripSelfIntroduction("Halo Mas Naufal! Aku Michelle", { agent: "michelle" })).toBe("Halo Mas Naufal!");
+  });
+
+  it("refuses when anything would be left shorter than a couple of words", () => {
+    for (const t of ["Aku Agnes.", "Aku Michelle", "Aku Agnes ya."]) {
+      expect(stripSelfIntroduction(t, { agent: "agnes" })).toBe(t);
+    }
+  });
+
+  it("leaves ordinary first-person prose alone", () => {
+    for (const t of ["Aku cek weather-nya besok ya.", "Aku ngerti kok.", "Aku mau tanya satu hal."]) {
+      expect(stripSelfIntroduction(t, { agent: "agnes" })).toBe(t);
+    }
+  });
+});
+
+describe("the three 19:48 fixes compose on the verbatim live reply", () => {
+  const AT = new Date("2026-10-06T19:50:00+07:00").getTime();
+  const LIVE_AGNES = "Halo Mas Naufal. Aku Agnes, lagi siap-siap buat ngecek data atau riset topik apa pun yang mau kita bahas sekarang.";
+
+  it("Agnes: claim cut -> self-intro stripped -> greeting warmed, correct hour", () => {
+    const step1 = stripUnearnedWorkClaim(LIVE_AGNES);
+    expect(step1).not.toContain("siap-siap");
+    const step2 = stripSelfIntroduction(step1, { agent: "agnes" });
+    expect(step2).not.toContain("Aku Agnes");
+    const step3 = thinGreetingRescue(step2, { greetingTurn: true, agent: "agnes", name: "Naufal", variant: 0, at: AT });
+    expect(step3).toBe("Malam Mas Naufal, sudah makan? Kalau belum, aku bantu carikan yang deket.");
+  });
+
+  it("Mia's own reply is untouched by all three trio-only guards", () => {
+    const live = "Hai Mas Naufal! 🌸 Seneng banget kamu mampir nyapa kita bertiga di sini, gimana kabar harimu?";
+    const s1 = stripUnearnedWorkClaim(live, { ranTool: true });
+    const s2 = stripSelfIntroduction(s1, { agent: "mia" });
+    expect(s2).toBe(live);
+    expect(thinGreetingRescue(s2, { greetingTurn: true, agent: "mia", name: "Naufal", variant: 0, at: AT })).toBe(live);
   });
 });
