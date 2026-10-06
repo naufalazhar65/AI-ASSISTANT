@@ -273,3 +273,190 @@ describe("AudioPlayer.enqueuePcm — sync PCM path for Live voice (owner 2026-10
     }
   });
 });
+
+/**
+ * Telephone voice (owner 2026-10-06: "bisa ga output suaranya dibuat seperti
+ * kita sedang menelpon orang, jadi jangan terlalu jernih").
+ *
+ * A phone call is band-limited (~300-3400 Hz) and heavily compressed — that
+ * combination is what the ear reads as "on the phone", so the chain is
+ * high-pass -> low-pass -> compressor -> makeup gain, routed through ONE
+ * persistent per-context bus instead of `ctx.destination`.
+ */
+describe("AudioPlayer — telephone voice bus (owner 2026-10-06)", () => {
+  const DEST = { name: "destination" };
+
+  class Rec {
+    connections: unknown[] = [];
+    params: Record<string, { value: number }> = {};
+    // Optional on purpose: the tests pick stages with an `in` check
+    // (`"type" in n`), so an initialised field would make every node look like
+    // a band stage.
+    type?: string;
+    frequency?: { value: number };
+    Q?: { value: number };
+    gain?: { value: number };
+    threshold?: { value: number };
+    ratio?: { value: number };
+    knee?: { value: number };
+    attack?: { value: number };
+    release?: { value: number };
+    param(v: number): { value: number } {
+      const p = { value: v };
+      this.params.value = p;
+      return p;
+    }
+    connect(dest: unknown): void {
+      this.connections.push(dest);
+    }
+  }
+
+  class RichContext {
+    static now = 0;
+    static created: Rec[] = [];
+    get currentTime(): number {
+      return RichContext.now;
+    }
+    get sampleRate(): number {
+      return 24_000;
+    }
+    get state(): string {
+      return "running";
+    }
+    get destination(): unknown {
+      return DEST;
+    }
+    async resume(): Promise<void> {}
+    createBuffer(_c: number, frames: number): { getChannelData(): Float32Array; duration: number } {
+      return { getChannelData: () => new Float32Array(frames), duration: 0.5 };
+    }
+    createGain(): Rec {
+      const n = new Rec();
+      n.gain = n.param(1);
+      RichContext.created.push(n);
+      return n;
+    }
+    createBufferSource(): { buffer: unknown; start(): void; stop(): void; onended: (() => void) | null; connect(d: unknown): void } {
+      return {
+        buffer: null,
+        start: () => {},
+        stop: () => {},
+        onended: null,
+        connect: (d: unknown) => void d,
+      };
+    }
+    createBiquadFilter(): Rec {
+      const n = new Rec();
+      n.type = "";
+      n.frequency = n.param(0);
+      n.Q = n.param(1);
+      RichContext.created.push(n);
+      return n;
+    }
+    createDynamicsCompressor(): Rec {
+      const n = new Rec();
+      n.threshold = n.param(0);
+      n.knee = n.param(0);
+      n.ratio = n.param(1);
+      n.attack = n.param(0);
+      n.release = n.param(0);
+      RichContext.created.push(n);
+      return n;
+    }
+  }
+
+  beforeEach(() => {
+    RichContext.now = 0;
+    RichContext.created = [];
+    vi.stubGlobal("AudioContext", RichContext as unknown as typeof AudioContext);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("routes chunks through a band-limited, compressed bus when enabled", async () => {
+    const player = new AudioPlayer();
+    player.setTelephoneVoice(true);
+    expect(player.telephoneVoice()).toBe(true);
+    player.enqueuePcm(new Uint8Array(2400), 24_000);
+    await new Promise((r) => setTimeout(r, 5));
+
+    const biquads = RichContext.created.filter((n) => "type" in n) as (Rec & { type: string; frequency: { value: number } })[];
+    const hp = biquads.find((b) => b.type === "highpass");
+    const lp = biquads.find((b) => b.type === "lowpass");
+    expect(hp?.frequency.value).toBe(300);
+    expect(lp?.frequency.value).toBe(3400);
+    const comp = RichContext.created.find((n) => "threshold" in n) as Rec & { threshold: { value: number }; ratio: { value: number } };
+    expect(comp.threshold.value).toBe(-30);
+    expect(comp.ratio.value).toBe(12);
+    // Makeup gain: band-passing throws away energy, so the voice must not
+    // come out quiet.
+    const gains = RichContext.created.filter((n) => "gain" in n) as (Rec & { gain: { value: number } })[];
+    expect(gains.some((g) => g.gain.value > 1.2)).toBe(true);
+    // The chain must terminate at the speakers.
+    const last = RichContext.created[RichContext.created.length - 1]!;
+    expect(last.connections).toContain(DEST);
+  });
+
+  it("connects straight to the destination when disabled (studio-clean)", async () => {
+    const player = new AudioPlayer();
+    expect(player.telephoneVoice()).toBe(false);
+    player.enqueuePcm(new Uint8Array(2400), 24_000);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(RichContext.created.some((n) => "type" in n)).toBe(false);
+    expect(RichContext.created.some((n) => "threshold" in n)).toBe(false);
+  });
+
+  it("bypasses the bus when the context cannot build the chain", async () => {
+    // A bare context (no biquad / compressor factories) must still PLAY, not
+    // throw and not half-filter: fewer than two real stages = no telephone.
+    class BareContext {
+      static now = 0;
+      get currentTime(): number {
+        return 0;
+      }
+      get sampleRate(): number {
+        return 24_000;
+      }
+      get state(): string {
+        return "running";
+      }
+      get destination(): unknown {
+        return DEST;
+      }
+      async resume(): Promise<void> {}
+      createBuffer(_c: number, frames: number): { getChannelData(): Float32Array; duration: number } {
+        return { getChannelData: () => new Float32Array(frames), duration: 0.5 };
+      }
+      createGain(): Rec {
+        const n = new Rec();
+        n.gain = n.param(1);
+        return n;
+      }
+      createBufferSource(): {
+        buffer: unknown;
+        start(): void;
+        stop(): void;
+        onended: (() => void) | null;
+        connect(dest: unknown): void;
+      } {
+        return { buffer: null, start: () => {}, stop: () => {}, onended: null, connect: (d: unknown) => void d };
+      }
+    }
+    vi.stubGlobal("AudioContext", BareContext as unknown as typeof AudioContext);
+    const player = new AudioPlayer();
+    player.setTelephoneVoice(true);
+    expect(() => player.enqueuePcm(new Uint8Array(2400), 24_000)).not.toThrow();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(player.telephoneVoice()).toBe(true);
+  });
+
+  it("reuses one bus across chunks instead of rebuilding per chunk", async () => {
+    const player = new AudioPlayer();
+    player.setTelephoneVoice(true);
+    player.enqueuePcm(new Uint8Array(2400), 24_000);
+    player.enqueuePcm(new Uint8Array(2400), 24_000);
+    await new Promise((r) => setTimeout(r, 5));
+    // Two chunks must not mean two high-pass filters.
+    const hp = RichContext.created.filter((n) => (n as { type?: string }).type === "highpass");
+    expect(hp.length).toBe(1);
+  });
+});

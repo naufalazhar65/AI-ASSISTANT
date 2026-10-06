@@ -150,6 +150,120 @@ export class AudioPlayer {
   /** Resolves the parked loop when a chunk lands, all audio ends, or stop(). */
   private wake: (() => void) | null = null;
 
+  /**
+   * Telephone character (owner 2026-10-06: "jangan terlalu jernih" — make it
+   * sound like a phone call, not a studio mic). OFF in the constructor sense:
+   * the flag is read from a persisted preference so the smooth 2026-10-01
+   * playback is one toggle away, never a rewrite.
+   */
+  private telephone = false;
+  /** Lazily built per-context output bus (see `outputBus`). */
+  private bus: { ctx: AudioContext; input: GainNode } | null = null;
+
+  /**
+   * Turn the narrow-band telephone voice on or off. Safe at any time: the bus
+   * is rebuilt on the next chunk, and chunks already scheduled keep playing
+   * through the graph they were connected to (no click — the fade paths are
+   * untouched).
+   */
+  setTelephoneVoice(on: boolean): void {
+    const next = !!on;
+    if (this.telephone === next) return;
+    this.telephone = next;
+    this.bus = null;
+  }
+
+  /** True when the narrow-band telephone chain is active. */
+  telephoneVoice(): boolean {
+    return this.telephone;
+  }
+
+  /**
+   * The node every chunk's gain connects to: `ctx.destination` normally, or a
+   * persistent telephone bus when enabled.
+   *
+   * A real phone call is band-limited to roughly 300-3400 Hz and heavily
+   * compressed — that combination, not "noise", is what the ear reads as
+   * "on the phone". So: high-pass to drop rumble, low-pass to drop the airy
+   * top end, an aggressive compressor for the closeness, then a small makeup
+   * gain because band-passing throws away energy and the voice would
+   * otherwise sound quiet.
+   *
+   * Built defensively: a context that refuses any factory (or a stubbed test
+   * double) skips that stage, and a chain with fewer than two real stages is
+   * bypassed entirely rather than half-applied.
+   */
+  private outputBus(ctx: AudioContext): AudioNode {
+    if (!this.telephone) return ctx.destination;
+    if (this.bus && this.bus.ctx === ctx) return this.bus.input;
+
+    const input = ctx.createGain();
+    let tail: AudioNode = input;
+    let stages = 0;
+    const chain = (node: AudioNode | null): void => {
+      if (!node) return;
+      try {
+        tail.connect(node);
+        tail = node;
+        stages += 1;
+      } catch {
+        /* stage unavailable in this context — keep the rest of the chain */
+      }
+    };
+    const make = <T>(factory: (() => T) | undefined): T | null => {
+      if (typeof factory !== "function") return null;
+      try {
+        return factory.call(ctx);
+      } catch {
+        return null;
+      }
+    };
+
+    const hp = make(ctx.createBiquadFilter?.bind(ctx));
+    if (hp) {
+      hp.type = "highpass";
+      hp.frequency.value = 300;
+      hp.Q.value = 0.7;
+      chain(hp);
+    }
+    const lp = make(ctx.createBiquadFilter?.bind(ctx));
+    if (lp) {
+      lp.type = "lowpass";
+      lp.frequency.value = 3400;
+      lp.Q.value = 0.9;
+      chain(lp);
+    }
+    const comp = make(ctx.createDynamicsCompressor?.bind(ctx));
+    if (comp) {
+      comp.threshold.value = -30;
+      comp.knee.value = 10;
+      comp.ratio.value = 12;
+      comp.attack.value = 0.002;
+      comp.release.value = 0.12;
+      chain(comp);
+    }
+    if (stages < 2) {
+      // Too little of the chain exists to read as "phone" — play clean instead
+      // of a half-filtered voice.
+      try {
+        input.disconnect();
+      } catch {
+        /* nothing connected yet */
+      }
+      return ctx.destination;
+    }
+    const makeup = ctx.createGain();
+    makeup.gain.value = 1.6; // +4 dB: band-passing costs energy.
+    chain(makeup);
+    try {
+      tail.connect(ctx.destination);
+    } catch {
+      return ctx.destination;
+    }
+    this.bus = { ctx, input };
+    return input;
+  }
+
   private async pump(): Promise<void> {
     if (this.pumping) return;
     this.pumping = true;
@@ -174,7 +288,7 @@ export class AudioPlayer {
           const gain = ctx.createGain();
           gain.gain.value = 1;
           node.connect(gain);
-          gain.connect(ctx.destination);
+          gain.connect(this.outputBus(ctx));
           this.current = { node, gain, token };
           const handle = { node, gain };
           this.live.add(handle);

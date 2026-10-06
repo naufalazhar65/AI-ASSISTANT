@@ -86,6 +86,10 @@ export interface UseGeminiLiveResult {
   muted: boolean;
   /** Mute/unmute the mic. No-op when no session is open. */
   toggleMute: () => void;
+  /** Narrow-band telephone character on the Live output (owner 2026-10-06). */
+  telephoneVoice: boolean;
+  /** Flip it live; persisted, so the studio-clean voice is one toggle away. */
+  setTelephoneVoice: (on: boolean) => void;
   /**
    * What the model is doing right now ("⏳ mengecek email..."). Set when a
    * tool batch starts, cleared when Mia starts answering. Empty when idle.
@@ -201,8 +205,31 @@ export function useGeminiLive(): UseGeminiLiveResult {
     });
   }, []);
 
+  /**
+   * Persisted telephone-voice preference. Missing key = ON (the current
+   * requested character); anything but "0"/"false" keeps it on. Guarded because
+   * this runs during render in SSR-less browser code paths where storage can
+   * throw (private mode, blocked cookies).
+   */
+  const readTelephonePref = (): boolean => {
+    try {
+      const raw = window.localStorage.getItem("mia.live.telephone");
+      return !(raw === "0" || raw === "false");
+    } catch {
+      return true;
+    }
+  };
+
   const ensurePlayer = useCallback((): AudioPlayer => {
-    if (!playerRef.current) playerRef.current = new AudioPlayer();
+    if (!playerRef.current) {
+      const p = new AudioPlayer();
+      // Telephone voice, on by default (owner 2026-10-06: "jangan terlalu
+      // jernih" — a 300-3400 Hz band plus heavy compression reads as a phone
+      // call). Persisted so the studio-clean playback of 2026-10-01 is one
+      // toggle away: `localStorage.setItem("mia.live.telephone", "0")`.
+      p.setTelephoneVoice(readTelephonePref());
+      playerRef.current = p;
+    }
     return playerRef.current;
   }, []);
 
@@ -661,6 +688,31 @@ export function useGeminiLive(): UseGeminiLiveResult {
     };
   }, [ensurePlayer]);
 
+  /**
+   * Telephone voice (narrow band + heavy compression, owner 2026-10-06).
+   * Mirrors the player's flag so a UI toggle can show the current state, and
+   * persists the choice so it survives a reload. Flipping it mid-turn takes
+   * effect on the next chunk — already-scheduled audio keeps its own graph.
+   */
+  const [telephoneVoice, setTelephoneVoiceState] = useState<boolean>(() => {
+    try {
+      const raw = window.localStorage.getItem("mia.live.telephone");
+      return !(raw === "0" || raw === "false");
+    } catch {
+      return true;
+    }
+  });
+  const setTelephoneVoice = useCallback((on: boolean) => {
+    const next = !!on;
+    setTelephoneVoiceState(next);
+    playerRef.current?.setTelephoneVoice(next);
+    try {
+      window.localStorage.setItem("mia.live.telephone", next ? "1" : "0");
+    } catch {
+      /* storage blocked — the in-memory flag still applies */
+    }
+  }, []);
+
   return {
     status,
     speaking,
@@ -677,6 +729,8 @@ export function useGeminiLive(): UseGeminiLiveResult {
     sendText,
     muted,
     toggleMute,
+    telephoneVoice,
+    setTelephoneVoice,
   };
 }
 

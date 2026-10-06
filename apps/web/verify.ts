@@ -7276,6 +7276,34 @@ async function main() {
       }
     }
   }
+
+  // LIVE TELEPHONE VOICE (owner 2026-10-06): "bisa ga output suaranya dibuat
+  // seperti kita sedang menelpon orang". Node has no AudioContext, so the DSP
+  // chain itself is unit-tested in AudioPlayer.test.ts; what is locked HERE is
+  // the wiring a return value cannot see: the bus exists, pump() routes through
+  // it (not straight to the speakers), and the chain is voice-shaped.
+  {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const player = readFileSync(join(import.meta.dirname, "src", "audio", "AudioPlayer.ts"), "utf8");
+    const hook = readFileSync(join(import.meta.dirname, "src", "hooks", "useGeminiLive.ts"), "utf8");
+    if (!/private outputBus\(/.test(player)) {
+      throw new Error("live telephone voice: outputBus() is gone - the chain has no single owner");
+    }
+    if (!/gain\.connect\(this\.outputBus\(ctx\)\)/.test(player)) {
+      throw new Error("live telephone voice: pump() no longer routes through outputBus - the chain would never be heard");
+    }
+    if (!/createBiquadFilter/.test(player) || !/createDynamicsCompressor/.test(player)) {
+      throw new Error("live telephone voice: band-pass or compressor stage missing");
+    }
+    if (!/\b300\b/.test(player) || !/\b3400\b/.test(player)) {
+      throw new Error("live telephone voice: band edges must stay 300-3400 Hz (telephone band), not wideband");
+    }
+    if (!/readTelephonePref/.test(hook) || !/setTelephoneVoice/.test(hook)) {
+      throw new Error("live telephone voice: the Live hook lost its preference read/toggle");
+    }
+    console.log("live telephone voice (output bus in pump(), 300-3400 Hz band + compressor + makeup gain, hook pref wired): OK");
+  }
 }
 
 main().catch((err) => {
