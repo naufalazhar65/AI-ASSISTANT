@@ -120,9 +120,9 @@
     "semantic_hash": ""
   },
   "apps/web/verify.ts": {
-    "mtime": 1791289868.6712575,
-    "seen": 1791290434.9879858,
-    "ast_hash": "35f32595dc1379e43d3d18dc88b4b10f",
+    "mtime": 1791291567.4887953,
+    "seen": 1791291973.955095,
+    "ast_hash": "72a1cfe30b2ae9071d35565bbbda8f3b",
     "semantic_hash": ""
   },
   "packages/ai-provider/package.json": {
@@ -336,9 +336,9 @@
     "semantic_hash": "863d06c359004de5b52c25ad8243be67"
   },
   "apps/web/src/lib/agent.ts": {
-    "mtime": 1791289569.2647219,
-    "seen": 1791290434.987566,
-    "ast_hash": "9746609f484fdea9948c62acf02ddd09",
+    "mtime": 1791291230.0288866,
+    "seen": 1791291973.923258,
+    "ast_hash": "b767ad4cc384b4f3f70b0fed349186a0",
     "semantic_hash": ""
   },
   "apps/web/src/channels/discord.ts": {
@@ -5538,15 +5538,15 @@
     "semantic_hash": ""
   },
   "apps/web/src/lib/agentRole.test.ts": {
-    "mtime": 1791275903.677298,
-    "seen": 1791290434.9875672,
-    "ast_hash": "b382edf43548266f24339ea1ed6f3f02",
+    "mtime": 1791291343.0251791,
+    "seen": 1791291973.9232588,
+    "ast_hash": "0c6ff22fd950834710ad9897fc0df25e",
     "semantic_hash": ""
   },
   "apps/web/src/lib/agentRole.ts": {
-    "mtime": 1791275937.7831004,
-    "seen": 1791290434.9875689,
-    "ast_hash": "bc64458d0123179175f60825f4f9e2c8",
+    "mtime": 1791291343.0246198,
+    "seen": 1791291973.9232588,
+    "ast_hash": "1cc30a3b870cf51a69ac9c9b00a18604",
     "semantic_hash": ""
   },
   "apps/web/src/lib/baseline.test.ts": {
@@ -6165,6 +6165,12 @@
     "mtime": 1791289602.416499,
     "seen": 1791290434.987466,
     "ast_hash": "5e63d28fa377ae8901575d682a69b48a",
+    "semantic_hash": ""
+  },
+  "apps/web/probe-greeting-clock.mts": {
+    "mtime": 1791291724.9274926,
+    "seen": 1791291973.923208,
+    "ast_hash": "183c9bc9b113f2e3cc0415d50f684a26",
     "semantic_hash": ""
   }
 }
