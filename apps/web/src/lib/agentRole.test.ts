@@ -2,6 +2,11 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   AGENT_PERSONA_VERSION,
+  OFFICE_STYLE_CONTRACT,
+  normalizeOwnerPronouns,
+  normalizeOwnerSalutation,
+  stripClosingMenuQuestion,
+  stripUnearnedWorkClaim,
   agentPersonaNeedsReseed,
   agentPersonaVersion,
   applyAgentRole,
@@ -9,7 +14,10 @@ import {
   isEncyclopedicRegister,
   stripFormalRegisterFrame,
   stripMiaSignatureVoice,
+  thinGreetingRescue,
+  TRIO_GREETING_WARMUP,
 } from "./agentRole";
+
 import {
   buildOpenCodeSystemPrompt,
   buildSlimSystemPrompt,
@@ -759,5 +767,425 @@ describe("trio address form + glued greeting (live 2026-10-05 23:56)", () => {
 
   it("does not reintroduce the glyph on the same shape", () => {
     expect(stripMiaSignatureVoice(`${AGNES_LIVE} 🌸`, "agnes")).not.toContain("\u{1F338}");
+  });
+});
+
+/**
+ * Owner style spec (2026-10-06): one shared office voice for Mia, Agnes and
+ * Michelle — casual Jaksel-office Indonesian, "aku"/"kamu", English as
+ * seasoning, never corporate-bot.
+ *
+ * Two of the spec's rules are absolute and mechanical, so they are enforced in
+ * code rather than trusted to the model: the pronoun set, and the
+ * zero-information opener. Both are tested two-way — the negative cases are the
+ * words that must SURVIVE, because a guard that eats ordinary text is worse than
+ * no guard at all.
+ */
+describe("normalizeOwnerPronouns — absolute, mechanical, every label", () => {
+  it("rewrites the banned set instead of stripping it, so the sentence stays grammatical", () => {
+    expect(normalizeOwnerPronouns("gue bakal cek dulu ya")).toBe("aku bakal cek dulu ya");
+    expect(normalizeOwnerPronouns("gua udah cek, lo bisa coba lagi")).toBe("aku udah cek, kamu bisa coba lagi");
+    expect(normalizeOwnerPronouns("Nilainya udah gue paling bagus")).toBe("Nilainya udah aku paling bagus");
+  });
+
+  it("keeps the owner pronouns untouched", () => {
+    expect(normalizeOwnerPronouns("aku cek dulu ya")).toBe("aku cek dulu ya");
+    expect(normalizeOwnerPronouns("kamu udah coba?")).toBe("kamu udah coba?");
+  });
+
+  it("never eats a word that merely contains the banned syllables", () => {
+    // Word boundaries, not substring matching, or ordinary Indonesian breaks.
+    for (const keep of [
+      "Katalog produk lokal ini belum diupdate",
+      "firmanya bergerak di bidang cloud computing",
+      "logo WarungPOS belum dicetak",
+      "value-nya sudah berarti buat dia",
+    ]) {
+      expect(normalizeOwnerPronouns(keep)).toBe(keep);
+    }
+  });
+});
+
+describe("office style contract — one text, three personalities", () => {
+  it("reaches every prompt variant, Mia included", () => {
+    expect(buildSystemPrompt("naufalazhar652952", "discord")).toContain("OFFICE STYLE");
+    expect(buildSlimSystemPrompt("naufalazhar652952", "discord")).toContain("OFFICE STYLE");
+  });
+
+  it("reaches both trio agents too", () => {
+    const full = buildSystemPrompt("naufalazhar652952", "discord");
+    expect(applyAgentRole(full, "agnes")).toContain("OFFICE STYLE");
+    expect(applyAgentRole(buildSlimSystemPrompt("naufalazhar652952", "discord"), "michelle")).toContain("OFFICE STYLE");
+  });
+
+  it("states the absolute rules the code also enforces", () => {
+    for (const needle of ["aku", "kamu", "gue/gua/lu/lo", "ENGLISH AS SEASONING", "LENGTH FOLLOWS THE QUESTION", "NOT A CORPORATE BOT"]) {
+      expect(OFFICE_STYLE_CONTRACT).toContain(needle);
+    }
+  });
+
+  it("carries no example replies to imitate (repo rule: quoted output gets copied)", () => {
+    // The spec arrived with worked examples; the contract must describe the
+    // shape instead, or the model reproduces the wording verbatim.
+    expect(OFFICE_STYLE_CONTRACT).not.toMatch(/tolong\s+(dong|bisa)/i);
+    expect(OFFICE_STYLE_CONTRACT).not.toMatch(/wkwk|haha/i);
+  });
+});
+
+describe("zero-information openers — Indonesian and English", () => {
+  it("drops a leading corporate opener for the trio", () => {
+    expect(stripFormalRegisterFrame("Certainly, the server is restarting now.", "agnes")).toBe(
+      "The server is restarting now.",
+    );
+    expect(stripFormalRegisterFrame("Acknowledged, I will look at it.", "michelle")).toBe("I will look at it.");
+  });
+
+  it("keeps the same word when it is not an opener", () => {
+    // "certain" here is ordinary vocabulary, not a corporate preamble.
+    expect(stripFormalRegisterFrame("The restart is certain, absolutely sure.", "agnes")).toBe(
+      "The restart is certain, absolutely sure.",
+    );
+    expect(stripFormalRegisterFrame("Absolutely certain about this one.", "michelle")).toBe(
+      "Absolutely certain about this one.",
+    );
+  });
+
+  it("still drops the Indonesian openers it always did", () => {
+    expect(stripFormalRegisterFrame("Baik, server lagi restart ya.", "agnes")).toBe("Server lagi restart ya.");
+  });
+
+  it("never touches Mia's own opener (fail closed)", () => {
+    expect(stripFormalRegisterFrame("Certainly, the server is restarting now.", "mia")).toBe(
+      "Certainly, the server is restarting now.",
+    );
+  });
+});
+
+/**
+ * The opener strip had to get NARROWER for the style spec (2026-10-06 sec.8).
+ *
+ * Two failures were found by measurement, not review, and both are locked here:
+ *   1. "Baik deh Mas Naufal, ..." left the orphan "deh" behind, because a
+ *      lookahead requiring a lowercase word made the regex backtrack and match
+ *      only the base opener.
+ *   2. The old list also stripped "Hmm", "Nah", "Oh iya" — which the same spec
+ *      section asks for as variation. Stripping them made the agents MORE
+ *      robotic, the opposite of the intent.
+ */
+describe("opener strip — narrow, and it never leaves an orphan", () => {
+  it("consumes the particle with the opener", () => {
+    expect(stripFormalRegisterFrame("Tentu dong Mas Naufal, Jakarta Selatan kan ramai.", "agnes")).toBe(
+      "Mas Naufal, Jakarta Selatan kan ramai.",
+    );
+    expect(stripFormalRegisterFrame("Baik deh Mas Naufal, udah aku cek.", "agnes")).toBe("Mas Naufal, udah aku cek.");
+    expect(stripFormalRegisterFrame("Oke deh, udah ya.", "agnes")).toBe("Udah ya.");
+  });
+
+  it("keeps the interjections the spec asks for as variation", () => {
+    for (const keepCase of ["Hmm, aku cek dulu ya.", "Nah, ini dia.", "Oh iya, bener.", "Wah, mantap."]) {
+      expect(stripFormalRegisterFrame(keepCase, "agnes")).toBe(keepCase);
+    }
+  });
+
+  it("does not touch a word that merely starts with an opener", () => {
+    expect(stripFormalRegisterFrame("Tentonya belum jelas Mas.", "agnes")).toBe("Tentonya belum jelas Mas.");
+    expect(stripFormalRegisterFrame("Sipintu belum di Forum.", "michelle")).toBe("Sipintu belum di Forum.");
+  });
+
+  it("refuses to empty a reply that is only an opener", () => {
+    expect(stripFormalRegisterFrame("Tentu", "agnes")).toBe("Tentu");
+    expect(stripFormalRegisterFrame("Acknowledged", "michelle")).toBe("Acknowledged");
+  });
+});
+
+/**
+ * The closing MENU question (owner pasted the live greeting on 2026-10-06):
+ * all three agents closed with one, which is the casual twin of the
+ * service-desk line the style spec bans in sec.1 — and 3-of-3 doing it is what
+ * made the trio read as a script.
+ *
+ * The distinction that matters: an OFFER OF THE MENU ("is there anything
+ * else?", "what do you need?") is removed; a real DECISION question ("mau
+ * kubikin PDF-nya?", "yang mana?") must survive, because removing it strands
+ * the owner without the choice the turn depends on.
+ */
+describe("stripClosingMenuQuestion — offer of the menu goes, decision stays", () => {
+  const MENU = [
+    "Halo Mas Naufal. Ada kode yang mau dicek atau target yang perlu kita beresin hari ini?",
+    "Halo Mas Naufal. Aku Agnes, siap-siap buat nyari info. Ada topik yang mau kita bedah hari ini?",
+    "Udah kok Mas Naufal. Ada yang mau dicek lagi?",
+    "Sudah ya. Ada hal lain?",
+  ];
+  it("removes the menu offer for every label, Mia included", () => {
+    for (const label of ["mia", "agnes", "michelle"] as const) {
+      for (const t of MENU) {
+        const out = stripClosingMenuQuestion(t);
+        expect(out, `${label}: ${t}`).not.toMatch(/\?$/);
+      }
+    }
+  });
+
+  it("keeps the rest of the reply byte-for-byte (only the offer goes)", () => {
+    expect(stripClosingMenuQuestion(MENU[0]!)).toBe("Halo Mas Naufal");
+    expect(stripClosingMenuQuestion("Udah kok Mas Naufal. Ada yang mau dicek lagi?")).toBe("Udah kok Mas Naufal");
+  });
+
+  it("keeps real decision questions untouched", () => {
+    for (const keep of [
+      "Sudah kucetak ya. Mau sekalian kubikin PDF-nya?",
+      "Mana yang kamu mau, yang satu atau dua?",
+      "Report-nya mau MD atau PDF?",
+      "Kamu mau aku lanjutin ke Michelle?",
+    ]) {
+      expect(stripClosingMenuQuestion(keep)).toBe(keep);
+    }
+  });
+
+  it("refuses to empty a reply that is only the offer", () => {
+    expect(stripClosingMenuQuestion("Ada yang bisa aku bantu?")).toBe("Ada yang bisa aku bantu?");
+  });
+
+  it("keeps the question mark of a real question that was never an offer", () => {
+    // The exact Mia greeting from 2026-10-06: greeting + caring question + menu
+    // offer. The offer goes, the caring question stays WHOLE — trimming its "?"
+    // left a dangling fragment, which is worse than the original problem.
+    expect(
+      stripClosingMenuQuestion(
+        "Halo Mas Naufal! \u{1F338} Seneng banget kamu nyapa, gimana kabar dan harimu sejak ini? Ada yang bisa aku bantu, atau mau ditemenin ngobrol santai sambil ngopi?",
+      ),
+    ).toBe("Halo Mas Naufal! \u{1F338} Seneng banget kamu nyapa, gimana kabar dan harimu sejak ini?");
+  });
+
+  it("keeps a reply that has no offer at all", () => {
+    const t = "Halo Mas Naufal, semuanya aman terkendali.";
+    expect(stripClosingMenuQuestion(t)).toBe(t);
+  });
+
+  it("strips a mid-sentence menu offer and keeps the head (live 2026-10-06 15:30)", () => {
+    // The verbatim Mia greeting: the offer sat AFTER a comma, so cutting the whole
+    // sentence would have thrown away the substance she packed into it.
+    expect(
+      stripClosingMenuQuestion(
+        "Hai Mas Naufal! Aku sama Agnes dan Michelle di sini siap nemenin, mau ngobrol santai atau ada yang perlu kita bantu beresin hari ini? \u{1F338}",
+      ),
+    ).toBe("Hai Mas Naufal! Aku sama Agnes dan Michelle di sini siap nemenin.");
+  });
+
+  it("strips a first-person service offer with a choice, in a one-sentence reply", () => {
+    // A menu of SERVICES ("bantuin A atau B"), which is what the office style
+    // bans. The head carries its own content, so it survives on its own.
+    expect(
+      stripClosingMenuQuestion("Aku lagi di depan laptop, mau aku bantuin cek-email atau cari tempat makan?"),
+    ).toBe("Aku lagi di depan laptop.");
+  });
+
+  it("leaves a one-sentence offer alone when the head is too thin to stand alone", () => {
+    // Stripping here would leave "Santai dulu." — less content than the offer it
+    // replaced. Same reason "Ada yang bisa kubantu hari ini?" is left alone.
+    const t = "Santai dulu, mau aku bantuin cek-email atau cari tempat makan?";
+    expect(stripClosingMenuQuestion(t)).toBe(t);
+  });
+
+  it("a trailing glyph must not defeat the strip (the 15:30 regression)", () => {
+    // Before the fix the cut regex required the offer to end the string, so a
+    // signature flower after "?" made cut === -1 and the whole strip was a no-op.
+    for (const suffix of [" \u{1F338}", " \u{1F338} ", ""]) {
+      const t = `Halo Mas Naufal, aku di sini. Ada yang perlu kubantu hari ini?${suffix}`;
+      expect(stripClosingMenuQuestion(t)).toBe("Halo Mas Naufal, aku di sini");
+    }
+  });
+
+  it("still keeps every must-keep shape (regression net after widening the cut)", () => {
+    const keeps = [
+      "Santai aja Mas Naufal, lagi apa nih sore-sore?",
+      "Oh halo Mas Naufal. Lagi sibuk, atau finally santai?",
+      "Mau sekalian kubikin PDF-nya?",
+      "Report-nya mau MD atau PDF?",
+      "Ada yang bisa kubantu hari ini?",
+      "Halo Mas Naufal! \u{1F338} Seneng banget kamu nyapa, gimana kabar dan harimu sejak ini?",
+    ];
+    for (const t of keeps) expect(stripClosingMenuQuestion(t)).toBe(t);
+  });
+
+  it("refuses to empty a reply that IS only the offer (left alone on purpose)", () => {
+    const t = "Halo Mas Naufal, mau ngobrol santai atau ada yang perlu kita bantu beresin hari ini?";
+    expect(stripClosingMenuQuestion(t)).toBe(t);
+  });
+});
+
+/**
+ * Owner salutation (owner style spec sec. 6; measured live 2026-10-06 —
+ * Michelle answered a greeting with "Heey Untung kamu nyapa"). The prompt and
+ * both SOUL files already demand "Mas + his name"; this is the deterministic
+ * counterpart, because a small model emits the bare vocative anyway.
+ */
+describe("normalizeOwnerSalutation (live 2026-10-06 bare vocative)", () => {
+  const HEY = "Heey Untung kamu nyapa";
+
+  it("repairs a misspelled greeting and inserts the honorific", () => {
+    expect(normalizeOwnerSalutation(HEY, { agent: "michelle", name: "Naufal" })).toBe(
+      "Hey Mas Untung kamu nyapa",
+    );
+  });
+
+  it("keeps a real greeting spelling (variety is the point)", () => {
+    expect(normalizeOwnerSalutation("Halo Untung, apa kabar?", { agent: "agnes", name: "Naufal" })).toBe(
+      "Halo Mas Untung, apa kabar?",
+    );
+    expect(normalizeOwnerSalutation("Hai Untung!", { agent: "agnes", name: "Naufal" })).toBe("Hai Mas Untung!");
+  });
+
+  it("adds the honorific to a reply that opens with his name", () => {
+    expect(normalizeOwnerSalutation("Naufal, deploy-nya udah kelar", { agent: "agnes", name: "Naufal" })).toBe(
+      "Mas Naufal, deploy-nya udah kelar",
+    );
+  });
+
+  it("never doubles an honorific that is already there", () => {
+    for (const t of [
+      "Halo Mas Naufal, gimana kabarnya?",
+      "Selamat pagi, Mas Naufal!",
+      "Hai Mba Naufal",
+      "Mas Naufal, sudah ya",
+    ]) {
+      expect(normalizeOwnerSalutation(t, { agent: "agnes", name: "Naufal" })).toBe(t);
+    }
+  });
+
+  it("does not touch a lowercase word after a greeting", () => {
+    expect(normalizeOwnerSalutation("Halo semua, survive!", { agent: "agnes", name: "Naufal" })).toBe(
+      "Halo semua, survive!",
+    );
+  });
+
+  it("leaves his name alone mid-sentence", () => {
+    const t = "Ini bug di Naufal punya repo";
+    expect(normalizeOwnerSalutation(t, { agent: "michelle", name: "Naufal" })).toBe(t);
+  });
+
+  it("fails closed: Mia, no label, unknown label, and unknown name", () => {
+    expect(normalizeOwnerSalutation(HEY, { agent: "mia", name: "Naufal" })).toBe(HEY);
+    expect(normalizeOwnerSalutation(HEY, { name: "Naufal" })).toBe(HEY);
+    expect(normalizeOwnerSalutation(HEY, { agent: "nope", name: "Naufal" })).toBe(HEY);
+    // No name known: the VOCATIVE insert needs no name (it only adds the
+    // honorific before a capitalised word), while rule 3 — the one that keys off
+    // his actual name — correctly does nothing.
+    expect(normalizeOwnerSalutation(HEY, { agent: "michelle", name: "" })).toBe("Hey Mas Untung kamu nyapa");
+    expect(normalizeOwnerSalutation("Naufal, apa kabar?", { agent: "michelle", name: "" })).toBe(
+      "Naufal, apa kabar?",
+    );
+  });
+
+  it("Agnes is told to give the owner something on a greeting", () => {
+    const overlay = applyAgentRole("base", "agnes");
+    expect(overlay).toContain("ON A GREETING, GIVE HIM SOMETHING");
+    expect(overlay).toMatch(/canned reply/i);
+  });
+});
+
+/**
+ * Live 2026-10-06: Agnes answered "halo semua" with "Halo Mas Naufal!" — 16
+ * chars. The closing-menu strip cuts substance AFTER ensureMoodReplyQuality, so
+ * the thinness check must run on the final text.
+ */
+describe("thinGreetingRescue (bare-echo greeting)", () => {
+  const opts = { greetingTurn: true, agent: "agnes" as const, name: "Naufal" };
+
+  it("replaces a bare echo for a trio agent, with the owner's name", () => {
+    const out = thinGreetingRescue("Halo Mas Naufal!", opts);
+    expect(out).toContain("Mas Naufal");
+    expect(out.split(/\s+/).length).toBeGreaterThan(5);
+  });
+
+  it("never re-introduces the glyph or Mia's pet name", () => {
+    const out = thinGreetingRescue("Hai Mas Naufal!", opts);
+    expect(out).not.toContain("\u{1F338}");
+    expect(out).not.toMatch(/\bbeb\b/i);
+  });
+
+  it("keeps a reply that already has substance", () => {
+    const rich = "Santai aja Mas Naufal, ada yang mau kita bahas hari ini?";
+    expect(thinGreetingRescue(rich, opts)).toBe(rich);
+  });
+
+  it("does nothing when this was not a greeting turn", () => {
+    expect(thinGreetingRescue("Halo Mas Naufal!", { ...opts, greetingTurn: false })).toBe("Halo Mas Naufal!");
+  });
+
+  it("does nothing for a multi-line or emoji reply", () => {
+    expect(thinGreetingRescue("Halo Mas Naufal! 🌸", opts)).toBe("Halo Mas Naufal! 🌸");
+    expect(thinGreetingRescue("Halo Mas Naufal!\nLagi apa?", opts)).toBe("Halo Mas Naufal!\nLagi apa?");
+  });
+
+  it("leaves Mia's own replies alone (her pool already runs earlier)", () => {
+    expect(thinGreetingRescue("Halo Mas Naufal!", { ...opts, agent: "mia" })).toBe("Halo Mas Naufal!");
+    expect(thinGreetingRescue("Halo Mas Naufal!", { ...opts, agent: undefined })).toBe("Halo Mas Naufal!");
+  });
+
+  it("rotates the warmup by the caller's turn number, so greetings do not repeat", () => {
+    const seen = new Set<string>();
+    for (let variant = 0; variant < TRIO_GREETING_WARMUP.length; variant++) {
+      seen.add(thinGreetingRescue("Halo Mas Naufal!", { ...opts, variant }));
+    }
+    expect(seen.size).toBe(TRIO_GREETING_WARMUP.length);
+  });
+
+  it("is deterministic for the same echo and the same turn", () => {
+    expect(thinGreetingRescue("Halo Mas Naufal!", opts)).toBe(thinGreetingRescue("Halo Mas Naufal!", opts));
+  });
+
+  it("falls back to a bare honorific when no name is known", () => {
+    // The pool template is "{name}" on purpose; the fallback fills it with the
+    // honorific alone so the sentence still reads naturally.
+    const out = thinGreetingRescue("Halo!", { greetingTurn: true, agent: "michelle", name: null });
+    expect(out).toMatch(/\bMas\b/);
+    expect(out).not.toContain("{name}");
+  });
+
+  it("never leaks the placeholder, whatever the name is", () => {
+    for (const name of [null, "", "Naufal"]) {
+      expect(thinGreetingRescue("Halo!", { greetingTurn: true, agent: "agnes", name })).not.toContain("{name}");
+    }
+    expect(TRIO_GREETING_WARMUP.every((l) => l.includes("{name}"))).toBe(true);
+  });
+});
+
+/**
+ * Unearned work claim (live 2026-10-06 15:30). Agnes answered a greeting with
+ * "aku lagi nyiapin beberapa rangkuman riset terbaru nih" — work that does not
+ * exist. Claiming work is claiming a fact, so it is cut in code; a prompt rule
+ * alone had already failed (the greeting rule pushed her to invent a task).
+ */
+describe("stripUnearnedWorkClaim — claiming work that never happened", () => {
+  const LIVE = "Halo Mas Naufal, aku lagi nyiapin beberapa rangkuman riset terbaru nih";
+
+  it("cuts the live fabricated clause and keeps the honest head", () => {
+    expect(stripUnearnedWorkClaim(LIVE)).toBe("Halo Mas Naufal.");
+  });
+
+  it("stays silent when a tool really ran this turn", () => {
+    expect(stripUnearnedWorkClaim(LIVE, { ranTool: true })).toBe(LIVE);
+  });
+
+  it("keeps a question ABOUT the owner (his business, not the agent's)", () => {
+    for (const t of ["Lagi sibuk, atau finally santai?", "Lagi di kantor hari ini?", "Kamu lagi makan apa?"]) {
+      expect(stripUnearnedWorkClaim(t)).toBe(t);
+    }
+  });
+
+  it("keeps a plain statement that is not a claim of work in progress", () => {
+    const t = "Besok pagi kamu mau ngopi lagi atau sekarang?";
+    expect(stripUnearnedWorkClaim(t)).toBe(t);
+  });
+
+  it("leaves the text alone when cutting would leave a bare subject", () => {
+    const t = "Aku lagi nyiapin sesuatu.";
+    expect(stripUnearnedWorkClaim(t)).toBe(t);
+  });
+
+  it("does not fire on ordinary prose", () => {
+    for (const t of ["Aku cekweather-nya besok ya.", "Besok pagi kita ngobrol lagi soal itinerary.", ""]) {
+      expect(stripUnearnedWorkClaim(t)).toBe(t);
+    }
   });
 });

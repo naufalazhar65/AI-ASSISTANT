@@ -8,7 +8,7 @@ import { detectPlaceIntent, placeNudge } from "./placeIntent";
  * delegating clause, breaking both of that persona's hard rules.
  */
 const MIA_NUDGE =
-  " (Catatan: ini rekomendasi dari ingatanku dan bisa telat — cek dulu di Google ya, siapa tau ada yang udah tutup atau pindah 🌸)";
+  " (dari ingatan ya, jam bukanya bisa berubah)";
 
 describe("detectPlaceIntent", () => {
   it("detects recommendation/status asks", () => {
@@ -93,7 +93,9 @@ describe("placeNudge — the trio gets the casual shape", () => {
   });
 
   it("differs from Mia's shape (the fix is real, not a no-op)", () => {
-    expect(placeNudge("Kopi hitam paling pas.", false, "michelle")).not.toBe(MIA_NUDGE);
+    // 2026-10-06: Mia was rewritten to the same honest, glyph-free shape, so the two
+    // nudges intentionally CONVERGE. What used to differ was a defect, not a feature.
+    expect(placeNudge("Kopi hitam paling pas.", false, "michelle")).toBe(MIA_NUDGE);
   });
 
   it("still honours the silence rules for the trio", () => {

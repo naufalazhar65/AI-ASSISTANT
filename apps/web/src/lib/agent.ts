@@ -31,10 +31,16 @@ import { detectPriceIntent } from "./priceIntent";
 import { freerideGetConfig } from "./freeride";
 import { detectPlaceIntent, placeNudge } from "./placeIntent";
 import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume, spotifySleepTimer } from "./spotify";
-import { loadPersonaPrompt } from "./persona";
+import { getPersonaFact, loadPersonaPrompt } from "./persona";
 import {
   applyAgentRole,
   isEncyclopedicRegister,
+  normalizeOwnerPronouns,
+  normalizeOwnerSalutation,
+  thinGreetingRescue,
+  stripUnearnedWorkClaim,
+  stripClosingMenuQuestion,
+  OFFICE_STYLE_CONTRACT,
   stripFormalRegisterFrame,
   stripMiaSignatureVoice,
   trioTeamLine,
@@ -500,7 +506,9 @@ export function buildSlimSystemPrompt(rawUser?: unknown, channel?: Channel, url?
 // answered "Siapa lagi tuh Michelle?" and then re-primed that denial from
 // daily memory on later turns. Identity that must survive a one-line question
 // goes first.
-  const parts = [trioTeamLine(), SLIM_SYSTEM_PROMPT];
+  // The office style contract is shared with the trio, so Mia is governed by the
+  // exact same text (owner style spec 2026-10-06: one office, three personalities).
+  const parts = [trioTeamLine(), OFFICE_STYLE_CONTRACT, SLIM_SYSTEM_PROMPT];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
   parts.push(
@@ -705,7 +713,8 @@ export function buildSystemPrompt(rawUser?: unknown, channel?: Channel): string 
 // answered "Siapa lagi tuh Michelle?" and then re-primed that denial from
 // daily memory on later turns. Identity that must survive a one-line question
 // goes first.
-  const parts = [trioTeamLine(), SYSTEM_PROMPT];
+  // Same shared contract as the slim path — one office, three personalities.
+  const parts = [trioTeamLine(), OFFICE_STYLE_CONTRACT, SYSTEM_PROMPT];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
   // Always address the user by the preferred name/honorific stored in USER.md
@@ -735,7 +744,7 @@ export function buildSystemPrompt(rawUser?: unknown, channel?: Channel): string 
  */
 export function buildOpenCodeSystemPrompt(rawUser?: unknown, channel?: Channel): string {
   // trioTeamLine() first: see the ordering note in buildSlimSystemPrompt.
-  const parts = [trioTeamLine(), openCodeSystemPromptParts()];
+  const parts = [trioTeamLine(), OFFICE_STYLE_CONTRACT, openCodeSystemPromptParts()];
   const persona = loadPersonaPrompt(rawUser);
   if (persona) parts.push(persona);
   // Address the user by their preferred name/honorific from USER.md.
@@ -2767,7 +2776,7 @@ function isThanksTurn(raw: string): boolean {
 const GREETING_EMPATHY = [
   "Hai beb 🌸 Aku di sini! Ada yang mau diceritain atau dibantuin hari ini?",
   "Halo beb 🌸 Seneng kamu mampir — gimana harimu? Ada yang bisa kubantu?",
-  "Heey beb 🌸 Untung kamu nyapa — mau cerita apa sekadar nge-chat aja nih?",
+  "Heey beb 🌸 Kamu nyapa juga — mau cerita apa sekadar nge-chat aja nih?",
 ];
 const THANKS_EMPATHY = [
   "Sama-sama beb 🌸 seneng bisa bantu!",
@@ -7835,6 +7844,59 @@ async function runAssistantTurnImpl(opts: {
   // of them at once, and it stays a no-op for Mia / no label, so her own turns
   // keep her signature emoji.
   text = stripMiaSignatureVoice(text, opts.agent);
+
+  // Pronoun rule (owner style spec 2026-10-06): "aku"/"kamu", never the
+  // gue/gua/lu/lo set. Absolute and mechanical, so it is enforced here rather
+  // than trusted to the model, and here rather than in the register firewall
+  // because that one is gated (a verbatim list skips it) and is trio-only.
+  text = normalizeOwnerPronouns(text);
+
+  // Closing MENU question (owner style spec 2026-10-06 sec.1/3). Measured on the
+  // live greeting: all three agents offered the menu at the end, which is the
+  // casual twin of the service-desk line the spec bans. Placed here because
+  // stripFormalRegisterFrame fails closed to Mia — and Mia's was the longest one.
+  // A real decision question never opens with "ada", so it survives by shape.
+  text = stripClosingMenuQuestion(text);
+
+  // Owner salutation (owner style spec sec. 6; measured live 2026-10-06 —
+  // "Heey Untung kamu nyapa" from Michelle). The prompt and the persona already
+  // say "Mas + his name", but a small model emits a bare first-name vocative
+  // anyway, which is why this needs the deterministic counterpart. Only INSERTS
+  // the honorific, trio labels only, and only when the persona actually knows
+  // his name — an unknown name leaves the salutation alone rather than guessing.
+  try {
+    text = normalizeOwnerSalutation(text, { agent: opts.agent, name: getPersonaFact(opts.user, "name") });
+  } catch {
+    /* persona unreadable: never guess a form of address */
+  }
+  // Last-resort greeting warmth (live 2026-10-06: Agnes answered "halo semua"
+  // with a bare "Halo Mas Naufal!"). Measured cause: the closing-menu strip runs
+  // AFTER ensureMoodReplyQuality and cuts a greeting's substance off the
+  // model's real sentence ("Halo Mas Naufal! Ada yang bisa kubantu?" -> three
+  // words), so no earlier branch can see the echo. This block therefore sits
+  // LAST, immediately before the return, and measures the FINAL text.
+  if (!collector.verbatimHit && !looksLikeMarkdownList(text)) {
+    try {
+      // Honesty before warmth: a claim of work in progress that no tool backs is
+      // cut FIRST, so what is left is the honest part. When that leaves a bare
+      // greeting the rescue below warms it up instead of the model having filled
+      // the silence with a task that never existed (live 2026-10-06 15:30).
+      text = stripUnearnedWorkClaim(text, { ranTool: (collector.executedCalls?.length ?? 0) > 0 });
+    } catch {
+      /* honesty must never break a turn */
+    }
+    try {
+      const lastUserThin = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content ?? "");
+      text = thinGreetingRescue(text, {
+        greetingTurn: detectGreetingTurn(lastUserThin),
+        agent: opts.agent,
+        name: getPersonaFact(opts.user, "name"),
+        variant: messages.filter((m) => m.role === "assistant").length,
+      });
+    } catch {
+      /* warmth must never break a turn */
+    }
+  }
 
   return { text: stripNonLatinChars(text), needsConfirmation, messages, providerUsed };
 }

@@ -2544,8 +2544,10 @@ async function main() {
   if (placeNudge("", false) !== "") throw new Error("placeNudge should skip empty answers");
   // The nudge is appended AFTER the voice firewall, so its shape is the last word
   // on register. Live defect 2026-10-05 23:09: the hardcoded Mia string put a \u{1F338}
-  // into Michelle's reply + a formal delegating closer. Mia must stay byte-identical;
-  // the trio must get the casual shape.
+  // into Michelle's reply + a formal delegating closer. 2026-10-06: the SAME wording
+  // was then found on Mia's own replies (two glyphs in one message, "siapa tau",
+  // and a to-do list for a casual food question), so both labels now share one
+  // honest, glyph-free caveat instead of two divergent ones.
   const miaNudge = placeNudge("Kopi Praja, Bintaro: vibes industrial.", false, "mia");
   if (miaNudge !== placeNudge("Kopi Praja, Bintaro: vibes industrial.", false))
     throw new Error("placeNudge: Mia's shape must be identical with or without an explicit mia label");
@@ -2556,7 +2558,11 @@ async function main() {
       throw new Error(`placeNudge: ${label} must not receive Mia's formal frame: ${n}`);
     if (/cek|google|verif/i.test(n))
       throw new Error(`placeNudge: ${label} caveat must not hand a to-do list back: ${n}`);
-    if (n === miaNudge) throw new Error(`placeNudge: ${label} shape is a no-op vs Mia`);
+    // 2026-10-06: Mia was rewritten to the SAME honest, glyph-free, to-do-free shape,
+    // so the nudges intentionally converge. The thing that used to differ WAS the defect
+    // (a second \u{1F338} plus written Indonesian plus a "cek dulu di Google" hand-off),
+    // so divergence is no longer the invariant — cleanliness is, and it is asserted above.
+    if (!n.trim()) throw new Error(`placeNudge: ${label} must still deliver the honest caveat`);
     if (placeNudge("Kopi hitam paling pas.", true, label) !== "")
       throw new Error(`placeNudge: ${label} must still stay silent after web_search`);
   }
@@ -7146,6 +7152,73 @@ async function main() {
           }
         }
       }
+      // OFFICE STYLE CONTRACT (owner style spec 2026-10-06). The spec arrived as
+      // prose plus worked examples; the contract in the prompt is written as
+      // RULES with the shapes described, because a small model copies whatever
+      // appears in quotes. So: it must reach every prompt variant (Mia included —
+      // one office, three personalities), it must state the absolute rules, and
+      // it must not carry the owner's example replies.
+      for (const [name, p] of prompts) {
+        if (!p.includes("OFFICE STYLE")) throw new Error(`office style contract missing from ${name} (Mia included)`);
+        for (const needle of ["LENGTH FOLLOWS THE QUESTION", "ENGLISH AS SEASONING", "NOT A CORPORATE BOT", "gue/gua/lu/lo"]) {
+          if (!p.includes(needle)) throw new Error(`office style contract incomplete in ${name}: ${needle} missing`);
+        }
+        if (/tolong\s+(dong|bisa)/i.test(p) || /wkwk/i.test(p)) {
+          throw new Error(`${name}: the style contract quotes example replies — small models imitate quoted output verbatim`);
+        }
+      }
+      // The two absolute rules have a deterministic twin, because a prompt rule
+      // alone never held a small model (measured 2026-10-05 on the register).
+      const { normalizeOwnerPronouns: pr4 } = await import("./src/lib/agentRole");
+      for (const [from, to] of [["gue", "aku"], ["gua", "aku"], ["lo", "kamu"], ["lu", "kamu"]] as const) {
+        if (pr4(`${from} cek dulu`) !== `${to} cek dulu`) throw new Error(`pronoun rule does not cover ${from}`);
+      }
+      for (const keep of ["Katalog produk lokal", "cloud computing", "logo Warung"]) {
+        if (pr4(keep) !== keep) throw new Error(`pronoun rule ate ordinary text: ${keep}`);
+      }
+      // Opener stripping must be narrow: an intensifier or a negation is not a
+      // corporate preamble, and stripping it would change the meaning.
+      for (const [drop, keepCase] of [
+        ["Certainly, the server is restarting now.", "The server is restarting now."],
+        ["As per your request, the report is ready.", "The report is ready."],
+      ] as const) {
+        if (stripFormalRegisterFrame(drop, "agnes") !== keepCase) throw new Error(`corporate opener not stripped: ${drop}`);
+      }
+      for (const keepCase of ["Absolutely certain about this one.", "Certainly not, that is wrong."]) {
+        if (stripFormalRegisterFrame(keepCase, "agnes") !== keepCase) {
+          throw new Error(`opener strip ate ordinary English: ${keepCase}`);
+        }
+      }
+      if (stripFormalRegisterFrame("Certainly, the server is restarting now.", "mia") !== "Certainly, the server is restarting now.") {
+        throw new Error("Mia's own opener must stay byte-identical");
+      }
+      console.log("office style contract (all prompt variants + pronoun rule + narrow opener strip): OK");
+      // The closing MENU offer (measured on the live greeting the owner pasted:
+      // all three agents offered the menu). Locked two-way, because the failure
+      // that matters is removing a real decision question and stranding the turn.
+      const { stripClosingMenuQuestion: menu4 } = await import("./src/lib/agentRole");
+      for (const offer of [
+        "Halo Mas Naufal. Ada kode yang mau dicek atau target yang perlu kita beresin hari ini?",
+        "Halo Mas Naufal. Aku Agnes, siap-siap buat nyari info. Ada topik yang mau kita bedah hari ini?",
+      ]) {
+        if (menu4(offer).endsWith("?")) throw new Error(`closing menu offer survived: ${offer}`);
+      }
+      for (const decision of ["Sudah kucetak ya. Mau sekalian kubikin PDF-nya?", "Report-nya mau MD atau PDF?"]) {
+        if (menu4(decision) !== decision) throw new Error(`a real decision question was stripped: ${decision}`);
+      }
+      // Mia's greeting keeps its caring question whole; only the offer goes.
+      const miaGreeting =
+        "Halo Mas Naufal! \u{1F338} Seneng banget kamu nyapa, gimana kabar dan harimu sejak ini? Ada yang bisa aku bantu?";
+      if (menu4(miaGreeting) !== "Halo Mas Naufal! \u{1F338} Seneng banget kamu nyapa, gimana kabar dan harimu sejak ini?") {
+        throw new Error("the greeting lost its question mark — a fragment is worse than the menu offer");
+      }
+      // Agnes must not re-introduce herself on a greeting (measured live).
+      for (const [, p] of prompts) {
+        if (!applyAgentRole(p, "agnes").includes("do not re-introduce yourself")) {
+          throw new Error("Agnes has no rule against re-introducing herself on a greeting");
+        }
+      }
+      console.log("closing menu offer removed, decision questions kept, Agnes no longer self-introduces: OK");
       // The SOUL bullet is the fully-injected persona region, so the same rules
       // must be there too — the prompt alone was not enough in production.
       for (const label of ["agnes", "michelle"] as const) {
@@ -7159,6 +7232,115 @@ async function main() {
         }
       }
     }
+    // Owner salutation + greeting substance (owner style spec sec. 6 and the
+    // live "Heey Untung" measurement). Locked three ways: the deterministic
+    // repair fires on the verbatim live string, the Agnes overlay + her SOUL
+    // bullet carry the substance rule, and the repair is source-wired into the
+    // return path (a pure test cannot see WHERE it runs).
+    {
+      const { normalizeOwnerSalutation: sal7 } = await import("./src/lib/agentRole");
+      const LIVE_BARE = "Heey Untung kamu nyapa";
+      const fixed = sal7(LIVE_BARE, { agent: "michelle", name: "Naufal" });
+      if (fixed !== "Hey Mas Untung kamu nyapa") {
+        throw new Error(`salutation: the live bare vocative was not repaired - got ${JSON.stringify(fixed)}`);
+      }
+      if (sal7(LIVE_BARE, { agent: "mia", name: "Naufal" }) !== LIVE_BARE) {
+        throw new Error("salutation: Mia's own greeting must stay byte-identical");
+      }
+      if (sal7("Halo semua, survive!", { agent: "agnes", name: "Naufal" }) !== "Halo semua, survive!") {
+        throw new Error("salutation: a lowercase word after a greeting must never gain an honorific");
+      }
+      if (sal7("Halo Mas Naufal, gimana?", { agent: "agnes", name: "Naufal" }) !== "Halo Mas Naufal, gimana?") {
+        throw new Error("salutation: an honorific that is already there must not be doubled");
+      }
+      if (!applyAgentRole("base", "agnes").includes("ON A GREETING, GIVE HIM SOMETHING")) {
+        throw new Error("Agnes lost the greeting-substance rule - she goes back to canned greetings");
+      }
+      const agnesSoul = readFileSync(join(appRoot(), "persona", "agents", "agnes.SOUL.md"), "utf8");
+      if (!/memantulkan sapaan|seperti balasan otomatis/i.test(agnesSoul)) {
+        throw new Error("agnes.SOUL.md: the greeting-substance rule is missing from the injected persona");
+      }
+      const agentSrc = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+      const retIdx = agentSrc.indexOf("return { text: stripNonLatinChars(text)");
+      if (retIdx < 0) throw new Error("runAgent return path not found");
+      // (the greeting rescue and the claim cut both sit after this repair)
+      // 3400, not 900: the greeting rescue was wired in AFTER the salutation
+      // repair, so a 900-char window no longer reaches it and the check fires on
+      // a real, still-wired call site.
+      // 3400, not 2600: the unearned-work-claim cut was wired in AFTER this
+      // repair, so the window has to keep reaching it.
+      const tailSrc = agentSrc.slice(Math.max(0, retIdx - 3400), retIdx);
+      if (!/normalizeOwnerSalutation\(text, \{ agent: opts\.agent, name: getPersonaFact\(/.test(tailSrc)) {
+        throw new Error("the salutation repair is not wired into the return path");
+      }
+      console.log("owner salutation repaired (trio only, insert-only) + Agnes greeting substance rule present: OK");
+    }
+    // Unearned work claim (live 2026-10-06 15:30). Agnes answered a greeting with
+    // an invented task; the prompt rule is necessary but NOT sufficient, so the
+    // cut itself is asserted here.
+    {
+      const { stripUnearnedWorkClaim: claim7 } = await import("./src/lib/agentRole");
+      const LIVE_CLAIM = "Halo Mas Naufal, aku lagi nyiapin beberapa rangkuman riset terbaru nih";
+      const cut = claim7(LIVE_CLAIM);
+      if (cut !== "Halo Mas Naufal.") throw new Error(`unearned work claim not cut: ${JSON.stringify(cut)}`);
+      if (claim7(LIVE_CLAIM, { ranTool: true }) !== LIVE_CLAIM) {
+        throw new Error("claim cut fired while a tool really ran");
+      }
+      for (const keep of ["Lagi sibuk, atau finally santai?", "Lagi di kantor hari ini?"]) {
+        if (claim7(keep) !== keep) throw new Error(`claim guard touched ordinary prose: ${keep}`);
+      }
+      if (claim7("Aku lagi nyiapin sesuatu.") === "Aku.") {
+        throw new Error("claim cut left a bare subject standing");
+      }
+      const srcClaim = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+      const retClaim = srcClaim.indexOf("return { text: stripNonLatinChars(text)");
+      // Wide window on purpose: a too-narrow one IS the bug (hit twice today).
+      const wClaim = srcClaim.slice(Math.max(0, retClaim - 3000), retClaim);
+      if (!/stripUnearnedWorkClaim\(text, \{ ranTool:/.test(wClaim)) {
+        throw new Error("the unearned work claim cut is not wired into the return path");
+      }
+      if (!/NEVER INVENT WORK IN PROGRESS/.test(buildSystemPrompt("naufalazhar652952"))) {
+        throw new Error("prompt lacks the never-invent-work rule");
+      }
+      const agnesSoulClaim = readFileSync(join(appRoot(), "persona", "agents", "agnes.SOUL.md"), "utf8");
+      if (!/mengarang kerjaan yang sedang berjalan/.test(agnesSoulClaim)) {
+        throw new Error("agnes.SOUL.md: the never-invent-work rule is missing from the injected persona");
+      }
+      if (!/persona-v9/.test(agnesSoulClaim)) throw new Error("agnes.SOUL.md not stamped persona-v9");
+      console.log("unearned work claim (live cut + guards + prompt rule + persona-v9): OK");
+    }
+    // Bare-echo greeting rescue (live 2026-10-06: Agnes answered "halo semua"
+    // with a bare "Halo Mas Naufal!"). The closing-menu strip cuts substance
+    // AFTER ensureMoodReplyQuality, so thinness must be measured on the FINAL
+    // text — and the rescue itself must be wired into the return path.
+    {
+      const { thinGreetingRescue: rescue8, TRIO_GREETING_WARMUP: pool8 } = await import("./src/lib/agentRole");
+      const thin = rescue8("Halo Mas Naufal!", { greetingTurn: true, agent: "agnes", name: "Naufal" });
+      if (thin.trim().split(/\s+/).length <= 5) {
+        throw new Error("greeting rescue left a bare echo — Agnes would still answer a greeting with three words");
+      }
+      if (/\u{1F338}/u.test(thin) || /\bbeb\b/i.test(thin) || thin.includes("{name}")) {
+        throw new Error("greeting rescue re-introduced the glyph, Mia's pet name, or an unfilled placeholder");
+      }
+      const rich = "Santai aja Mas Naufal, ada yang mau kita bahas hari ini?";
+      if (rescue8(rich, { greetingTurn: true, agent: "agnes", name: "Naufal" }) !== rich) {
+        throw new Error("greeting rescue overwrote a reply that already had substance");
+      }
+      if (rescue8("Halo Mas Naufal!", { greetingTurn: false, agent: "agnes", name: "Naufal" }) !== "Halo Mas Naufal!") {
+        throw new Error("greeting rescue fired on a turn that is not a greeting");
+      }
+      if (rescue8("Halo Mas Naufal!", { greetingTurn: true, agent: "mia", name: "Naufal" }) !== "Halo Mas Naufal!") {
+        throw new Error("greeting rescue must leave Mia alone — her own pool runs earlier");
+      }
+      if (!pool8.length) throw new Error("the trio greeting pool is empty");
+      const agentSrc8 = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+      const retIdx8 = agentSrc8.indexOf("return { text: stripNonLatinChars(text)");
+      if (retIdx8 < 0) throw new Error("runAgent return path not found — cannot verify the greeting rescue wiring");
+      if (!/thinGreetingRescue\(text,/.test(agentSrc8.slice(Math.max(0, retIdx8 - 2600), retIdx8))) {
+        throw new Error("the greeting rescue is not wired into the return path");
+      }
+    }
+
     // TRIO VOICE LEAK, second class (live 2026-10-05 23:56). The glyph firewall
     // ran in the middle of the turn, so every DETERMINISTIC appender after it
     // (reminder/plan suffixes, the place caveat) could still write in Mia's
@@ -7197,7 +7379,12 @@ async function main() {
       const agentSrc = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
       const retIdx = agentSrc.indexOf("return { text: stripNonLatinChars(text)");
       if (retIdx < 0) throw new Error("runAgent return path not found — cannot verify the final glyph pass");
-      const tail = agentSrc.slice(Math.max(0, retIdx - 1200), retIdx);
+      // 4200 chars, not 1200: the return path legitimately grew each time a
+      // repair was wired in (pronouns, salutation, greeting rescue), and a
+      // too-narrow window turns a real wiring check into a false alarm on the
+      // next addition. Every stage in this path is one edit away from being
+      // declared "not wired", so the window must cover the whole firewall block.
+      const tail = agentSrc.slice(Math.max(0, retIdx - 4200), retIdx);
       if (!/stripMiaSignatureVoice\(text, opts\.agent\)/.test(tail)) {
         throw new Error("the final glyph pass is missing from the return path — deterministic appenders can re-inject the glyph");
       }

@@ -48,9 +48,17 @@ export function detectPlaceIntent(text: string): boolean {
 /** Phrasing the model may have already used to hedge its answer. */
 const ALREADY_HEDGED_RE = /cek dulu|verif|google|coba cek|bisa telat|mungkin (?:udah|sudah) (?:tutup|beda)|infoku|tidak (?:yakin|pasti)|belum tentu/i;
 
-/** Mia's own nudge — unchanged, byte for byte. */
+/**
+ * Mia's own nudge.
+ *
+ * Rewritten 2026-10-06: the legacy wording stacked a SECOND signature glyph on a reply that already
+ * carried hers, used written Indonesian ("siapa tau", should be "siapa tahu"), and handed the
+ * owner a to-do list ("cek dulu di Google ya") for a casual recommendation — exactly what the
+ * office style contract bans. The caveat itself is kept; only the shape changed, so Mia is
+ * honest AND clean.
+ */
 const MIA_NUDGE =
-  " (Catatan: ini rekomendasi dari ingatanku dan bisa telat — cek dulu di Google ya, siapa tau ada yang udah tutup atau pindah 🌸)";
+  " (dari ingatan ya, jam bukanya bisa berubah)";
 
 /**
  * Agnes / Michelle nudge.
