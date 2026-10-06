@@ -175,6 +175,17 @@ export function pendingConfirmPrompt(calls: PendingAction[], bold = "**"): strin
  * per action, or null when the reply isn't understood (caller re-prompts so a
  * stray message never silently approves or drops a risky action).
  */
+/** Discord keeps the raw mention markup in `message.content`
+ * (`"<@6846…> ya"`). The model copes with that, but the confirmation parser
+ * cannot: an approval has to be exactly "ya", so a mentioned reply never
+ * parsed and the same pending prompt was re-sent forever (owner report,
+ * 2026-10-06 13:14). Routing decisions use the `mentions` API rather than the
+ * text, so normalising here is safe for every consumer — the turn AND the
+ * confirmation. */
+export function stripMentions(raw: string): string {
+  return (raw || "").replace(/<@[!&]?\d+>/g, " ").replace(/[ \t]{2,}/g, " ").trim();
+}
+
 export function parseConfirmReply(text: string, count: number): boolean[] | null {
   const t = (text ?? "").trim();
   if (/^(tidak|no|n|gak|nggak|skip|cancel|batal)$/i.test(t)) {

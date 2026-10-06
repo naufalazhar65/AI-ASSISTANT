@@ -1,6 +1,6 @@
 import { broadcastMiaState } from "../lib/miaState";
 import { OWNER_KEY, canonicalUserKey } from "../lib/identity";
-import { COMMAND_EMPTY_FALLBACK, DISCORD_MAX, EMPTY_REPLY_FALLBACK, chunkText, clockLabel, parseConfirmReply, pendingConfirmPrompt } from "./replyChunk";
+import { COMMAND_EMPTY_FALLBACK, DISCORD_MAX, EMPTY_REPLY_FALLBACK, chunkText, clockLabel, parseConfirmReply, pendingConfirmPrompt, stripMentions } from "./replyChunk";
 
 /**
  * Discord channel adapter (PRD v2.0 §8.1 FR-101 / ROADMAP Fase 2.3).
@@ -645,7 +645,7 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
       const user = userKeyFor(msg, cfg);
       seedAgentPersona(cfg, user);
       // Deal with file attachments first (docs/images), then the text.
-      let text = (msg.content || "").trim();
+      let text = stripMentions(msg.content || "");
       const atts = msg.attachments ? [...msg.attachments.values()] : [];
       const fileContexts: string[] = [];
 
