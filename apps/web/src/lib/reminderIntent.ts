@@ -235,6 +235,80 @@ export function detectReminderIntents(userText: string, now = Date.now()): Remin
 }
 
 /**
+ * Detect a RENAME request: change a waiting reminder's TITLE without touching
+ * its time ("ubah judul reminder cek email jadi cek email penting").
+ *
+ * Why this exists (live drill 2026-10-06): the deterministic reminder layer
+ * already owned repoints and deletions, but a title change had no
+ * deterministic path, so the answer depended on the model assembling the
+ * `edit_reminder` args. It did not: across two live runs it sent only
+ * `when` (once inventing a date) and then told the user the title had been
+ * renamed. A hint in the prompt does not hold a small model — the user's own
+ * words must reach the store. Returns null unless BOTH a rename verb and a
+ * title noun are present, so "ubah jam reminder jam 9" (a repoint) and plain
+ * creation asks never match.
+ */
+// Two trigger shapes: the Indonesian verb + title noun ("ganti judulnya jadi
+// ..."), and the English verb, which implies a rename on its own ("rename X to
+// Y"). \\w* after the noun keeps "judulnya" matching as one token.
+const RENAME_TRIGGER_ID =
+  /\b(ubah|ubahin|ganti|gantiin)\b[^.?!,;]{0,24}?\b(judul\w*|nama\w*|label\w*|title\w*)\b/i;
+const RENAME_TRIGGER_EN = /\b(rename|re-label|relabel)\b/i;
+// "ganti reminder cek email jadi cek email wajib" carries NO title noun, but the
+// intent is still a rename. It is only safe to read that way when the new
+// wording is not a clock — "ganti reminder X jadi jam 9" is a REPOINT, and that
+// case stays with the move path.
+const RENAME_TRIGGER_LOOSE = /\b(ubah|ubahin|ganti|gantiin)\b\s*(?:reminder|reminders|pengingat)\b/i;
+/** A clock in the new wording means the user is moving it, not renaming it. */
+const CLOCK_WORD_RE = /\b(\d{1,2}(?:[.:]\d{2})?|satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh)\s*(pagi|siang|sore|malam|subuh|dini|am|pm)?\b|^\d{1,2}$/i;
+// The new wording follows the copula. "jadi/menjadi" is tried first because an
+// Indonesian topic may itself contain the English "to"/"ke".
+const RENAME_COPULA_ID = /\b(menjadi|jadi)\s+(.+)$/i;
+const RENAME_COPULA_EN = /\b(to|with|dengan|ke)\s+(.+)$/i;
+/** Filler that carries no topic and cannot anchor a row. */
+const RENAME_NOISE_RE =
+  /^(tolong|dong|pls|please|bisa|boleh|mau|aku|gue|saya|ya|itu|ini|kak|bang|beb|deh|yaa|aq)+$/i;
+
+export function detectReminderRename(userText: string): { anchor: string; title: string } | null {
+  if (!userText || urlAskNeedsStrongVerb(userText)) return null;
+  const text = (userText || "").replace(/\s+/g, " ").trim().slice(0, 200);
+  const id = RENAME_TRIGGER_ID.exec(text);
+  const en = RENAME_TRIGGER_EN.exec(text);
+  const loose = id || en ? null : RENAME_TRIGGER_LOOSE.exec(text);
+  const m = id ?? en ?? loose;
+  if (!m) return null;
+  const after = text.slice(m.index + m[0].length);
+  const cop = RENAME_COPULA_ID.exec(after) ?? RENAME_COPULA_EN.exec(after);
+  if (!cop) return null;
+  const title = (cop[2] || "")
+    .replace(/^[\s"'\u2018\u2019]+|[\s"'\u2018\u2019.,!?;:]+$/g, "")
+    .trim();
+  if (!title || RENAME_NOISE_RE.test(title) || /^[^a-z0-9]+$/i.test(title)) return null;
+  // Without an explicit title noun, a clock in the new wording makes this a
+  // repoint ("ganti reminder X jadi jam 9"), not a rename.
+  if (loose && CLOCK_WORD_RE.test(title)) return null;
+  // The topic is what sits BETWEEN the rename verb and the copula ("ubah judul
+  // reminder CEK EMAIL jadi ..." -> "cek email"); the words before the verb are
+  // only a fallback. Nothing to match against means refusing, never guessing.
+  const mid = after
+    .slice(0, cop.index)
+    .replace(/\b(reminder|reminders|nya|ku|mu|aq|gue)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const before = text
+    .slice(0, m.index)
+    .replace(/\b(reminder|reminders)\b/gi, " ")
+    .replace(RENAME_NOISE_RE, " ")
+    .trim();
+  const anchor = (mid || before)
+    .replace(/^\s*(?:the|a|an|yg|yang|si)\s+/i, "")
+    .replace(/\s+(?:the|a|an)$/i, "")
+    .trim();
+  if (!anchor || anchor.length < 3) return null;
+  return { anchor, title: title.slice(0, 120) };
+}
+
+/**
  * Detect DELETION clauses within a reminder request ("jam 7 pagi hapus aja",
  * "cancel reminder makan siang"). These are not new reminders — they reference
  * a slot/clock to delete. Returns matched clauses as {text (anchor keyword),

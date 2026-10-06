@@ -45,7 +45,8 @@ export { LIVE_WRITE_TOOLS };
   *     so venue asks stalled — Overpass returns real mapped venues.
  *     WRITE tools go through a SPOKEN confirmation loop instead of
  *     executing on first sight (owner-approved 2026-09-30, gap #2,
- *     extended 2026-10-01 to task/calendar writes): `remind_me`, `save_note`,
+ *     extended 2026-10-01 to task/calendar writes): `remind_me`, `edit_reminder`,
+ *     `cancel_reminder`, `save_note`,
  *     `add_task`, `complete_task` and `calendar_add` are held by `liveConfirm.ts`, the model
  *     asks aloud, and only a re-call with `confirmed: true` after the user
  *     spoke executes. The tool route independently refuses them unconfirmed.
@@ -92,6 +93,8 @@ export const LIVE_TOOL_NAMES = [
   "gmail_read",
   "gmail_search",
   "remind_me",
+  "edit_reminder",
+  "cancel_reminder",
   "save_note",
 ] as const;
 

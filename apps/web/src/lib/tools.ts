@@ -1070,6 +1070,80 @@ const toolRegistry: ToolPlugin[] = [
   {
     definition: {
       type: "function",
+      risk: "write",
+      function: {
+        name: "edit_reminder",
+        description:
+          "CHANGE an existing reminder that is still waiting — move its time and/or replace its title, keeping the same reminder (never delete-then-re-add, which loses the entry). Use for 'ubah jam reminder cek email jadi jam 9', 'ganti judulnya jadi ...', or both in one call. Use remind_me to CREATE a new one and cancel_reminder to DELETE one. Fired reminders cannot be edited.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Keyword matching the CURRENT reminder text, e.g. 'cek email'" },
+            when: { type: "string", description: "New time: ISO-8601 ('2026-10-07T09:00:00+07:00') or plain clock ('09:00', 'jam 9 pagi'). Omit to keep the current time." },
+            title: { type: "string", description: "New title. Omit to keep the current one." },
+          },
+          required: ["query"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const q = typeof args.query === "string" ? args.query.trim() : "";
+        if (!q) return "Error: query required";
+        const wantWhen = typeof args.when === "string" ? args.when.trim() : "";
+        const wantTitle = typeof args.title === "string" ? args.title.trim() : "";
+        if (!wantWhen && !wantTitle) return "Error: give when (new time), title (new title), or both — otherwise there is nothing to edit";
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { editReminder } = require("./reminders") as typeof import("./reminders");
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { parseClockTimes, nextOccurrence } = require("./reminderIntent") as typeof import("./reminderIntent");
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { clockLabel } = require("./time") as typeof import("./time");
+
+        // Time: ISO first, then Indonesian/clock text ("jam 9 pagi"). A bare
+        // clock is read as the NEXT occurrence, never in the past.
+        let atMs: number | undefined;
+        if (wantWhen) {
+          const iso = new Date(wantWhen);
+          if (!Number.isNaN(iso.getTime()) && /[T ]\d{2}:\d{2}/.test(wantWhen)) {
+            atMs = iso.getTime() < Date.now() ? undefined : iso.getTime();
+            if (atMs === undefined) {
+              const wall = /T(\d{2}):(\d{2})/.exec(wantWhen);
+              if (wall) atMs = nextOccurrence(Number(wall[1]), Number(wall[2]));
+            }
+          } else {
+            const parsed = parseClockTimes(wantWhen)[0];
+            if (parsed) atMs = nextOccurrence(parsed.hour, parsed.minute);
+          }
+          if (atMs === undefined) return `Error: cannot read the time "${wantWhen}" — use ISO-8601 or a clock like "09:00"`;
+        }
+
+        const result = editReminder(ctx.rawUser, q, { atMs, text: wantTitle || undefined });
+        if (!result) {
+          return `Tidak ada reminder menunggu yang mengandung "${q}" — cek dulu pakai reminders_list, atau buat baru pakai remind_me.`;
+        }
+        const clock = clockLabel(new Date(result.after.at));
+        const timeChanged = result.before.at !== result.after.at;
+        const titleChanged = result.before.text !== result.after.text;
+        if (!timeChanged && !titleChanged) {
+          return `Reminder "${result.after.text}" sudah jam ${clock}, tidak ada yang berubah.`;
+        }
+        // Each fact is stated exactly ONCE. A title-only edit says the time is
+        // unchanged rather than repeating it as if it had moved (live 13:35:
+        // "sekarang jam 10:30 (jam 10:30)").
+        if (timeChanged && titleChanged) {
+          return `Sudah diubah: judulnya jadi "${result.after.text}", sekarang jam ${clock}.`;
+        }
+        if (timeChanged) return `Sudah diubah: sekarang jam ${clock}.`;
+        return `Sudah diubah: judulnya jadi "${result.after.text}" (tetap jam ${clock}).`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot edit"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
       risk: "read",
       function: {
         name: "fetch_url",

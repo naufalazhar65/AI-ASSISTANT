@@ -1907,6 +1907,79 @@ async function main() {
     console.log("provider tool caps (groq keeps pentest suite): OK");
   }
   {
+    // --- reminder edit/delete reach the channels the owner actually uses ---
+    // Live probe 2026-10-06: edit_reminder was registered and worked on
+    // opencodego, but it was NOT in CORE, so it was never delivered on groq or
+    // 9router — and 9router is the production Discord provider. The tool
+    // existed and was unreachable, which is the silent-CORE-shrink class this
+    // repo has hit three times. Locked here so it cannot come back quietly.
+    const { toolsForUrl: tfu6, CORE_TOOL_NAMES: core6, HINT_UNDELIVERED: hint6 } = await import("./src/lib/agent");
+    const groq6 = new Set(tfu6("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
+    const r9n = new Set(tfu6("http://127.0.0.1:20128/v1/chat/completions").map((t) => t.function.name));
+    for (const n of ["edit_reminder", "cancel_reminder", "remind_me", "reminders_list"]) {
+      if (!groq6.has(n)) throw new Error(`capped provider missing ${n}`);
+      if (!r9n.has(n)) throw new Error(`9router 64-window missing ${n}`);
+    }
+    // Every CORE tool outside the window must be NAMED in HINT_UNDELIVERED,
+    // or the prompt advertises a tool the capped provider never receives (the
+    // write_file failure of 2026-10-05). 21 such names were unnamed until this
+    // sweep; the invariant replaces reading the list by hand.
+    const hintSet = new Set<string>(hint6);
+    const coreArr = [...core6];
+    if (coreArr.length !== 128 || new Set(coreArr).size !== 128) {
+      throw new Error(`CORE must stay exactly 128 unique (got ${coreArr.length}/${new Set(coreArr).size})`);
+    }
+    for (const n of coreArr) {
+      if (r9n.has(n)) continue;
+      if (!hintSet.has(n)) throw new Error(`${n} is outside the 9router window but NOT named in HINT_UNDELIVERED`);
+      // Note: a name in HINT that IS delivered on some other capped provider is
+      // fine by design — the hint is filtered per provider at prompt-build time
+      // (HINT_UNDELIVERED.filter(n => !delivered)), so report_pdf is named here
+      // yet present in groq's 128.
+    }
+    // The prompt is the only place a model learns a tool exists: delivery
+    // without advertisement is just as dead as the reverse.
+    const agentSrc = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+    const agentLines = agentSrc.split("\n");
+    const toolLine = agentLines.find((l) => l.indexOf('You have tools: ') >= 0) || "";
+    if (toolLine.indexOf("edit_reminder") < 0) throw new Error("SYSTEM_PROMPT tool list does not advertise edit_reminder");
+    const confirmLine = agentLines.find((l) => l.indexOf("and learnings_review.") >= 0 && l.indexOf("exec_write") >= 0) || "";
+    if (confirmLine.indexOf("edit_reminder") < 0) throw new Error("the confirm-wait list does not name edit_reminder");
+    console.log("reminder edit/delete delivery (CORE + groq + 9router + prompt + hint invariant): OK");
+    // --- a rename reaches the store from the user's own words ---
+    // Live drill 2026-10-06: a title edit had no deterministic path, so it rode
+    // an edit_reminder argument the model assembled — twice the model sent only
+    // `when` (once inventing a date), moved the clock, and told the user the
+    // title had been renamed. The parse is pure and the store write is checked
+    // here, so the whole chain is locked without an LLM turn.
+    const { detectReminderRename: ren4 } = await import("./src/lib/reminderIntent");
+    const { addReminder: add4, editReminder: edit4, readReminders: read4 } = await import("./src/lib/reminders");
+    const { wibDailyNext: wib4, clockLabel: clk4 } = await import("./src/lib/time");
+    const renUser = `verify_rename_${Date.now()}`;
+    const renAt = wib4(8, 0);
+    add4("Cek Email", renAt, renUser);
+    const parsed = ren4("ubah judul reminder cek email jadi cek email penting");
+    if (!parsed || parsed.anchor !== "cek email" || parsed.title !== "cek email penting") {
+      throw new Error("detectReminderRename failed on the owner's own wording");
+    }
+    const renRes = edit4(renUser, parsed.anchor, { text: parsed.title });
+    if (renRes?.after.text !== "cek email penting") throw new Error("rename did not reach the store");
+    if (clk4(new Date(renRes!.after.at)) !== clk4(new Date(renAt))) {
+      throw new Error("a rename must not move the clock");
+    }
+    if (read4(renUser).length !== 1) throw new Error("a rename must edit in place, never re-add");
+    // The two shapes that must never become a rename.
+    for (const phrase of ["ubah jam reminder cek email jadi jam 9 pagi", "ingetin aku jam 7 pagi", "hapus reminder cek email"]) {
+      if (ren4(phrase)) throw new Error(`detectReminderRename must stay silent on: ${phrase}`);
+    }
+    try {
+      rmSync(join(appRoot(), ".data", "users", renUser), { recursive: true, force: true });
+    } catch {
+      /* cleanup is best-effort */
+    }
+    console.log("reminder rename (deterministic parse + in-place edit, clock untouched): OK");
+  }
+  {
     // --- places_search (2026-10-02): keyless venue search via Overpass ---
     const { getTool, executeTool } = await import("./src/lib/tools");
     const { CORE_TOOL_NAMES: core2, toolsForUrl: tfu2, HINT_UNDELIVERED: hint2, buildSystemPrompt } = await import("./src/lib/agent");

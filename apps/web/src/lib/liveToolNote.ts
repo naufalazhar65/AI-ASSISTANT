@@ -30,6 +30,8 @@ const LIVE_TOOL_VERBS: Record<string, string> = {
   add_task: "mencatat tugas",
   complete_task: "menyelesaikan tugas",
   remind_me: "memasang pengingat",
+  edit_reminder: "mengubah pengingat",
+  cancel_reminder: "menghapus pengingat",
   save_note: "mencatat",
   search_memory: "mengingat-ingat",
   memory_get: "membaca ingatan",

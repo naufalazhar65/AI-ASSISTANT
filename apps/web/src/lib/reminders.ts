@@ -513,17 +513,13 @@ function reminderTopicTokens(text: string): string[] {
 }
 
 /**
- * Re-point ("ubah/jadiin/pindah … jadi jam X"): relocate an existing UNFIRED
- * reminder whose topic matches `anchor` to the new `atMs`, preserving its text
- * (nicer title) and repeat cadence. Returns the moved reminder, or null when no
- * good topic match exists (caller falls back to adding a new one).
+ * Shared candidate picker for every reminder MUTATION that targets one existing
+ * entry by topic (move / edit): the best UNFIRED reminder by token overlap.
+ * Fired rows are never eligible — rewriting or moving a reminder that already
+ * fired would resurrect a past delivery. A zero score means "no confident
+ * match", and the caller must refuse rather than guess.
  */
-export function moveReminder(rawUser: unknown, anchor: string, atMs: number, opts: { text?: string } = {}): Reminder | null {
-  const userKey = sanitizeUser(rawUser);
-  if (!userKey) return null;
-  const anchorTokens = reminderTopicTokens(anchor);
-  if (!anchorTokens.length) return null;
-  const reminders = readReminders(rawUser);
+function bestReminderIndex(reminders: Reminder[], anchorTokens: string[]): number {
   let bestIdx = -1;
   let bestScore = 0;
   for (let i = 0; i < reminders.length; i++) {
@@ -537,7 +533,62 @@ export function moveReminder(rawUser: unknown, anchor: string, atMs: number, opt
       bestIdx = i;
     }
   }
-  if (bestIdx < 0 || bestScore === 0) return null;
+  return bestScore === 0 ? -1 : bestIdx;
+}
+
+/** What an edit changed, so the caller can report the truth instead of a guess. */
+export interface ReminderEditResult {
+  before: Reminder;
+  after: Reminder;
+}
+
+/**
+ * EDIT an existing reminder's time and/or title in place, without the
+ * delete-then-re-add dance (which loses the row and its delivery history).
+ *
+ * Unlike `moveReminder`, a title change is the point here: the anchor picks the
+ * row by its CURRENT title, and `patch.text` replaces it. Both fields are
+ * optional; passing neither is a no-op that reports the unchanged reminder so
+ * the caller can say "that is already what it says" honestly.
+ */
+export function editReminder(
+  rawUser: unknown,
+  anchor: string,
+  patch: { atMs?: number; text?: string },
+): ReminderEditResult | null {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return null;
+  const anchorTokens = reminderTopicTokens(anchor);
+  if (!anchorTokens.length) return null;
+  const reminders = readReminders(rawUser);
+  const idx = bestReminderIndex(reminders, anchorTokens);
+  if (idx < 0) return null;
+  const before = reminders[idx];
+  const nextText = typeof patch.text === "string" && patch.text.trim() ? patch.text.trim().slice(0, 300) : undefined;
+  const nextAt = typeof patch.atMs === "number" && Number.isFinite(patch.atMs) ? patch.atMs : undefined;
+  if (nextText === undefined && nextAt === undefined) return { before, after: before };
+  const after: Reminder = { ...before, fired: false };
+  if (nextText !== undefined) after.text = nextText;
+  if (nextAt !== undefined) after.at = nextAt;
+  reminders[idx] = after;
+  writeReminders(reminders, userKey);
+  return { before, after };
+}
+
+/**
+ * Re-point ("ubah/jadiin/pindah … jadi jam X"): relocate an existing UNFIRED
+ * reminder whose topic matches `anchor` to the new `atMs`, preserving its text
+ * (nicer title) and repeat cadence. Returns the moved reminder, or null when no
+ * good topic match exists (caller falls back to adding a new one).
+ */
+export function moveReminder(rawUser: unknown, anchor: string, atMs: number, opts: { text?: string } = {}): Reminder | null {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) return null;
+  const anchorTokens = reminderTopicTokens(anchor);
+  if (!anchorTokens.length) return null;
+  const reminders = readReminders(rawUser);
+  const bestIdx = bestReminderIndex(reminders, anchorTokens);
+  if (bestIdx < 0) return null;
   const moved = {
     ...reminders[bestIdx],
     at: atMs,

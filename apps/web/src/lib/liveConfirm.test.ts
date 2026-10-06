@@ -128,8 +128,17 @@ describe("askFirstInstruction — the spoken question", () => {
     expect(askFirstInstruction({ id: "d", name: "calendar_add", args: { title: "rapat" } })).toContain("rapat");
   });
 
-  it("LIVE_WRITE_TOOLS is exactly the six FR-014 write tools", () => {
-    expect([...LIVE_WRITE_TOOLS]).toEqual(["remind_me", "save_note", "add_task", "complete_task", "calendar_add", "calendar_mac_add"]);
+  it("LIVE_WRITE_TOOLS is exactly the FR-014 write tools (reminder edit/delete added 2026-10-06)", () => {
+    expect([...LIVE_WRITE_TOOLS]).toEqual([
+      "remind_me",
+      "edit_reminder",
+      "cancel_reminder",
+      "save_note",
+      "add_task",
+      "complete_task",
+      "calendar_add",
+      "calendar_mac_add",
+    ]);
   });
 });
 

@@ -25,7 +25,16 @@
 import type { LiveToolCall } from "./geminiLive";
 
 /** Write tools allowed in Live at all — everything else executes immediately. */
-export const LIVE_WRITE_TOOLS = ["remind_me", "save_note", "add_task", "complete_task", "calendar_add", "calendar_mac_add"] as const;
+export const LIVE_WRITE_TOOLS = [
+  "remind_me",
+  "edit_reminder",
+  "cancel_reminder",
+  "save_note",
+  "add_task",
+  "complete_task",
+  "calendar_add",
+  "calendar_mac_add",
+] as const;
 
 /** How long an unanswered spoken question stays authoritative. */
 export const PENDING_TTL_MS = 3 * 60_000;

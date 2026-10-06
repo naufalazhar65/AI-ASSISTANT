@@ -46,7 +46,7 @@ for i in $(seq 1 60); do
 done
 
 echo "health        : $(curl -s -m 10 http://localhost:$PORT/api/health | head -c 80)"
-echo "logged_in_as  : $(grep -c 'logged in as' /tmp/mia-dev.log 2>/dev/null || echo 0)  (harus 1)"
+echo "logged_in_as  : $(grep -c 'logged in as' /tmp/mia-dev.log 2>/dev/null || echo 0)  (harus 3)"
 echo "telegram      : $(grep -c 'telegram] starting' /tmp/mia-dev.log 2>/dev/null || echo 0)  (harus 1)"
 # Match Telegram's ACTUAL conflict text, not the bare number: a build line like
 # "Compiled /middleware in 409ms" is a compile duration and used to print a false

@@ -62,6 +62,8 @@ describe("liveToolDeclarations — built from the registry, not hand-kept", () =
       "gmail_read",
       "gmail_search",
       "remind_me",
+      "edit_reminder",
+      "cancel_reminder",
       "save_note",
     ]);
     const decls = liveToolDeclarations();

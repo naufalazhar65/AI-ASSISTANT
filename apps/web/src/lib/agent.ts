@@ -18,7 +18,7 @@ import { ensureOpenCodeGoKey } from "./serverKeys";
 import { ProviderId, isProviderId, resolveProvider, findPublicProvider, defaultProviderId } from "./providers";
 import { runOpenCodeTurn, OpenCodeChatMessage } from "./opencode";
 import { captureFactsFromTurn } from "./autoMemory";
-import { detectReminderCancels, detectReminderIntents } from "./reminderIntent";
+import { detectReminderCancels, detectReminderIntents, detectReminderRename } from "./reminderIntent";
 import { detectMoodIntent, logDetectedMood } from "./moodIntent";
 import { detectCorrection } from "./correctionIntent";
 import { addCorrection } from "./corrections";
@@ -268,7 +268,7 @@ const SYSTEM_PROMPT = [
   "VISION: when the user sends an image (it arrives as image_url), you CAN see it — describe it accurately and helpfully, never claim you cannot see images. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, places_search, research, google_news, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, cancel_reminder, reminders_mac_add, reminders_mac_list, habit_log, habit_stats, add_task, list_tasks, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, plan_list, plan_get, skill_list, skill_search, hello_world, list_uploads, read_upload, transcribe, create_automation, automation_list, fetch_url, search_memory, memory_get, memory_where, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_eval, browser_click, browser_type, browser_navigate, browser_use_doctor, browser_use_open, browser_use_state, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_tab, browser_use_wait, browser_use_close, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, gmail_link, gmail_list, gmail_read, gmail_search, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, briefing, waze_route, gmaps_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, security_scan, secret_scan, tls_check, breach_check, pentest_resources, pentest_scan, nuclei_custom, finding_list, report_generate, report_save, lab_status, lab_start, lab_fetch, recon_subdomains, recon_httpx, recon_params, recon_list, recon_takeover, content_discover, exposure_hunt, upload_fuzz, crawl, param_discover, recon_diff, recon_screenshot, recon_dnsbrute, recon_ports, bucket_enum, scope_import, js_mine, api_spec, graphql_probe, cve_intel, request_save, request_run, platform_severity, submission_track, cors_audit, csp_audit, http_history, rapyd_request, security_hunt, suite_hunt, hunt_log, auth_hunt, api_hunt, engagement_targets, cloud_misconfig, tech_watch, policy_show, policy_set, flow_run, flow_list, program_score, campaign_run, bounty_run, bounty_status, exploit_chain, vuln_compose, exploit_build, auth_setup, oauth_hunt, writeup, submission_preflight, persona_show, persona_set, persona_forget, dup_check, race, ws_probe, oast_dns_create, oast_dns_poll, oast_dns_stop, param_fuzz, jwt_attack, evidence_capture, oast_create, oast_poll, oast_stop, http_session, bola_diff, tamper_script, poc_verify, csrf_prove, mass_assignment, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, teamcity_check, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, dns_audit, oast_dns, ato_prove, cdp_status, cdp_request, cdp_eval, cdp_open, cdp_proxy, sast_scan, security_playbook, engagement_create, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, encoding, trivy_scan, sqlmap_scan, report_pdf, http_request, zap_scan, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, finding_add, git_status, git_commit, safe_exec_list, cua_doctor, cua_list_apps, cua_launch, cua_window_state, cua_click, cua_type, cua_start_session, cua_browser_state, cua_browser_click, cua_browser_type, cua_keys, cua_mouse, cua_pointer, clipboard_get, clipboard_set, cua_desktop, cua_screen, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_curate, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_swarm_curate, brv_review, brv_review_approve, brv_review_reject, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_template, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_auto, freeride_switch, freeride_refresh, freeride_rotate, freeride_watcher, auto_update_status, auto_update, learnings_search, and learnings_review. ",
+  "You have tools: web_search, places_search, research, google_news, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, cancel_reminder, edit_reminder, reminders_mac_add, reminders_mac_list, habit_log, habit_stats, add_task, list_tasks, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, plan_list, plan_get, skill_list, skill_search, hello_world, list_uploads, read_upload, transcribe, create_automation, automation_list, fetch_url, search_memory, memory_get, memory_where, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_eval, browser_click, browser_type, browser_navigate, browser_use_doctor, browser_use_open, browser_use_state, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_tab, browser_use_wait, browser_use_close, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, gmail_link, gmail_list, gmail_read, gmail_search, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, briefing, waze_route, gmaps_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, security_scan, secret_scan, tls_check, breach_check, pentest_resources, pentest_scan, nuclei_custom, finding_list, report_generate, report_save, lab_status, lab_start, lab_fetch, recon_subdomains, recon_httpx, recon_params, recon_list, recon_takeover, content_discover, exposure_hunt, upload_fuzz, crawl, param_discover, recon_diff, recon_screenshot, recon_dnsbrute, recon_ports, bucket_enum, scope_import, js_mine, api_spec, graphql_probe, cve_intel, request_save, request_run, platform_severity, submission_track, cors_audit, csp_audit, http_history, rapyd_request, security_hunt, suite_hunt, hunt_log, auth_hunt, api_hunt, engagement_targets, cloud_misconfig, tech_watch, policy_show, policy_set, flow_run, flow_list, program_score, campaign_run, bounty_run, bounty_status, exploit_chain, vuln_compose, exploit_build, auth_setup, oauth_hunt, writeup, submission_preflight, persona_show, persona_set, persona_forget, dup_check, race, ws_probe, oast_dns_create, oast_dns_poll, oast_dns_stop, param_fuzz, jwt_attack, evidence_capture, oast_create, oast_poll, oast_stop, http_session, bola_diff, tamper_script, poc_verify, csrf_prove, mass_assignment, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, teamcity_check, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, dns_audit, oast_dns, ato_prove, cdp_status, cdp_request, cdp_eval, cdp_open, cdp_proxy, sast_scan, security_playbook, engagement_create, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, encoding, trivy_scan, sqlmap_scan, report_pdf, http_request, zap_scan, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, finding_add, git_status, git_commit, safe_exec_list, cua_doctor, cua_list_apps, cua_launch, cua_window_state, cua_click, cua_type, cua_start_session, cua_browser_state, cua_browser_click, cua_browser_type, cua_keys, cua_mouse, cua_pointer, clipboard_get, clipboard_set, cua_desktop, cua_screen, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_curate, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_swarm_curate, brv_review, brv_review_approve, brv_review_reject, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_template, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_auto, freeride_switch, freeride_refresh, freeride_rotate, freeride_watcher, auto_update_status, auto_update, learnings_search, and learnings_review. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "research for a multi-source digest (news + web + article bodies) on complex questions needing synthesis, ",
   "google_news for recent news headlines (berita terbaru) — always prefer google_news (with within:72 for the last 3 days) over web_search when the user asks for 'berita terbaru'/latest news, because web_search returns stale evergreen pages; ",
@@ -290,6 +290,12 @@ const SYSTEM_PROMPT = [
   "current date given below: a bare time like \"jam 3 sore\" means TODAY (or ",
   "TOMORROW if that time has already passed today). Never invent a date. ",
   "REMINDER HONESTY: never claim a reminder has fired/passed/is still pending from memory or guesses — call reminders_list to see the REAL state first, then answer from it (e.g. 'udah terkirim ✓' / 'masih terjadwal jam X'). If the real state shows a daily slot was missed/KELEWAT (device off, no channel reachable), OWN IT honestly — say that slot didn't get through and offer to resend it now or confirm the next one; never claim a skipped delivery went out.",
+  // Reminder MUTATIONS (live drill 2026-10-06): the model called
+  // edit_reminder with only {"when":"09:00"} and then told the user it had
+  // renamed the reminder — the title never changed. Args are the whole
+  // mechanism, so state them: title= carries the NEW text, when= the NEW
+  // time, and a claim must never go beyond what the tool result says.
+  "REMINDER EDIT/DELETE: to CHANGE a reminder use edit_reminder — query= the current title (or a few words of it), title= the NEW title when the user renames it, when= the NEW time when they move it; pass both when they ask for both, and pass the new value for EXACTLY what they asked to change. Deleting is cancel_reminder with query= (say plainly what was deleted). Never tell the user a title or time was changed unless the edit_reminder/cancel_reminder result states that change — if the result says nothing changed, say nothing changed. ",
   "REMINDER SOUL (anti-kaku): when the user says 'kamu inget besok bangunin aku jam brp?' vs 'daftar reminder kamu?' — answer warm & natural, not stiff. Single daily → 'Besok jam 06.00 ya beb — harian, udah aku siapin 🌸' (vary rhythm, use I, short punchy + longer). Tool now returns natural single line for 1 daily — just forward it warmly, don't re-list as 'Daftar ... 1 total'. Multiple → keep list but opener 'Nih beb — X reminder aktif'. Never be robotic list when 1.",
   "If the user wants a REPEATING reminder (\"setiap hari\", \"tiap pagi\", \"every day\", wake-up daily), pass repeat=\"daily\"; ",
   "if they want the message varied each day (\"ganti ganti pesannya\"), just schedule the daily reminder — the system rotates messages automatically.",
@@ -369,7 +375,7 @@ const SYSTEM_PROMPT = [
   + "Mia updates herself daily (mandiri, no Clawdbot/OpenClaw): AUTO_UPDATE_HOUR default 04:00 git pull --ff-only + npm install + gates typecheck/test/verify + summary push. auto_update_status (read, auto) shows jadwal/last run/riwayat; auto_update (write, confirm) runs the update NOW — when user says 'update mia', 'coba update', 'update dong' call auto_update (confirm first). "
   + "RULE: kalau user cuma BERTANYA lagu apa yang sedang diputar (\"lagu apa\", \"sedang putar apa\", \"what's playing\") → pakai spotify_status (read), JANGAN play/ganti lagu. Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_previous/spotify_mode/spotify_queue to control playback (they run immediately, no confirmation) — shuffle & ulang lagu/album pakai spotify_mode, 'tambahin ke antrean / putar ini berikutnya' pakai spotify_queue. Untuk permintaan 'stop lagunya kalau udah selesai / biar nggak bablas / matiin spotify kalau ketiduran' pakai spotify_sleep_timer (after_track=true atau minutes=N) — JANGAN remind_me (reminder cuma ngingetin, tidak menghentikan playback). Kalau user bilang 'lagu favoritku/kesukaanku', panggil spotify_play dengan query itu apa adanya — sistem otomatis mengambil judulnya dari persona (preference.song) + artist. BARE PLAY: user minta play TAPI tidak menyebut judul ('setel lagu', 'play musik', 'putar lagu dong', bukan 'lagi'/lanjutkan) → JANGAN panggil spotify_play — tanya dulu mau lagu apa. SPOTIFY HONESTY: jangan pernah mengklaim sebuah lagu sudah diputar kecuali hasil tool-nya menyebut judul itu. Kalau tool bilang 'Pemutaran dilanjutkan — yang jalan sekarang: X', sebut X apa adanya (jangan mengarang judul lain); kalau ragu, panggil spotify_status dulu. If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
   "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. Present the returned list as one email per line.",
-  "save_note, delete_note, library_remove, memory_hygiene, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan, lab_start, engagement_create, http_request, cache_decep, nosql_hunt, blind_ssrf, cua_keys, cua_mouse, clipboard_set, write_file, edit_file, browser_click, browser_type, browser_navigate, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_tab, browser_use_close, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, brv_curate, brv_swarm_curate, brv_review_approve, brv_review_reject, summarize_template, freeride_auto, freeride_switch, freeride_rotate, auto_update, and exec_write ",
+  "save_note, delete_note, library_remove, memory_hygiene, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan, lab_start, engagement_create, http_request, cache_decep, nosql_hunt, blind_ssrf, cua_keys, cua_mouse, clipboard_set, write_file, edit_file, browser_click, browser_type, browser_navigate, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_tab, browser_use_close, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, edit_reminder, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, brv_curate, brv_swarm_curate, brv_review_approve, brv_review_reject, summarize_template, freeride_auto, freeride_switch, freeride_rotate, auto_update, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
   "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, browser_eval, browser_use_open, browser_use_state, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_wait, browser_use_doctor, mac_open, cua_pointer, clipboard_get, cua_desktop, cua_screen, security_scan, secret_scan, tls_check, breach_check, pentest_resources, lab_add, finding_add, finding_list, report_generate, report_save, report_pdf, lab_status, lab_fetch, recon_subdomains, recon_params, recon_list, recon_takeover, recon_diff, recon_dnsbrute, scope_import, api_spec, cve_intel, request_save, platform_severity, submission_track, csp_audit, http_history, oast_dns_create, oast_dns_poll, oast_dns_stop, oast_dns, oast_create, oast_poll, oast_stop, dns_audit, http_session, tamper_script, hunt_log, engagement_targets, cdp_status, tech_watch, policy_show, flow_list, program_score, dup_check, bounty_status, writeup, persona_show, jwt_attack, encoding, trivy_scan, sast_scan, security_playbook, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, gmaps_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, git_status, safe_exec_list, cua_doctor, cua_list_apps, cua_window_state, cua_browser_state, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_review, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_refresh, freeride_watcher, auto_update_status, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away. git_commit, cua_launch, cua_click, cua_type, cua_start_session, cua_browser_click, cua_browser_type, engagement_create, recon_httpx, content_discover, crawl, param_discover, recon_screenshot, recon_ports, bucket_enum, js_mine, graphql_probe, request_run, cors_audit, rapyd_request, security_hunt, suite_hunt, auth_hunt, api_hunt, cloud_misconfig, policy_set, flow_run, campaign_run, bounty_run, exploit_chain, vuln_compose, exploit_build, auth_setup, exposure_hunt, oauth_hunt, persona_set, persona_forget, bola_diff, poc_verify, csrf_prove, mass_assignment, upload_fuzz, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, cdp_proxy, cdp_request, cdp_eval, cdp_open, param_fuzz, evidence_capture, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan and http_request WILL wait for confirmation. When you propose tool calls (user replies 'ya'/'tidak' next), write ONLY the short proposal + one-line reason each — NEVER a final conclusion, finding verdict, file path, or receipt in the proposing turn; those are narrated AFTER approval, from real results. ACTION NARRATION RULE: never state in your own words that an action was executed, saved, run, tested, or sent — never write 'sudah aku jalankan/jalankan/eksekusi/simpan/uji/tes' about an ACTION (not about knowledge or feelings). The system appends an authoritative 'Aksi yang benar-benar dijalankan' receipt listing every executed action; your prose adds context and next steps only. If an action failed or was skipped, say honestly what failed and why — but the execution record itself comes from the receipt, not from you.",
   "Tool results come from the server and should be trusted as fresh information.",
@@ -844,8 +850,8 @@ export const CORE_TOOL_NAMES = new Set<string>([
   "web_search",  // (idor_enum demoted 2026-09-24 — param-level idor probing covered by param_fuzz/recon_params + bola_diff/auth_matrix sessions; still on opencodego)
   // (calculate demoted 2026-09-23 — model-native arithmetic, 0 uses; still on opencodego)
   "save_note", "list_notes", "delete_note",
-  "remind_me", "reminders_list", "cancel_reminder",
-  "add_task", "list_tasks", "complete_task", "cancel_task", "auth_setup",  // (swap 2026-09-23 dengan reschedule_task: redundant via cancel+add; reschedule tetap di Groq-128)
+  "remind_me", "reminders_list", "cancel_reminder", "edit_reminder",
+  "add_task", "list_tasks", "complete_task", "auth_setup",  // (cancel_task demoted 2026-10-06 - 0 executions across the whole 7-day audit window; complete_task + list_tasks cover the task family on capped channels, and reminder edit/delete now rides the reminder cluster instead. Still registered and delivered on opencodego.)
   "spotify_status", "spotify_play", "spotify_pause",
   // (spotify_next demoted 2026-09-30 — 0 executions across Sep 25-30 audit;
   // pause/play/status/link cover control on capped channels; stays registered)
@@ -1831,7 +1837,27 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const remindersMod = require("./reminders") as typeof import("./reminders");
-    const { addReminder: addRem, moveReminder, deleteRemindersAtTime, deleteReminders } = remindersMod;
+    const { addReminder: addRem, moveReminder, deleteRemindersAtTime, deleteReminders, editReminder } = remindersMod;
+
+    // RENAME FIRST ("ubah judul reminder cek email jadi cek email penting",
+    // live drill 2026-10-06). The title is the one change with no deterministic
+    // path, so it reached the model as an edit_reminder ARGUMENT — and across two
+    // live runs the model sent only `when` (once inventing a date) and then told
+    // the user the title had been renamed. The user's own words must reach the
+    // store, so the rename is applied here and the model is never asked to
+    // assemble it. Returns immediately: a rename is neither a move nor a create,
+    // and "ganti reminder X jadi jam 9" stays a repoint (the detector refuses it).
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { detectReminderRename } = require("./reminderIntent") as typeof import("./reminderIntent");
+      const rename = detectReminderRename(userText);
+      if (rename) {
+        const res = editReminder(user, rename.anchor, { text: rename.title });
+        if (res && res.before.text !== res.after.text) {
+          return `${(text || "").trimEnd()} (Sudah diubah: judulnya jadi "${res.after.text}", jam ${clockLabel(new Date(res.after.at))} tetap 🌸)`;
+        }
+      }
+    } catch { /* best-effort: fall through to the normal reminder paths */ }
 
     // Re-point intents FIRST ("ubah … jadi jam 10 / pindah jam 9"): relocate an
     // EXISTING reminder whose topic matches, preserving its nicer title and
@@ -1903,7 +1929,8 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
         const recurring = toAdd[0].repeat === "daily" ? "setiap hari " : "";
         parts.push(reminderAddSuffix(labels.join(" & "), recurring));
       }
-      const suffix = ` (${parts.join(" ")}🌸)`;
+      // Space before the glyph: without it the suffix read "jadinya 09:00🌸" (live 2026-10-06).
+      const suffix = ` (${parts.join(" ")} 🌸)`;
       if (needMoveSuffix) {
         // Only suppress the move suffix when the reply ALREADY states the target
         // move time. Check for the exact destination labels ("14.00" — the same
@@ -1913,15 +1940,27 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
         const dstLabels = intents.filter((i) => i.repoint).map((i) =>
           clockLabel(i.atMs)
         );
-        const mentionsDst = dstLabels.some((l) => text.includes(l));
+        // Clock labels the reply still carries, separator-normalised (the list
+        // renders "09.00", a model may write "09:00" — comparing the raw strings
+        // missed that and double-announced the move, live 2026-10-06).
+        const dstSet = new Set(dstLabels.map(normalizeClockLabel));
+        const stale = clockLabelsIn(text).filter((c) => !dstSet.has(c));
+        if (stale.length) {
+          // The model quoted a PRE-move time (a list it read before this turn's
+          // move), so its answer contradicts the store. Rebuild the list from the
+          // POST-move store whatever shape the answer has — the old /•/ test only
+          // caught BULLETED lists and let the live shape through ("Kamu ada 1
+          // reminder beb — jam 08.00 …" announcing 09.00, 2026-10-06).
+          const rebuilt = buildReminderList(user);
+          if (rebuilt) return rebuilt + suffix;
+        }
+        const mentionsDst = dstLabels.some((l) => text.includes(l) || text.includes(l.replace(".", ":")));
         if (mentionsDst) return text;
         // The model often answers a move request with a READ reminders list taken
         // BEFORE the move — its hours are stale next to the "Sudah kupindah"
         // suffix (2026-09-11 live: "ubah lagi jadi jam 2 siang" → list showed
         // 13.00 while store became 14.00). Rebuild the list verbatim from the
         // POST-move store so the hours match the confirmation.
-        const rebuilt = buildReminderList(user);
-        if (rebuilt && /•/.test(text)) return rebuilt + suffix;
         return (text || "").trimEnd() + suffix;
       }
       // Pure add/recurring path: suppress only when the reply already mentions
@@ -1966,6 +2005,25 @@ const REMINDER_ADD_LINES = [
   (t: string, rec: string) => `Dimasukkan ke daftar, ${rec}pukul ${t} aku bentuk alarm dadakan`,
   (t: string, rec: string) => `Kebukukan, ${rec}jam ${t} aku gedor-gedor ingatanmu`,
 ];
+/** "09.00" / "09:00" / "9.00" -> "09:00" so a destination label can be compared
+ *  against a model's own spelling of the same clock. */
+export function normalizeClockLabel(label: string): string {
+  const m = /(\d{1,2})[:.](\d{2})/.exec(label);
+  if (!m) return label.trim();
+  return `${String(Number(m[1])).padStart(2, "0")}:${m[2]}`;
+}
+
+/** Every clock label in a reply, normalised. Used to spot STALE times after a
+ *  reminder move (live 2026-10-06: the answer announced 09:00 while still
+ *  printing the pre-move 08.00). */
+export function clockLabelsIn(text: string): string[] {
+  const out: string[] = [];
+  for (const m of (text || "").matchAll(/\b(?:[01]?\d|2[0-3])[:.]\d{2}\b/g)) {
+    out.push(normalizeClockLabel(m[0]));
+  }
+  return out;
+}
+
 export function reminderMoveSuffix(labels: string): string {
   return dayRotated(REMINDER_MOVE_LINES)(labels);
 }
@@ -6308,7 +6366,7 @@ export function composeBuildClaimSuffix(messages: ChatMessage[], text: string): 
  */
 const CHAIN_DEADLINE_MS = 30_000;
 
-export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "llm_hunt", "mcp_hunt", "git_status", "cvss_score", "recon_subdomains", "recon_params", "security_playbook", "prompt_injection_hunt", "codebase_refresh", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "git_commit", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner", "github_osint", "har_import", "api_spec", "memory", "waze_route", "spotify_next", "spotify_volume", "spotify_sleep_timer", "ato_prove"];
+export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "llm_hunt", "mcp_hunt", "git_status", "cvss_score", "recon_subdomains", "recon_params", "security_playbook", "prompt_injection_hunt", "codebase_refresh", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "git_commit", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner", "github_osint", "har_import", "api_spec", "memory", "waze_route", "spotify_next", "spotify_volume", "spotify_sleep_timer", "ato_prove", "web_audit", "cancel_task", "engagement_list", "http_session", "cdp_request", "jwt_attack", "request_run", "cve_intel", "hunt_log", "auth_hunt", "engagement_targets", "policy_set", "flow_run", "campaign_run", "bounty_run", "api_hunt", "scope_import", "persona_show", "persona_set", "persona_forget", "cache_poison_prover", "xxe_chain", "open_redirect_chain"];
 
 
 /**
@@ -6993,6 +7051,15 @@ async function runAssistantTurnImpl(opts: {
     needsConfirmation = needsConfirmation.filter(
       (c) => c.name !== "cancel_reminder" && c.name !== "remind_me"
     );
+  }
+  // Same defuse for a RENAME ask. The deterministic path owns the title (live
+  // drill 2026-10-06), so an edit_reminder the model proposes in the same turn
+  // can only add damage: it kept sending a `when` the user never asked for (and
+  // once invented a date), which moved the clock the rename was supposed to keep.
+  // Suppressed here, before confirmation, so it can never be approved by mistake.
+  const renameHit = lastUserMsg?.content ? detectReminderRename(messageText(lastUserMsg.content)) : null;
+  if (renameHit && needsConfirmation) {
+    needsConfirmation = needsConfirmation.filter((c) => c.name !== "edit_reminder");
   }
   if (!remindToolAlreadyHandled(opts, needsConfirmation)) {
     text = scheduleReminderFromIntent(messages, opts.user, text);
