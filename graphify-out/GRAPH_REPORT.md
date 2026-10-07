@@ -1,22 +1,22 @@
-# Graph Report - ai-assistant  (2026-10-06)
+# Graph Report - ai-assistant  (2026-10-07)
 
 ## Corpus Check
-- 1021 files · ~1,327,641 words
+- 1025 files · ~1,337,870 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 13347 nodes · 26062 edges · 707 communities (637 shown, 59 thin omitted)
-- Extraction: 90% EXTRACTED · 10% INFERRED · 0% AMBIGUOUS · INFERRED: 2543 edges (avg confidence: 0.85)
+- 13406 nodes · 26194 edges · 730 communities (659 shown, 60 thin omitted)
+- Extraction: 90% EXTRACTED · 10% INFERRED · 0% AMBIGUOUS · INFERRED: 2551 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `0baf7a9d`
+- Built from commit: `36e8afaf`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - appRoot
-- spotify.ts
+- canonicalUserKey
 - AIProvider
 - runAssistantTurnImpl
 - byterover.ts
@@ -27,7 +27,7 @@
 - agent.ts
 - LiveVoicePanel.tsx
 - weeklyInsight.ts
-- reminderIntent.ts
+- automations.ts
 - email.ts
 - freeride.ts
 - compilerOptions
@@ -35,7 +35,7 @@
 - ConversationManager
 - oast.ts
 - providerHealth.ts
-- userDataRoot
+- sanitizeUser
 - echarts.min.js
 - E
 - useVoice.ts
@@ -46,7 +46,7 @@
 - devDependencies
 - sessions.ts
 - summarize.ts
-- sanitizeUser
+- reminders.ts
 - browserUse.ts
 - a2aProtocol.js
 - dependencies
@@ -56,7 +56,7 @@
 - cua.ts
 - authGuard.ts
 - calendar.ts
-- habits.ts
+- config.ts
 - honestyStability.ts
 - messages_route.js
 - AGENTS.md
@@ -65,14 +65,14 @@
 - compilerOptions
 - U
 - gep/paths.js
-- politeDelay
+- nosqlHunt.ts
 - collect.js
 - domXssProve.ts
 - manager.js
 - waze.ts
 - compilerOptions
 - compilerOptions
-- runs.js
+- observer/index.js
 - learnings.ts
 - config.js
 - lifecycle.js
@@ -87,8 +87,8 @@
 - httpSession.ts
 - massAssign.ts
 - monitorIntent.ts
-- proAttack.ts
-- recon.ts
+- politeDelay
+- targetAllowed
 - @campfirein/byterover-packages
 - Mia — Fitur Lengkap (2026-09-21)
 - extractor.js
@@ -122,12 +122,12 @@
 - safe-exec-reject.sh
 - web/weather.sh
 - Hello Skill (SKILL.md example)
-- proxyChatCompletionsE2E.test.js
+- v1Responses.test.js
 - savingsCore.js
 - proxyTokenReuse.test.js
-- drill-smuggle-domxss.mts
+- smuggleProbe.ts
 - A
-- targetAllowed
+- paramFuzz.ts
 - main
 - idleScheduler.js
 - proxyModelsE2E.test.js
@@ -136,7 +136,7 @@
 - extensions.test.js
 - Insecure File Uploads
 - autoBuyer.js
-- lifecycleRateLimit.test.js
+- liveTools.ts
 - Personal AI Assistant (Mia)
 - selfPR.js
 - solidify.js
@@ -160,7 +160,7 @@
 - gep/signals.js
 - hubSearch.js
 - gep/personality.js
-- settings.js
+- mailboxTransport.js
 - Ts
 - evolveCollect.test.js
 - Business Logic Flaws
@@ -196,7 +196,7 @@
 - atpExecute.js
 - _0x2f4b52
 - validator/index.js
-- MailboxStore
+- store.js
 - proxyVertexE2E.test.js
 - HTTP Request Smuggling
 - cliContracts.js
@@ -267,7 +267,7 @@
 - Infrastructure Lifecycle Trust
 - Active Directory
 - Auth0
-- game.ts
+- runs.js
 - mia-features-tools-list.md
 - refresh_stars_badge.js
 - roleGate.ts
@@ -321,28 +321,28 @@
 - cvssV4.ts
 - mcpHunt.ts
 - atp/index.js
-- accountRecovery.ts
+- verdictTaxonomy.test.ts
 - pipeline/signals.js
 - claimNudge.js
 - places.ts
 - crypto.js
-- capsule.js
+- discordVoice.ts
 - _0x420a1e
 - reporter.js
-- urlMatch.ts
+- pocRuns.ts
 - forceUpdateMidCopyWedge.test.js
 - issue562InertGeneBan.test.js
 - lifecycleLastUpdateAck.test.js
 - drill-readingplaybook-discord.mts
 - Prototype Pollution
 - transport.ts
-- FakeContext
+- AudioPlayer.test.ts
 - capability-evolver/package.json
 - _0xd5f243
 - submissionPreflight.ts
 - curriculum.js
 - reflection.js
-- task.js
+- MailboxStore
 - _0x4b1de7
 - threatModel.ts
 - runtimePaths.test.js
@@ -369,7 +369,7 @@
 - Source-Aware SAST Playbook
 - exploitChains.ts
 - otpHunt.ts
-- protoPollute.ts
+- recordHttp
 - 2. Matriks uji
 - files
 - suggest_version.js
@@ -379,7 +379,7 @@
 - RichContext
 - traceControl.js
 - evolveHub.test.js
-- automations.ts
+- claimAuditReaders.ts
 - EvoMapProxy
 - resetLocalSecret.test.js
 - skill2recipes.test.js
@@ -418,7 +418,7 @@
 - questionComposer.js
 - analyzer.test.js
 - liveConfirm.ts
-- assetStore.test.js
+- resolveInSandbox
 - workspaceKeychain.js
 - uploads.ts
 - adapters.kiro.test.js
@@ -446,8 +446,8 @@
 - ed
 - heartbeatResilienceRound4.test.js
 - memoryGraph.test.js
-- prompt.test.js
-- smuggleProbe.ts
+- findingClaimAudit.ts
+- buildSlimSystemPrompt
 - spawnReplacementProcess.test.js
 - stakeBootstrap.test.js
 - webuiObserver.test.js
@@ -464,7 +464,7 @@
 - candidateEval.js
 - epigenetics.js
 - executionTrace.js
-- weather.ts
+- cliAutobuyPrompt.test.js
 - PRD — Pixel Office Trio (Mia / Agnes / Michelle)
 - validationReport.js
 - adaptersSyntax.test.js
@@ -474,7 +474,7 @@
 - heartbeatResilienceRound5.test.js
 - _0x2c2f8d
 - narrativeMemory.test.js
-- safeExec.ts
+- repoRoot
 - resolveProjectDir.test.js
 - trajectoryCursorVscdb.test.js
 - trajectoryGeminiCli.test.js
@@ -491,7 +491,7 @@
 - 使用方法
 - gep_append_event.js
 - validate-suite.js
-- schemaGene.test.js
+- oauthLogin.js
 - compareConcreteSemver
 - inject.js
 - assetCallLog.test.js
@@ -499,7 +499,7 @@
 - drill-trio-persona.mts
 - issue562ValidateModulesSkip.test.js
 - sweepGate.ts
-- drill-blindssrf-oast.mts
+- drill-bypass-otp-pp.mts
 - SyncEngine
 - memoryGraphRotation.test.js
 - nodeIdResolution.test.js
@@ -589,7 +589,7 @@
 - heartbeatSignalsHandler.js
 - cloud.ts
 - leakCheckDefault.test.js
-- promptOpenPRHint.test.js
+- codebaseIndex.ts
 - recipeHub.test.js
 - promptInjection.ts
 - solidifyLearning.test.js
@@ -634,7 +634,7 @@
 - tsconfig.build.json
 - drill-mdreport-adapter.mts
 - 2.1 Stored XSS Belum Sepenuhnya Terbukti
-- schemas/index.js
+- proxyClientsE2E.test.js
 - 1.1 Merge Duplicate SQL Injection
 - False-Positive Elimination — cara prover membedakan sinyal dari noise
 - gmaps.ts
@@ -647,11 +647,11 @@
 - 20. Superpower Suite (2026-09-20)
 - 23. MVP Phases + Gates
 - mala.ts
-- sstiEnum.ts
+- runAssistantTurn
 - Style
 - Style
 - loadBackoff.test.js
-- lifecycleProxyHealth.test.js
+- probe-live-bare.mts
 - static.js
 - 9. FINDING YANG SEBAIKNYA DIPERTAHANKAN
 - proxy/server/http.js
@@ -675,9 +675,9 @@
 - _0x408af0
 - Final Assessment
 - Session 2026-09-26 (lanjutan) — Strix runtime tools diadaptasi: `coverage` + `threat_model` (tools 331→333, CORE tetap 128)
-- recallVerifier.test.js
-- gep/assets.js
-- drill-bypass-otp-pp.mts
+- learning.ts
+- autoDeliver.js
+- loopMode.test.js
 - 5. PRIORITAS TINGGI — REDACTION & DATA HANDLING
 - 7. PRIORITAS MEDIUM — REFERENCES & TAXONOMY
 - 21.17 Owner-lab registry + fact-based honesty guards (2026-09-27 → 28)
@@ -699,7 +699,7 @@
 - 7. Engine Pixel Office
 - restart-mia.sh
 - evolvePolicy.test.js
-- persona/route.ts
+- clawicMemory.ts
 - extractFeatures
 - idleGating.test.js
 - proxyGeminiUpstream.test.js
@@ -707,10 +707,33 @@
 - drill-strix-pdf.mts
 - sessionFormat.test.js
 - securityPlaybook.ts
+- _0x5b1165
+- techWatch.ts
 - selector.test.js
+- dependencies
 - drill-newprovers-lab.mts
-- heartbeatResilienceRound6.test.js
+- gep_personality_report.js
+- _lockPaths.js
 - webui/server/routes.js
+- proxyOutboundSync.test.js
+- bypass403.ts
+- package.json
+- mailboxStore.test.js
+- pentestSweep.ts
+- atp-default.test.js
+- llmReview.js
+- atpAutoBuyer.test.js
+- lifecycleReauthHubUnreachable.test.js
+- impactOverclaim.ts
+- redactKnownSecrets
+- assetStore.filelock.test.js
+- cycleProgressFile.test.js
+- proxyHubUrlDefault.test.js
+- scripts
+- Session 2026-10-06/07 — Discord voice channel (Gemini Live) + name addressing — DONE, live-verified
+- drill-abdoc-verify.mts
+- drill-retest-rstaff.mts
+- overrides
 
 ## God Nodes (most connected - your core abstractions)
 1. `main()` - 192 edges
@@ -739,67 +762,67 @@
 ## Import Cycles
 - None detected.
 
-## Communities (707 total, 59 thin omitted)
+## Communities (730 total, 60 thin omitted)
 
 ### Community 0 - "appRoot"
-Cohesion: 0.04
-Nodes (121): dynamic, GET(), runtime, registerNode(), register(), day(), LOG_DIR(), logError() (+113 more)
+Cohesion: 0.05
+Nodes (78): dynamic, GET(), runtime, deliver(), listChannels(), PushState, pushToOwner(), IMPORTANT: bots register from `instrumentation-node.ts` while tools dispatch (+70 more)
 
-### Community 1 - "spotify.ts"
-Cohesion: 0.07
-Nodes (51): dynamic, GET(), runtime, dynamic, GET(), runtime, confirmSuffixFor(), scheduleSpotifyControlFromIntent() (+43 more)
+### Community 1 - "canonicalUserKey"
+Cohesion: 0.05
+Nodes (77): dynamic, GET(), runtime, dynamic, GET(), runtime, scheduleSpotifyControlFromIntent(), answerMatches() (+69 more)
 
 ### Community 2 - "AIProvider"
 Cohesion: 0.09
 Nodes (9): stripEmojiForSpeech(), AIProvider, MessageRole, MockProviderLike, ProviderEvent, ProviderEventListener, SendResult, ToolDefinition (+1 more)
 
 ### Community 3 - "runAssistantTurnImpl"
-Cohesion: 0.04
-Nodes (69): agentFlat, agentSrc, claimMsgs, Msg, pdfQ, pdfTool, proverKandidat, storeLedger (+61 more)
+Cohesion: 0.07
+Nodes (43): appendTurnResult(), chainMayFailover(), chainRunClaimSuffix(), claimedReportNames(), confirmCacheKey(), confirmDecisions(), deliveredReportName(), DELIVERY_DENIAL_RE (+35 more)
 
 ### Community 4 - "byterover.ts"
-Cohesion: 0.09
-Nodes (45): brvBin(), brvCurate(), brvCurateView(), brvCwd(), brvLocations(), brvProvidersList(), brvQuery(), brvQueryLogSummary() (+37 more)
+Cohesion: 0.16
+Nodes (25): brvBin(), brvCurate(), brvCurateView(), brvCwd(), brvLocations(), brvProvidersList(), brvQuery(), brvQueryLogSummary() (+17 more)
 
 ### Community 5 - "summarizePro.ts"
 Cohesion: 0.09
 Nodes (52): atomicWrite(), countWords(), createTemplate(), defaultSettings(), detectFormat(), ensureDir(), getSavedSummaries(), getStats() (+44 more)
 
 ### Community 6 - "tools.ts"
-Cohesion: 0.03
-Nodes (100): here, here, RETEST_FILE, ApiEndpoint, loadSpec(), METHODS, asBodyString(), asNumber() (+92 more)
+Cohesion: 0.05
+Nodes (69): asBodyString(), asNumber(), asStringArray(), cuaDoctor(), addSleep(), addWake(), addWater(), HealthData (+61 more)
 
 ### Community 7 - "persona.ts"
-Cohesion: 0.12
-Nodes (37): collapseBlanks(), DAY_LOG_MAX_CHARS, DISALLOWED_USER_KEYS, ensureUserPersona(), FACT_SECTIONS, forgetPersonaFact(), getPersonaFact(), HygieneConflict (+29 more)
+Cohesion: 0.09
+Nodes (47): DELETE(), GET(), POST(), requestUser(), runtime, collapseBlanks(), DAY_LOG_MAX_CHARS, DISALLOWED_USER_KEYS (+39 more)
 
 ### Community 8 - "rag.ts"
-Cohesion: 0.11
-Nodes (39): buildIndexFromRoots(), chunkText(), CodeIndex, currentIndex(), ensureFreshIndex(), GlobalCarrier, indexFile(), indexSummary() (+31 more)
+Cohesion: 0.22
+Nodes (22): searchCodebaseIn(), cfgStr(), cosine(), embeddingAvailable(), EmbeddingError, embedEndpoint(), embedModel(), embedTexts() (+14 more)
 
 ### Community 9 - "agent.ts"
 Cohesion: 0.02
-Nodes (129): env, rows, env, cases, prior, fi, marks, p (+121 more)
+Nodes (106): env, cases, prior, ABSENCE_ADMISSION_NOUNS, ABSENCE_ADMISSION_RE, ABSENCE_ADMISSION_SUBJECTS, absenceSafetyClaim(), appendSpotifyError() (+98 more)
 
 ### Community 10 - "LiveVoicePanel.tsx"
 Cohesion: 0.18
 Nodes (13): Home(), FloatingParticles(), mulberry32(), PARTICLE_CONFIGS, Button, ButtonProps, buttonVariants, LiveVoicePanel() (+5 more)
 
 ### Community 11 - "weeklyInsight.ts"
-Cohesion: 0.05
-Nodes (97): buildMorningBriefing(), greetingFor(), holidayToday(), localHourJkt(), pickFrom(), pickTopicSnippet(), runBriefingTick(), saveBriefingDay() (+89 more)
+Cohesion: 0.06
+Nodes (85): buildMorningBriefing(), greetingFor(), holidayToday(), localHourJkt(), pickFrom(), pickTopicSnippet(), runBriefingTick(), saveBriefingDay() (+77 more)
 
-### Community 12 - "reminderIntent.ts"
-Cohesion: 0.14
-Nodes (22): appendDeleteSuffix(), clockLabelsIn(), extractTopicFromContext(), normalizeClockLabel(), reminderAddSuffix(), reminderMoveSuffix(), scheduleReminderFromIntent(), cleanReminderText() (+14 more)
+### Community 12 - "automations.ts"
+Cohesion: 0.08
+Nodes (43): appendDeleteSuffix(), buildReminderList(), confirmSuffixFor(), reminderAddSuffix(), reminderMoveSuffix(), scheduleReminderFromIntent(), addAutomation(), addOrMergeAutomation() (+35 more)
 
 ### Community 13 - "email.ts"
 Cohesion: 0.12
 Nodes (26): dynamic, GET(), runtime, dynamic, GET(), runtime, clearGmailToken(), decodeBase64Url() (+18 more)
 
 ### Community 14 - "freeride.ts"
-Cohesion: 0.15
-Nodes (27): atomicWrite(), CACHE_FILE, CacheEntry, Config, CONFIG_FILE, DIR, ensureDir(), fetchFreeModels() (+19 more)
+Cohesion: 0.16
+Nodes (26): atomicWrite(), CACHE_FILE, CacheEntry, Config, CONFIG_FILE, DIR, ensureDir(), fetchFreeModels() (+18 more)
 
 ### Community 15 - "compilerOptions"
 Cohesion: 0.07
@@ -814,16 +837,16 @@ Cohesion: 0.08
 Nodes (16): ConversationEvent, ConversationListener, ConversationManager, nextId(), ConversationMessage, ConversationStateMachine, Event, State (+8 more)
 
 ### Community 18 - "oast.ts"
-Cohesion: 0.17
-Nodes (23): attributeCarriers(), describeHit(), fetchRows(), mergeHits(), newHits(), Oast, oastCreate(), OastHit (+15 more)
+Cohesion: 0.12
+Nodes (31): MIN_DELAY_MS, timingVerdict(), blindCmdi(), BlindCmdiOpts, CMDI_PARAMS, oastPayload(), send(), TIME_PAYLOADS (+23 more)
 
 ### Community 19 - "providerHealth.ts"
 Cohesion: 0.11
-Nodes (32): isProviderRetryable(), applyFailure(), applySuccess(), atomicWrite(), blank(), buildChain(), DESIRED_ORDER, DIR (+24 more)
+Nodes (31): isProviderRetryable(), applyFailure(), applySuccess(), atomicWrite(), blank(), buildChain(), DESIRED_ORDER, DIR (+23 more)
 
-### Community 20 - "userDataRoot"
+### Community 20 - "sanitizeUser"
 Cohesion: 0.04
-Nodes (73): brainPath, covered, eps, facts, note, recordExecuted(), evidenceDir(), evidenceCapture() (+65 more)
+Nodes (83): BAND_WORD, envRaw, KEYS, now, part, STAMP, addCorrection(), Correction (+75 more)
 
 ### Community 21 - "echarts.min.js"
 Cohesion: 0.02
@@ -846,8 +869,8 @@ Cohesion: 0.06
 Nodes (120): t(), A(), ab(), ac(), An(), at(), aV(), B() (+112 more)
 
 ### Community 26 - "security.ts"
-Cohesion: 0.05
-Nodes (56): EXPECT, prompt, w, envRaw, esc(), reportFooterTemplate(), addFinding(), bolaDiff() (+48 more)
+Cohesion: 0.04
+Nodes (53): EXPECT, prompt, w, envRaw, addFinding(), bolaDiff(), cmpVer(), cvssScore() (+45 more)
 
 ### Community 27 - "liveVerify.ts"
 Cohesion: 0.07
@@ -862,60 +885,60 @@ Cohesion: 0.27
 Nodes (17): DELETE(), dynamic, GET(), POST(), runtime, deleteSession(), indexPath(), listSessions() (+9 more)
 
 ### Community 30 - "summarize.ts"
-Cohesion: 0.06
-Nodes (58): ConsolidatedMonth, consolidateUser(), DayEntry, eligibleMonths(), listSummariesForUser(), markedPath(), memoryDir(), readMarked() (+50 more)
-
-### Community 31 - "sanitizeUser"
 Cohesion: 0.05
-Nodes (75): DELETE(), dynamic, GET(), POST(), resolveUser(), runtime, dynamic, GET() (+67 more)
+Nodes (67): dynamic, POST(), runtime, rollingSummaryEnabled(), rollingSummaryKeepRecent(), rollingSummaryTriggerChars(), ConsolidatedMonth, consolidateUser() (+59 more)
+
+### Community 31 - "reminders.ts"
+Cohesion: 0.08
+Nodes (48): DELETE(), dynamic, GET(), POST(), resolveUser(), runtime, addReminder(), appendFiredReceipt() (+40 more)
 
 ### Community 32 - "browserUse.ts"
-Cohesion: 0.24
-Nodes (16): buClick(), buClose(), buDoctor(), buEval(), buGet(), buInput(), buKeys(), buOpen() (+8 more)
+Cohesion: 0.12
+Nodes (27): browserClick(), browserEval(), browserNavigate(), browserOpen(), browserSnapshot(), browserType(), ensurePage(), buClick() (+19 more)
 
 ### Community 33 - "a2aProtocol.js"
 Cohesion: 0.03
-Nodes (53): _heartbeatLooksAlive(), _0x15cd07, _0x1604a8, _0x172f7e, _0x1747ef(), _0x189099, _0x18c53a, _0x18e179 (+45 more)
+Nodes (54): _0x15cd07, _0x1604a8, _0x172f7e, _0x1747ef(), _0x189099, _0x18c53a, _0x18e179, _0x193362() (+46 more)
 
 ### Community 34 - "dependencies"
 Cohesion: 0.11
 Nodes (19): @ai-provider/mock, dependencies, @ai-provider/mock, class-variance-authority, framer-motion, grammy, lucide-react, @radix-ui/react-slot (+11 more)
 
 ### Community 35 - "merchantAgent.js"
-Cohesion: 0.11
-Nodes (19): defaultOrderHandler(), getAtpMode(), resolveAtpServices(), submitDelivery(), { getNodeId, sendHelloToHub, startHeartbeat, stopHeartbeat, consumeAvailableWork }, { publishService }, start(), { submitDelivery, getMerchantTier, listProofs } (+11 more)
+Cohesion: 0.10
+Nodes (16): { getNodeId, sendHelloToHub, startHeartbeat, stopHeartbeat, consumeAvailableWork }, { publishService }, start(), { submitDelivery, getMerchantTier, listProofs }, { getNodeId, buildHubHeaders, buildNodeScopedHubHeaders, getHubUrl }, { HTTP_TRANSPORT_TIMEOUT_MS }, { hubFetch }, postService() (+8 more)
 
 ### Community 36 - "main"
-Cohesion: 0.05
-Nodes (64): POST(), runtime, GeminiLiveError, INSTRUCTION_EMOJI_RE, isoInMinutes(), POST(), readRawUser(), readTaskHint() (+56 more)
+Cohesion: 0.08
+Nodes (38): POST(), runtime, runAutoUpdaterTick(), appendDailyMemory(), dailyMemoryPath(), listDailyMemories(), loadDailyMemoryPrompt(), memoryDir() (+30 more)
 
 ### Community 37 - "csrfProve.ts"
-Cohesion: 0.09
-Nodes (25): CsrfForm, csrfProve(), CsrfVerdict, escHtml(), FetchFn, formHasToken(), parseForms(), renderCsrfPoc() (+17 more)
+Cohesion: 0.15
+Nodes (18): CsrfForm, csrfProve(), CsrfVerdict, escHtml(), FetchFn, formHasToken(), parseForms(), renderCsrfPoc() (+10 more)
 
 ### Community 38 - "cua.ts"
-Cohesion: 0.18
-Nodes (29): clipboardReadText(), clipboardWriteText(), cuaAccessibilityTree(), cuaBrowserClick(), cuaBrowserNavigate(), cuaBrowserType(), cuaClick(), cuaClickXY() (+21 more)
+Cohesion: 0.19
+Nodes (28): clipboardReadText(), clipboardWriteText(), cuaAccessibilityTree(), cuaBrowserClick(), cuaBrowserNavigate(), cuaBrowserType(), cuaClick(), cuaClickXY() (+20 more)
 
 ### Community 39 - "authGuard.ts"
 Cohesion: 0.29
 Nodes (11): dynamic, GET(), POST(), authEnabled(), authToken(), bearerFrom(), isAuthorized(), isPublicPath() (+3 more)
 
 ### Community 40 - "calendar.ts"
-Cohesion: 0.19
+Cohesion: 0.21
 Nodes (14): addCalEvent(), addToMacCalendar(), addToMacReminders(), CalEvent, calPath(), checkCalAvailability(), deleteCalEvent(), listCalEvents() (+6 more)
 
-### Community 41 - "habits.ts"
-Cohesion: 0.42
-Nodes (8): Habit, HabitLog, habitsPath(), habitStats(), logHabit(), readHabits(), todayStr(), writeHabits()
+### Community 41 - "config.ts"
+Cohesion: 0.08
+Nodes (61): GET(), runtime, CONFIRM_FRAME_PREFIX, day(), LOG_DIR(), logError(), prune(), write() (+53 more)
 
 ### Community 42 - "honestyStability.ts"
-Cohesion: 0.04
-Nodes (70): allFindings, brain, dir, endpointsSeen, facts, open, pocRuns, rows (+62 more)
+Cohesion: 0.05
+Nodes (64): allFindings, brain, dir, endpointsSeen, facts, open, pocRuns, rows (+56 more)
 
 ### Community 43 - "messages_route.js"
-Cohesion: 0.04
-Nodes (54): rewriteModel(), buildMessagesHandler(), canonicalizeForBedrock(), { createProxyTrace }, DEFAULT_TIER_MODELS, { extractFeatures }, isIntraFamilyDowngrade(), KNOWN_BEDROCK_ALIASES (+46 more)
+Cohesion: 0.05
+Nodes (37): rewriteModel(), buildMessagesHandler(), canonicalizeForBedrock(), { createProxyTrace }, DEFAULT_TIER_MODELS, { extractFeatures }, isIntraFamilyDowngrade(), KNOWN_BEDROCK_ALIASES (+29 more)
 
 ### Community 44 - "AGENTS.md"
 Cohesion: 0.03
@@ -938,12 +961,12 @@ Cohesion: 0.05
 Nodes (58): aw(), ay(), bi(), bp(), bv(), cc(), eb(), ES() (+50 more)
 
 ### Community 49 - "gep/paths.js"
-Cohesion: 0.05
-Nodes (69): aggregateFromEvents(), clamp01(), fs, { getRepoRoot, getMemoryDir, getGepAssetsDir }, main(), { normalizePersonalityState, personalityKey, defaultPersonalityState }, pad(), path (+61 more)
+Cohesion: 0.07
+Nodes (47): LOCK_MAX_AGE_MS, A2A_ENV_KEYS, captureEnvConfig(), captureEvolutionState(), captureLocalState(), captureLocalStatePaths(), captureMemoryState(), captureNodeIdentity() (+39 more)
 
-### Community 50 - "politeDelay"
-Cohesion: 0.08
-Nodes (45): raceAttack(), wsProbe(), bodiesDiffer(), classifyOutcome(), MIN_DELAY_MS, normalizeBody(), oracleDigest(), successish() (+37 more)
+### Community 50 - "nosqlHunt.ts"
+Cohesion: 0.17
+Nodes (19): bodiesDiffer(), classifyOutcome(), normalizeBody(), successish(), MATRIX, classifyNosqlOutcome(), getParamPayload(), mongoFingerprint() (+11 more)
 
 ### Community 51 - "collect.js"
 Cohesion: 0.06
@@ -954,12 +977,12 @@ Cohesion: 0.24
 Nodes (13): attemptSource(), buildAttemptUrl(), classifyDomXss(), DOM_SOURCES, DomAttempt, DomSource, domXssProve(), DomXssVerdict (+5 more)
 
 ### Community 53 - "manager.js"
-Cohesion: 0.06
-Nodes (31): fetchAllPages(), getEvomapPath(), { buildEnvelope }, crypto, extractSecretDivergenceReason(), fingerprintNodeSecret(), fs, _getEnvFingerprint() (+23 more)
+Cohesion: 0.08
+Nodes (28): fetchAllPages(), getEvomapPath(), { buildEnvelope }, crypto, extractSecretDivergenceReason(), fingerprintNodeSecret(), fs, _getEnvFingerprint() (+20 more)
 
 ### Community 54 - "waze.ts"
-Cohesion: 0.21
-Nodes (14): HOME_GENERIC, homeCoordsFor(), parseLatLonAnywhere(), resolveExplicitCoords(), Coords, fetchOsrm(), fetchWaze(), geocode() (+6 more)
+Cohesion: 0.15
+Nodes (21): HOME_GENERIC, homeCoordsFor(), parseLatLonAnywhere(), resolveExplicitCoords(), Coords, fetchOsrm(), fetchWaze(), geocode() (+13 more)
 
 ### Community 55 - "compilerOptions"
 Cohesion: 0.15
@@ -969,9 +992,9 @@ Nodes (12): compilerOptions, esModuleInterop, lib, module, moduleResolution, noE
 Cohesion: 0.15
 Nodes (12): compilerOptions, esModuleInterop, lib, module, moduleResolution, noEmit, skipLibCheck, strict (+4 more)
 
-### Community 57 - "runs.js"
-Cohesion: 0.05
-Nodes (97): countBy(), dedupeById(), eventMentions(), filterText(), getAssetOverview(), getLineage(), { getObserverPaths }, listAssetCalls() (+89 more)
+### Community 57 - "observer/index.js"
+Cohesion: 0.08
+Nodes (64): countBy(), dedupeById(), eventMentions(), filterText(), getAssetOverview(), getLineage(), { getObserverPaths }, listAssetCalls() (+56 more)
 
 ### Community 58 - "learnings.ts"
 Cohesion: 0.23
@@ -979,11 +1002,11 @@ Nodes (17): logCorrection(), detectCorrection(), ensureDir(), HEADERS, Kind, lea
 
 ### Community 59 - "config.js"
 Cohesion: 0.04
-Nodes (54): ANTI_ABUSE_TELEMETRY_MODE, BLAST_RADIUS_HARD_CAP_FILES, BLAST_RADIUS_HARD_CAP_LINES, CANARY_TIMEOUT_MS, CAPSULE_CONTENT_MAX_CHARS, CLEANUP_MAX_AGE_MS, CLEANUP_MAX_FILES, CLEANUP_MIN_KEEP (+46 more)
+Nodes (53): ANTI_ABUSE_TELEMETRY_MODE, BLAST_RADIUS_HARD_CAP_FILES, BLAST_RADIUS_HARD_CAP_LINES, CANARY_TIMEOUT_MS, CAPSULE_CONTENT_MAX_CHARS, CLEANUP_MAX_AGE_MS, CLEANUP_MAX_FILES, CLEANUP_MIN_KEEP (+45 more)
 
 ### Community 60 - "lifecycle.js"
 Cohesion: 0.08
-Nodes (47): boolEnv(), checkHealth(), checkProxyHealth(), clientSettingsExpectProxy(), codexConfigExpectsProxy(), commandIncludesPath(), commandUsesCurrentRepoRelativeIndex(), { execFileSync, execSync, spawn } (+39 more)
+Nodes (48): MAX_SILENCE_MS, boolEnv(), checkHealth(), checkProxyHealth(), clientSettingsExpectProxy(), codexConfigExpectsProxy(), commandIncludesPath(), commandUsesCurrentRepoRelativeIndex() (+40 more)
 
 ### Community 61 - "ai-provider/package.json"
 Cohesion: 0.18
@@ -1002,12 +1025,12 @@ Cohesion: 0.05
 Nodes (47): _0x103243(), _0x1485e5, _0x158e7b, _0x15c3ea(), _0x183ced, _0x19502b, _0x1e836b, _0x2130cc() (+39 more)
 
 ### Community 65 - "assetStore.js"
-Cohesion: 0.08
-Nodes (63): main(), _acquireLock(), appendCandidateJsonl(), appendCapsule(), appendEventJsonl(), appendExternalCandidateJsonl(), appendFailedCapsule(), buildValidationCmd() (+55 more)
+Cohesion: 0.10
+Nodes (53): _acquireLock(), appendCandidateJsonl(), appendCapsule(), appendEventJsonl(), appendExternalCandidateJsonl(), appendFailedCapsule(), buildValidationCmd(), bundledGenesPath() (+45 more)
 
 ### Community 66 - "executeTool"
-Cohesion: 0.08
-Nodes (38): dynamic, GET(), runtime, LiveToolCall, POST(), runtime, GET(), runtime (+30 more)
+Cohesion: 0.09
+Nodes (29): dynamic, GET(), runtime, dynamic, GET(), runtime, als(), BusCarrier (+21 more)
 
 ### Community 67 - "hubFetch.js"
 Cohesion: 0.06
@@ -1018,28 +1041,28 @@ Cohesion: 0.06
 Nodes (36): _0x117396(), _0x1de774(), _0x255a(), _0x2688f3, _0x26f115, _0x2a7d5e, _0x33e9d9, _0x3a7b8e() (+28 more)
 
 ### Community 69 - "httpSession.ts"
-Cohesion: 0.09
-Nodes (36): admin, here, staff, AtoOpts, atoProve(), atoVerdict, buildLoginBody(), looksLikeLoginForm() (+28 more)
+Cohesion: 0.08
+Nodes (36): admin, here, staff, srv, AtoOpts, atoProve(), atoVerdict, buildLoginBody() (+28 more)
 
 ### Community 70 - "massAssign.ts"
-Cohesion: 0.36
-Nodes (7): bodyWithFields(), digest(), FetchFn, massAssign(), massPayloads(), MassRun, massVerdict
+Cohesion: 0.20
+Nodes (12): bodyWithFields(), digest(), FetchFn, massAssign(), massPayloads(), MassRun, massVerdict, classifyOauthRedirect() (+4 more)
 
 ### Community 71 - "monitorIntent.ts"
-Cohesion: 0.43
-Nodes (7): detectMonitorIntent(), detectMonitorIntents(), hasMonitorIntent(), labelFor(), MonitorIntent, parseThreshold(), toNumber()
+Cohesion: 0.31
+Nodes (9): monitorAddSuffix(), scheduleMonitorFromIntent(), detectMonitorIntent(), detectMonitorIntents(), hasMonitorIntent(), labelFor(), MonitorIntent, parseThreshold() (+1 more)
 
-### Community 72 - "proAttack.ts"
-Cohesion: 0.07
-Nodes (46): srv, Commit, domainDorks(), getJson(), githubOsint(), GrepHit, parseGrepApp(), repoSlug() (+38 more)
+### Community 72 - "politeDelay"
+Cohesion: 0.08
+Nodes (45): Commit, domainDorks(), getJson(), githubOsint(), GrepHit, parseGrepApp(), repoSlug(), batchVerdict() (+37 more)
 
-### Community 73 - "recon.ts"
-Cohesion: 0.09
-Nodes (46): BUCKET_SUFFIXES, bucketEnum(), certspotter(), cleanDomain(), COMMON_PATHS, COMMON_PORTS, crtsh(), DNS_WORDS (+38 more)
+### Community 73 - "targetAllowed"
+Cohesion: 0.06
+Nodes (70): raceAttack(), wsProbe(), apiHunt(), AUTH_PATHS, authHunt(), cookieProblems(), flags(), head() (+62 more)
 
 ### Community 74 - "@campfirein/byterover-packages"
-Cohesion: 0.04
-Nodes (46): byterover-cli, character-entities, character-entities-legacy, character-reference-invalid, comma-separated-tokens, diff, hast-util-parse-selector, hastscript (+38 more)
+Cohesion: 0.10
+Nodes (21): character-entities, character-entities-legacy, character-reference-invalid, comma-separated-tokens, diff, hast-util-parse-selector, hastscript, is-alphabetical (+13 more)
 
 ### Community 75 - "Mia — Fitur Lengkap (2026-09-21)"
 Cohesion: 0.10
@@ -1055,7 +1078,7 @@ Nodes (14): addDays(), CACHE, CacheEntry, fetchHotels(), fmtRp(), getHotels(), H
 
 ### Community 78 - "proxy/index.js"
 Cohesion: 0.05
-Nodes (40): { backfillProxyTraceUploads }, buildAssetSearchQuery(), { buildGeminiHandler }, { buildMessagesHandler, canonicalizeForBedrock, supportsAdaptiveThinking }, { buildModelsHandler }, { buildOllamaHandler }, { buildResponsesHandler, buildChatCompletionsHandler }, { buildRoutes } (+32 more)
+Nodes (39): { backfillProxyTraceUploads }, buildAssetSearchQuery(), { buildGeminiHandler }, { buildMessagesHandler, canonicalizeForBedrock, supportsAdaptiveThinking }, { buildModelsHandler }, { buildOllamaHandler }, { buildResponsesHandler, buildChatCompletionsHandler }, { buildRoutes } (+31 more)
 
 ### Community 79 - "USER.md (stable user facts)"
 Cohesion: 0.40
@@ -1099,40 +1122,40 @@ Cohesion: 0.07
 Nodes (53): applyEvent(), Avatar, AVATAR_COLORS, AvatarStatus, BusLikeEvent, ensureAvatar(), eventActor(), findPath() (+45 more)
 
 ### Community 99 - "agentRole.ts"
-Cohesion: 0.06
-Nodes (43): envRaw, KEYS, STAMP, BAND_WORD, envRaw, KEYS, now, part (+35 more)
+Cohesion: 0.08
+Nodes (36): envRaw, KEYS, STAMP, schedulePlaceCheckFromIntent(), AGENT_PERSONA_VERSION, AGENT_ROLE_BLOCKS, agentPersonaNeedsReseed(), agentPersonaVersion() (+28 more)
 
 ### Community 100 - "discord.ts"
 Cohesion: 0.08
-Nodes (36): ask(), out, AGENT_SPECS, AgentBotConfig, agentConfigsFromEnv(), AgentLabel, AgentSpec, ALLOWED_CHANNEL_IDS (+28 more)
+Nodes (38): ask(), out, addressedAgentByName(), AGENT_SPECS, AgentBotConfig, agentConfigsFromEnv(), AgentLabel, AgentSpec (+30 more)
 
-### Community 112 - "proxyChatCompletionsE2E.test.js"
-Cohesion: 0.12
-Nodes (23): asUpstreamError(), buildChatCompletionsHandler(), buildResponsesHandler(), copyOpenAIResponseHeaders(), { createProxyTrace }, hasOpenAIUpstreamCredential(), OPENAI_RESPONSE_HEADER_ALLOWLIST, responseToBody() (+15 more)
+### Community 112 - "v1Responses.test.js"
+Cohesion: 0.07
+Nodes (33): asUpstreamError(), buildChatCompletionsHandler(), buildResponsesHandler(), copyOpenAIResponseHeaders(), { createProxyTrace }, hasOpenAIUpstreamCredential(), OPENAI_RESPONSE_HEADER_ALLOWLIST, responseToBody() (+25 more)
 
 ### Community 113 - "savingsCore.js"
 Cohesion: 0.07
 Nodes (37): _0x15a6c7(), _0x19ee94(), _0x23ed34(), _0x2c1a00(), _0x2dd515(), _0x316f72(), _0x33ef(), _0x343799() (+29 more)
 
 ### Community 114 - "proxyTokenReuse.test.js"
-Cohesion: 0.05
-Nodes (33): buildRoutes(), { PROXY_PROTOCOL_VERSION, SCHEMA_VERSION }, assert, { buildRoutes }, { describe, it, before, after, beforeEach }, fs, http, { MailboxStore } (+25 more)
+Cohesion: 0.08
+Nodes (23): buildRoutes(), { PROXY_PROTOCOL_VERSION, SCHEMA_VERSION }, assert, { buildRoutes }, { describe, it, before, after, beforeEach }, fs, http, { MailboxStore } (+15 more)
 
-### Community 115 - "drill-smuggle-domxss.mts"
-Cohesion: 0.12
-Nodes (14): auditDir, c1, c1runs, c2, c2runs, desyncToy, domToy, envRaw (+6 more)
+### Community 115 - "smuggleProbe.ts"
+Cohesion: 0.09
+Nodes (26): auditDir, c1, c1runs, c2, c2runs, desyncToy, domToy, envRaw (+18 more)
 
 ### Community 116 - "A"
 Cohesion: 0.07
 Nodes (40): Al(), ba(), bo(), br(), Cr(), da(), Dr(), Eh() (+32 more)
 
-### Community 117 - "targetAllowed"
-Cohesion: 0.07
-Nodes (53): t0, apiSpec(), graphqlProbe(), parseOpenApi(), parsePostman(), apiHunt(), AUTH_PATHS, authHunt() (+45 more)
+### Community 117 - "paramFuzz.ts"
+Cohesion: 0.23
+Nodes (10): classify(), classifyReflectionContext(), COMMON_PARAMS, FuzzHit, paramFuzz(), PAYLOADS, pool(), Probe (+2 more)
 
 ### Community 118 - "main"
-Cohesion: 0.03
-Nodes (110): RFC-8628, acquireLock(), _activeSleeps, _bootstrapVersionSatisfies(), _compareBootstrapNumeric(), _compareBootstrapPrerelease(), _compareBootstrapSemver(), CycleTimeoutError (+102 more)
+Cohesion: 0.05
+Nodes (64): acquireLock(), _activeSleeps, _bootstrapVersionSatisfies(), _compareBootstrapNumeric(), _compareBootstrapPrerelease(), _compareBootstrapSemver(), CycleTimeoutError, evolve (+56 more)
 
 ### Community 119 - "idleScheduler.js"
 Cohesion: 0.07
@@ -1143,12 +1166,12 @@ Cohesion: 0.18
 Nodes (10): buildModelsHandler(), detectModelsProvider(), assert, { buildModelsHandler }, http, mockAnthropic(), mockOpenAI(), { ProxyHttpServer } (+2 more)
 
 ### Community 121 - "_0x570be4"
-Cohesion: 0.12
-Nodes (46): _0x135e34(), _0x1909f9(), _0x1ac7af(), _0x1c1328(), _0x1c22e4(), _0x2564c6(), _0x26c35f(), _0x274cae() (+38 more)
+Cohesion: 0.13
+Nodes (38): _0x135e34(), _0x1909f9(), _0x1ac7af(), _0x1c1328(), _0x1c22e4(), _0x2564c6(), _0x26c35f(), _0x274cae() (+30 more)
 
 ### Community 122 - "skill2gep.js"
-Cohesion: 0.10
-Nodes (35): a2a, appendJsonl(), assembleCapsule(), assetStore, audit, buildContentSummary(), buildEvolvedStrategy(), classifyProvenance() (+27 more)
+Cohesion: 0.09
+Nodes (36): a2a, appendJsonl(), assembleCapsule(), assetStore, audit, buildContentSummary(), buildEvolvedStrategy(), classifyProvenance() (+28 more)
 
 ### Community 123 - "extensions.test.js"
 Cohesion: 0.06
@@ -1159,12 +1182,12 @@ Cohesion: 0.05
 Nodes (36): Advanced Techniques, Archive Attacks, Attack Surface, Bypass Techniques, Capability Probes, Client Execution, Cloud Storage Vectors, Core Payloads (+28 more)
 
 ### Community 125 - "autoBuyer.js"
-Cohesion: 0.05
-Nodes (43): _ackPath(), _config, considerOrder(), _considerOrderSerialized(), crypto, _effectiveCap(), _emptyLedger(), fs (+35 more)
+Cohesion: 0.13
+Nodes (25): _ackPath(), _config, considerOrder(), _considerOrderSerialized(), crypto, _effectiveCap(), _emptyLedger(), fs (+17 more)
 
-### Community 126 - "lifecycleRateLimit.test.js"
-Cohesion: 0.25
-Nodes (3): assert, { LifecycleManager }, test
+### Community 126 - "liveTools.ts"
+Cohesion: 0.09
+Nodes (33): GeminiLiveError, INSTRUCTION_EMOJI_RE, isoInMinutes(), LIVE_VOICES, liveVoiceFor(), POST(), readAgent(), readRawUser() (+25 more)
 
 ### Community 127 - "Personal AI Assistant (Mia)"
 Cohesion: 0.06
@@ -1172,7 +1195,7 @@ Nodes (35): 10. State Machine, 11. Technical Architecture, 12. Security & Trust 
 
 ### Community 128 - "selfPR.js"
 Cohesion: 0.09
-Nodes (32): SELF_PR_COOLDOWN_MS, SELF_PR_MAX_FILES, SELF_PR_MAX_LINES, SELF_PR_MIN_SCORE, SELF_PR_MIN_STREAK, SELF_PR_TIMEOUT_MS, getEvolverInstallRoot(), buildPRBody() (+24 more)
+Nodes (33): SELF_PR_COOLDOWN_MS, SELF_PR_MAX_FILES, SELF_PR_MAX_LINES, SELF_PR_MIN_SCORE, SELF_PR_MIN_STREAK, SELF_PR_TIMEOUT_MS, getEvolverInstallRoot(), buildPRBody() (+25 more)
 
 ### Community 129 - "solidify.js"
 Cohesion: 0.06
@@ -1191,8 +1214,8 @@ Cohesion: 0.06
 Nodes (34): Attack Surface, Bypass Techniques, Chaining Attacks, Content-Type Switching, CORS Profile, CSRF, False Positives, File and Action Endpoints (+26 more)
 
 ### Community 133 - "poc.ts"
-Cohesion: 0.21
-Nodes (13): baselineComparison(), cookieMissingFlags(), ledgerVerdictOf(), once(), PocBaseline, pocVerdict(), pocVerdictClass, PocVerdictInput (+5 more)
+Cohesion: 0.23
+Nodes (12): baselineComparison(), cookieMissingFlags(), ledgerVerdictOf(), once(), PocBaseline, pocVerdict(), pocVerdictClass, PocVerdictInput (+4 more)
 
 ### Community 134 - "atpTaskPickup.js"
 Cohesion: 0.09
@@ -1203,8 +1226,8 @@ Cohesion: 0.19
 Nodes (21): dynamic, GET(), POST(), runtime, Device, deviceBattery(), deviceCamera(), DeviceCapability (+13 more)
 
 ### Community 136 - "issueReporter.js"
-Cohesion: 0.11
-Nodes (32): SELF_PR_REPO, buildIssueBody(), { captureEnvFingerprint }, classifyFailure(), computeErrorKey(), createGithubIssue(), crypto, escapeSearchQuery() (+24 more)
+Cohesion: 0.10
+Nodes (33): SELF_PR_REPO, buildIssueBody(), { captureEnvFingerprint }, classifyFailure(), computeErrorKey(), createGithubIssue(), crypto, escapeSearchQuery() (+25 more)
 
 ### Community 137 - "conversationDistiller.js"
 Cohesion: 0.09
@@ -1220,11 +1243,11 @@ Nodes (29): _0x1056ba, _0x18ae67, _0x19a479(), _0x1b6f14(), _0x1bafbe(), _0x22fc
 
 ### Community 140 - "hubClient.js"
 Cohesion: 0.13
-Nodes (30): checkOrder(), confirmDelivery(), dispute(), ensureInitialized(), { getNodeId, sendHelloToHub }, getPolicy(), orderAndWait(), orderService() (+22 more)
+Nodes (32): checkOrder(), confirmDelivery(), dispute(), ensureInitialized(), { getNodeId, sendHelloToHub }, getPolicy(), orderAndWait(), orderService() (+24 more)
 
 ### Community 141 - "taskReceiver.js"
-Cohesion: 0.10
-Nodes (32): resolveHubUrl(), discoverForTask(), getAgentProfile(), { getNodeId, buildHubHeaders, buildNodeScopedHubHeaders }, { hubFetch }, { resolveHubUrl }, searchByQuery(), searchBySignals() (+24 more)
+Cohesion: 0.07
+Nodes (42): resolveHubUrl(), discoverForTask(), getAgentProfile(), { getNodeId, buildHubHeaders, buildNodeScopedHubHeaders }, { hubFetch }, { resolveHubUrl }, searchByQuery(), searchBySignals() (+34 more)
 
 ### Community 142 - "antiAbuseTelemetry.js"
 Cohesion: 0.09
@@ -1235,13 +1258,8 @@ Cohesion: 0.10
 Nodes (31): _commitAtomicFileReplacement(), CONCRETE_SEMVER_RE, _copyFileIfPresent(), EVOLVER_INSTALL_MARKERS, { execFileSync }, _extractTarGzWithNode(), FORCE_UPDATE_BUSY, FORCE_UPDATE_FAIL_CODES (+23 more)
 
 ### Community 144 - "schemas/protocol.js"
-Cohesion: 0.18
-Nodes (16): GENE_DEFAULTS, VALID_CATEGORIES, VALID_REASONING_LEVELS, VALID_ROUTING_TIERS, VALID_TOOL_POLICY_SEVERITIES, renderEnum(), renderEnumList(), {
-  VALID_CATEGORIES,
-  VALID_ROUTING_TIERS,
-  VALID_REASONING_LEVELS,
-  VALID_TOOL_POLICY_SEVERITIES,
-} (+8 more)
+Cohesion: 0.07
+Nodes (39): CAPSULE_DEFAULTS, createCapsule(), { SCHEMA_VERSION }, VALID_COST_TIERS, VALID_OUTCOME_STATUSES, VALID_SOURCE_TYPES, VALID_VISIBILITIES, validateCapsule() (+31 more)
 
 ### Community 145 - "High-Value Surfaces"
 Cohesion: 0.06
@@ -1263,9 +1281,9 @@ Nodes (30): _0x146ad6, _0x1bd88c(), _0x1d9639(), _0x209e34(), _0x245daf(), _0x25
 Cohesion: 0.16
 Nodes (30): _0x1608a3(), _0x167afd(), _0x198897(), _0x1de145(), _0x1eb4f7, _0x1f2d95(), _0x23708d(), _0x240271() (+22 more)
 
-### Community 150 - "settings.js"
-Cohesion: 0.11
-Nodes (29): _proxyRequest(), { getProxyUrl, getProxyToken }, http, mailboxTransport, mailboxTransportList(), mailboxTransportReceive(), mailboxTransportSend(), _proxyAgent (+21 more)
+### Community 150 - "mailboxTransport.js"
+Cohesion: 0.16
+Nodes (14): { getProxyUrl, getProxyToken }, http, mailboxTransport, mailboxTransportList(), mailboxTransportReceive(), mailboxTransportSend(), _proxyAgent, registerMailboxTransport() (+6 more)
 
 ### Community 151 - "Ts"
 Cohesion: 0.09
@@ -1300,8 +1318,8 @@ Cohesion: 0.18
 Nodes (31): brainProofFor(), recommendChains(), runAutoChain(), Brain, brainCoverage(), BrainEndpoint, brainForget(), brainGet() (+23 more)
 
 ### Community 159 - "a2a.js"
-Cohesion: 0.13
-Nodes (22): { buildPublish, buildHello, getTransport }, { computeAssetId, SCHEMA_VERSION }, { exportEligibleCapsules, exportEligibleGenes, isAllowedA2AAsset }, { loadGenes, loadCapsules, readAllEvents }, clamp01(), { computeAssetId, SCHEMA_VERSION }, computeCapsuleSuccessStreak(), exportEligibleCapsules() (+14 more)
+Cohesion: 0.12
+Nodes (26): { buildPublish, buildHello, getTransport }, { computeAssetId, SCHEMA_VERSION }, { exportEligibleCapsules, exportEligibleGenes, isAllowedA2AAsset }, { loadGenes, loadCapsules, readAllEvents }, main(), clamp01(), { computeAssetId, SCHEMA_VERSION }, computeCapsuleSuccessStreak() (+18 more)
 
 ### Community 160 - "solidifyIntegration.test.js"
 Cohesion: 0.12
@@ -1364,8 +1382,8 @@ Cohesion: 0.10
 Nodes (26): _0x11ab(), _0x11b433(), _0x13bbeb, _0x1895f2(), _0x1beb15, _0x1de281(), _0x24db94, _0x261029() (+18 more)
 
 ### Community 175 - "sanitize.js"
-Cohesion: 0.09
-Nodes (26): detectEnvValueLeaks(), ENV_SCAN_SKIP_KEYS, fullLeakCheck(), _isAllowlisted(), LEAK_SCANNERS, REDACT_ALLOWLIST, REDACT_PATTERNS, sanitizePayload() (+18 more)
+Cohesion: 0.10
+Nodes (25): detectEnvValueLeaks(), ENV_SCAN_SKIP_KEYS, fullLeakCheck(), _isAllowlisted(), LEAK_SCANNERS, REDACT_ALLOWLIST, REDACT_PATTERNS, sanitizePayload() (+17 more)
 
 ### Community 176 - "_0x55d3d8"
 Cohesion: 0.10
@@ -1384,28 +1402,28 @@ Cohesion: 0.07
 Nodes (27): Advanced Techniques, Attack Surface, Authentication / JWT / OIDC, Chaining Attacks, Claims Validation Gaps, Endpoints, False Positives, Header Manipulation (+19 more)
 
 ### Community 181 - "contentHash.js"
-Cohesion: 0.18
-Nodes (10): main(), parseArgs(), _0x2534(), _0x4991(), _0x4fdedf, _0x56ec23, {SCHEMA_VERSION:_0x19c9e8,canonicalize:_0x2a93a0,computeAssetId:_0x5a0f0f,verifyAssetId:_0x4db584}, assert (+2 more)
+Cohesion: 0.05
+Nodes (24): main(), parseArgs(), { computeAssetId, SCHEMA_VERSION }, _0x2534(), _0x4991(), _0x4fdedf, _0x56ec23, {SCHEMA_VERSION:_0x19c9e8,canonicalize:_0x2a93a0,computeAssetId:_0x5a0f0f,verifyAssetId:_0x4db584} (+16 more)
 
 ### Community 182 - "codex.js"
 Cohesion: 0.09
 Nodes (43): buildClaudeHooks(), buildClaudeMdSection(), fs, install(), { mergeJsonFile, copyHookScripts, appendSectionToFile, removeHookScripts, removeMarkedSection, assertSafeConfigDir, isEvolverHookCommand, buildSafeNodeHookCommand }, path, uninstall(), buildAgentsMdSection() (+35 more)
 
 ### Community 183 - "atpExecute.js"
-Cohesion: 0.11
-Nodes (23): _buildCapsule(), _buildGene(), completeAtpTask(), _completeTaskOnHub(), { computeAssetId }, crypto, _ensureNodeSecret(), fs (+15 more)
+Cohesion: 0.10
+Nodes (24): _buildCapsule(), _buildGene(), completeAtpTask(), _completeTaskOnHub(), { computeAssetId }, crypto, _ensureNodeSecret(), fs (+16 more)
 
 ### Community 184 - "_0x2f4b52"
-Cohesion: 0.11
-Nodes (36): _0x163490(), _0x16be6a(), _0x187126(), _0x1d6ed9(), _0x1fa145(), _0x203374(), _0x20e679(), _0x20edb6() (+28 more)
+Cohesion: 0.15
+Nodes (28): _0x163490(), _0x187126(), _0x1d6ed9(), _0x1fa145(), _0x203374(), _0x20e679(), _0x22d0da(), _0x2f4b52() (+20 more)
 
 ### Community 185 - "validator/index.js"
 Cohesion: 0.11
-Nodes (20): { buildReportPayload, submitReport }, buildValidatorHubHeaders(), DAEMON_FIRST_DELAY_MS, DAEMON_INTERVAL_MS, _daemonStats, _daemonTick(), _ensurePreflight(), { ensureValidatorStake } (+12 more)
+Nodes (22): readFeatureFlag(), { buildReportPayload, submitReport }, buildValidatorHubHeaders(), DAEMON_FIRST_DELAY_MS, DAEMON_INTERVAL_MS, _daemonStats, _daemonTick(), _ensurePreflight() (+14 more)
 
-### Community 186 - "MailboxStore"
-Cohesion: 0.05
-Nodes (42): RFC-9562, acquireStateFileLock(), bestEffortChmod(), canApplyPartialNodeSecretTupleWrite(), ensurePrivateDir(), fs, isFullNodeSecretTupleUpdate(), isHubRotatedNodeSecretState() (+34 more)
+### Community 186 - "store.js"
+Cohesion: 0.08
+Nodes (33): RFC-9562, acquireStateFileLock(), bestEffortChmod(), canApplyPartialNodeSecretTupleWrite(), ensurePrivateDir(), fs, isFullNodeSecretTupleUpdate(), isHubRotatedNodeSecretState() (+25 more)
 
 ### Community 187 - "proxyVertexE2E.test.js"
 Cohesion: 0.10
@@ -1416,8 +1434,8 @@ Cohesion: 0.07
 Nodes (26): Attack Surface, CL.TE — Front-end uses Content-Length, Back-end uses Transfer-Encoding, Content-Length + Transfer-Encoding Combination, Core Concepts, Cross-User Request Capture, Detection Techniques, Differential Response Detection, False Positives (+18 more)
 
 ### Community 189 - "cliContracts.js"
-Cohesion: 0.06
-Nodes (77): ASSET_FLAG_LIST, ASSET_FLAGS, assetsFromBody(), buildEnvelopeHeaders(), buildHubHeadersSafe(), buildNodeScopedHubHeadersSafe(), buildPublishBundle(), buildPublishMessage() (+69 more)
+Cohesion: 0.07
+Nodes (70): ASSET_FLAG_LIST, ASSET_FLAGS, assetsFromBody(), buildEnvelopeHeaders(), buildHubHeadersSafe(), buildNodeScopedHubHeadersSafe(), buildPublishBundle(), buildPublishMessage() (+62 more)
 
 ### Community 190 - "questionGenerator.js"
 Cohesion: 0.12
@@ -1428,8 +1446,8 @@ Cohesion: 0.10
 Nodes (24): _0x125332(), _0x13dc(), _0x159c(), _0x181462(), _0x19bb57, _0x21df89(), _0x246da9(), _0x2eea12() (+16 more)
 
 ### Community 192 - "clientSettings.js"
-Cohesion: 0.16
-Nodes (28): backupExistingFile(), fs, getClaudeSettingsFile(), getEnvClaudeSettingsFile(), getHomeDir(), hasManagedProxyMarker(), isDisabled(), isLoopbackProxyUrl() (+20 more)
+Cohesion: 0.18
+Nodes (27): backupExistingFile(), fs, getClaudeSettingsFile(), getEnvClaudeSettingsFile(), getHomeDir(), hasManagedProxyMarker(), isDisabled(), isLoopbackProxyUrl() (+19 more)
 
 ### Community 193 - "cdp.ts"
 Cohesion: 0.35
@@ -1468,8 +1486,8 @@ Cohesion: 0.08
 Nodes (24): Archive Extraction (Zip Slip), Attack Surface, Capability Probes, Detection Channels, Direct, Error-Based, False Positives, File Write to Execution (+16 more)
 
 ### Community 202 - "engagement.ts"
-Cohesion: 0.08
-Nodes (52): bountyRun(), bountyStatus(), chainSummary(), isHighSignalLead(), readState(), RunState, scopeHostsFor(), stateFile() (+44 more)
+Cohesion: 0.14
+Nodes (29): bountyRun(), bountyStatus(), chainSummary(), isHighSignalLead(), readState(), RunState, scopeHostsFor(), stateFile() (+21 more)
 
 ### Community 203 - "sessionHeaders"
 Cohesion: 0.21
@@ -1540,8 +1558,8 @@ Cohesion: 0.13
 Nodes (18): aggregate(), fmtMs(), fmtPct(), main(), parseArgs(), parseSince(), percentile(), printMarkdown() (+10 more)
 
 ### Community 220 - "telegram.ts"
-Cohesion: 0.08
-Nodes (46): asks, POST(), handleConfirmation(), replyMia(), replyMiaVoice(), runTurn(), runTurnWithVision(), withTyping() (+38 more)
+Cohesion: 0.11
+Nodes (34): registerPushTarget(), balanceFences(), chunkText(), COMMAND_EMPTY_FALLBACK, DISCORD_MAX, EMPTY_REPLY_FALLBACK, INTERIM_WAITS, listPendingActions() (+26 more)
 
 ### Community 221 - "mutation.js"
 Cohesion: 0.14
@@ -1552,8 +1570,8 @@ Cohesion: 0.12
 Nodes (23): _0x10294f(), _0x14da2d(), _0x14dd80(), _0x172295(), _0x1a98c4(), _0x228a71(), _0x2672f7(), _0x29f402() (+15 more)
 
 ### Community 223 - "outbound.js"
-Cohesion: 0.08
-Nodes (26): { AuthError }, buildSizedOutboundBatch(), {
+Cohesion: 0.15
+Nodes (17): { AuthError }, buildSizedOutboundBatch(), {
   hubFetch,
   hubUnreachableBackoffMs,
   isHubUnreachableError,
@@ -1561,7 +1579,7 @@ Nodes (26): { AuthError }, buildSizedOutboundBatch(), {
   readHubResponseText,
   sanitizeHubResponseForLog,
   throwIfHubUnreachableResponse,
-}, hubMessage(), { isProxyTraceUploadPayloadAllowed, resolveTraceMode }, numberField(), outboundBodyBytes(), outboundEndpoint() (+18 more)
+}, hubMessage(), { isProxyTraceUploadPayloadAllowed, resolveTraceMode }, numberField(), outboundBodyBytes(), outboundEndpoint() (+9 more)
 
 ### Community 224 - "lifecycleForceUpdateTrigger.test.js"
 Cohesion: 0.09
@@ -1588,8 +1606,8 @@ Cohesion: 0.22
 Nodes (20): decodeCommonEscapes(), dedupe(), deobfuscate(), deobfuscateAndMine(), findSourceMapUrl(), firstStringElement(), foldConcats(), foldConcatsText() (+12 more)
 
 ### Community 230 - "useGeminiLive.ts"
-Cohesion: 0.13
-Nodes (24): PcmCapture, PcmFrameListener, browserUserHeader(), NOTE: rawRef is deliberately NOT cleared here — downloadRaw() is meant, runLiveToolCalls(), useGeminiLive(), LIVE_TOOL_VERBS, liveToolNote() (+16 more)
+Cohesion: 0.14
+Nodes (23): PcmCapture, PcmFrameListener, browserUserHeader(), NOTE: rawRef is deliberately NOT cleared here — downloadRaw() is meant, runLiveToolCalls(), useGeminiLive(), emptyConfirmState(), LIVE_TOOL_VERBS (+15 more)
 
 ### Community 231 - "checkChangelog.test.js"
 Cohesion: 0.13
@@ -1674,13 +1692,7 @@ Nodes (18): _0x13b1d2, _0x2694e4, _0x29b9aa, _0x2aba5b, _0x3d33a9(), _0x47a9(), 
 
 ### Community 248 - "cliContracts.test.js"
 Cohesion: 0.10
-Nodes (11): assert, { computeAssetId }, crypto, fakeA2a(), fs, mutatingA2a(), os, {
-  parseReuseArgs,
-  parsePublishArgs,
-  buildPublishBundle,
-  runReuseCommand,
-  runPublishCommand,
-} (+3 more)
+Nodes (12): parseReuseArgs(), assert, { computeAssetId }, crypto, fakeA2a(), fs, mutatingA2a(), os (+4 more)
 
 ### Community 249 - "Session 2026-09-23 (lanjutan) — output-tidiness Kohona ("cek output ini sudah rapi?")"
 Cohesion: 0.10
@@ -1714,9 +1726,9 @@ Nodes (19): Active Directory, AD Certificate Services (ESC1-ESC17), Advanced Tec
 Cohesion: 0.10
 Nodes (19): Account Takeover Vectors, Advanced Techniques, API Authorization (Resource Server), Application Configuration, Attack Surface, Auth0, Custom Database Scripts, False Positives (+11 more)
 
-### Community 257 - "game.ts"
-Cohesion: 0.18
-Nodes (22): answerMatches(), artistLastTokens(), clueFor(), firstClue(), gamePath(), gameStats(), guessSong(), initials() (+14 more)
+### Community 257 - "runs.js"
+Cohesion: 0.11
+Nodes (32): addCycleRun(), belongsToRun(), buildPhases(), deriveCycleStatus(), earliest(), emptyFiltered(), eventToPhase(), firstGene() (+24 more)
 
 ### Community 258 - "mia-features-tools-list.md"
 Cohesion: 0.10
@@ -1771,8 +1783,8 @@ Cohesion: 0.16
 Nodes (18): _0x111951(), _0x1659b4, _0x166a3a(), _0x1a573c(), _0x26c3b1(), _0x2f9615, _0x360ee4, _0x3e81c1 (+10 more)
 
 ### Community 271 - "prompt.js"
-Cohesion: 0.10
-Nodes (23): _0x1a56f4(), _0x2046cb, _0x22c29a(), _0x22d6a5(), _0x26c8ae, _0x2f8c51(), _0x32bfd9(), _0x354a52() (+15 more)
+Cohesion: 0.06
+Nodes (35): _0x1a56f4(), _0x2046cb, _0x22c29a(), _0x22d6a5(), _0x26c8ae, _0x2f8c51(), _0x32bfd9(), _0x354a52() (+27 more)
 
 ### Community 272 - "_0x5811d8"
 Cohesion: 0.16
@@ -1832,7 +1844,7 @@ Nodes (17): alnumCount(), buildPrivateVocab(), contentTokens(), escapeRe(), find
 
 ### Community 286 - "observer/interactions.js"
 Cohesion: 0.10
-Nodes (30): _defaultMailboxDir(), filterMessages(), { getEvomapPath }, getInteractions(), { getProxySettings }, { getProxyToken }, http, normalizeMessage() (+22 more)
+Nodes (31): _defaultMailboxDir(), filterMessages(), { getEvomapPath }, getInteractions(), { getProxySettings }, { getProxyToken }, http, normalizeMessage() (+23 more)
 
 ### Community 287 - "clientJs/index.js"
 Cohesion: 0.11
@@ -1863,8 +1875,8 @@ Cohesion: 0.12
 Nodes (16): Agentic System Security, Confused Deputy and Consequential Actions, Core Test Areas, Effective-Authority Map, Executable Component Supply Chain, False Positives, Identity, Tenant, and Environment Isolation, MCP and Local Tool Servers (+8 more)
 
 ### Community 294 - "superpowers.test.ts"
-Cohesion: 0.25
-Nodes (12): analyzeTaint(), domTaint(), escapeRegExp(), TAINT_SANITIZERS, TAINT_SINKS, TAINT_SOURCES, TaintFlow, trimLabel() (+4 more)
+Cohesion: 0.16
+Nodes (18): authMatrix(), digestOf(), Fetcher, MatrixFinding, matrixFindings(), matrixGranted(), MatrixRow, matrixSame() (+10 more)
 
 ### Community 295 - "server.js"
 Cohesion: 0.17
@@ -1879,8 +1891,8 @@ Cohesion: 0.10
 Nodes (19): _0x103380(), _0x12ab(), _0x1f0ed2, _0x2b848d(), _0x2e8e(), _0x33f6db, _0x38541f(), _0x3b3e39() (+11 more)
 
 ### Community 298 - "drill-claimaudit-adapter.mts"
-Cohesion: 0.07
-Nodes (23): admittedAbsence, all, authLive, capture(), client, envRaw, honest, { host, rows, facts } (+15 more)
+Cohesion: 0.06
+Nodes (28): admittedAbsence, all, authLive, capture(), client, envRaw, honest, { host, rows, facts } (+20 more)
 
 ### Community 299 - "portable.test.js"
 Cohesion: 0.14
@@ -1891,8 +1903,8 @@ Cohesion: 0.24
 Nodes (17): _0x125060(), _0x16ae33(), _0x16eb99(), _0x1938fe(), _0x24e5c4(), _0x32b413(), _0x35ac35(), _0x380c1f() (+9 more)
 
 ### Community 301 - "GeminiLiveSession"
-Cohesion: 0.15
-Nodes (7): frameText(), GeminiLiveSession, ready(), startListening(), startReady(), startWithVoice(), tokenReply()
+Cohesion: 0.13
+Nodes (11): probe(), realSpeech(), run(), speechFrames(), frameText(), GeminiLiveSession, ready(), startListening() (+3 more)
 
 ### Community 302 - "_0x1ca3ef"
 Cohesion: 0.20
@@ -1927,12 +1939,12 @@ Cohesion: 0.31
 Nodes (14): mcpCanaryFromSeed(), mcpCandidates(), mcpHunt(), mcpInstrSignals(), mcpPickStringArg(), mcpReflected(), mcpSensitiveResource(), mcpSensitiveTool() (+6 more)
 
 ### Community 310 - "atp/index.js"
-Cohesion: 0.08
-Nodes (28): handleOrder(), main(), { merchantAgent }, SEED_SERVICES, _buildProofPayload(), _emptyLedger(), fs, { getMemoryDir } (+20 more)
+Cohesion: 0.14
+Nodes (14): handleOrder(), main(), { merchantAgent }, SEED_SERVICES, atpExecute, atpTaskPickup, autoBuyer, autoDeliver (+6 more)
 
-### Community 311 - "accountRecovery.ts"
-Cohesion: 0.33
-Nodes (11): accountRecovery(), enumVerdict(), extractResetLinks(), extractToken(), INJECT_HOSTS, linkHost(), maskToken(), RecoveryOpts (+3 more)
+### Community 311 - "verdictTaxonomy.test.ts"
+Cohesion: 0.11
+Nodes (29): accountRecovery(), enumVerdict(), extractResetLinks(), extractToken(), INJECT_HOSTS, linkHost(), maskToken(), RecoveryOpts (+21 more)
 
 ### Community 312 - "pipeline/signals.js"
 Cohesion: 0.15
@@ -1960,9 +1972,9 @@ Nodes (9): _0x13092c, _0x44e2(), _0x4f0995, _0x51bd(), _0x5ecfb, {
   unpack,
 }, assert, crypto (+1 more)
 
-### Community 316 - "capsule.js"
-Cohesion: 0.19
-Nodes (11): CAPSULE_DEFAULTS, createCapsule(), { SCHEMA_VERSION }, VALID_COST_TIERS, VALID_OUTCOME_STATUSES, VALID_SOURCE_TYPES, VALID_VISIBILITIES, assert (+3 more)
+### Community 316 - "discordVoice.ts"
+Cohesion: 0.11
+Nodes (20): active, ActiveVoice, DISCORD_VOICE_SAMPLE_RATE, discordPcmToLiveInput(), int16ToBytes(), liveAudioToDiscordPcm(), loadVoiceDeps(), opusPcmToLiveMono() (+12 more)
 
 ### Community 317 - "_0x420a1e"
 Cohesion: 0.13
@@ -1970,11 +1982,11 @@ Nodes (16): _0x1a906c(), _0x1dbb7f(), _0x219220(), _0x26b850(), _0x2aac1f(), _0x
 
 ### Community 318 - "reporter.js"
 Cohesion: 0.18
-Nodes (16): validateOneTask(), aggregateFailureClass(), { buildHubHeaders, buildNodeScopedHubHeaders, getHubUrl, getNodeId }, buildReportPayload(), buildValidatorReportHeaders(), { captureEnvFingerprint }, classifyCommandFailure(), crypto (+8 more)
+Nodes (15): aggregateFailureClass(), { buildHubHeaders, buildNodeScopedHubHeaders, getHubUrl, getNodeId }, buildReportPayload(), buildValidatorReportHeaders(), { captureEnvFingerprint }, classifyCommandFailure(), crypto, FAILURE_CLASS (+7 more)
 
-### Community 319 - "urlMatch.ts"
-Cohesion: 0.09
-Nodes (29): confirmed, decision, env, falseFinding, ledger, noSignal, otherEndpoint, payloadRow (+21 more)
+### Community 319 - "pocRuns.ts"
+Cohesion: 0.08
+Nodes (36): env, rows, confirmed, decision, env, falseFinding, ledger, noSignal (+28 more)
 
 ### Community 320 - "forceUpdateMidCopyWedge.test.js"
 Cohesion: 0.13
@@ -2000,8 +2012,8 @@ Nodes (14): Attack Surface, Bypass Methods, Client-Side Prototype Pollution, Fal
 Cohesion: 0.23
 Nodes (14): Bus, BusResult, busSearch(), CITY_ALIASES, decode(), getHtml(), parseBusTable(), parseTravelokaSchedules() (+6 more)
 
-### Community 326 - "FakeContext"
-Cohesion: 0.09
+### Community 326 - "AudioPlayer.test.ts"
+Cohesion: 0.08
 Nodes (5): FakeBuffer, FakeContext, FakeGain, FakeGainParam, FakeSource
 
 ### Community 327 - "capability-evolver/package.json"
@@ -2013,8 +2025,8 @@ Cohesion: 0.18
 Nodes (15): _0x1bccba(), _0x25651c(), _0x30d877(), _0x32b97e(), _0x33219a(), _0x348e0a(), _0x38fb69(), _0x392c43() (+7 more)
 
 ### Community 329 - "submissionPreflight.ts"
-Cohesion: 0.07
-Nodes (43): Baseline, BASELINES, CLASS_ORDER, CLASS_SYNONYMS, ClassFacts, cvssVersionFor(), dupTitleKey(), expectedActualFor() (+35 more)
+Cohesion: 0.10
+Nodes (36): Baseline, BASELINES, CLASS_ORDER, CLASS_SYNONYMS, ClassFacts, cvssVersionFor(), dupTitleKey(), expectedActualFor() (+28 more)
 
 ### Community 330 - "curriculum.js"
 Cohesion: 0.24
@@ -2024,17 +2036,17 @@ Nodes (14): _0x140fd9(), _0x201389, _0x2343e8(), _0x24dd47(), _0x287571(), _0x36
 Cohesion: 0.16
 Nodes (11): _0x1b670f, _0x1d6602(), _0x22a2a1, _0x2cb35a, _0x3a42c1(), _0x3c9e(), _0x3e2f93(), _0x408b03() (+3 more)
 
-### Community 332 - "task.js"
-Cohesion: 0.20
-Nodes (12): createTask(), TASK_DEFAULTS, VALID_TASK_STATUSES, validateTask(), fetchTasks(), assert, { createTask, validateTask, VALID_TASK_STATUSES }, { describe, it } (+4 more)
+### Community 332 - "MailboxStore"
+Cohesion: 0.11
+Nodes (4): appendLine(), generateUUIDv7(), MailboxStore, safeParse()
 
 ### Community 333 - "_0x4b1de7"
 Cohesion: 0.14
 Nodes (15): _0x1023f1(), _0x161e65(), _0x25ad3a(), _0x27bb25(), _0x2aaed6(), _0x2de53a(), _0x3a6a8b(), _0x3abdcf() (+7 more)
 
 ### Community 334 - "threatModel.ts"
-Cohesion: 0.12
-Nodes (29): hostOnly(), normalizeHost(), generateReport(), listFindingsText(), matchesHost(), measuredSections(), platformFromCvss(), reportSave() (+21 more)
+Cohesion: 0.13
+Nodes (28): hostOnly(), normalizeHost(), generateReport(), listFindingsText(), matchesHost(), measuredSections(), platformFromCvss(), AMENDMENT_MIN_CHARS (+20 more)
 
 ### Community 335 - "runtimePaths.test.js"
 Cohesion: 0.15
@@ -2053,8 +2065,8 @@ Cohesion: 0.14
 Nodes (13): Architecture and Authority Map, Custom Protocols and Deep Links, Electron Desktop Applications, False Positives, Navigation and Window Boundaries, Node, Isolation, and Sandbox Settings, Package and Source Reconnaissance, Permissions, Storage, and Secrets (+5 more)
 
 ### Community 339 - "turnRouting.test.ts"
-Cohesion: 0.08
-Nodes (36): appendSpotifyError(), collapseHtmlDumps(), confirmedStrengthClaim(), gatewayToolCall(), isEffectivelyEmpty(), isGmailCheckAsk(), normalizeMessageToolCalls(), scheduleSpotifyFromIntent() (+28 more)
+Cohesion: 0.06
+Nodes (43): agentFlat, agentSrc, claimMsgs, Msg, pdfQ, pdfTool, proverKandidat, storeLedger (+35 more)
 
 ### Community 340 - "autoMemory.ts"
 Cohesion: 0.23
@@ -2077,16 +2089,16 @@ Cohesion: 0.15
 Nodes (7): assert, { describe, it, beforeEach, afterEach }, { EvoMapProxy }, fs, http, os, path
 
 ### Community 345 - "featureFlags.js"
-Cohesion: 0.23
-Nodes (13): FLAGS_FILE(), _flagsDir(), _flagsFile(), fs, getAllFeatureFlags(), { getEvomapDir }, _loadFromDisk(), LOCAL_FLAGS_FILE (+5 more)
+Cohesion: 0.24
+Nodes (12): FLAGS_FILE(), _flagsDir(), _flagsFile(), fs, getAllFeatureFlags(), { getEvomapDir }, _loadFromDisk(), LOCAL_FLAGS_FILE (+4 more)
 
 ### Community 346 - "learningSignals.js"
 Cohesion: 0.21
 Nodes (12): _0x14a0fd(), _0x191b1f, _0x1da487(), _0x35af7d(), _0x4259(), _0x51cb74(), _0x53af(), _0x7f5e9e (+4 more)
 
 ### Community 347 - "privacyClient.js"
-Cohesion: 0.13
-Nodes (18): buildPrivacyNodeHeaders(), executeSealedTool(), { generateKey, encrypt, decrypt, pack, unpack }, { getNodeId, buildHubHeaders, buildNodeScopedHubHeaders }, getPrivacyResult(), getPrivacyStatus(), getToolTemplates(), { hubFetch } (+10 more)
+Cohesion: 0.24
+Nodes (15): buildPrivacyNodeHeaders(), executeSealedTool(), { generateKey, encrypt, decrypt, pack, unpack }, { getNodeId, buildHubHeaders, buildNodeScopedHubHeaders }, getPrivacyResult(), getPrivacyStatus(), getToolTemplates(), { hubFetch } (+7 more)
 
 ### Community 348 - "skillPublisher.js"
 Cohesion: 0.26
@@ -2151,16 +2163,16 @@ Cohesion: 0.15
 Nodes (12): Anti-Patterns, AST-Grep Structural Mapping, Baseline Coverage Bundle (Recommended), Converting Static Signals Into Exploits, Cross-Component Semantic Mapping, Fast Start, JavaScript-Side Coverage, Resolution and Namespace Risks (+4 more)
 
 ### Community 357 - "exploitChains.ts"
-Cohesion: 0.06
-Nodes (53): buildBypassMatrix(), bypass403(), BypassAttempt, classifyBypass(), denyDigest(), fetchProbe(), lowerHeaders(), ProbeResult (+45 more)
+Cohesion: 0.08
+Nodes (49): CampaignHostResult, campaignMarkDead(), CampaignOutcome, campaignRun(), campaignRunDetailed(), huntStatusFor(), scopeHosts(), bodyHash() (+41 more)
 
 ### Community 358 - "otpHunt.ts"
 Cohesion: 0.29
 Nodes (11): buildOtpRequest(), findOtpLeak(), looksAccepted(), mask(), otpHunt(), OtpHuntOpts, OtpPlacement, OtpProbe (+3 more)
 
-### Community 359 - "protoPollute.ts"
-Cohesion: 0.28
-Nodes (10): buildServerPayloads(), classifyClient(), classifyServer(), fetchProbe(), lowerHeaders(), MARK, POLLUTE_KEYS, PPAttempt (+2 more)
+### Community 359 - "recordHttp"
+Cohesion: 0.10
+Nodes (31): classifyExport(), csvInject(), CsvInjectOpts, csvMarker(), EXPORT_PATHS, FORMULA_PAYLOADS, send(), file() (+23 more)
 
 ### Community 360 - "2. Matriks uji"
 Cohesion: 0.15
@@ -2180,7 +2192,7 @@ Nodes (11): appendSectionToFile(), buildAgentsMdSection(), buildPluginSource(), 
 
 ### Community 364 - "actionReceipt.ts"
 Cohesion: 0.17
-Nodes (18): actionReceipt(), argDigest(), collapsePdfResult(), compactReceiptUrl(), compactUrlsInText(), EXECUTED_PLACEHOLDER, executedResult(), firstLine() (+10 more)
+Nodes (17): actionReceipt(), argDigest(), collapsePdfResult(), compactReceiptUrl(), compactUrlsInText(), EXECUTED_PLACEHOLDER, executedResult(), firstLine() (+9 more)
 
 ### Community 365 - "openPRRegistry.js"
 Cohesion: 0.27
@@ -2198,13 +2210,13 @@ Nodes (9): _0x15d3c1, _0x1a96e2(), _0x1ee9(), _0x278438, _0x2a4398, _0x3b8b51, _
 Cohesion: 0.15
 Nodes (7): assert, { describe, it, before }, fs, mockMods, os, path, REDIRECT_ENV_KEYS
 
-### Community 369 - "automations.ts"
-Cohesion: 0.08
-Nodes (44): dynamic, POST(), runtime, deliver(), listChannels(), PushState, pushToOwner(), IMPORTANT: bots register from `instrumentation-node.ts` while tools dispatch (+36 more)
+### Community 369 - "claimAuditReaders.ts"
+Cohesion: 0.11
+Nodes (18): brainPath, covered, eps, facts, note, pastWorkProvenFor(), AuditReaders, buildAuditFacts() (+10 more)
 
 ### Community 370 - "EvoMapProxy"
-Cohesion: 0.08
-Nodes (14): _defaultDataDir(), EvoMapProxy, makeGeminiGatewayError(), makeOllamaGatewayError(), makeVertexGatewayError(), parseRetryAfterMs(), assert, { EvoMapProxy, parseRetryAfterMs } (+6 more)
+Cohesion: 0.09
+Nodes (11): _defaultDataDir(), EvoMapProxy, parseRetryAfterMs(), startProxy(), assert, { describe, it, before, after }, { EvoMapProxy }, http (+3 more)
 
 ### Community 371 - "resetLocalSecret.test.js"
 Cohesion: 0.15
@@ -2229,12 +2241,12 @@ Cohesion: 0.17
 Nodes (11): Argument Injection, False Positives, Model Every Parser Boundary, Primitive 1: Option and Subcommand Injection, Primitive 2: Argument-Boundary Breakout, Primitive 3: Response, Config, and Authentication Files, Reconnaissance, Remediation (+3 more)
 
 ### Community 375 - "proxyEnvelope.test.js"
-Cohesion: 0.12
-Nodes (13): buildEnvelope(), crypto, ensureEnvelope(), startProxy(), assert, { buildEnvelope, ensureEnvelope, PROTOCOL_NAME, PROTOCOL_VERSION }, { describe, it, before, after }, fs (+5 more)
+Cohesion: 0.14
+Nodes (12): buildEnvelope(), crypto, ensureEnvelope(), assert, { buildEnvelope, ensureEnvelope, PROTOCOL_NAME, PROTOCOL_VERSION }, { describe, it, before, after }, fs, http (+4 more)
 
 ### Community 376 - "ContractError"
-Cohesion: 0.12
-Nodes (26): assertNoLocalReuseIdConflict(), canonicalAssetType(), classifyError(), ContractError, findLocalAssetByTypeAndId(), isReuseAssetStoreStable(), loadAssetRef(), loadAssetRefFromLookup() (+18 more)
+Cohesion: 0.13
+Nodes (24): assertNoLocalReuseIdConflict(), canonicalAssetType(), ContractError, findLocalAssetByTypeAndId(), isReuseAssetStoreStable(), loadAssetRef(), loadAssetRefFromLookup(), loadAssetRefs() (+16 more)
 
 ### Community 377 - "teamcityCheck.ts"
 Cohesion: 0.30
@@ -2269,8 +2281,8 @@ Cohesion: 0.11
 Nodes (17): all, capture(), client, envRaw, findRuns, gearLines, hasReceipt, ledgerPath (+9 more)
 
 ### Community 385 - "reportHtml.ts"
-Cohesion: 0.18
-Nodes (18): check(), findings, md, withoutEvidenceBlocks(), execSummary(), expectedActualPair(), Finding, inline() (+10 more)
+Cohesion: 0.13
+Nodes (24): check(), findings, md, withoutEvidenceBlocks(), esc(), execSummary(), expectedActualPair(), Finding (+16 more)
 
 ### Community 386 - "curriculum.test.js"
 Cohesion: 0.18
@@ -2357,20 +2369,20 @@ Cohesion: 0.20
 Nodes (9): analyzeFailures(), fs, path, { analyzeFailures }, assert, { describe, it, before, after, beforeEach, afterEach }, fs, os (+1 more)
 
 ### Community 407 - "liveConfirm.ts"
-Cohesion: 0.19
-Nodes (14): LiveToolCall, askFirstInstruction(), ConfirmDecision, decideLiveToolCalls(), describeWriteCall(), emptyConfirmState(), isAffirmation(), LIVE_WRITE_TOOLS (+6 more)
+Cohesion: 0.20
+Nodes (13): LiveToolCall, askFirstInstruction(), ConfirmDecision, decideLiveToolCalls(), describeWriteCall(), isAffirmation(), LIVE_WRITE_TOOLS, LiveConfirmState (+5 more)
 
-### Community 408 - "assetStore.test.js"
-Cohesion: 0.17
-Nodes (7): assert, { describe, it, beforeEach, afterEach }, envKeys, fs, os, path, savedEnv
+### Community 408 - "resolveInSandbox"
+Cohesion: 0.13
+Nodes (23): ApiEndpoint, apiSpec(), graphqlProbe(), loadSpec(), METHODS, parseOpenApi(), parsePostman(), ALLOWED_SEV (+15 more)
 
 ### Community 409 - "workspaceKeychain.js"
 Cohesion: 0.25
 Nodes (9): _0x1de9(), _0x2527ea(), _0x25fe4d, _0x26efbd(), _0x28e666, _0x2fcd(), _0x45cc14, _0x580b32() (+1 more)
 
 ### Community 410 - "uploads.ts"
-Cohesion: 0.23
-Nodes (16): IMAGE_EXTENSIONS, IMAGE_MIME_PREFIXES, isImageFile(), isTextFile(), listUploads(), metaPath(), readIndex(), readUpload() (+8 more)
+Cohesion: 0.24
+Nodes (15): IMAGE_EXTENSIONS, IMAGE_MIME_PREFIXES, isImageFile(), isTextFile(), metaPath(), readIndex(), readUpload(), safeFilename() (+7 more)
 
 ### Community 411 - "adapters.kiro.test.js"
 Cohesion: 0.18
@@ -2451,8 +2463,8 @@ Cohesion: 0.13
 Nodes (14): blanketRefusal, capture(), clauses, client, envRaw, labAddRuns, labs, makeMsg() (+6 more)
 
 ### Community 429 - "ownerLabs.ts"
-Cohesion: 0.26
-Nodes (16): addOwnerLab(), cache, forgetOwnerLab(), isOwnerLabHost(), isOwnerLabHostForOwner(), labHost(), listOwnerLabs(), OwnerLab (+8 more)
+Cohesion: 0.28
+Nodes (15): addOwnerLab(), cache, forgetOwnerLab(), isOwnerLabHost(), isOwnerLabHostForOwner(), labHost(), listOwnerLabs(), OwnerLab (+7 more)
 
 ### Community 430 - "strategy.js"
 Cohesion: 0.24
@@ -2478,13 +2490,13 @@ Nodes (8): a2a, assert, { describe, it, after, beforeEach, afterEach }, fs, next
 Cohesion: 0.20
 Nodes (6): assert, { describe, it, beforeEach, afterEach }, fs, mg, os, path
 
-### Community 436 - "prompt.test.js"
-Cohesion: 0.24
-Nodes (9): assert, bloatedCapsules(), bloatedGenes(), buildMinimalPrompt(), { describe, it, beforeEach, afterEach }, envKeys, fencedJson(), path (+1 more)
+### Community 436 - "findingClaimAudit.ts"
+Cohesion: 0.13
+Nodes (22): ATTRIBUTED_DISCOVERY_RE, clauses(), COUNT_AFTER, COUNT_BEFORE, describeBreakdown(), discoveryAuthorshipNote(), emptyFindingClaimFacts(), findingClaimFacts (+14 more)
 
-### Community 437 - "smuggleProbe.ts"
-Cohesion: 0.23
-Nodes (12): buildProbe(), buildVictim(), classifySmuggle(), obfuscations(), parseSmuggleTarget(), probeOnce(), rand36(), NOTE: responses arrive back-to-back on the wire (body bytes are directly (+4 more)
+### Community 437 - "buildSlimSystemPrompt"
+Cohesion: 0.11
+Nodes (20): fi, marks, p, persona, at, slim, buildOpenCodeSystemPrompt(), buildSlimSystemPrompt() (+12 more)
 
 ### Community 438 - "spawnReplacementProcess.test.js"
 Cohesion: 0.20
@@ -2550,9 +2562,9 @@ Nodes (8): _0x1ade2f, _0x1eba(), _0x3051ee, _0x37ea(), _0x3ccc98(), _0x42548a, _
 Cohesion: 0.33
 Nodes (7): buildExecutionTrace(), classifyBlastLevel(), extractErrorSignature(), getTraceLevel(), inferToolChain(), path, TRACE_LEVELS
 
-### Community 454 - "weather.ts"
-Cohesion: 0.39
-Nodes (7): fetchOpenMeteo(), fetchWttr(), geocode(), getWeather(), humanize(), WeatherResult, WMO
+### Community 454 - "cliAutobuyPrompt.test.js"
+Cohesion: 0.11
+Nodes (12): autoBuyer, classify(), readline, runPrompt(), assert, { describe, it, beforeEach, afterEach }, envKeys, freshModule() (+4 more)
 
 ### Community 455 - "PRD — Pixel Office Trio (Mia / Agnes / Michelle)"
 Cohesion: 0.12
@@ -2590,9 +2602,9 @@ Nodes (8): _0x2c2f8d(), _0x2eca13(), _0x304c13(), _0x31021a(), _0x1f133b(), _0x5
 Cohesion: 0.25
 Nodes (8): assert, { describe, it, beforeEach, afterEach }, envKeys, freshRequire(), fs, loadMod(), os, path
 
-### Community 464 - "safeExec.ts"
-Cohesion: 0.20
-Nodes (20): approve(), assessRisk(), audit(), auditLogPath(), BUILTIN, createPending(), ensureDirs(), guard() (+12 more)
+### Community 464 - "repoRoot"
+Cohesion: 0.17
+Nodes (24): approve(), assessRisk(), audit(), auditLogPath(), BUILTIN, createPending(), ensureDirs(), guard() (+16 more)
 
 ### Community 465 - "resolveProjectDir.test.js"
 Cohesion: 0.22
@@ -2658,9 +2670,9 @@ Nodes (7): { appendEventJsonl }, fs, isValidEvolutionEvent(), main(), parseInput
 Cohesion: 0.25
 Nodes (6): env, EVOLVER_REPO_ROOT, { execFileSync }, files, fs, path
 
-### Community 481 - "schemaGene.test.js"
-Cohesion: 0.29
-Nodes (7): createGene(), normalizeRoutingHint(), normalizeToolPolicy(), assert, { createGene, validateGene, VALID_CATEGORIES }, { describe, it }, validGene()
+### Community 481 - "oauthLogin.js"
+Cohesion: 0.19
+Nodes (18): RFC-8628, clearOAuthToken(), deviceLogin(), { enforceHubScheme, hubFetch }, fs, { getEvomapDir }, loadOAuthToken(), loadValidAccessToken() (+10 more)
 
 ### Community 482 - "compareConcreteSemver"
 Cohesion: 0.29
@@ -2687,12 +2699,12 @@ Cohesion: 0.25
 Nodes (6): assert, { describe, it }, fs, os, path, { validationScriptPath, runValidations }
 
 ### Community 488 - "sweepGate.ts"
-Cohesion: 0.23
-Nodes (11): isFullSweepAsk(), PROBE_TOOLS, SWEEP_GRADE_RE, SWEEP_REPORT_TOOLS, SweepGateDecision, SweepGateInput, sweepGateRefusal(), sweepReportGate() (+3 more)
+Cohesion: 0.22
+Nodes (12): sweepGateCheck(), isFullSweepAsk(), PROBE_TOOLS, SWEEP_GRADE_RE, SWEEP_REPORT_TOOLS, SweepGateDecision, SweepGateInput, sweepGateRefusal() (+4 more)
 
-### Community 489 - "drill-blindssrf-oast.mts"
-Cohesion: 0.11
-Nodes (9): envRaw, NOTE: blind_ssrf below auto-creates its OWN client, replacing this one, envRaw, toy, Turn, envRaw, ProposedCall, toy (+1 more)
+### Community 489 - "drill-bypass-otp-pp.mts"
+Cohesion: 0.09
+Nodes (13): envRaw, groq, hintSrc, NEW, r9, toy, envRaw, toy (+5 more)
 
 ### Community 491 - "memoryGraphRotation.test.js"
 Cohesion: 0.25
@@ -2819,8 +2831,8 @@ Cohesion: 0.33
 Nodes (6): Audit "fool with a tool": misread-output map + guard verdict-inflation (gap terkonfirmasi, ditutup), Drill live production-path: exploit_chain 12-chain batch ke lab Kohona via Discord (batch-2 beraksi), Drill xxe_chain OOB nyata ke lab Kohona — SATU konfirmasi exploit_chain, bukti p1-xxe di interactsh, FIX LIB dual-shape ToolCall (bukan hanya drill) + drill 9router ALL GREEN, interactsh-client hidup — blind_ssrf end-to-end dengan atribusi param (OOB penuh terbuka), Session 2026-09-24 (lanjutan) — Batch-2 pentest tools (pilihan owner dari gap-analysis): cache_decep, nosql_hunt, blind_ssrf, dns_audit, h2c mode, jwt kid/jku — tools 319→324
 
 ### Community 520 - "policy.ts"
-Cohesion: 0.22
-Nodes (12): approval, msgs, policy, autoApproveAllowed(), file(), Policy, policyText(), readPolicy() (+4 more)
+Cohesion: 0.21
+Nodes (13): approval, msgs, policy, autoApproveAllowed(), file(), Policy, policyText(), readPolicy() (+5 more)
 
 ### Community 521 - "API Spec Testing"
 Cohesion: 0.33
@@ -3038,9 +3050,9 @@ Nodes (13): _buildProofPayload(), _collectDeliverable(), _emptyLedger(), fs, { g
 Cohesion: 0.21
 Nodes (12): env, EXPECT, HOSTS, classifyCloud(), cloudCandidates(), cloudMisconfig(), CloudProvider, endpoints() (+4 more)
 
-### Community 579 - "promptOpenPRHint.test.js"
-Cohesion: 0.50
-Nodes (3): assert, { buildOpenPRHintBlock }, { describe, it }
+### Community 579 - "codebaseIndex.ts"
+Cohesion: 0.19
+Nodes (17): buildIndexFromRoots(), chunkText(), CodeIndex, currentIndex(), ensureFreshIndex(), GlobalCarrier, indexFile(), indexSummary() (+9 more)
 
 ### Community 580 - "recipeHub.test.js"
 Cohesion: 0.50
@@ -3153,9 +3165,9 @@ Nodes (9): all, capture(), client, envRaw, makeMsg(), mdReceipt, sent, sleep() (
 Cohesion: 0.17
 Nodes (12): 2.1 Stored XSS Belum Sepenuhnya Terbukti, 2.2 Buktikan Admin Takeover Secara End-to-End, 2.3 Jangan Klaim "Entire Database" Tanpa Evidence, 2. PRIORITAS TINGGI — VALIDASI TECHNICAL EVIDENCE, Gunakan redaction, Jika tidak execute, Masalah, Perbaikan (+4 more)
 
-### Community 629 - "schemas/index.js"
-Cohesion: 0.40
-Nodes (4): capsule, gene, protocol, task
+### Community 629 - "proxyClientsE2E.test.js"
+Cohesion: 0.14
+Nodes (17): assert, { buildMessagesHandler }, { buildResponsesHandler }, claudeMeta, enc, fs, { hashTraceValue }, http (+9 more)
 
 ### Community 630 - "1.1 Merge Duplicate SQL Injection"
 Cohesion: 0.18
@@ -3205,9 +3217,9 @@ Nodes (9): 23. MVP Phases + Gates, Fase 1 — Formal Event Bus, Fase 2 — File 
 Cohesion: 0.25
 Nodes (10): buildMala(), COLORS, hashSeed(), MalaReading, MESSAGES, MOODS, mulberry32(), pick() (+2 more)
 
-### Community 642 - "sstiEnum.ts"
-Cohesion: 0.35
-Nodes (8): nextStepFor(), Probe, send(), SSTI_LADDER, sstiClassify(), sstiEnum(), SstiEnumOpts, sstiFinalVerdict()
+### Community 642 - "runAssistantTurn"
+Cohesion: 0.20
+Nodes (15): asks, POST(), handleConfirmation(), replyMia(), replyMiaVoice(), runTurn(), runTurnWithVision(), sendWithRetry() (+7 more)
 
 ### Community 643 - "Style"
 Cohesion: 0.25
@@ -3221,9 +3233,9 @@ Nodes (7): Alur kerja, Dilarang, Misi, Mutu jawaban, Pembagian kerja, Soul — M
 Cohesion: 0.40
 Nodes (4): assert, { describe, it, before, after }, evolve, os
 
-### Community 646 - "lifecycleProxyHealth.test.js"
-Cohesion: 0.18
-Nodes (8): assert, { describe, it, beforeEach, afterEach }, fs, lifecycle, os, path, { spawn }, { writeSettings }
+### Community 646 - "probe-live-bare.mts"
+Cohesion: 0.13
+Nodes (11): envRaw, NOTE: blind_ssrf below auto-creates its OWN client, replacing this one, done, json, kinds, onWs(), pcm, rawPath (+3 more)
 
 ### Community 647 - "static.js"
 Cohesion: 0.21
@@ -3234,12 +3246,12 @@ Cohesion: 0.25
 Nodes (8): 1. SQL Injection, 2. Unauthenticated Admin Data Exposure, 3. IDOR / Unauthenticated Citizen Data Exposure, 4. IDOR / Unauthenticated Employee Data Exposure, 5. Authorization Bypass via `x-user-role`, 6. Stored XSS, 7. Missing Security Headers, 9. FINDING YANG SEBAIKNYA DIPERTAHANKAN
 
 ### Community 649 - "proxy/server/http.js"
-Cohesion: 0.07
-Nodes (24): crypto, http, {
+Cohesion: 0.04
+Nodes (51): crypto, http, {
   isValidReusableProxyToken,
   readReusableClientProxyToken,
   syncClaudeProxySettings,
-}, matchPath(), parseBody(), ProxyHttpServer, resolveMaxBodyBytes(), sendJson() (+16 more)
+}, matchPath(), parseBody(), ProxyHttpServer, resolveMaxBodyBytes(), sendJson() (+43 more)
 
 ### Community 651 - "findingLanguage.ts"
 Cohesion: 0.43
@@ -3313,13 +3325,17 @@ Nodes (5): Biggest risks before submission, Bug Bounty Submission, Final Assessm
 Cohesion: 0.50
 Nodes (4): Drill live PDF Strix (2026-09-26, lanjutan) — seksi Coverage + Threat model di PDF asli — `drill-strix-pdf.mts` ALL GREEN, Drill live Strix tools via jalur produksi (2026-09-26) — `drill-strix-coverage.mts` ALL GREEN, Lanjutan 2026-09-26 — verify.ts typecheck error + sync maksimal Strix tools (5 temuan, semua fix), Session 2026-09-26 (lanjutan) — Strix runtime tools diadaptasi: `coverage` + `threat_model` (tools 331→333, CORE tetap 128)
 
-### Community 670 - "recallVerifier.test.js"
-Cohesion: 0.18
-Nodes (6): assert, { describe, it, beforeEach, afterEach }, ENV_KEYS, fs, os, path
-
-### Community 672 - "drill-bypass-otp-pp.mts"
+### Community 670 - "learning.ts"
 Cohesion: 0.22
-Nodes (6): envRaw, groq, hintSrc, NEW, r9, toy
+Nodes (14): isPrivateIp(), KNOWN_CLASSES, learnClassify(), learnEndpointStyle(), learnExtract(), learningIngest(), learningQuery(), learningStatsText() (+6 more)
+
+### Community 671 - "autoDeliver.js"
+Cohesion: 0.20
+Nodes (14): _buildProofPayload(), _emptyLedger(), fs, { getMemoryDir }, hubClient, _isEnabled(), _ledgerPath(), path (+6 more)
+
+### Community 672 - "loopMode.test.js"
+Cohesion: 0.15
+Nodes (12): isPendingSolidify(), assert, daemonChildEnv(), { describe, it, beforeEach, afterEach }, ensureGitRepo(), envKeys, fs, os (+4 more)
 
 ### Community 673 - "5. PRIORITAS TINGGI — REDACTION & DATA HANDLING"
 Cohesion: 0.50
@@ -3357,9 +3373,9 @@ Nodes (3): 22. Security, Event sanitization, Server-side secrets
 Cohesion: 0.50
 Nodes (3): assert, { computeAdaptiveStrategyPolicy }, { describe, it }
 
-### Community 695 - "persona/route.ts"
-Cohesion: 0.39
-Nodes (7): DELETE(), GET(), POST(), requestUser(), runtime, personaFactsText(), PersonaTarget
+### Community 695 - "clawicMemory.ts"
+Cohesion: 0.34
+Nodes (13): cfgPath(), ensureRoot(), forget(), indexPath(), isSecret(), memoryStats(), memRoot(), recall() (+5 more)
 
 ### Community 696 - "extractFeatures"
 Cohesion: 0.36
@@ -3389,37 +3405,121 @@ Nodes (3): assert, { describe, it }, { formatSessionLog, formatCursorTranscript 
 Cohesion: 0.46
 Nodes (7): format(), listPlaybooksText(), loadPacks(), normId(), Pack, packsDir(), securityPlaybook()
 
+### Community 703 - "_0x5b1165"
+Cohesion: 0.19
+Nodes (14): _0x16be6a(), _0x20edb6(), _0x2442b8(), _0x30b4e6(), _0x31624b(), _0x31e5eb(), _0x365c51(), _0x3d8631() (+6 more)
+
+### Community 704 - "techWatch.ts"
+Cohesion: 0.27
+Nodes (10): cveIntel(), NvdCve, run(), detectTech(), fetchFingerprint(), file(), read(), Snap (+2 more)
+
 ### Community 705 - "selector.test.js"
 Cohesion: 0.29
 Nodes (6): assert, CAPSULES, { captureEnvFingerprint }, { describe, it }, GENES, { selectGene, selectCapsule, selectGeneAndCapsule, isEpigeneticallySuppressed }
 
-### Community 709 - "heartbeatResilienceRound6.test.js"
-Cohesion: 0.40
-Nodes (5): a2a, assert, { describe, it, after, beforeEach, afterEach }, nextTick(), settle()
+### Community 706 - "dependencies"
+Cohesion: 0.15
+Nodes (13): byterover-cli, @discordjs/opus, @discordjs/voice, dependencies, byterover-cli, @discordjs/opus, @discordjs/voice, playwright (+5 more)
+
+### Community 708 - "gep_personality_report.js"
+Cohesion: 0.27
+Nodes (12): aggregateFromEvents(), clamp01(), fs, { getRepoRoot, getMemoryDir, getGepAssetsDir }, main(), { normalizePersonalityState, personalityKey, defaultPersonalityState }, pad(), path (+4 more)
+
+### Community 709 - "_lockPaths.js"
+Cohesion: 0.15
+Nodes (10): fs, lockIsStaleByLease(), os, path, assert, { describe, it, beforeEach, after }, fs, lockPaths (+2 more)
 
 ### Community 710 - "webui/server/routes.js"
 Cohesion: 0.50
 Nodes (3): buildWebUiRoutes(), httpError(), observer
 
+### Community 711 - "proxyOutboundSync.test.js"
+Cohesion: 0.15
+Nodes (8): assert, { describe, it, beforeEach, afterEach }, fs, hubFetchMod, { MailboxStore }, os, { OutboundSync }, path
+
+### Community 712 - "bypass403.ts"
+Cohesion: 0.30
+Nodes (9): buildBypassMatrix(), bypass403(), BypassAttempt, classifyBypass(), denyDigest(), fetchProbe(), lowerHeaders(), ProbeResult (+1 more)
+
+### Community 713 - "package.json"
+Cohesion: 0.17
+Nodes (11): allowScripts, @discordjs/opus@0.10.0, devDependencies, vitest, name, private, version, workspaces (+3 more)
+
+### Community 714 - "mailboxStore.test.js"
+Cohesion: 0.18
+Nodes (8): assert, { describe, it, before, after }, fs, inboundRow(), inboundTextForLineBytes(), { MailboxStore, generateUUIDv7, DEFAULT_CHANNEL, SCHEMA_VERSION, PROXY_PROTOCOL_VERSION }, os, path
+
+### Community 715 - "pentestSweep.ts"
+Cohesion: 0.40
+Nodes (7): t0, runPentestSweep(), summarizeBody(), SWEEP_MARKER, SweepResult, sweepTargetFromAsk(), webAudit()
+
+### Community 716 - "atp-default.test.js"
+Cohesion: 0.31
+Nodes (7): defaultOrderHandler(), getAtpMode(), resolveAtpServices(), assert, { describe, it, beforeEach, afterEach }, envKeys, savedEnv
+
+### Community 717 - "llmReview.js"
+Cohesion: 0.28
+Nodes (8): buildReviewPrompt(), { execFileSync }, fs, { getRepoRoot }, isLlmReviewEnabled(), os, path, runLlmReview()
+
+### Community 718 - "atpAutoBuyer.test.js"
+Cohesion: 0.22
+Nodes (7): assert, { describe, it, beforeEach, afterEach }, envKeys, fs, os, path, savedEnv
+
+### Community 719 - "lifecycleReauthHubUnreachable.test.js"
+Cohesion: 0.22
+Nodes (3): assert, { LifecycleManager }, test
+
+### Community 720 - "impactOverclaim.ts"
+Cohesion: 0.43
+Nodes (6): ALLOW(), CONTENT_WORDS(), evidenceIsSubstantive(), OVERCLAIM_REFUSAL_FOOTER, overclaimVerdict, SCOPE_CLAIMS
+
+### Community 721 - "redactKnownSecrets"
+Cohesion: 0.36
+Nodes (8): knownLocalSecrets(), redactKnownSecrets(), redactKnownSecretsInString(), sanitizeObjectKey(), sanitizeStderrChunk(), sanitizeText(), uniqueObjectKey(), withMachineJsonConsole()
+
+### Community 722 - "assetStore.filelock.test.js"
+Cohesion: 0.29
+Nodes (6): assert, fs, os, path, test, { withFileLock }
+
+### Community 723 - "cycleProgressFile.test.js"
+Cohesion: 0.29
+Nodes (6): assert, { describe, it, before, after }, fs, os, path, { writeCycleProgressAtomic }
+
+### Community 724 - "proxyHubUrlDefault.test.js"
+Cohesion: 0.29
+Nodes (5): assert, { describe, it }, { EvoMapProxy }, HUB_ENV, { PUBLIC_DEFAULT_HUB_URL }
+
+### Community 725 - "scripts"
+Cohesion: 0.33
+Nodes (6): scripts, build, dev, lint, test, typecheck
+
+### Community 726 - "Session 2026-10-06/07 — Discord voice channel (Gemini Live) + name addressing — DONE, live-verified"
+Cohesion: 0.40
+Nodes (5): Diagnostics kept minimal (house style), @discordjs/voice 0.19.2 API defects (typecheck was RED with 8 errors; the earlier "green" was stale), Gemini Live protocol traps encoded in the probes (do not re-learn these), ROOT CAUSE of "Live hears me but never answers" — two causes, both client-silent, Session 2026-10-06/07 — Discord voice channel (Gemini Live) + name addressing — DONE, live-verified
+
+### Community 729 - "overrides"
+Cohesion: 0.67
+Nodes (3): overrides, react, react-dom
+
 ## Knowledge Gaps
-- **5342 isolated node(s):** `evolve`, `{ solidify }`, `path`, `os`, `{ getRepoRoot }` (+5337 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 6480 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **59 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **5360 isolated node(s):** `evolve`, `{ solidify }`, `path`, `os`, `{ getRepoRoot }` (+5355 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 6504 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **60 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `event()` connect `ConversationManager` to `cliContracts.test.js`?**
-  _High betweenness centrality (0.256) - this node is a cross-community bridge._
-- **Why does `main()` connect `main` to `solidify.js`, `taskReceiver.js`, `WebUiServer`, `settings.js`, `experimentComparison.test.js`, `a2aProtocol.js`, `portable.test.js`, `autoDistillConv.js`, `autoDistillLlm.js`, `trajectoryExport.js`, `gep/paths.js`, `manager.js`, `atp/index.js`, `atpExecute.js`, `validator/index.js`, `cliContracts.js`, `questionGenerator.js`, `skillDistiller.js`, `execBridge.js`, `assetStore.js`, `hubFetch.js`, `evolve.js`, `explore.js`, `hookAdapter.js`, `task.js`, `proxy/index.js`, `proxyEnvelope.test.js`, `inject.js`, `atp/cli.js`, `idleScheduler.js`, `ContractError`, `autoBuyer.js`?**
-  _High betweenness centrality (0.172) - this node is a cross-community bridge._
+  _High betweenness centrality (0.264) - this node is a cross-community bridge._
+- **Why does `main()` connect `main` to `solidify.js`, `taskReceiver.js`, `WebUiServer`, `mailboxTransport.js`, `experimentComparison.test.js`, `autoDeliver.js`, `loopMode.test.js`, `a2aProtocol.js`, `portable.test.js`, `autoDistillConv.js`, `autoDistillLlm.js`, `trajectoryExport.js`, `gep/paths.js`, `manager.js`, `atp/index.js`, `atpExecute.js`, `validator/index.js`, `cliContracts.js`, `questionGenerator.js`, `skillDistiller.js`, `execBridge.js`, `assetStore.js`, `hubFetch.js`, `evolve.js`, `cliAutobuyPrompt.test.js`, `explore.js`, `hookAdapter.js`, `proxy/index.js`, `oauthLogin.js`, `inject.js`, `atp/cli.js`, `EvoMapProxy`, `idleScheduler.js`, `ContractError`, `autoBuyer.js`?**
+  _High betweenness centrality (0.174) - this node is a cross-community bridge._
 - **Are the 5 inferred relationships involving `main()` (e.g. with `.finishTurn()` and `.interrupt()`) actually correct?**
   _`main()` has 5 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `evolve`, `{ solidify }`, `path` to the rest of the system?**
-  _5342 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _5360 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `appRoot` be split into smaller, more focused modules?**
-  _Cohesion score 0.037131069501745474 - nodes in this community are weakly interconnected._
-- **Should `spotify.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.07127882599580712 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.046583850931677016 - nodes in this community are weakly interconnected._
+- **Should `canonicalUserKey` be split into smaller, more focused modules?**
+  _Cohesion score 0.05185185185185185 - nodes in this community are weakly interconnected._
 - **Should `AIProvider` be split into smaller, more focused modules?**
   _Cohesion score 0.0873015873015873 - nodes in this community are weakly interconnected._
