@@ -6912,6 +6912,7 @@ async function main() {
       userKeyForAgent,
       shouldRespondToAgent,
       trioMentionFlags,
+      addressedAgentByName,
       ensureAgentPersona,
     } = await import("./src/channels/discord");
     // Routing: Mia replies to everything (legacy); agents only on mention/DM/dedicated.
@@ -6993,6 +6994,67 @@ async function main() {
     const f6 = trioMentionFlags({ has: (_id: string) => false, roles: [{ name: "Agnes-fan" }] }, "michelle-id", "Michelle", sibsOfMichelle);
     if (f6.mentioned || f6.mentionedOther) {
       throw new Error("role name matching must be exact, not substring");
+    }
+    // Typed-name addressing (owner 2026-10-06: "kalau aku sapa 'halo michelle'
+    // pasti semuanya akan nyaut"). Before this, ONLY a real mention or a
+    // matching role mention routed anything, so typing a name was invisible to
+    // the router. A typed name is now an explicit address, like a mention.
+    const named = (text: string, expected: string | null, why: string) => {
+      const got = addressedAgentByName(text);
+      if (got !== expected) {
+        throw new Error(`${why}: "${text}" resolved to ${String(got)}, expected ${String(expected)}`);
+      }
+    };
+    named("halo michelle", "michelle", "a typed name must address that agent");
+    named("hai agnes, apa kabar", "agnes", "punctuation must not hide the name");
+    named("MIA help", "mia", "name matching is case-insensitive");
+    named("michelle, cek kode gue", "michelle", "a bare name with no greeting must address");
+    named("halo semua", null, "unaddressed chatter must stay unaddressed (Mia the concierge)");
+    named("halo michelle dan agnes", null, "two names are a GROUP address, not a routing choice");
+    named("michelles are cute", null, "name matching must be word-bounded, not a prefix");
+    named("halo michelleee", null, "name matching must be word-bounded, not a prefix");
+    named("tolong cek kode project ini ya", null, "an ordinary sentence must not look like an address");
+    // The reported shape end to end: a typed name must silence the siblings
+    // EVEN inside a shared dedicated channel (which is how this bug happened).
+    const shared = { mentioned: false, isDM: false, inDedicatedChannel: true, mentionedOtherTrioBot: false, ...trio };
+    const toMichelle = addressedAgentByName("halo michelle");
+    if (!shouldRespondToAgent("michelle", { ...shared, nameAddressed: toMichelle })) {
+      throw new Error("a message addressed to Michelle must reach Michelle");
+    }
+    for (const sibling of ["agnes", "mia"] as const) {
+      if (shouldRespondToAgent(sibling, { ...shared, nameAddressed: toMichelle })) {
+        throw new Error(`"halo michelle" must silence ${sibling} even in the shared channel`);
+      }
+    }
+    // ...and an unaddressed message in that same shared channel still goes to
+    // Mia alone. This is the other half of the live bug: all three
+    // DISCORD_CHANNEL_ID_* ids were the SAME channel, so `inDedicatedChannel`
+    // was true for all three and everybody answered everything. The fix makes
+    // a channel id exclusive to ONE agent, so post-fix a sibling's
+    // `inDedicatedChannel` is false here — that is the state asserted below.
+    const openRoom = { ...shared, inDedicatedChannel: false, nameAddressed: null };
+    for (const sibling of ["agnes", "michelle"] as const) {
+      if (shouldRespondToAgent(sibling, openRoom)) {
+        throw new Error(`unaddressed chatter must not reach ${sibling} in the shared channel`);
+      }
+    }
+    if (!shouldRespondToAgent("mia", openRoom)) {
+      throw new Error("Mia the concierge must still take unaddressed chatter");
+    }
+    // A mention still beats a typed name (explicit markup wins), and a mention
+    // of a sibling still silences everyone not named.
+    if (!shouldRespondToAgent("michelle", { ...shared, mentioned: true, nameAddressed: "agnes" })) {
+      throw new Error("an explicit mention must beat a typed name");
+    }
+    if (shouldRespondToAgent("michelle", { ...shared, mentionedOtherTrioBot: true, nameAddressed: "michelle" })) {
+      throw new Error("a sibling mention must still silence the named agent");
+    }
+    // Dedicated channels are EXCLUSIVE: the same id claimed by several agents
+    // (the live env) must not make every agent "dedicated" to the same room.
+    const dupCfgs = agentConfigsFromEnv();
+    const claimedIds = dupCfgs.flatMap((c) => c.dedicatedChannels);
+    if (new Set(claimedIds).size !== claimedIds.length) {
+      throw new Error(`a dedicated channel id must belong to at most one agent, got: ${claimedIds.join(",")}`);
     }
     // Key isolation: Mia keeps the legacy key; agents get suffixed dirs.
     if (userKeyForAgent("naufal", "mia") !== "naufal") throw new Error("mia key must be unchanged");

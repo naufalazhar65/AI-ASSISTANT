@@ -715,7 +715,11 @@ describe("GeminiLiveSession — prebuilt voice in setup (owner 2026-10-01: gadis
     const setup = (setupFrame().setup ?? {}) as Record<string, unknown>;
     const vad = (setup.realtimeInputConfig ?? {}) as Record<string, unknown>;
     const aad = (vad.automaticActivityDetection ?? {}) as Record<string, unknown>;
-    expect(aad.silenceDurationMs).toBe(1200);
+    // 800 ms since 2026-10-06 (owner: "lama responnya"). Was 1200 ms, which
+    // added ~0.4 s of dead air to EVERY reply on top of model TTFT + render.
+    // The test pins the value on purpose: it is a latency knob, so a silent
+    // regression back to a long window must fail here.
+    expect(aad.silenceDurationMs).toBe(800);
   });
 
   it("leaves affective dialog OUT (Constrained endpoint kills sessions on it)", async () => {

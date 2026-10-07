@@ -51,6 +51,7 @@ import { saveUpload } from "../lib/uploads";
 import { transcribeAudio } from "../lib/stt";
 import { synthesizeSpeech } from "../lib/tts";
 import { registerPushTarget } from "./pushTarget";
+import { startDiscordVoice, stopAllDiscordVoice, isVoiceActive, voiceCommandHelp } from "./discordVoice";
 import { classifyAssistantError } from "../lib/assistantError";
 import { defaultProviderId } from "../lib/providers";
 import { buildStatusReport } from "../lib/status";
@@ -191,14 +192,31 @@ const AGENT_SPECS: AgentSpec[] = [
   },
 ];
 
-/** Full per-agent config resolved from env (shared values are fallbacks). */
+/** Full per-agent config resolved from env (shared values are fallbacks).
+ *
+ *  Dedicated channels are made EXCLUSIVE here. Measured 2026-10-06: all three
+ *  of `DISCORD_CHANNEL_ID_MIA` / `_AGNES` / `_MICHELLE` pointed at the same id,
+ *  and since `shouldRespondToAgent` ends in `return opts.inDedicatedChannel`
+ *  for the siblings, every message in that channel was answered by all three
+ *  bots. The routing contract has always said a sibling joins unaddressed
+ *  chatter only inside its OWN dedicated channel — "own" was the part a shared
+ *  id silently broke. First claimant (AGENT_SPECS order: mia, agnes, michelle)
+ *  keeps the id; the rest get an empty list, which restores "Mia answers
+ *  unaddressed chatter here" instead of a three-way pile-on. */
 export function agentConfigsFromEnv(): AgentBotConfig[] {
+  const claimedChannels = new Set<string>();
   return AGENT_SPECS.map((s) => {
     const userFallback = process.env[s.userEnv] || process.env.DISCORD_USER || "naufal";
     const ownUsers = parseIdList(process.env[`DISCORD_ALLOWED_USER_ID${s.envSuffix}`]);
     const allowedUsers = ownUsers.length > 0 ? ownUsers : ALLOWED_USER_IDS;
     const ownChannels = parseIdList(process.env[s.channelEnv]);
     const allowedChannels = ownChannels.length > 0 ? ownChannels : ALLOWED_CHANNEL_IDS;
+    const wantedDedicated = parseIdList(process.env[s.dedicatedEnv]);
+    const dedicatedChannels = wantedDedicated.filter((id) => {
+      if (claimedChannels.has(id)) return false;
+      claimedChannels.add(id);
+      return true;
+    });
     return {
       label: s.label,
       displayName: s.displayName,
@@ -207,7 +225,7 @@ export function agentConfigsFromEnv(): AgentBotConfig[] {
       providerDefault: process.env[s.providerEnv] || PROVIDER_DEFAULT,
       allowedUsers,
       allowedChannels,
-      dedicatedChannels: parseIdList(process.env[s.dedicatedEnv]),
+      dedicatedChannels,
       userFallback,
       userSuffix: s.userSuffix,
       pushLabels: s.pushLabels,
@@ -232,6 +250,35 @@ export function userKeyForAgent(base: string, label: AgentLabel): string {
   return `${base}${suffix}`;
 }
 
+/** Which single agent a message addresses BY TYPED NAME.
+ *
+ *  Owner 2026-10-06: "kalau aku sapa 'halo michelle' pasti semuanya akan
+ *  nyaut". Before this, the router only understood real @mentions and role
+ *  mentions, so a typed name was invisible and all three bots answered.
+ *
+ *  Rules, chosen so a false positive is impossible in ordinary talk:
+ *  - case-insensitive and WORD-BOUNDED against the display name, so
+ *    "michelle" / "halo michelle" / "hai Michelle!" match while
+ *    "michelles" and "agness" do not;
+ *  - the message must actually be addressed (an opening greeting or the
+ *    name anywhere is enough — a research answer about "Michelle" is rare
+ *    enough that routing to her is harmless);
+ *  - EXACTLY ONE name may match. Two names is a group address, which returns
+ *    null so the normal concierge routing applies (Mia takes it) rather than
+ *    guessing which of the two the owner meant.
+ *  Pure — no env, no Discord objects. */
+export function addressedAgentByName(text: string): AgentLabel | null {
+  const t = (text || "").toLowerCase();
+  if (!t) return null;
+  const hits: AgentLabel[] = [];
+  for (const spec of AGENT_SPECS) {
+    const name = spec.displayName.toLowerCase();
+    if (!new RegExp(`\\b${name}\\b`).test(t)) continue;
+    hits.push(spec.label);
+  }
+  return hits.length === 1 ? hits[0] : null;
+}
+
 /** Trio routing (prevents triple replies). Solo Mia keeps legacy reply-all.
  *  In trio mode an explicit mention (member `<@id>` or role `<@&id>`
  *  name-match, resolved by trioMentionFlags) wins: a message addressing
@@ -247,6 +294,13 @@ export function shouldRespondToAgent(
     inDedicatedChannel: boolean;
     mentionedOtherTrioBot: boolean;
     trioMode: boolean;
+    /**
+     * Agent addressed by TYPED NAME, or null. Optional so every existing call
+     * site and test keeps compiling; when it is null the routing is exactly
+     * what it was before. An explicit mention still outranks it — markup is a
+     * deliberate act, a typed name is not.
+     */
+    nameAddressed?: AgentLabel | null;
   }
 ): boolean {
   if (!opts.trioMode) {
@@ -256,6 +310,7 @@ export function shouldRespondToAgent(
   if (opts.mentioned) return true;
   if (opts.isDM) return true;
   if (opts.mentionedOtherTrioBot) return false;
+  if (opts.nameAddressed) return opts.nameAddressed === label;
   if (label === "mia") return true;
   return opts.inDedicatedChannel;
 }
@@ -452,6 +507,12 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.DirectMessages,
       GatewayIntentBits.MessageContent,
+      // REQUIRED for voice: without GuildVoiceStates Discord never sends the
+      // VOICE_STATE_UPDATE / VOICE_SERVER_UPDATE dispatches that
+      // `joinVoiceChannel` waits for, so every join aborts after 20s with
+      // "The operation was aborted" (measured 2026-10-06). Non-privileged
+      // intent — no portal toggle needed.
+      GatewayIntentBits.GuildVoiceStates,
     ],
     // Allow DM channels / messages that aren't fully cached yet (a first-ever
     // DM arrives as a bare packet; without these partials discord.js drops the
@@ -613,7 +674,98 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
         return;
       }
       console.log(`[discord] msg author=${msg.author.id} channel=${msg.channelId} allowedUser=${isAllowedUser(msg, cfg.allowedUsers)} allowedChannel=${isAllowedChannel(msg, cfg.allowedChannels)}`);
-      if (!isAllowedMessage(msg, cfg)) return;
+      // --- Voice channel command (`!voice on|off`) --------------------------
+      // Handled by the HOST bot only (env `DISCORD_VOICE_HOST`, default mia):
+      // all three bots share this text channel, so without that gate one
+      // command would open three sessions and the trio would talk to itself.
+      // Runs BEFORE trio routing so the command is never answered as a normal
+      // chat turn. Owner 2026-10-06: "bisa ga sih fitur voice channel di
+      // aktifkan?".
+      //
+      // User-gated ONLY (not channel-gated): the owner naturally types this
+      // inside the voice channel's own chat, which is typically NOT on the
+      // text-channel allow-list — measured 2026-10-06, six `!voice` messages
+      // died at `isAllowedMessage` with allowedUser=true/allowedChannel=false
+      // and the bot stayed silent. Non-allow-listed users still can't trigger
+      // it; ordinary chat turns below stay fully channel-gated.
+      if (!isAllowedUser(msg, cfg.allowedUsers)) return;
+      {
+        const host = (process.env.DISCORD_VOICE_HOST || "mia") as AgentLabel;
+        const voiceCmd = /^\s*!voice(?:\s+(on|off|stop|start|help))?([\s\S]*)$/i.exec(
+          stripMentions(msg.content || "")
+        );
+        if (cfg.label === host && voiceCmd) {
+          const verb = (voiceCmd[1] || "on").toLowerCase();
+          if (verb === "help") {
+            await msg.reply(voiceCommandHelp()).catch(() => {});
+            return;
+          }
+          if (verb === "off" || verb === "stop") {
+            // Sessions are keyed by the SPOKEN-TO agent (michelle), not by the
+            // host that received the command (mia) — so `!voice off` must stop
+            // everything, or it reports "nothing active" while Michelle is
+            // still in the channel (measured 2026-10-06).
+            const had = isVoiceActive();
+            await stopAllDiscordVoice().catch(() => {});
+            await msg
+              .reply(
+                had
+                  ? "Oke, keluar dari voice channel dulu ya."
+                  : "Belum ada voice session aktif."
+              )
+              .catch(() => {});
+            return;
+          }
+          const voiceChannelId = process.env.DISCORD_VOICE_CHANNEL_ID || "";
+          if (!voiceChannelId) {
+            await msg
+              .reply(
+                "Voice channel belum dikonfigurasi — set `DISCORD_VOICE_CHANNEL_ID` ke id voice channel-nya, lalu restart."
+              )
+              .catch(() => {});
+            return;
+          }
+          // "!voice on michelle" is joined by MICHELLE's own bot account (its
+          // own gateway client), not the host's — the owner sees who they
+          // called in the channel. Falls back to the host client in solo
+          // mode (only one bot configured). One voice presence at a time:
+          // a new `on` stops any other agent's session first, so two voices
+          // never talk over each other.
+          const who = addressedAgentByName(voiceCmd[2] || "") ?? cfg.label;
+          const key = userKeyForAgent(
+            (msg.author.username || msg.author.id).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 60) ||
+              cfg.userFallback,
+            who
+          );
+          ensureAgentPersona(who, key);
+          const base = (
+            process.env.APP_BASE_URL ||
+            process.env.NEXT_PUBLIC_APP_URL ||
+            "http://127.0.0.1:3000"
+          ).replace(/\/+$/, "");
+          try {
+            await stopAllDiscordVoice().catch(() => {});
+            const reply = await startDiscordVoice({
+              client: getDiscordClient(who) ?? client,
+              guildId: msg.guildId ?? "",
+              voiceChannelId,
+              ownerId: msg.author.id,
+              agent: who,
+              userKey: key,
+              textChannelId: msg.channelId,
+              tokenUrl: `${base}/api/gemini-live/token`,
+              toolUrl: `${base}/api/gemini-live/tool`,
+            });
+            await msg.reply(reply).catch(() => {});
+          } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            console.warn("[discord] voice start failed:", message);
+            await msg.reply(`Voice belum bisa nyala: ${message}`).catch(() => {});
+          }
+          return;
+        }
+      }
+      if (!isAllowedChannel(msg, cfg.allowedChannels)) return;
       // Trio routing: an explicit mention (member `<@id>` or role `<@&id>`
       // matching the agent's name) wins — only addressed bots reply. DMs
       // always reply. Unaddressed chatter goes to Mia alone (concierge);
@@ -631,6 +783,13 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
         const isDM = msg.guildId == null;
         const inDedicated = cfg.dedicatedChannels.includes(msg.channelId);
         const mentionedOtherTrioBot = mf.mentionedOther;
+        // Typed name counts as an address (owner 2026-10-06: "halo michelle"
+        // must not wake all three). Mentions are stripped first so mention
+        // markup can never be read as a name, and this stays silent in solo
+        // mode (only Mia is configured, so there is nobody to mis-address).
+        const nameAddressed = cfg.trioMode
+          ? addressedAgentByName(stripMentions(msg.content || ""))
+          : null;
         if (
           !shouldRespondToAgent(cfg.label, {
             mentioned,
@@ -638,6 +797,7 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
             inDedicatedChannel: inDedicated,
             mentionedOtherTrioBot,
             trioMode: cfg.trioMode,
+            nameAddressed,
           })
         )
           return;

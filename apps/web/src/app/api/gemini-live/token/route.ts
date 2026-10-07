@@ -29,6 +29,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
+import { applyAgentRole, isAgentLabel, type AgentLabel } from "@/lib/agentRole";
 import { loadPersonaPrompt } from "@/lib/persona";
 import { buildMemoryRecap, liveToolDeclarations, loadRecentMemory } from "@/lib/liveTools";
 import { clockLabel, wibDay } from "@/lib/time";
@@ -43,6 +44,23 @@ export const runtime = "nodejs";
 function readRawUser(request: NextRequest): string | undefined {
   const header = request.headers.get("x-mia-user")?.trim();
   return header || undefined;
+}
+
+/**
+ * Which trio member is speaking, when the caller is one of their bots rather
+ * than Mia's own web client. The Discord voice bridge sends this so Agnes and
+ * Michelle get THEIR persona, register rules and their own voice instead of
+ * Mia's. Validated against the shared label union — an unknown header is
+ * ignored (Mia), never trusted.
+ */
+function readAgent(request: NextRequest): AgentLabel | undefined {
+  const header = request.headers.get("x-mia-agent")?.trim().toLowerCase();
+  return isAgentLabel(header) ? header : undefined;
+}
+
+/** The voice for a speaker: a per-agent pin, or Mia's when there is no agent. */
+function liveVoiceFor(agent: AgentLabel | undefined): string {
+  return LIVE_VOICES[agent ?? "mia"] ?? LIVE_VOICES.mia!;
 }
 
 /**
@@ -81,13 +99,29 @@ function stripInstructionEmoji(text: string): string {
 
 /** Gemini model used for the duplex voice path. */
 const LIVE_MODEL = "models/gemini-3.8-live";
+
 /**
- * Prebuilt voice for the session (owner 2026-10-01: "gadis muda").
- * The Live API shares the TTS voice pool — "Leda" is the youthful feminine
- * one; alternatives the owner can pin here: "Aoede" (breezy), "Kore" (firm),
- * "Sulafat" (warm). Preview them in AI Studio before pinning.
+ * Prebuilt voice per agent. Mia keeps "Leda" (owner 2026-10-01: "gadis muda"),
+ * the youthful feminine voice.
+ *
+ * Owner 2026-10-06: "untuk agnes dan michelle cari karakter perempuan yang
+ * cocok, jangan sama seperti mia". The Live API shares the TTS voice pool and
+ * Google's own descriptions of these three read as genuinely different women:
+ *   - Leda    — youthful feminine, warm.          (Mia, unchanged)
+ *   - Kore    — firm and level; the researcher who weighs a source before
+ *               answering, and never hurries a conclusion.              (Agnes)
+ *   - Aoede   — breezy and quick; the engineer who hands you a fix and
+ *               keeps moving.                                       (Michelle)
+ * All three are feminine and all three differ in register, so the trio is
+ * audible-by-character and not just by name. Pin any of them with
+ * `GEMINI_LIVE_VOICE`, `GEMINI_LIVE_VOICE_AGNES`, `GEMINI_LIVE_VOICE_MICHELLE`;
+ * preview candidates in AI Studio before changing.
  */
-const LIVE_VOICE = (process.env.GEMINI_LIVE_VOICE ?? "Leda").trim() || "Leda";
+const LIVE_VOICES: Record<string, string> = {
+  mia: (process.env.GEMINI_LIVE_VOICE ?? "Leda").trim() || "Leda",
+  agnes: (process.env.GEMINI_LIVE_VOICE_AGNES ?? "Kore").trim() || "Kore",
+  michelle: (process.env.GEMINI_LIVE_VOICE_MICHELLE ?? "Aoede").trim() || "Aoede",
+};
 
 /** `auth_tokens` lives on the v1beta surface; ephemeral tokens are preview-only there. */
 const TOKEN_URL = "https://generativelanguage.googleapis.com/v1beta/auth_tokens";
@@ -156,6 +190,9 @@ export async function POST(request: NextRequest) {
     // persona. The recent-conversation recap rides along the same way, AFTER
     // the persona, so the truncation below always cuts memory first, facts
     // never: identity outranks recall.
+    // Which trio member is speaking (absent = Mia's own web client).
+    const agent = readAgent(request);
+
     let systemInstruction: string;
     try {
       const hint = await readTaskHint(request);
@@ -257,6 +294,18 @@ export async function POST(request: NextRequest) {
       // feature entirely, which is worse.
       systemInstruction = "";
     }
+    // A trio member speaking gets the shared register rules + its own role
+    // block, and Mia's identity sentences come off. Applied BEFORE the size
+    // cap on purpose: the role block is prepended, so the cap truncates the
+    // memory recap at the tail and can never eat the voice contract.
+    if (agent && agent !== "mia") {
+      try {
+        systemInstruction = applyAgentRole(systemInstruction, agent);
+      } catch {
+        // A missing overlay must not refuse a session — the persona alone is
+        // still a usable voice.
+      }
+    }
     if (systemInstruction.length > MAX_SYSTEM_INSTRUCTION_CHARS) {
       systemInstruction = systemInstruction.slice(0, MAX_SYSTEM_INSTRUCTION_CHARS);
     }
@@ -312,7 +361,7 @@ export async function POST(request: NextRequest) {
       tools: liveToolDeclarations(),
       // The browser must send this as `setup.generationConfig.speechConfig`;
       // the client omits the field entirely when this is empty.
-      voice: LIVE_VOICE,
+      voice: liveVoiceFor(agent),
       expiresInSeconds: SESSION_MINUTES * 60,
     });
   } catch (err) {

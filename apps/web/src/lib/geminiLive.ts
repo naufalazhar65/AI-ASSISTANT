@@ -131,6 +131,21 @@ export interface GeminiLiveOptions {
   enableInputTranscription?: boolean;
   /** Ask the API to transcribe Gemini's speech. */
   enableOutputTranscription?: boolean;
+  /**
+   * Absolute URL of the token route. Omitted in the browser, where the
+   * relative `/api/gemini-live/token` resolves against the page origin.
+   * A Node caller (the Discord voice bridge) has no origin, so it MUST pass
+   * an absolute URL or `fetch` throws "Failed to parse URL".
+   */
+  tokenUrl?: string;
+  /**
+   * Extra headers for the token request, merged AFTER the derived ones so a
+   * server caller wins. The Discord bridge uses this to send BOTH
+   * `x-mia-user` (which persona loads) and `x-mia-agent` (which agent
+   * persona + which voice), neither of which can be derived from a browser
+   * localStorage that does not exist here.
+   */
+  userHeader?: Record<string, string>;
 }
 
 export interface StartResult {
@@ -283,7 +298,13 @@ export class GeminiLiveSession {
         // No storage in this environment (private mode, tests): the header
         // stays absent and the server falls back to the default persona.
       }
-      const res = await fetch("/api/gemini-live/token", { method: "POST", headers: userHeader });
+      // A server caller knows who it is speaking for and has no browser
+      // storage to derive it from, so its headers are merged LAST and win.
+      const headers = { ...userHeader, ...(this.options.userHeader || {}) };
+      // Node has no origin for a relative URL to resolve against, hence the
+      // caller's absolute `tokenUrl` (default stays the browser's own path).
+      const tokenUrl = this.options.tokenUrl || "/api/gemini-live/token";
+      const res = await fetch(tokenUrl, { method: "POST", headers });
       const json = (await res.json().catch(() => ({}))) as {
         token?: string;
         model?: string;
@@ -409,13 +430,14 @@ export class GeminiLiveSession {
             // `responseModalities` rejection. Laughter/tone stays prompt-only.
             // Do NOT re-add without a live session-start proof.
             // Let the user finish thinking: the server ends their turn after
-            // this much silence, and the default (~800 ms) cuts breathing
-            // pauses mid-sentence. 1200 ms keeps answers snappy while giving
-            // clause boundaries room (owner 2026-10-01: natural overlap).
+            // this much silence. 800 ms (owner 2026-10-06: voice latency) —
+            // was 1200 ms, which alone added ~0.4 s to EVERY reply on top of
+            // model TTFT + audio render. Below ~700 ms breathing pauses start
+            // getting cut mid-sentence, so 800 is the floor, not a waypoint.
             // If the deployed API ever rejects this field, delete it — the
             // session must never fail to start over a tuning knob.
             realtimeInputConfig: {
-              automaticActivityDetection: { silenceDurationMs: 1200 },
+              automaticActivityDetection: { silenceDurationMs: 800 },
             },
             ...(serverInstruction
               ? { systemInstruction: { parts: [{ text: serverInstruction }] } }
@@ -650,6 +672,25 @@ export class GeminiLiveSession {
           turnComplete?: boolean;
         }
       | undefined;
+    // Opt-in frame trace. Enable from a probe/console with
+    // `globalThis.__miaLiveTrace = true` BEFORE start(); nothing in the app
+    // sets it, so production is silent unless you ask for this. It is what
+    // proved on 2026-10-06 that the Live API returned ACTIVITY_START and then
+    // nothing at all while audio frames looked byte-identical to a working
+    // client — see apps/web/probe-live-noreply.mts.
+    if ((globalThis as Record<string, unknown>).__miaLiveTrace) {
+      console.log(
+        `[gemini-live] frame keys=${Object.keys(msg).join(",")} ` +
+          `serverContent=${JSON.stringify({
+            hasModelTurn: !!serverContent?.modelTurn,
+            parts: serverContent?.modelTurn?.parts?.length ?? 0,
+            in: serverContent?.inputTranscription?.text?.slice(0, 60),
+            out: serverContent?.outputTranscription?.text?.slice(0, 60),
+            turnComplete: serverContent?.turnComplete,
+          })} voiceActivity=${JSON.stringify(msg.voiceActivity)} ` +
+          `speechStart=${msg.speechStart ?? "-"}`
+      );
+    }
     if (!serverContent) return;
 
     if (typeof serverContent.inputTranscription?.text === "string") {
