@@ -42,6 +42,23 @@ const MODEL = process.env.PROBE_MODEL || "models/gemini-3.8-live";
 const VOICE = process.env.PROBE_VOICE || "Leda";
 const SIL = Number(process.env.PROBE_SILENCE_FRAMES || 100);
 
+// --- latency decomposition (owner 2026-10-07: "responnya sangat lambat") ---
+// A single "first audio" number hides WHERE the time goes. These four stamps
+// split the round trip into: how long the VAD waited for silence, how long the
+// model then took to produce its first audio, and whether our own send loop
+// was already behind. Anything that shifts is actionable; a single total is not.
+let lastSpeechSentAt = 0;
+let lastSilenceSentAt = 0;
+let activityStartAt = 0;
+let activityEndAt = 0;
+let firstAudioAt = 0;
+let turnCompleteAt = 0;
+// Probe start, hoisted so the post-run summary can use it. It used to be
+// `const t0` inside the websocket promise, which made the summary block throw
+// `ReferenceError: t0 is not defined` AFTER printing the two numbers that
+// matter — so the crash silently ate the rest of the report.
+const T0 = Date.now();
+
 // 1.14 s of a simple tone-ish speech via macOS `say`, as 16 kHz mono LE PCM16
 const wav = join(process.cwd(), ".data/probe-bare.wav"); // ffmpeg infers AIFF/WAVE from content
 const rawPath = join(process.cwd(), ".data/probe-bare.raw");
@@ -194,6 +211,7 @@ const done = new Promise<void>((resolve) => {
         await new Promise((r) => setTimeout(r, 20));
       }
       const sil = Buffer.alloc(per);
+      lastSpeechSentAt = Date.now();
       for (let i = 0; i < SIL; i += 1) {
         if (NO_BP || ws.bufferedAmount < 64000) {
           ws.send(
@@ -204,6 +222,7 @@ const done = new Promise<void>((resolve) => {
         }
         await new Promise((r) => setTimeout(r, 20));
       }
+      lastSilenceSentAt = Date.now();
       console.log(`sent ${Math.ceil(pcm.length / per)} speech + ${SIL} silence frames`);
     })();
   });
@@ -233,7 +252,12 @@ const done = new Promise<void>((resolve) => {
       for (const k of Object.keys(m)) kinds.add(k);
       if (m.setupComplete) setupDone = true;
       if (m.voiceActivity) {
-        if (m.voiceActivity.type === "ACTIVITY_END") sawEnd = true;
+        if (m.voiceActivity.type === "ACTIVITY_END") {
+          sawEnd = true;
+          activityEndAt = Date.now();
+        } else if (m.voiceActivity.type === "ACTIVITY_START" && !activityStartAt) {
+          activityStartAt = Date.now();
+        }
         console.log("voiceActivity", JSON.stringify(m.voiceActivity));
       }
       if (m.speechStart) {
@@ -246,16 +270,22 @@ const done = new Promise<void>((resolve) => {
           sawModelTurn = true;
           for (const p of sc.modelTurn.parts ?? []) {
             const b = p.inlineData?.data;
-            if (b) audio += Buffer.from(b, "base64").length;
+            if (b) {
+              audio += Buffer.from(b, "base64").length;
+              if (!firstAudioAt) firstAudioAt = Date.now();
+            }
             if (p.text) console.log("text:", p.text);
           }
         }
-        if (sc.turnComplete) console.log("turnComplete", JSON.stringify(sc.turnComplete).slice(0, 120));
+        if (sc.turnComplete) {
+          turnCompleteAt = Date.now();
+          console.log("turnComplete", JSON.stringify(sc.turnComplete).slice(0, 120));
+        }
       }
       if (m.error) console.log("ERROR", JSON.stringify(m.error).slice(0, 300));
     }
   });
-  const t0 = Date.now();
+  const t0 = T0;
   const el = () => `+${Date.now() - t0}ms`;
   onWs("error", (e: any) => console.log(el(), "ws error", e?.message ?? String(e)));
   onWs("close", (a: any, r: any) => {
@@ -276,4 +306,22 @@ try {
 }
 console.log(`\nframes=${[...kinds].join(",")}`);
 console.log(`ACTIVITY_END=${sawEnd} speechStart=${sawSpeechStart} modelTurn=${sawModelTurn} audioBytes=${audio}`);
+
+// Latency decomposition. Each line is a DIFFERENT owner's fix, so keep them
+// separate rather than collapsing to a total:
+//   - "vad wait"    → the server's silenceDurationMs; lower it if it dominates.
+//   - "model think" → TTFB after the turn closed; a big number here means the
+//                     payload (system instruction / tools) is the cost.
+//   - "send lag"    → OUR websocket was behind the wall clock. Non-zero means
+//                     our own loop is the problem, not the model.
+const vadWait = activityEndAt && lastSpeechSentAt ? activityEndAt - lastSpeechSentAt : 0;
+const modelThink = firstAudioAt && activityEndAt ? firstAudioAt - activityEndAt : 0;
+const total = firstAudioAt && lastSpeechSentAt ? firstAudioAt - lastSpeechSentAt : 0;
+console.log(`\n--- latency (ms) ---`);
+console.log(`speech sent->ACTIVITY_END (vad wait) : ${vadWait || "n/a"}`);
+console.log(`ACTIVITY_END->first audio (model)   : ${modelThink || "n/a"}`);
+console.log(`last silence sent                   : ${lastSilenceSentAt ? `+${lastSilenceSentAt - T0}ms` : "n/a"}`);
+console.log(`first audio                         : ${firstAudioAt ? `+${firstAudioAt - T0}ms` : "n/a"}`);
+console.log(`turnComplete                        : ${turnCompleteAt ? `+${turnCompleteAt - T0}ms` : "n/a"}`);
+console.log(`TOTAL speech-end -> first audio     : ${total || "n/a"}`);
 console.log(audio > 0 ? "VERDICT: OK — bare session speaks" : "VERDICT: NO AUDIO even bare (upstream/model/quota)");

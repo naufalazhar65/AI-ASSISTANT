@@ -20,6 +20,25 @@ describe("isInternalTurn", () => {
       expect(isInternalTurn(t), t).toBe(false);
     }
   });
+
+  /**
+   * Regression lock for the probe gate (2026-10-07).
+   *
+   * `probeGateNudge` injects its instruction as a USER turn prefixed
+   * `[probe-gate]`. 26 call-sites read the last user message, so if that prefix
+   * were not recognised as internal the synthetic turn would SHADOW the real
+   * ask — the exact failure recorded live 2026-09-25 11:53 when the compulsory
+   * sweep was appended as a bare user turn: markdown/PDF delivery detection and
+   * the endpoint-triage guard silently went dead. This test is the difference
+   * between "the gate works" and "the gate quietly disables three other guards".
+   */
+  it("treats the probe gate's synthetic turn as internal, so the real ask survives", () => {
+    expect(
+      isInternalTurn(
+        "[probe-gate] Error: giliran ini belum diuji — belum ada SATU pun pengujian nyata yang berjalan.",
+      ),
+    ).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

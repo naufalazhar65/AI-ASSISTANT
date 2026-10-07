@@ -5,7 +5,8 @@
 // Local notes only (no network). One entry per target key, upserted in place.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { sanitizeUser, userDataRoot } from "./users";
+import { userDataRoot } from "./users";
+import { resolveOwnerScopedKey } from "./identity";
 
 export type HuntStatus = "todo" | "testing" | "dead" | "lead" | "finding";
 const STATUSES: HuntStatus[] = ["todo", "testing", "dead", "lead", "finding"];
@@ -32,7 +33,7 @@ export function normalizeTarget(s: string): string {
 }
 
 function storePath(rawUser: unknown): string {
-  const user = sanitizeUser(rawUser) ?? "shared";
+  const user = resolveOwnerScopedKey(rawUser) ?? "shared";
   return join(userDataRoot(), user, "hunt-state.json");
 }
 

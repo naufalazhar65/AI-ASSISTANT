@@ -149,6 +149,17 @@ export function sweepReportGate(input: SweepGateInput): SweepGateDecision {
 }
 
 /**
+ * Head of the sweepGate refusal. Exported because the action receipt must be
+ * able to recognise this text as a NON-execution (live 2026-10-07 18:57: the
+ * refusal of the first `report_save` was rendered under "Aksi yang benar-benar
+ * dijalankan" and, being the first record with that name+args, it also MASKED
+ * the second, genuinely successful `report_save` a few seconds later — the file
+ * existed on disk while the receipt claimed it was not made). Keep it stable
+ * and derive the sentence from it: one owner for the wording.
+ */
+export const SWEEP_REFUSAL_HEAD = "Error: belum ada pengujian nyata di giliran ini";
+
+/**
  * The refusal text. Actionable on purpose and free of jargon: the model reads
  * this as a tool result, and the house pattern (EMPTY_REPORT) is that it
  * corrects itself when the tool tells it exactly what is missing and what to do
@@ -157,10 +168,137 @@ export function sweepReportGate(input: SweepGateInput): SweepGateDecision {
  */
 export function sweepGateRefusal(toolName: string): string {
   return [
-    `Error: belum ada pengujian nyata di giliran ini — laporan belum dibuat.`,
+    `${SWEEP_REFUSAL_HEAD} — laporan belum dibuat.`,
     `Permintaanmu adalah sweep menyeluruh, tapi giliran ini hanya membaca (GET/audit/read) tanpa satu pun payload yang dikirim dan dijawab.`,
     `Laporan yang disusun sekarang akan berisi temuan dari giliran lain, bukan hasil pengujian ini — jadi itu akan salah label.`,
     `Langkah berikutnya: kirim payload nyata ke endpoint yang dicurigai (http_request dengan body/param payload, atau prover seperti poc_verify, param_fuzz, idor_enum, ssti_enum, bypass403, path_traversal, otp_hunt, race_attack, workflow_fuzz), cek jawabannya, lalu catat temuan dengan finding_add — baru panggil ${toolName} lagi.`,
     `Kalau memang tidak ada yang bisa diuji (misalnya tidak ada form, atau endpoint-nya menolak semua payload), bilang saja — aku laporkan apa yang sudah dibaca tanpa mengklaim ada pengujian.`,
+  ].join(" ");
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * probeGate — the sibling of sweepGate, for the OTHER way a turn can end.
+ *
+ * sweepGate catches the model calling a report tool on a turn that probed
+ * nothing. It does NOT catch the model writing the report IN PROSE and ending
+ * the turn — which is what happened live 2026-10-07 17:29 and again 17:17.
+ *
+ * Live 2026-10-07 17:29 (cozy-kangaroo-42f2e0.netlify.app, "full pentest
+ * menyeluruh … buatkan report pdf nya"). The turn ran `finding_list`,
+ * `http_request`, `web_audit`, `js_mine` and then wrote a full eight-finding
+ * pentest report as TEXT. Round budget was 10; it used ONE. The two honesty
+ * guards both fired and produced correct notes ("8 temuan itu SUDAH tercatat
+ * di giliran sebelumnya", "baru dibaca, belum diuji kerentanannya") — the
+ * reply was honest AND useless: the owner asked for testing and got a
+ * re-transcription of the store. The honesty stack is the wrong layer for
+ * this; it can annotate the prose but cannot make the testing happen.
+ *
+ * Why the model stops: `finding_list` returns findings fully formed — CVSS,
+ * evidence, steps, remediation — so the CONTEXT looks like a finished pentest.
+ * "Read the store" and "do the work" are indistinguishable to it. The prompt
+ * already forbids exactly this (pentestSweep.ts:170-175 injects "lanjutkan
+ * pengujian yang belum dilakukan … Jangan mengulang listing temuan lama") and
+ * the model ignored it — the third time this session a prompt rule failed on
+ * this model class (the greeting saga: OFFICE_STYLE_CONTRACT could not stop
+ * "Juga Mas Naufal." across a restart).
+ *
+ * So: deterministic, at the choke point where a turn DECIDES TO END. When the
+ * model returns no tool calls (the final-answer branch) on a pentest ask with
+ * zero probes executed, the turn is not allowed to end — one more round runs
+ * with an actionable instruction. Same proven mechanism as sweepGate and
+ * EMPTY_REPORT: the model reads the instruction and self-corrects WITHIN the
+ * turn (that is exactly how EMPTY_REPORT worked on 2026-09-25: 6 more rounds,
+ * poc_verify, finding_add, then a legitimate report).
+ *
+ * Pure: no IO, no clock, no store. The caller supplies the turn's facts.
+ * Unit-tested both ways.
+ *
+ * MEASURED, NOT ASSUMED — and the honest reading is mixed:
+ *   - First mechanism (instruction appended to the SYSTEM PROMPT) failed
+ *     outright: fired at round 6 of 10 — after the model had already decided
+ *     to wrap up — and was ignored twice, with `finding_add` recorded and zero
+ *     payload-bearing probes. That is why it is injected as a `messages` turn.
+ *   - After the fix, 7 live trials (3 empty store + 3 with the owner's real
+ *     25-row store, which reproduces the 17:29 condition exactly): the gate
+ *     fired ZERO times. Payload-bearing probes ran 1-8 per trial. The model
+ *     tested on its own every single time.
+ *   => Zero false positives, and the live failure did not recur — but the
+ *   POSITIVE effect of this gate is UNPROVEN. It has never actually fired.
+ *   The improvement seen after the fix was model variance, not this gate. Do
+ *   not let a future session read the gates list and conclude it works.
+ *
+ * OWNER DECISION 2026-10-07, given those numbers: keep as a safety net.
+ * The argument that decided it is an asymmetry, not the green gates. The bug
+ * happened twice in the wild (17:17, 17:29) and both times it cost the owner
+ * a manual forensics session. We cannot reproduce the failure condition, so we
+ * cannot prove the gate is unnecessary either — and insurance is worth most
+ * precisely for failures that cannot be reproduced on demand. Removing it
+ * because "it never fired" would be reasoning from absence of evidence.
+ *
+ * To settle it empirically if it ever matters: the gate logs `[agent] round N:
+ * pentest turn with zero probes — nudging`, and `apps/web/probe-probe-gate.mts`
+ * is a durable harness that drives the real ask and reads the AUDIT LOG (never
+ * the prose) as ground truth. So the next real occurrence answers the question
+ * in seconds instead of requiring another forensics session.
+ *
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export interface ProbeGateInput {
+  /** The owner's ask for this turn (use `lastInstructionText`, not the raw tail). */
+  userText: string;
+  /** Reused from library.ts — the existing pentest-ask gate, one owner. */
+  isPentestAsk: (t: string) => boolean;
+  /** Every tool call this turn, from `collector.executedCalls`. */
+  executed: readonly SweepTurnCall[] | undefined;
+  /**
+   * Is there round budget left to spend? A nudge on the last round would
+   * produce one more no-tools completion and change nothing, so the caller
+   * must pass false there and let the turn end.
+   */
+  hasRoundBudget: boolean;
+  /** Has this turn already spent its ONE nudge? See the bound below. */
+  alreadyNudged?: boolean;
+  /**
+   * The prose the model was about to emit. If it ALREADY admits it did not
+   * test, the requirement is met and nudging only wastes a round.
+   */
+  proposedText?: string;
+  /** A confirmation continuation is not a fresh ask to test. */
+  isConfirmContinuation?: boolean;
+  /** Headless (automation/webhook) turns answer on a schedule, not on a request. */
+  headless?: boolean;
+}
+
+/**
+ * An admission that the turn did no testing. Checked against the prose the
+ * model was about to send, so a turn that already told the truth is not made
+ * to talk in circles. Deliberately narrow: it needs the negation AND a
+ * testing word in the same clause, and "belum ada temuan" (no findings YET) is
+ * NOT an admission — that phrasing is what a lazy turn says instead of testing.
+ */
+const HONEST_NO_TEST_RE =
+  /\b(?:belum|terus belum|belum sempat|kurang)\b[^.?!]{0,40}\b(?:uji|diuji|menguji|tes|tesing|mengecek|mengirim\s+payload)\b|\b(?:tidak|gak|nggak)\s+(?:bisa|sempat|mampu)\s+(?:uji|diuji|menguji|tes)\b|\b(?:gagal|tidak berhasil)\s+(?:uji|diuji|menguji)\b/i;
+
+export function probeGateNudge(input: ProbeGateInput): string {
+  if (!input.isPentestAsk(input.userText)) return "";
+  if (input.isConfirmContinuation) return "";
+  if (input.headless) return "";
+  if (!input.hasRoundBudget) return "";
+  if (input.alreadyNudged) return "";
+  if (turnHasProbe(input.executed)) return "";
+  const proposed = String(input.proposedText ?? "").trim();
+  if (proposed && HONEST_NO_TEST_RE.test(proposed)) return "";
+  return [
+    `Error: giliran ini belum diuji — belum ada SATU pun pengujian nyata yang berjalan.`,
+    `Yang kamu lakukan baru membaca: listing temuan yang sudah tercatat sebelumnya dan membuka halaman.`,
+    `Itu BUKAN hasil pengujian, dan temuan/laporan yang kamu susun dari situ akan salah label.`,
+    `Lakukan sekarang juga: kirim satu payload ke endpoint yang paling mencurigakan (http_request`,
+    `dengan body/param payload), atau pakai prover yang langsung membuktikan (poc_verify, param_fuzz,`,
+    `idor_enum, bola_diff, auth_matrix, ssti_enum, bypass403, path_traversal, otp_hunt, race_attack,`,
+    `workflow_fuzz). Baru catat temuannya dengan finding_add kalau memang vulnerability.`,
+    `Satu uji nyata jauh lebih berguna daripada daftar lengkap yang tidak diuji.`,
+    `Kalau memang tidak ada satu pun yang bisa diuji — target mati, atau semuanya menolak —`,
+    `bilang saja terus terang: "aku belum menguji apa pun di giliran ini karena …".`,
+    `Yang itu sudah cukup. Yang tidak boleh: menutup giliran seolah pengujiannya sudah jalan.`,
   ].join(" ");
 }

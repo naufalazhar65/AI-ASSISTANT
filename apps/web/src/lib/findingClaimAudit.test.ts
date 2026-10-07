@@ -6,6 +6,7 @@ import {
   discoveryAuthorshipNote,
   emptyFindingClaimFacts,
   findingClaimFacts,
+  recordAuthorshipNote,
   recordedFindingThisTurn,
   severityInflationNote,
 } from "./findingClaimAudit";
@@ -137,6 +138,88 @@ describe("discoveryAuthorshipNote — facet C (live 17:12)", () => {
 
   it("is silent when the store is empty", () => {
     expect(discoveryAuthorshipNote(LIVE_PROSE, emptyFindingClaimFacts())).toBe("");
+  });
+});
+
+describe("recordAuthorshipNote — facet D (live 2026-10-07 17:17)", () => {
+  /**
+   * The real reply. Facet D exists because all THREE pre-existing facets are
+   * silent on this exact text — verified by probe, not assumed: the sentence
+   * has no pronoun and uses a RECORD verb (not a discovery verb), there was no
+   * `finding_add` attempt at all (so facet "unrecorded claim" had nothing to
+   * latch onto), and it names no severity word (so facet B could not compare).
+   * The second sentence is CORRECT and must never be accused — it is the
+   * discriminator that keeps `STORE_SUBJECT_RE` honest.
+   */
+  const LIVE_1017 =
+    "Mas Naufal, full pentest untuk cozy-kangaroo-42f2e0.netlify.app sudah mencatat 8 temuan di sistem, " +
+    "termasuk celah injeksi dan kerentanan akses. Sistem secara otomatis sudah mencetak laporan PDF-nya " +
+    "dari temuan-temuan aktif tersebut.";
+
+  it("catches the live claim: 'sudah mencatat 8 temuan' with nothing recorded", () => {
+    const note = recordAuthorshipNote(LIVE_1017, LIVE_FACTS);
+    expect(note).toContain("SUDAH tercatat di giliran sebelumnya");
+    expect(note).toContain("tidak menjalankan finding_add sama sekali");
+    expect(note).toContain("bukan hasil pencatatan giliran ini");
+  });
+
+  it("leaves the honest second sentence of the SAME reply alone", () => {
+    expect(
+      recordAuthorshipNote(
+        "Sistem secara otomatis sudah mencetak laporan PDF-nya dari temuan-temuan aktif tersebut.",
+        LIVE_FACTS,
+      ),
+    ).toBe("");
+  });
+
+  it("catches every active record verb", () => {
+    for (const verb of ["mencatat", "menyimpan", "merekam", "memasukkan", "menambahkan"]) {
+      expect(recordAuthorshipNote(`Pentest tadi sudah ${verb} 8 temuan.`, LIVE_FACTS)).not.toBe("");
+    }
+  });
+
+  // The `men-` morphology is the discriminator: `\bmencatat\b` cannot match
+  // inside `tercatat` (no word boundary before `catat`), so the whole passive
+  // family is silent without a second pattern to keep in sync.
+  it("never accuses the passive/stative forms", () => {
+    for (const t of [
+      "8 temuan yang sudah tercatat di sistem.",
+      "Temuan yang tercatat sejak September masih terbuka semua.",
+      "Laporan memuat 8 temuan yang tersimpan di store.",
+    ]) {
+      expect(recordAuthorshipNote(t, LIVE_FACTS)).toBe("");
+    }
+  });
+
+  it("treats a store/database subject as honest bookkeeping", () => {
+    expect(recordAuthorshipNote("Store sudah mencatat 8 temuan untuk target ini.", LIVE_FACTS)).toBe("");
+    expect(
+      recordAuthorshipNote("Sistem sudah mencatat 8 temuan aktif.", LIVE_FACTS),
+    ).toBe("");
+  });
+
+  it("is silent when the clause names an earlier turn", () => {
+    expect(
+      recordAuthorshipNote("Sudah tercatat 8 temuan pada giliran sebelumnya.", LIVE_FACTS),
+    ).toBe("");
+    expect(recordAuthorshipNote("Sudah mencatat 8 temuan yang lalu.", LIVE_FACTS)).toBe("");
+  });
+
+  it("is silent on a plan (not yet completed) and on honest failure", () => {
+    expect(
+      recordAuthorshipNote("Aku akan mencatat temuannya nanti setelah uji ulang selesai.", LIVE_FACTS),
+    ).toBe("");
+    expect(recordAuthorshipNote("Gagal mencatat temuannya karena judulnya kosong.", LIVE_FACTS)).toBe("");
+  });
+
+  it("is silent when the turn recorded a finding", () => {
+    expect(recordAuthorshipNote(LIVE_1017, { ...LIVE_FACTS, recordedThisTurn: true })).toBe("");
+  });
+
+  it("is silent when the finding noun is absent, or the store is empty", () => {
+    expect(recordAuthorshipNote("Sudah aku catat daftar bacaan kamu ya.", LIVE_FACTS)).toBe("");
+    expect(recordAuthorshipNote(LIVE_1017, emptyFindingClaimFacts())).toBe("");
+    expect(recordAuthorshipNote("", LIVE_FACTS)).toBe("");
   });
 });
 

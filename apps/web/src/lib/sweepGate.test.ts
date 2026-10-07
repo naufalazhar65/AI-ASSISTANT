@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isFullSweepAsk,
+  probeGateNudge,
   sweepGateRefusal,
   sweepReportGate,
   SWEEP_REPORT_TOOLS,
@@ -180,5 +181,102 @@ describe("sweepGateRefusal", () => {
     const msg = sweepGateRefusal("report_save");
     expect(msg).toContain("salah label");
     expect(msg).not.toMatch(/laporan (rusak|error|gagal)/i);
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * probeGateNudge — the OTHER way a pentest turn can end.
+ *
+ * Live 2026-10-07 17:29, the same ask as LIVE_ASK: the turn ran
+ * `finding_list`, `http_request`, `web_audit`, `js_mine`, then wrote a
+ * full eight-finding pentest report as PROSE and ended. It never called a
+ * report tool, so sweepReportGate could not see it. Budget was 10 rounds; it
+ * used ONE. The owner's testing request became a re-transcription of the store.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+describe("probeGateNudge", () => {
+  /** The real read-only turn from 17:29 — zero probes, about to end. */
+  const READ_ONLY_TURN: SweepTurnCall[] = [
+    { name: "finding_list", executed: true },
+    { name: "http_request", executed: true },
+    { name: "web_audit", executed: true },
+    { name: "js_mine", executed: true },
+  ];
+
+  const base = {
+    userText: LIVE_ASK,
+    isPentestAsk: isSecurityAsk,
+    executed: READ_ONLY_TURN,
+    hasRoundBudget: true,
+  };
+
+  it("blocks the live turn: pentest ask, zero probes, budget left", () => {
+    expect(probeGateNudge(base)).not.toBe("");
+  });
+
+  it("names the concrete next action, or the model has nothing to act on", () => {
+    const msg = probeGateNudge(base);
+    expect(msg).toContain("poc_verify");
+    expect(msg).toContain("finding_add");
+    expect(msg).toContain("payload");
+  });
+
+  it("offers the honest exit, so a target that cannot be tested is not trapped", () => {
+    // This is the answer to "what if nothing can be tested": say so plainly.
+    expect(probeGateNudge(base)).toMatch(/tidak ada satu pun yang bisa diuji|bilang saja terus terang/i);
+  });
+
+  // ── must NEVER block ──
+  it("allows the turn once a real probe ran", () => {
+    expect(
+      probeGateNudge({ ...base, executed: [{ name: "poc_verify", executed: true }] }),
+    ).toBe("");
+  });
+
+  it("allows a plain non-security ask — this is not a pentest gate", () => {
+    expect(probeGateNudge({ ...base, userText: "tulis catatan penuh" })).toBe("");
+  });
+
+  it("allows a confirm continuation — it answers an action, not a fresh ask", () => {
+    expect(probeGateNudge({ ...base, isConfirmContinuation: true })).toBe("");
+  });
+
+  it("allows a headless automation turn — it answers on a schedule", () => {
+    expect(probeGateNudge({ ...base, headless: true })).toBe("");
+  });
+
+  it("allows the last round — a nudge there would spend a no-tools completion", () => {
+    expect(probeGateNudge({ ...base, hasRoundBudget: false })).toBe("");
+  });
+
+  /**
+   * The loop bound. This is the single most important test in the block: a
+   * target that cannot be tested must still get an ANSWER, not a nudge-loop.
+   */
+  it("allows the SECOND attempt — one nudge per turn, then the turn ends", () => {
+    expect(probeGateNudge({ ...base, alreadyNudged: true })).toBe("");
+  });
+
+  it("allows a turn that ALREADY admitted it did not test", () => {
+    for (const t of [
+      "Aku belum menguji apa pun di giliran ini karena target-nya mati.",
+      "Belum sempat menguji endpoint-nya.",
+      "Aku tidak bisa menguji apa pun di sini.",
+      "Gagal menguji, endpoint-nya menolak semua payload.",
+    ]) {
+      expect(probeGateNudge({ ...base, proposedText: t })).toBe("");
+    }
+  });
+
+  // "belum ada temuan" is what a lazy turn says INSTEAD of testing, so it must
+  // not be mistaken for the honest admission.
+  it("does NOT accept 'belum ada temuan' as an admission", () => {
+    expect(
+      probeGateNudge({ ...base, proposedText: "Belum ada temuan baru, semua aman." }),
+    ).not.toBe("");
+  });
+
+  it("treats a refused call as NOT a probe (executed:false must not count)", () => {
+    expect(probeGateNudge({ ...base, executed: [{ name: "poc_verify", executed: false }] })).not.toBe("");
   });
 });

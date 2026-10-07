@@ -348,6 +348,101 @@ export function discoveryAuthorshipNote(text: string, facts: FindingClaimFacts):
 }
 
 /* ------------------------------------------------------------------ *
+ * Facet D — record authorship (live 2026-10-07 17:17, Discord)
+ * ------------------------------------------------------------------ */
+
+/**
+ * An ACTIVE recording verb, in its Indonesian `men-` form.
+ *
+ * Deliberately `men-`-only. The passive `tercatat` / `tersimpan` is a
+ * statement ABOUT findings ("8 temuan yang sudah tercatat") and accusing it
+ * is the worse error direction — the same reason `DISCOVERY_ACTIVE` excludes
+ * the passive forms. So the morphology itself does the work: `\bmencatat\b`
+ * cannot match inside `tercatat`, because there is no word boundary before
+ * `catat` there.
+ */
+const RECORD_ACTIVE = "(?:mencatat|menyimpan|merekam|memasukkan|menambahkan)";
+
+/** "I / this turn did the recording" — an aspect marker or a first-person subject. */
+const RECORD_COMPLETED_RE =
+  /\b(?:sudah|sudahlah|telah|udah|sdh|baru\s+aja|baru|kemudian|berhasil|langsung)\b|\b(?:aku|saya|gua|gw)\b/i;
+
+/**
+ * A store/database as the subject reads as honest bookkeeping, not authorship.
+ *
+ * Measured live 17:17: the SAME reply contained "Sistem secara otomatis sudah
+ * mencetak laporan PDF-nya" — a correct statement about the store, which must
+ * stay silent — while the preceding clause said "sudah mencatat 8 temuan"
+ * about THIS turn's work, which must not. The discriminator is the subject in
+ * front of the verb, so only the text BEFORE the match is inspected.
+ */
+const STORE_SUBJECT_RE =
+  /\b(?:store|storage|sistem|system|database|db|laporan|report|server|backend|arsip)\b[^.?!]{0,24}$/i;
+
+/**
+ * Markers that the findings belong to an EARLIER turn. A claim that names them
+ * is honest bookkeeping even in active voice ("sudah mencatat 8 temuan yang
+ * lalu"), which is why this is checked before the accusation.
+ */
+const PRIOR_TURN_RE =
+  /\b(?:sebelum(?:nya)?|lalu|kemarin|dulu|minggu\s+lalu|bulan\s+lalu|turn\s+(?:sebelumnya|lalu)|giliran\s+(?:sebelumnya|lalu)|sudah\s+ada|masih\s+ada|sudah\s+tercatat)\b/i;
+
+/** An honest failure admission inside the claim clause. */
+const RECORD_ADMISSION_RE =
+  /\b(?:gagal|belum|tern[yi]ata|maaf|tidak\s+(?:bisa|jadi|berhasil))\b/i;
+
+/**
+ * A claim that presents a store's finding set as THIS turn's OUTPUT when the
+ * turn recorded nothing.
+ *
+ * Origin — live 2026-10-07 17:17, Discord, owner lab
+ * `cozy-kangaroo-42f2e0.netlify.app`. The reply said "full pentest untuk
+ * … sudah mencatat 8 temuan di sistem". The store holds exactly those 8
+ * open findings, but their `createdAt` values are 2026-09-17 … 2026-09-28 —
+ * 9 to 20 days old. The turn's own audit rows contain no `finding_add` at
+ * all (only `http_request`, `web_audit`, `js_mine`, `finding_list`), so the
+ * claim attributes this turn's work to what earlier turns recorded.
+ *
+ * Why the existing three facets all missed it, which is why this is a new
+ * facet rather than a widened one:
+ *  - `unrecordedFindingClaimNote` needs a `finding_add` attempt that ERRORED.
+ *    Here there was no attempt at all — only `report_save` errored.
+ *  - `discoveryAuthorshipNote` (facet C) needs a first-person subject plus an
+ *    ACTIVE DISCOVERY verb ("yang aku temukan"). This sentence has no pronoun
+ *    and uses a RECORD verb instead.
+ *  - `severityInflationNote` (facet B) needs a severity word. There is none.
+ *
+ * The correction is a caveat, not an accusation: the 8 findings are real and
+ * the model may well have re-verified them this turn, which is honest work.
+ * Only the ATTRIBUTION to this turn is wrong, so that is all this corrects.
+ */
+export function recordAuthorshipNote(text: string, facts: FindingClaimFacts): string {
+  const t = (text || "").trim();
+  if (!t) return "";
+  if (!facts.total) return ""; // no store facts -> nothing to reattribute
+  if (facts.recordedThisTurn) return ""; // the set may legitimately be this turn's
+  for (const c of clauses(t)) {
+    const re = new RegExp(`\\b${RECORD_ACTIVE}\\b`, "i");
+    const m = re.exec(c);
+    if (!m) continue;
+    // The finding noun must be in the SAME clause, and the verb must already be
+    // completed — "aku akan mencatat temuannya nanti" is a plan, not a claim.
+    if (!new RegExp(`\\b(?:${FINDING_NOUN})\\b`, "i").test(c)) continue;
+    if (!RECORD_COMPLETED_RE.test(c)) continue;
+    if (STORE_SUBJECT_RE.test(c.slice(0, m.index))) continue;
+    if (PRIOR_TURN_RE.test(c)) continue;
+    if (RECORD_ADMISSION_RE.test(c)) continue;
+    return (
+      ` (Catatan jujur: ${facts.total} temuan itu SUDAH tercatat di giliran sebelumnya` +
+      ` — giliran ini tidak menjalankan finding_add sama sekali, jadi itu bukan hasil` +
+      ` pencatatan giliran ini; yang giliran ini lakukan baru pembacaan ulang + laporan ulang.` +
+      ` Kalau pengujian barusan menemukan hal baru, bilang "catat temuannya" dan aku simpan.)`
+    );
+  }
+  return "";
+}
+
+/* ------------------------------------------------------------------ *
  * One owner for the "did this turn record anything" fact
  * ------------------------------------------------------------------ */
 

@@ -428,6 +428,23 @@ describe("lastInstructionText (skip bare approval continuations)", () => {
     expect(lastInstructionText([{ role: "user", content: null }, { role: "user", content: "remind me at 7" }])).toBe("remind me at 7");
   });
 
+  /**
+   * The probe gate (2026-10-07) injects `[probe-gate] Error: …` as a user
+   * turn. If lastInstructionText returned THAT, every guard reading the ask
+   * would see "Error: giliran ini belum diuji" instead of the owner's real
+   * request — the shadowing failure recorded live 2026-09-25 11:53, which
+   * silently disabled markdown/PDF delivery detection and the endpoint-triage
+   * guard. This is the test that says the injection is safe.
+   */
+  it("skips the probe gate's injected turn and still returns the real ask", () => {
+    const msgs = mk([
+      "coba lakukan full pentest secara menyeluruh di https://lab.example/ dan buatkan report pdf nya",
+      "[probe-gate] Error: giliran ini belum diuji — belum ada SATU pun pengujian nyata yang berjalan.",
+    ]);
+    expect(lastInstructionText(msgs)).toContain("full pentest");
+    expect(lastInstructionText(msgs)).toContain("buatkan report pdf nya");
+  });
+
   it("returns '' when every user message is a bare ack or empty", () => {
     expect(lastInstructionText(mk(["oke", "ya", null, ""]))).toBe("");
     expect(lastInstructionText([])).toBe("");

@@ -391,7 +391,86 @@ async function main() {
   if (!normalized[1].id || normalized[1].id === "a") throw new Error("duplicate id not re-issued");
   if (!normalized[2].id) throw new Error("blank id not filled");
   if (new Set(normalized.map((c) => c.id)).size !== 3) throw new Error("tool-call ids not unique");
+
+  // Continuity openers on a bare greeting (owner 2026-10-06 16:38 + 16:47 WIB:
+  // "halo" -> "Juga Mas Naufal. Lagi ngeliatin data apa nih sore ini.").
+  // Prompt rules did not stop it, so it is enforced deterministically.
+  {
+    const { isContinuityOpeningReply } = await import("./src/lib/agent");
+    const MUST_CATCH = [
+      "Juga Mas Naufal. Lagi ngeliatin data apa nih sore ini.",
+      "Juga, Mas Naufal. Lagi nyari info apa nih.",
+      "Masih di sini, Bos! Ada yang bisa kubantu?",
+      "Terus, mau ngerjain apa hari ini?",
+      "Lagi apa nih?",
+      "Kayaknya kita lanjut lagi ya.",
+    ];
+    for (const t of MUST_CATCH) {
+      if (!isContinuityOpeningReply(t)) throw new Error(`continuity opener not caught: ${t}`);
+    }
+    // Must NOT fire on honest replies, or every greeting would be flattened.
+    const MUST_PASS = [
+      "Halo Mas Naufal! Ada yang mau diceritain?",
+      "Hai, gimana harimu?",
+      "Sudah makan siang belum?",
+      "",
+      "Aku bantu cek ya, sebentar.",
+      "Malam juga nih, mau ngobrol lama-lama?",
+    ];
+    for (const t of MUST_PASS) {
+      if (isContinuityOpeningReply(t)) throw new Error(`false positive continuity opener: ${t}`);
+    }
+  }
   console.log("tool-call id normalization (unique + non-blank): OK");
+
+  // --- owner-scoped pentest state ---
+  // Owner 2026-10-07 16:43 WIB: Michelle declared /api/cari-berita "aman dari
+  // SQLi" while the OWNER store already held a critical SQLi finding for that
+  // exact endpoint, and her report_pdf returned EMPTY_REPORT. Cause: per-agent
+  // user keys gave each trio bot its own findings.json. Personas stay per-agent
+  // on purpose (that is how one agent differs from another); a finding is a
+  // fact about a TARGET and must be shared.
+  {
+    const { resolveOwnerScopedKey } = await import("./src/lib/identity");
+    const MUST_FOLD = [
+      "naufalazhar652952.michelle",
+      "naufalazhar652952.agnes",
+      "Zigen.michelle",
+      "naufal.agnes",
+    ];
+    for (const k of MUST_FOLD) {
+      const got = resolveOwnerScopedKey(k);
+      // Never silently merge a stranger in: only the owner's agent keys fold.
+      if (got !== "naufalazhar652952") {
+        throw new Error(`pentest state not owner-scoped: ${k} -> ${got}`);
+      }
+    }
+    // Must NOT fold non-agent keys, or two different people would merge.
+    const MUST_PASS = [
+      ["naufalazhar652952", "naufalazhar652952"],
+      ["Zigen", "naufalazhar652952"],
+      ["naufal", "naufalazhar652952"],
+      ["shared", "shared"],
+      ["michelle", "michelle"],
+      ["", null],
+      [null, null],
+      ["../evil", null],
+      ["..", null],
+    ] as const;
+    for (const [input, want] of MUST_PASS) {
+      const got = resolveOwnerScopedKey(input);
+      if (got !== want) throw new Error(`resolveOwnerScopedKey(${String(input)}) = ${String(got)}, want ${String(want)}`);
+    }
+    // And the proof that mattered: Michelle must SEE the owner's open findings.
+    const { readFindings } = await import("./src/lib/security");
+    const ownerOpen = readFindings("naufalazhar652952").filter((f) => f.status !== "resolved");
+    const michelleOpen = readFindings("naufalazhar652952.michelle").filter((f) => f.status !== "resolved");
+    if (ownerOpen.length === 0) throw new Error("owner has no open findings — the shared-store proof is vacuous");
+    if (michelleOpen.length !== ownerOpen.length) {
+      throw new Error(`Michelle sees ${michelleOpen.length} open findings, owner has ${ownerOpen.length}`);
+    }
+  }
+  console.log("owner-scoped pentest state (agent keys fold, strangers do not): OK");
 
   // --- tamper_script generator + bola JSON field-diff ---
   const { buildTamperScript } = await import("./src/lib/tamper");
@@ -6913,6 +6992,7 @@ async function main() {
       shouldRespondToAgent,
       trioMentionFlags,
       addressedAgentByName,
+      isNameFragmentOnly,
       ensureAgentPersona,
     } = await import("./src/channels/discord");
     // Routing: Mia replies to everything (legacy); agents only on mention/DM/dedicated.
@@ -7014,6 +7094,30 @@ async function main() {
     named("michelles are cute", null, "name matching must be word-bounded, not a prefix");
     named("halo michelleee", null, "name matching must be word-bounded, not a prefix");
     named("tolong cek kode project ini ya", null, "an ordinary sentence must not look like an address");
+    // Autocomplete debris (owner 2026-10-07, 10:14 WIB). Typing "@Agnes" and
+    // letting autocomplete finish it leaves the TAIL of the name behind the
+    // mention chip: `<@3995>ness`. `stripMentions` then yields `ness`, which is
+    // non-empty, so the empty-text guard let it through and all three bots each
+    // invented a greeting for a word fragment. These are the exact three
+    // fragments seen live, then the negatives that keep the guard from eating
+    // real messages.
+    const frag = (text: string, expected: boolean, why: string) => {
+      const got = isNameFragmentOnly(text);
+      if (got !== expected) throw new Error(`${why}: "${text}" -> ${got}, expected ${expected}`);
+    };
+    frag("ness", true, "live fragment from agnes");
+    frag("cell", true, "live fragment from michelle");
+    frag("mia", true, "live fragment from mia (3 chars, must not be length-gated out)");
+    frag("Ness", true, "fragment matching must be case-insensitive");
+    frag("NELLE", false, "5 chars is past the debris cap, whatever the case");
+    frag("elle", true, "the other three-letter tail");
+    frag("ness gimana", false, "a fragment plus real words is a real message");
+    frag("nel", false, "too short to be autocomplete debris");
+    frag("hello", false, "5 chars overlapping michelle is still a real word");
+    frag("cell?", false, "punctuation means the owner typed a real message");
+    frag("michelle", false, "the WHOLE name is a bare summons, not debris");
+    frag("agnes", false, "same for the other names");
+    frag("cek kode project", false, "an ordinary sentence must never be dropped");
     // The reported shape end to end: a typed name must silence the siblings
     // EVEN inside a shared dedicated channel (which is how this bug happened).
     const shared = { mentioned: false, isDM: false, inDedicatedChannel: true, mentionedOtherTrioBot: false, ...trio };

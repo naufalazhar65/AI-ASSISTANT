@@ -20,7 +20,8 @@
 
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { appRoot, sanitizeUser } from "./users";
+import { appRoot } from "./users";
+import { resolveOwnerScopedKey } from "./identity";
 import { normalizeHost } from "./engagement";
 
 /** Canonical outcomes, in the canonical order (summary/report rendering). */
@@ -176,7 +177,7 @@ export function recordCoverage(
   rawUser: unknown,
   input: { surface: string; risk_area: string; outcome: string; evidence?: string; target?: string },
 ): CoverageEntry {
-  const userKey = sanitizeUser(rawUser);
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const err = coverageValidate(input);
   if (err) throw new Error(err);
@@ -212,7 +213,7 @@ export function recordCoverage(
 
 /** Update an existing row by id (Strix update_coverage). */
 export function updateCoverage(rawUser: unknown, id: string, patch: { outcome?: string; evidence?: string }): CoverageEntry {
-  const userKey = sanitizeUser(rawUser);
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const entries = readStore(userKey);
   const row = entries.find((e) => e.id === id);
@@ -232,7 +233,7 @@ export function updateCoverage(rawUser: unknown, id: string, patch: { outcome?: 
 }
 
 export function listCoverage(rawUser: unknown, opts: { target?: string } = {}): CoverageEntry[] {
-  const userKey = sanitizeUser(rawUser);
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) return [];
   const entries = readStore(userKey);
   const host = opts.target ? normalizeHost(opts.target) : "";
@@ -241,7 +242,7 @@ export function listCoverage(rawUser: unknown, opts: { target?: string } = {}): 
 
 /** Delete one row (bookkeeping fix). */
 export function forgetCoverage(rawUser: unknown, id: string): boolean {
-  const userKey = sanitizeUser(rawUser);
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const entries = readStore(userKey);
   const i = entries.findIndex((e) => e.id === id);

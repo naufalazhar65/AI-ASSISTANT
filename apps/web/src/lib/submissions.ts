@@ -3,7 +3,8 @@
 // Store: .data/users/<user>/submissions.json
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { sanitizeUser, userDataRoot } from "./users";
+import { userDataRoot } from "./users";
+import { resolveOwnerScopedKey } from "./identity";
 
 export type Submission = { id: string; title: string; severity: string; cvss: number | null; platform: string; url: string; status: string; submittedAt: string; updatedAt: string };
 export const SUBMISSION_STATUSES = ["draft", "submitted", "triaged", "needs-info", "duplicate", "n/a", "resolved", "paid"];
@@ -12,7 +13,7 @@ function file(userKey: string): string {
   return join(userDataRoot(), userKey, "submissions.json");
 }
 export function readSubmissions(rawUser: unknown): Submission[] {
-  const userKey = sanitizeUser(rawUser);
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) return [];
   try {
     const j = JSON.parse(readFileSync(file(userKey), "utf8"));
@@ -22,7 +23,7 @@ export function readSubmissions(rawUser: unknown): Submission[] {
   }
 }
 function write(rawUser: unknown, rows: Submission[]): void {
-  const userKey = sanitizeUser(rawUser);
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) return;
   const f = file(userKey);
   mkdirSync(dirname(f), { recursive: true });

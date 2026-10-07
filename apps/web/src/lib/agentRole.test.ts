@@ -831,6 +831,18 @@ describe("office style contract — one text, three personalities", () => {
     // shape instead, or the model reproduces the wording verbatim.
     expect(OFFICE_STYLE_CONTRACT).not.toMatch(/tolong\s+(dong|bisa)/i);
     expect(OFFICE_STYLE_CONTRACT).not.toMatch(/wkwk|haha/i);
+    // Owner 2026-10-07 16:40 WIB: a bare greeting came back as a template
+    // whose words must NOT now appear in the prompt, or the model will keep
+    // reproducing them verbatim (the exact trap this test guards).
+    expect(OFFICE_STYLE_CONTRACT).not.toMatch(/juga mas naufal/i);
+    expect(OFFICE_STYLE_CONTRACT).not.toMatch(/lagi nyari info apa nih/i);
+    expect(OFFICE_STYLE_CONTRACT).not.toMatch(/siang ini|malam ini|pagi ini/i);
+  });
+
+  it("forbids the greeting template the owner actually saw", () => {
+    for (const needle of ["GREETING WITH NO TASK IN IT", "NEVER NAME A TIME YOU DID NOT READ", "NO SERVICE MENU"]) {
+      expect(OFFICE_STYLE_CONTRACT).toContain(needle);
+    }
   });
 });
 

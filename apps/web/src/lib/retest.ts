@@ -13,7 +13,8 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { sanitizeUser, userDataRoot } from "./users";
+import { userDataRoot } from "./users";
+import { resolveOwnerScopedKey } from "./identity";
 import { targetAllowed } from "./security";
 import { sessionHeaders } from "./httpSession";
 
@@ -41,7 +42,7 @@ const MAX_CASES = 120;
 const UA = "mia-assistant/1.0";
 
 function storePath(rawUser: unknown): string {
-  const user = sanitizeUser(rawUser) ?? "shared";
+  const user = resolveOwnerScopedKey(rawUser) ?? "shared";
   return join(userDataRoot(), user, "retest.json");
 }
 

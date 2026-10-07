@@ -10,6 +10,7 @@ import {
   mergeReceiptRecords,
   stripReceiptBlock,
 } from "./actionReceipt";
+import { sweepGateRefusal } from "./sweepGate";
 
 const POC_OK = "✅ PoC STABIL & terkonfirmasi 3/3 PASS";
 const POC_NEG = "Tidak ada sinyal — bukan klaim aman";
@@ -142,6 +143,65 @@ describe("mergeReceiptRecords", () => {
     ]);
     expect(merged.some((r) => r.name === "http_request")).toBe(false);
     expect(merged.some((r) => r.name === "poc_verify")).toBe(true);
+  });
+
+  // Live 2026-10-07 18:57 (Michelle, cozy-kangaroo lab). The turn had TWO
+  // report_save calls with identical args: sweepGate declined the first because
+  // nothing had been probed yet; the model then probed and the second really
+  // wrote the .md. Both results are non-empty, so "first wins" kept the REFUSAL
+  // and the receipt told the user the report was not made while both the .md and
+  // the PDF existed on disk.
+  it("a sweepGate refusal never outranks the real result for the same name+args", () => {
+    const args = JSON.stringify({ target: "https://cozy-kangaroo-42f2e0.netlify.app" });
+    const merged = mergeReceiptRecords(
+      [{ name: "report_save", args, result: sweepGateRefusal("report_save") }],
+      [{ name: "report_save", args, result: "📄 Laporan tersimpan: report-2026-10-07T11-57-51-174Z.md" }],
+    );
+    expect(merged.length).toBe(1);
+    expect(merged[0].result).toContain("report-2026-10-07T11-57-51-174Z.md");
+    expect(merged[0].result).not.toContain("belum ada pengujian nyata");
+  });
+
+  it("refusal order does not matter — the real result wins either way", () => {
+    const args = JSON.stringify({ target: "https://lab.example" });
+    const ok = "📄 Laporan tersimpan: report-x.md";
+    const merged = mergeReceiptRecords(
+      [{ name: "report_save", args, result: ok }],
+      [{ name: "report_save", args, result: sweepGateRefusal("report_save") }],
+    );
+    expect(merged[0].result).toBe(ok);
+  });
+
+  // mergeReceiptRecords only RANKS; the render is where a non-execution is
+  // dropped (actionReceipt filters on executedResult). Assert on the user-visible
+  // string, not on an intermediate array — that is the contract that matters.
+  it("SILENT when there is only a refusal: the receipt claims nothing was run", () => {
+    const args = JSON.stringify({ target: "https://lab.example" });
+    const merged = mergeReceiptRecords([
+      { name: "report_save", args, result: sweepGateRefusal("report_save") },
+    ]);
+    expect(actionReceipt(merged)).toBe("");
+  });
+
+  it("a refusal never hides a DIFFERENT tool's successful record", () => {
+    const merged = mergeReceiptRecords([
+      { name: "report_save", args: "{}", result: sweepGateRefusal("report_save") },
+      { name: "http_request", args: "{}", result: "200 OK" },
+    ]);
+    const out = actionReceipt(merged);
+    expect(out).toContain("⚙️ http_request");
+    expect(out).not.toContain("report_save");
+    expect(out).not.toContain("belum ada pengujian nyata");
+  });
+
+  it("END TO END: refusal first, real result second — the receipt names the saved file", () => {
+    const args = JSON.stringify({ target: "https://cozy-kangaroo-42f2e0.netlify.app" });
+    const out = actionReceipt(mergeReceiptRecords(
+      [{ name: "report_save", args, result: sweepGateRefusal("report_save") }],
+      [{ name: "report_save", args, result: "📄 Laporan tersimpan: report-2026-10-07T11-57-51-174Z.md" }],
+    ));
+    expect(out).toContain("report-2026-10-07T11-57-51-174Z.md");
+    expect(out).not.toContain("belum ada pengujian nyata");
   });
 });
 

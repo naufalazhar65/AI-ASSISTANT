@@ -13,7 +13,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSy
 import { tmpdir } from "node:os";
 import { connect as tlsConnect } from "node:tls";
 import { dirname, extname, join, relative } from "node:path";
-import { appRoot, resolveInSandbox, repoRoot, sanitizeUser, userDataRoot } from "./users";
+import { resolveOwnerScopedKey } from "./identity";
+import { appRoot, resolveInSandbox, repoRoot, userDataRoot } from "./users";
 import { activeEngagementFor, engagementAllows, normalizeHost } from "./engagement";
 import { isOwnerLabHostForOwner, ownerLabsLine } from "./ownerLabs";
 import { assertPublicUrl } from "./netGuard";
@@ -539,7 +540,9 @@ function findingsPath(userKey: string): string {
 }
 
 export function readFindings(rawUser: unknown): Finding[] {
-  const userKey = sanitizeUser(rawUser);
+  // Findings and reports are facts about a TARGET, not about which agent
+  // happened to find them, so they are owner-scoped (see resolveOwnerScopedKey).
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) return [];
   try {
     const parsed = JSON.parse(readFileSync(findingsPath(userKey), "utf8"));
@@ -617,7 +620,9 @@ export function resolveFindingSeverity(severity?: string, cvss?: number): string
 }
 
 export function addFinding(rawUser: unknown, f: { title: string; severity?: string; cvss?: number; owasp?: string; cwe?: string; target?: string; evidence?: string; steps?: string; impact?: string; rootCause?: string; remediation?: string; references?: string; expected?: string; actual?: string; cvssVector?: string }): Finding {
-  const userKey = sanitizeUser(rawUser);
+  // Findings and reports are facts about a TARGET, not about which agent
+  // happened to find them, so they are owner-scoped (see resolveOwnerScopedKey).
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const title = (f.title || "").trim().slice(0, 200);
   if (!title) throw new Error("judul temuan wajib");
@@ -1121,7 +1126,9 @@ export function iocExtract(text: string): string {
 export const EMPTY_REPORT = "EMPTY_REPORT: no open findings to report";
 
 export function reportSave(rawUser: unknown, opts: { target?: string } = {}): string {
-  const userKey = sanitizeUser(rawUser);
+  // Findings and reports are facts about a TARGET, not about which agent
+  // happened to find them, so they are owner-scoped (see resolveOwnerScopedKey).
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const md = generateReport(rawUser, opts);
   if (md.startsWith("No open findings")) throw new Error(EMPTY_REPORT);
@@ -1192,7 +1199,9 @@ async function renderMarkdownPdf(userKey: string, md: string, prefix: string): P
 }
 
 export async function reportPdf(rawUser: unknown, opts: { target?: string } = {}): Promise<string> {
-  const userKey = sanitizeUser(rawUser);
+  // Findings and reports are facts about a TARGET, not about which agent
+  // happened to find them, so they are owner-scoped (see resolveOwnerScopedKey).
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const md = generateReport(rawUser, opts);
   if (md.startsWith("No open findings")) throw new Error(EMPTY_REPORT);
@@ -1200,7 +1209,9 @@ export async function reportPdf(rawUser: unknown, opts: { target?: string } = {}
 }
 
 export async function hardeningPdf(rawUser: unknown): Promise<string> {
-  const userKey = sanitizeUser(rawUser);
+  // Findings and reports are facts about a TARGET, not about which agent
+  // happened to find them, so they are owner-scoped (see resolveOwnerScopedKey).
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   return renderMarkdownPdf(userKey, hardeningPlan(rawUser), "hardening");
 }
@@ -1453,7 +1464,9 @@ export function hardeningPlan(rawUser: unknown): string {
 
 /** Mark a finding resolved (drops from open lists + the report). */
 export function resolveFinding(rawUser: unknown, id: string): boolean {
-  const userKey = sanitizeUser(rawUser);
+  // Findings and reports are facts about a TARGET, not about which agent
+  // happened to find them, so they are owner-scoped (see resolveOwnerScopedKey).
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const rows = readFindings(rawUser);
   const f = rows.find((r) => r.id === id);
@@ -1466,7 +1479,9 @@ export function resolveFinding(rawUser: unknown, id: string): boolean {
 
 /** Export open findings as CSV / JSON / SARIF to .data/users/<user>/reports/. */
 export function exportFindings(rawUser: unknown, format = "csv"): string {
-  const userKey = sanitizeUser(rawUser);
+  // Findings and reports are facts about a TARGET, not about which agent
+  // happened to find them, so they are owner-scoped (see resolveOwnerScopedKey).
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const rows = readFindings(rawUser).filter((r) => r.status !== "resolved");
   if (!rows.length) return "Tidak ada temuan terbuka untuk diexport.";
@@ -1566,7 +1581,9 @@ export function parseDepFinding(f: Finding): { name: string; fixed: string | nul
 
 /** Check installed dependency versions vs each dep finding's fixed version. */
 export function verifyPatch(rawUser: unknown, dirRel = "", apply = false): string {
-  const userKey = sanitizeUser(rawUser);
+  // Findings and reports are facts about a TARGET, not about which agent
+  // happened to find them, so they are owner-scoped (see resolveOwnerScopedKey).
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const root = dirRel.trim() ? resolveInSandbox(dirRel.trim()) : repoRoot();
   if (!root) throw new Error("path di luar sandbox");

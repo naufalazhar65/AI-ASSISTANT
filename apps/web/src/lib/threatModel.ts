@@ -17,7 +17,8 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, closeSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { appRoot, sanitizeUser } from "./users";
+import { appRoot } from "./users";
+import { resolveOwnerScopedKey } from "./identity";
 import { normalizeHost } from "./engagement";
 
 /** Sections every model must carry (Strix REQUIRED_SECTIONS, snake_cased). */
@@ -128,7 +129,7 @@ export function threatModelReportSection(m: ThreatModel): string {
 }
 
 export function getThreatModel(rawUser: unknown, target: string): ThreatModel | null {
-  const userKey = sanitizeUser(rawUser);
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) return null;
   const host = normalizeHost(target);
   if (!host) return null;
@@ -137,7 +138,7 @@ export function getThreatModel(rawUser: unknown, target: string): ThreatModel | 
 
 /** Create or update the model for a target (sections merge over the existing). */
 export function saveThreatModel(rawUser: unknown, target: string, sections: Record<string, unknown>): ThreatModel {
-  const userKey = sanitizeUser(rawUser);
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const host = normalizeHost(target);
   if (!host) throw new Error("target wajib — host/URL yang dimodelkan");
@@ -174,7 +175,7 @@ export function saveThreatModel(rawUser: unknown, target: string, sections: Reco
 
 /** Append an amendment (how understanding evolved). Oldest dropped past the cap. */
 export function amendThreatModel(rawUser: unknown, target: string, text: string): ThreatModel {
-  const userKey = sanitizeUser(rawUser);
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey) throw new Error("invalid user");
   const host = normalizeHost(target);
   const t = String(text || "").trim();
@@ -194,7 +195,7 @@ export function amendThreatModel(rawUser: unknown, target: string, text: string)
 
 /** The model backing a report host, if any (report integration). */
 export function threatModelForHost(rawUser: unknown, host: string): ThreatModel | null {
-  const userKey = sanitizeUser(rawUser);
+  const userKey = resolveOwnerScopedKey(rawUser);
   if (!userKey || !host) return null;
   return readStore(userKey).find((m) => m.host === normalizeHost(host)) || null;
 }

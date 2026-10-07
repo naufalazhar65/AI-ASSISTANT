@@ -80,6 +80,61 @@ export function canonicalUserKey(user: unknown): string | null {
 }
 
 /**
+ * The agent-scoped user keys that `userKeyForAgent` (discord.ts) appends.
+ *
+ * These exist so each trio bot keeps its OWN persona/memory/sessions dir — a
+ * deliberate, per-agent voice. They were never meant to isolate PENTEST state,
+ * and that distinction is the whole point of the function below.
+ */
+const AGENT_SUFFIXES = [".agnes", ".michelle"] as const;
+
+/**
+ * PENTEST state is OWNER-scoped, deliberately NOT agent-scoped.
+ *
+ * Observed 2026-10-07 16:43 WIB, verified against the store on disk: the owner
+ * asked `!cell coba lakukan full pentest ... di cozy-kangaroo-42f2e0...` and
+ * Michelle answered three separate fabrications —
+ *   1. "Endpoint /api/cari-berita aman dari SQLi" while the OWNER store holds
+ *      `critical — SQL Injection in /api/cari-berita?q allows unauthenticated
+ *      database access and credential disclosure`. Her own store held ZERO
+ *      findings, so she could not see the proof that contradicted her.
+ *   2. "Laporan PDF-nya sudah otomatis dicetak" — `report_save` returned
+ *      `EMPTY_REPORT` because it read her own empty store.
+ *   3. `finding_add` failed 3× ("judul temuan wajib") while she retried blind.
+ *
+ * The store split that let this happen:
+ *   naufalazhar652952            findings=25  reports=52
+ *   naufalazhar652952.michelle   findings=0   reports=0
+ *   naufalazhar652952.agnes      findings=0   reports=0
+ *
+ * Why the split is wrong for pentest, unlike for persona: a persona is about
+ * how ONE agent speaks to him, so three copies is a feature. A finding is a
+ * fact about a TARGET, discovered once — three copies is data loss, and it makes
+ * every agent blind to the other's proof. Each trio bot ends up able to declare
+ * "aman" about an endpoint a sibling already proved critical, and each can
+ * honestly report EMPTY_REPORT about a target with 15 open findings.
+ *
+ * `resolveOwnerScopedKey` is the single owner of that decision, so every pentest
+ * store cannot drift. Falls back to the validated key when it is not an agent
+ * key, and returns null only when the input is not a usable key at all — so a
+ * genuinely different person (there is none today, but the guard matters) is
+ * never silently merged into the owner's pentest history.
+ */
+export function resolveOwnerScopedKey(user: unknown): string | null {
+  const key = validateUserKey(user);
+  if (!key) return null;
+  const agent = (AGENT_SUFFIXES as readonly string[]).find((suffix) =>
+    key.endsWith(suffix),
+  );
+  // Fold the alias AFTER stripping the suffix, not before: the agent suffix is
+  // appended to whatever the channel produced, and that can itself be an alias
+  // ("Zigen.michelle"). Folding first yields "Zigen", which is a valid key and
+  // therefore slips straight through validateUserKey as a SECOND store.
+  const base = agent ? key.slice(0, key.length - agent.length) : key;
+  return canonicalUserKey(base);
+}
+
+/**
  * The BROWSER's identity resolution, and deliberately stronger than a fold.
  *
  * Why this exists (2026-09-30, after the fold shipped and the owner tested it in

@@ -254,6 +254,20 @@ export class GeminiLiveSession {
   private outputBuf = "";
   private turnClosed = false;
 
+  /**
+   * Wall-clock stamps of the SERVER's own voice-activity transitions.
+   *
+   * These are the ground truth for latency work. They split a turn into
+   * "how long until the server decided I had stopped talking" (our hop: mic →
+   * frames → server VAD) and "how long the model then took to answer"
+   * (its hop). Without them a slow turn is unattributable, because the
+   * client only ever sees audio arrive and cannot tell which half was slow.
+   *
+   * Read only by `discordVoice.ts`'s single per-turn latency line.
+   */
+  lastActivityStartAt = 0;
+  lastActivityEndAt = 0;
+
   constructor(private readonly options: GeminiLiveOptions = {}) {}
 
   get currentStatus(): GeminiLiveStatus {
@@ -672,6 +686,14 @@ export class GeminiLiveSession {
           turnComplete?: boolean;
         }
       | undefined;
+    // Stamp the server's voice-activity transitions BEFORE the opt-in trace so
+    // latency work never depends on that flag being on. `voiceActivity` can
+    // arrive on a frame with no `serverContent`, so this must sit above the
+    // `if (!serverContent) return;` below.
+    const activity = msg.voiceActivity as { type?: string } | undefined;
+    if (activity?.type === "ACTIVITY_START") this.lastActivityStartAt = Date.now();
+    else if (activity?.type === "ACTIVITY_END") this.lastActivityEndAt = Date.now();
+
     // Opt-in frame trace. Enable from a probe/console with
     // `globalThis.__miaLiveTrace = true` BEFORE start(); nothing in the app
     // sets it, so production is silent unless you ask for this. It is what

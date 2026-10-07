@@ -48,6 +48,12 @@ import {
   type AgentLabel,
 } from "./agentRole";
 import { allowedWorkspaces, sanitizeUser } from "./users";
+// Reports are WRITTEN owner-scoped (security.ts resolves the agent suffix before
+// touching disk), so the file-existence checks that decide whether a receipt may
+// name a file must resolve the SAME key — live 2026-10-07 18:57: for user
+// `naufalazhar652952.michelle` the raw key pointed at a folder that does not
+// exist, so the real, freshly written .md name was stripped from the reply.
+import { resolveOwnerScopedKey } from "./identity";
 import { clockLabel } from "./time";
 import * as CV from "./claimVocab";
 import { readReminders } from "./reminders";
@@ -61,10 +67,11 @@ import { metaProseNote } from "./metaProse";
 import { recallContext } from "./rag";
 import { scheduleLinkCapture, isPentestAsk } from "./library";
 import { argsMentionPath, pathsInArgs } from "./urlMatch";
-import { sweepReportGate, sweepGateRefusal, turnHasProbe } from "./sweepGate";
+import { sweepReportGate, sweepGateRefusal, turnHasProbe, probeGateNudge } from "./sweepGate";
 import {
   discoveryAuthorshipNote,
   findingClaimFacts,
+  recordAuthorshipNote,
   recordedFindingThisTurn,
   severityInflationNote,
 } from "./findingClaimAudit";
@@ -1336,6 +1343,21 @@ interface TurnCollector {
    * gets a report instead of a refusal loop that burns the round budget.
    */
   sweepRefusedOnce?: boolean;
+  /**
+   * Has this turn already spent its ONE probe-gate nudge? The same bound as
+   * sweepRefusedOnce, for the same reason: a target that genuinely cannot be
+   * tested (down, everything rejecting, nothing in scope) must still get an
+   * answer, so the second time round the turn simply ends with whatever honest
+   * prose the model has.
+   */
+  probeNudgedOnce?: boolean;
+  /**
+   * This turn is the tail of a tool confirmation ("ya" / `confirm_calls`), not
+   * a fresh ask. Set once by runAssistantTurnImpl so the probe gate can skip it
+   * — same fact the sweep uses to skip its own injection (agent.ts:6648), read
+   * from one place so the two cannot disagree.
+   */
+  confirmContinuation?: boolean;
 }
 
 /**
@@ -1524,6 +1546,48 @@ async function runAgent(
   );
 
   if (toolCalls.length === 0) {
+    // The model is about to END the turn. On a pentest ask with zero probes
+    // executed, that is the live 2026-10-07 17:29 failure: `finding_list`
+    // fills the context with fully-formed findings, so "read the store" looks
+    // identical to "do the work", the model writes the pentest up as prose,
+    // and the owner gets a re-transcription instead of testing. sweepGate
+    // cannot catch it (no report TOOL is called); the honesty guards can only
+    // annotate it afterwards. So the turn is not allowed to end here — one
+    // more round runs with an actionable instruction. Bounded to once per turn
+    // (`probeNudgedOnce`) and only while budget remains, so a target that
+    // cannot be tested still gets an answer.
+    const probeNudge = probeGateNudge({
+      userText: lastInstructionText(messages),
+      isPentestAsk,
+      executed: collector.executedCalls,
+      hasRoundBudget: round < maxRounds,
+      alreadyNudged: collector.probeNudgedOnce,
+      proposedText: text,
+      isConfirmContinuation: collector.confirmContinuation,
+      headless: autoDenyRisky,
+    });
+    if (probeNudge) {
+      collector.probeNudgedOnce = true;
+      // As a USER turn, not a system-prompt line. Measured, not assumed: the
+      // first version appended the nudge to `systemPrompt` and the model
+      // ignored it twice in a row (live drill 17:41 and 17:44 — audit shows
+      // 2x finding_add, 0 payload-bearing probe, both times). This is the
+      // fourth prompt rule this session that failed on this model class.
+      //
+      // What DOES work is the sweepGate / EMPTY_REPORT pattern: a tool result
+      // the model must read, arriving where the model is deciding what to do
+      // next. So the nudge goes into `messages` as a turn the model reads
+      // conversationally.
+      //
+      // The `[probe-gate]` prefix is load-bearing: `isInternalTurn`
+      // (memoryNoise.ts:148) matches it, so all 26 call-sites that read the
+      // last user message SKIP it and the real ask is not shadowed — the exact
+      // failure recorded live 2026-09-25 11:53 when the sweep was injected as a
+      // bare user turn and silently disabled markdown/PDF detection.
+      messages.push({ role: "user", content: `[probe-gate] ${probeNudge}` });
+      console.error(`[agent] round ${round}: pentest turn with zero probes — nudging`);
+      return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky, agent);
+    }
     // Final answer round: emit the text.
     collector.collect(text);
     return { needsConfirmation: null };
@@ -2774,6 +2838,24 @@ function isThanksTurn(raw: string): boolean {
   return /\b(makasih|makasi|terima kasih)\b/i.test(collapseRepeat(raw));
 }
 
+/**
+ * True when a reply OPENS by asserting a thread that does not exist.
+ *
+ * "Juga", "Masih", "Terus", "Lagi", "Kayaknya kita ..." all claim we were
+ * already in the middle of something. On a bare greeting that is false, and
+ * the owner saw exactly it: "Juga Mas Naufal. Lagi ngeliatin data apa nih
+ * sore ini." in reply to "halo" (2026-10-06, 16:38 WIB, and again 16:47).
+ *
+ * Prompt rules did NOT stop it — three were written into
+ * `OFFICE_STYLE_CONTRACT` and the model emitted the opener again minutes
+ * later — so it is enforced deterministically here instead. Exported so
+ * verify.ts can pin both directions.
+ */
+export function isContinuityOpeningReply(text: string): boolean {
+  const firstClause = (text || "").trim().split(/(?<=[.!?])\s/)[0] ?? "";
+  return /^\s*(juga|masih|terus|lagi|kayaknya|sepertinya|kiranya)\b/i.test(firstClause);
+}
+
 const GREETING_EMPATHY = [
   "Hai beb 🌸 Aku di sini! Ada yang mau diceritain atau dibantuin hari ini?",
   "Halo beb 🌸 Seneng kamu mampir — gimana harimu? Ada yang bisa kubantu?",
@@ -2934,6 +3016,17 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
   // Greeting cold-formal should be warm even if not telegraphic/choppy
   if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content)) && isColdGreetingReply(text)) {
     return dayRotated(GREETING_EMPATHY);
+  }
+  // A bare greeting must never be answered with a continuity opener. Prompt
+  // rules alone did not stop it (owner re-test 2026-10-06 16:47 WIB), so the
+  // opener is stripped deterministically and the warm greeting is used.
+  if (
+    lastUserG?.content &&
+    detectGreetingTurn(messageText(lastUserG.content)) &&
+    isContinuityOpeningReply(text)
+  ) {
+    const isThanks = isThanksTurn(messageText(lastUserG.content));
+    return dayRotated(isThanks ? THANKS_EMPATHY : GREETING_EMPATHY);
   }
   // Thanks ("makasi") was answered with a generic greeting ("Halo beb...") — swap to thanks empathy.
   if (lastUserG?.content && isThanksTurn(messageText(lastUserG.content)) && /Halo beb|Hai beb|Heey beb/i.test(text)) {
@@ -6733,6 +6826,10 @@ async function runAssistantTurnImpl(opts: {
     collect: (t: string) => (text += t),
     // A confirmation continuation answers an action, not a list request.
     suppressVerbatim: confirmations.length > 0,
+    // One owner for "this turn is a confirmation tail" — the sweep skips on it
+    // (sweepAsk above), and the probe gate inside runAgent (which has no
+    // `opts` in scope) reads it off the collector instead of recomputing it.
+    confirmContinuation: isConfirmContinuation,
   };
   // Confirmation-boundary ledger bridge (live 2026-09-25 15:25): turn-1 ran the
   // compulsory sweep (GET /cek-nik → 200, recorded via recordHttp) and paused
@@ -7330,7 +7427,7 @@ async function runAssistantTurnImpl(opts: {
       const { userDataRoot } = await import("./users");
       const { existsSync } = await import("node:fs");
       const { join } = await import("node:path");
-      const udir = join(userDataRoot(), String(opts.user ?? "shared"), "reports");
+      const udir = join(userDataRoot(), resolveOwnerScopedKey(opts.user) ?? String(opts.user ?? "shared"), "reports");
       text = stripAbsentReportFiles(text, (name) => existsSync(join(udir, name)));
       // …and a contentless POINTER to a report (live 13:18: "( / PDF terkait)").
       // Same rationale, next disease: no filename at all, so the strip above
@@ -7356,7 +7453,7 @@ async function runAssistantTurnImpl(opts: {
         const { userDataRoot } = await import("./users");
         const { existsSync } = await import("node:fs");
         const { join } = await import("node:path");
-        const udir = join(userDataRoot(), String(opts.user ?? "shared"), "reports");
+        const udir = join(userDataRoot(), resolveOwnerScopedKey(opts.user) ?? String(opts.user ?? "shared"), "reports");
         if (existsSync(join(udir, pdfToolFile))) {
           text = `${text} (📎 PDF-nya sudah kubuat: \`${pdfToolFile}\` — cek folder laporanmu ya.)`;
         }
@@ -7486,7 +7583,7 @@ async function runAssistantTurnImpl(opts: {
         const { userDataRoot } = await import("./users");
         const { existsSync } = await import("node:fs");
         const { join } = await import("node:path");
-        const udir = join(userDataRoot(), String(opts.user ?? "shared"), "reports");
+        const udir = join(userDataRoot(), resolveOwnerScopedKey(opts.user) ?? String(opts.user ?? "shared"), "reports");
         mismatch = pdfFilenameMismatchNote(text, file, (name) => existsSync(join(udir, name)), true);
       } catch {
         mismatch = pdfFilenameMismatchNote(text, file);
@@ -7752,7 +7849,9 @@ async function runAssistantTurnImpl(opts: {
         recordedThisTurn: recordedFindingThisTurn(messages),
       });
       const claimNote =
-        severityInflationNote(text, claimFacts) + discoveryAuthorshipNote(text, claimFacts);
+        severityInflationNote(text, claimFacts) +
+        discoveryAuthorshipNote(text, claimFacts) +
+        recordAuthorshipNote(text, claimFacts);
       if (claimNote) text = `${text}${claimNote}`;
     } catch {
       /* best-effort */

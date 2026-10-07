@@ -8,7 +8,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { sanitizeUser, userDataRoot } from "./users";
+import { userDataRoot } from "./users";
+import { resolveOwnerScopedKey } from "./identity";
 import { targetAllowed } from "./security";
 import { sessionHeaders } from "./httpSession";
 
@@ -47,7 +48,7 @@ export function getPath(obj: unknown, path: string): string | undefined {
 }
 
 function storeFile(rawUser: unknown): string | null {
-  const u = sanitizeUser(rawUser);
+  const u = resolveOwnerScopedKey(rawUser);
   return u ? join(userDataRoot(), u, "flows.json") : null;
 }
 export function listFlows(rawUser: unknown): Record<string, Flow> {

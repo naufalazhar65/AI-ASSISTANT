@@ -385,6 +385,11 @@ export async function startDiscordVoice(opts: StartVoiceOptions): Promise<string
   // frame, zero-padding the tail. Steady framing is what the VAD expects.
   const FRAME_SAMPLES = 320; // 20 ms at 16 kHz
   let pendingMono = new Int16Array(0);
+  // Wall-clock stamps for the latency probe. `lastMicFrameAt` is what makes
+  // the Discord hop measurable: without it, "speaking:false -> first audio"
+  // cannot distinguish the server being slow from us feeding it late.
+  let lastMicFrameAt = 0;
+  let micFramesSent = 0;
 
   function emitFixedFrames(mono: Int16Array): void {
     if (!mono.length) return;
@@ -395,25 +400,15 @@ export async function startDiscordVoice(opts: StartVoiceOptions): Promise<string
     for (let off = 0; off < usable; off += FRAME_SAMPLES) {
       const bytes = int16ToBytes(buf.slice(off, off + FRAME_SAMPLES));
       live.sendAudioFrame(bytes, bytesToBase64(bytes));
+      lastMicFrameAt = Date.now();
+      micFramesSent += 1;
     }
     // Keep the ragged remainder for the next packet — dropping it here would
     // click at every boundary, the same defect the web player had.
     pendingMono = buf.slice(usable);
   }
 
-  try {
-    sub = connection.receiver.subscribe(opts.ownerId, {
-      end: { behavior: deps.EndBehaviorType.Manual },
-    });
-  } catch (e) {
-    live.stop();
-    connection.destroy();
-    throw new Error(
-      `could not subscribe to your mic (${e instanceof Error ? e.message : String(e)}) — ` +
-        "unmute yourself in the voice channel first"
-    );
-  }
-  sub.on("data", (chunk: Buffer) => {
+  const onMicChunk = (chunk: Buffer): void => {
     try {
       micPackets += 1;
       // First packet only: it proves the mic path is alive (the 2026-10-06
@@ -427,10 +422,57 @@ export async function startDiscordVoice(opts: StartVoiceOptions): Promise<string
     } catch (e) {
       console.warn("[discord-voice] input convert failed:", e instanceof Error ? e.message : String(e));
     }
-  });
-  sub.on("error", (e: unknown) => {
-    console.warn("[discord-voice] mic stream error:", e instanceof Error ? e.message : String(e));
-  });
+  };
+
+  // The receiver can DIE mid-session with
+  // `DecryptionFailed(UnencryptedWhenPassthroughDisabled)` — a discord.js /
+  // networking failure where the voice key rolls and the passthrough
+  // transport is handed plaintext it cannot decrypt. The effect is that the
+  // bot goes DEAF: everything the owner says afterwards is silently dropped
+  // and no reply ever comes, which is indistinguishable from "the model is
+  // very slow". So recover instead of only logging it.
+  let decryptRetries = 0;
+  const MAX_DECRYPT_RETRIES = 3;
+  const subscribeMic = (): void => {
+    const stream = connection.receiver.subscribe(opts.ownerId, {
+      end: { behavior: deps.EndBehaviorType.Manual },
+    });
+    sub = stream;
+    stream.on("data", onMicChunk);
+    stream.on("error", (e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[discord-voice] mic stream error:", msg);
+      if (!/decrypt/i.test(msg)) return;
+      if (decryptRetries >= MAX_DECRYPT_RETRIES) {
+        console.warn(
+          `[discord-voice] mic still undecryptable after ${MAX_DECRYPT_RETRIES} resubscribes — ` +
+            "run !voice off then !voice on to rejoin"
+        );
+        return;
+      }
+      decryptRetries += 1;
+      console.warn(
+        `[discord-voice] mic decrypt failure — resubscribing (${decryptRetries}/${MAX_DECRYPT_RETRIES})`
+      );
+      try {
+        stream.destroy();
+      } catch {
+        /* already torn down */
+      }
+      subscribeMic();
+    });
+  };
+
+  try {
+    subscribeMic();
+  } catch (e) {
+    live.stop();
+    connection.destroy();
+    throw new Error(
+      `could not subscribe to your mic (${e instanceof Error ? e.message : String(e)}) — ` +
+        "unmute yourself in the voice channel first"
+    );
+  }
 
   // --- events --------------------------------------------------------------
   let inText = "";
@@ -448,8 +490,26 @@ export async function startDiscordVoice(opts: StartVoiceOptions): Promise<string
       case "audio":
         if (!firstAudioLogged) {
           firstAudioLogged = true;
+          const now = Date.now();
+          // Measured from the SERVER's own ACTIVITY_END, which is the only
+          // honest "the user stopped talking" boundary we have.
+          //
+          // The previous total was measured from our own `speaking:false`,
+          // and it was wrong: that event also fires on stop/interrupt, so it
+          // could be tens of seconds stale and printed 14-25s latencies for
+          // turns the server had actually answered in under a second. Do not
+          // reintroduce a client-side turn-end as the clock origin.
+          //
+          // `vadWait` is how long after our last forwarded mic frame the
+          // server called the turn over; it is only meaningful when positive.
+          const turnOver = live.lastActivityEndAt || lastMicFrameAt;
+          const latency = turnOver ? now - turnOver : -1;
+          const vadWait =
+            live.lastActivityEndAt && lastMicFrameAt ? live.lastActivityEndAt - lastMicFrameAt : -1;
           console.log(
-            `[discord-voice] first-audio latency: ${Date.now() - (turnEndAt || sessionStartAt)}ms`
+            `[discord-voice] first-audio latency: ${latency}ms` +
+              ` (server turn-end -> first audio; vad wait: ${vadWait}ms,` +
+              ` mic frames sent: ${micFramesSent})`
           );
         }
         pushOut(liveAudioToDiscordPcm(event.pcm));
@@ -464,11 +524,17 @@ export async function startDiscordVoice(opts: StartVoiceOptions): Promise<string
         // `speaking: true` opens a turn: reset the accumulators so one turn
         // never inherits the previous one (the session assigns, not appends).
         if (event.speaking) {
+          // Start of a turn: clear the text accumulators so one turn never
+          // inherits the previous one. `firstAudioLogged` is deliberately NOT
+          // reset here — `speaking:true` also fires repeatedly mid-turn, and
+          // resetting there made the latency probe re-print once per audio
+          // chunk (a burst of near-identical lines, which is what the
+          // 2026-10-07 "very slow" investigation found first).
           inText = "";
           outText = "";
-          turnEndAt = 0;
-          firstAudioLogged = false;
         } else {
+          // Turn closed. Arm the probe for the NEXT turn's first audio.
+          firstAudioLogged = false;
           turnEndAt = Date.now();
           closeOut();
           // Without this the text channel never shows what was said and the

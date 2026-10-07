@@ -10,7 +10,8 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { sanitizeUser, userDataRoot } from "./users";
+import { userDataRoot } from "./users";
+import { resolveOwnerScopedKey } from "./identity";
 import { normalizeTarget } from "./huntLog";
 
 export type BrainEndpoint = {
@@ -57,7 +58,7 @@ const MAX_PROOFS = 40;
 const MAX_NOTES = 20;
 
 function storePath(rawUser: unknown): string {
-  const user = sanitizeUser(rawUser) ?? "shared";
+  const user = resolveOwnerScopedKey(rawUser) ?? "shared";
   return join(userDataRoot(), user, "target-brain.json");
 }
 

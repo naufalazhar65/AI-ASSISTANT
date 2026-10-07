@@ -15,6 +15,10 @@
 // instead of the primary defense. Pure helpers here — tested in
 // actionReceipt.test.ts.
 
+// The one dependency: sweepGate owns its refusal wording (pure, imports nothing),
+// and the receipt must recognise that text as a NON-execution — see executedResult.
+import { SWEEP_REFUSAL_HEAD } from "./sweepGate";
+
 /** Tools whose execution the user must see as a system line (probe/write/effector tools). */
 export const RECEIPT_TOOLS: ReadonlySet<string> = new Set([
   // probing / proving
@@ -66,6 +70,13 @@ function executedResult(content: string): boolean {
   if (t === EXECUTED_PLACEHOLDER) return true;
   if (/^(?:Not selected|Not executed|Auto-declined|The user declined)/i.test(t)) return false;
   if (/not available on this provider|refused to execute/i.test(t)) return false;
+  // sweepGate's own refusal (2026-10-07 18:57): the gate declined `report_save`
+  // because the turn had not probed anything yet. The model then probed and
+  // called `report_save` again, which succeeded — but this line still rendered
+  // as "executed", telling the user the report was not made while the .md and
+  // the PDF both existed on disk. Imported rather than re-spelled so the
+  // wording stays owned by sweepGate (pure module, no imports, no cycle).
+  if (t.startsWith(SWEEP_REFUSAL_HEAD)) return false;
   return true;
 }
 
@@ -295,17 +306,27 @@ export function stripReceiptImitation(text: string): string {
  */
 export function mergeReceiptRecords(...groups: ReceiptRecord[][]): ReceiptRecord[] {
   const byKey = new Map<string, ReceiptRecord>();
-  const real = (r: ReceiptRecord) => !!r.result && r.result !== EXECUTED_PLACEHOLDER;
   const stalePrior = (r: ReceiptRecord) =>
     !!r.prior && !!r.at && Date.now() - r.at.getTime() > PRIOR_MAX_AGE_MS;
   const fresh = (r: ReceiptRecord) => !stalePrior(r);
+  // How good is this result as RECEIPT evidence? 2026-10-07 18:57: the first
+  // `report_save` was declined by sweepGate, the model probed, and the second
+  // `report_save` really wrote the .md. Both records carry a non-empty result,
+  // so "first wins / placeholder-loses" kept the refusal and told the user the
+  // report was not made while the file existed. Rank instead of binary: a
+  // recognised refusal is evidence of NOT executing, so it can never outrank a
+  // real result for the same name+args.
+  const rank = (r: ReceiptRecord): number => {
+    if (!r.result || r.result === EXECUTED_PLACEHOLDER) return 1;
+    return executedResult(r.result) ? 3 : 0;
+  };
   for (const group of groups || []) {
     for (const r of group || []) {
       if (!r?.name) continue;
       const key = `${r.name}|${r.args ?? ""}`;
       const prev = byKey.get(key);
       if (!prev) byKey.set(key, r);
-      else if (!real(prev) && real(r)) byKey.set(key, { ...prev, result: r.result });
+      else if (rank(r) > rank(prev)) byKey.set(key, { ...prev, result: r.result });
     }
   }
   return [...byKey.values()].filter(fresh);

@@ -279,6 +279,59 @@ export function addressedAgentByName(text: string): AgentLabel | null {
   return hits.length === 1 ? hits[0] : null;
 }
 
+/**
+ * Is the post-mention-strip text just the leftover of someone typing a bot
+ * name, rather than an actual request?
+ *
+ * Owner report 2026-10-07 10:14 WIB: typing "@Agnes" in Discord produced
+ * `<@3995>ness` — Discord's autocomplete chip swallows the matched prefix and
+ * leaves the TAIL of the name as plain text. `stripMentions` correctly turns
+ * that into `"ness"`, but `"ness"` is still non-empty, so the existing
+ * `if (!text && !fileContexts.length) return;` guard did not catch it and the
+ * trio woke up to greet nonsense — three separate messages, each one bot
+ * cheerfully inventing a greeting for a non-request.
+ *
+ * So: a mention plus only the tail of a name carries no REQUEST — but it is
+ * still a SUMMON. The caller did mean to wake that bot. An earlier version
+ * dropped these messages outright and the owner immediately reported "kenapa
+ * sekarang mereka tidak merespon ketika saya panggil itu, mis. ness": the
+ * fragment is how this trio gets called, so dropping it un-summoned the bot.
+ * The helper therefore only CLASSIFIES the text; the caller uses it to strip
+ * the debris, not to discard the turn.
+ *
+ * Deliberately conservative. Anything with a real word in it is a request and
+ * must still reach the model untouched: "agnes tolong cek ini" and even a terse
+ * "cell?" are left alone, because a 2-3 character fragment is far more likely
+ * to be a real (if lazy) message than autocomplete debris.
+ *
+ * Pure — no env, no Discord objects. */
+export function isNameFragmentOnly(text: string): boolean {
+  const t = (text || "").trim().toLowerCase();
+  // Only short, letters-only debris. A longer or punctuated message is a
+  // real one: this guard must never eat a sentence, and "hello" (5 chars)
+  // has to survive even though it overlaps "michelle".
+  if (t.length < 3 || t.length > 4) return false;
+  if (!/^[a-z]+$/.test(t)) return false;
+  for (const spec of AGENT_SPECS) {
+    const name = spec.displayName.toLowerCase();
+    // The live fragments were the tails the autocomplete chip failed to
+    // swallow: "ness" (agnes), "cell" (michelle), "mia" (mia).
+    //
+    // The chip cut each typed name mid-word, so no suffix rule fits them:
+    // "ness" is not a suffix of "agnes" (that is "nes"), and "cell" does not
+    // contain michelle's last 3 letters ("lle"). What all three DO share with
+    // their name is a 3-character run — "nes", "ell", "mia". Both narrower
+    // rules were tried against the live cases and both failed; this one
+    // matches all three while the length cap keeps "hello" safe.
+    const grams = new Set<string>();
+    for (let i = 0; i + 3 <= name.length; i += 1) grams.add(name.slice(i, i + 3));
+    for (let i = 0; i + 3 <= t.length; i += 1) {
+      if (grams.has(t.slice(i, i + 3))) return true;
+    }
+  }
+  return false;
+}
+
 /** Trio routing (prevents triple replies). Solo Mia keeps legacy reply-all.
  *  In trio mode an explicit mention (member `<@id>` or role `<@&id>`
  *  name-match, resolved by trioMentionFlags) wins: a message addressing
@@ -868,6 +921,29 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
 
       // A message that is only a file (no text) still counts if we saved it.
       if (!text && !fileContexts.length) return;
+
+      // Not garbage — a SUMMON with autocomplete debris stuck on the end.
+      // Typing "@Agnes" leaves `<@3995>ness`, and `stripMentions` reduces
+      // that to `"ness"`: a nonsense word, but the user is calling a bot.
+      //
+      // An earlier version DROPPED these messages, on the theory that nobody
+      // had really asked anything. That was wrong and the owner reported the
+      // consequence immediately: "kenapa sekarang mereka tidak merespon ketika
+      // saya panggil itu, mis. ness" — the fragment IS how they summon the
+      // trio, so dropping it silently un-summoned the bot.
+      //
+      // So keep the turn and hand the model an honest description of what
+      // actually arrived, rather than a bare word fragment it will try to
+      // interpret as a request. `shouldRespondToAgent` has already decided
+      // who answers, so this cannot wake the whole trio.
+      if (isNameFragmentOnly(text) && !fileContexts.length) {
+        // Not a status line about ourselves — that wording was itself a
+        // template, and the model answered a status line with a status line
+        // back ("Juga ... Lagi nyari info apa nih"). The owner DID call, so
+        // rewrite the debris into the greeting it actually was. Routing has
+        // already chosen who answers, so nothing about the summons is lost.
+        text = "halo";
+      }
 
       ctx.lastSeen = msg.channel as unknown as SendableChannel;
       const chatId = msg.channelId;
