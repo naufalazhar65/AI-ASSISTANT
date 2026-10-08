@@ -909,6 +909,28 @@ async function main() {
     if (pf.canonicalFactKey("cat_name") !== "pet" || pf.canonicalFactKey("pet_name") !== "pet") throw new Error("canonical pet aliases");
     if (pf.canonicalFactKey("weather") !== "preference.weather") throw new Error("canonical weather preference");
     if (pf.canonicalFactKey("preference.crypto_monitor") !== "preference.crypto_monitor") throw new Error("non-preference key must stay");
+    // ID_ALIASES (live 2026-10-07: USER.md held `namaku`/`pekerjaan`/`kopi_favoritku` beside their
+    // canonical twins, and two COFFEE FACTS contradicted each other because the keys differed).
+    const idAlias: [string, string][] = [
+      ["nama", "name"], ["namaku", "name"], ["pekerjaan", "job"], ["pekerjaanku", "job"], ["profesi", "job"],
+      ["kota", "city"], ["kotaku", "city"], ["umur", "age"],
+      ["kopi", "preference.coffee"], ["kopi_favoritku", "preference.coffee"], ["kopi_favorit", "preference.coffee"],
+      ["makanan_favoritku", "preference.food"], ["minuman_favoritku", "preference.drink"],
+      ["lagu_favoritku", "preference.song"], ["musik_favoritku", "preference.music"], ["hobi_favoritku", "preference.hobby"],
+    ];
+    for (const [raw, want] of idAlias) {
+      const got = pf.canonicalFactKey(raw);
+      if (got !== want) throw new Error(`ID_ALIASES: ${raw} -> ${got}, expected ${want}`);
+    }
+    // The alias table is deliberately incomplete: `nama_panggilanku` is a DIFFERENT fact from
+    // `nickname` (how the trio addresses the owner vs Mia's own term of endearment), and `ku` is
+    // only ever a lookup suffix — never a return value.
+    if (pf.canonicalFactKey("nama_panggilanku") !== "nama_panggilanku") throw new Error("nama_panggilanku must NOT collapse into nickname");
+    if (pf.canonicalFactKey("menu") !== "menu" || pf.canonicalFactKey("suku") !== "suku") throw new Error("bare `ku`-less keys must not be swept into ID_ALIASES");
+    // Regression lock for the contradiction this table exists to kill: two coffee facts.
+    const merged = pf.mergeFact(pf.mergeFact([{ key: "preference.coffee", value: "americano" }], "kopi_favoritku", "latte").facts, "kopi_favoritku", "kopi susu");
+    const coffeeRows = merged.facts.filter((f) => f.key === "preference.coffee");
+    if (coffeeRows.length !== 1 || coffeeRows[0].value !== "kopi susu") throw new Error(`coffee facts must collapse to one, got ${JSON.stringify(coffeeRows)}`);
     if (!pf.looksLikeSecret("auth0|6aaa6aa27123f6e684d7e009") || !pf.looksLikeSecret("eyJhbGciOiJIUzI1NiJ9.abc.def")) throw new Error("looksLikeSecret missed a token");
     if (pf.looksLikeSecret("nasi goreng")) throw new Error("looksLikeSecret false-positive");
     const m1 = pf.mergeFact([{ key: "name", value: "Naufal" }], "favorite_food", "nasi goreng");
@@ -6995,6 +7017,7 @@ async function main() {
       isNameFragmentOnly,
       ensureAgentPersona,
     } = await import("./src/channels/discord");
+    const { discordRestTokenHeal } = await import("./src/lib/discordRestTokenHeal");
     // Routing: Mia replies to everything (legacy); agents only on mention/DM/dedicated.
     // Solo mode preserves the legacy contract exactly.
     const solo = { mentionedOtherTrioBot: false, trioMode: false };
@@ -7176,6 +7199,30 @@ async function main() {
     }
     for (const c of enabledAgentConfigs()) {
       if (!c.token) throw new Error("enabled agent must have a token");
+    }
+    // REST-token heal must stay WIRED (owner 2026-10-07 23:21, "kenapa mia tidak
+    // mau merespon"). discord.js login() sets client.rest's token, then on a
+    // gateway failure calls destroy() which sets it to null — while the
+    // WebSocketManager reconnects and reaches Ready anyway. Result: a bot that
+    // receives messages and completes turns but fails every send with
+    // "Expected token to be set for this request". Live: Mia logged in with a
+    // Cloudflare 522, then 6 of 7 completed turns never reached Discord, with
+    // no log line saying it was mute. The unit test proves the helper writes the
+    // token; only this assertion proves anyone actually CALLS it, so assert the
+    // call site exists rather than trusting the helper to still be wired.
+    const discordSrc = readFileSync(join(appRoot(), "src/channels/discord.ts"), "utf8");
+    if (!/client\.on\(Events\.ClientReady[\s\S]{0,1200}discordRestTokenHeal\(/.test(discordSrc)) {
+      throw new Error("discordRestTokenHeal must be called from the ClientReady handler (mute-after-522 regression)");
+    }
+    if (!/import \{ discordRestTokenHeal \} from "\.\.\/lib\/discordRestTokenHeal"/.test(discordSrc)) {
+      throw new Error("discordRestTokenHeal must be imported from the lib module");
+    }
+    {
+      const seen: string[] = [];
+      discordRestTokenHeal({ rest: { setToken: (t: string) => void seen.push(t) } }, "TOKEN_X", "mia");
+      if (seen.join(",") !== "TOKEN_X") {
+        throw new Error(`heal must re-assert the token to the REST manager, got: ${seen.join(",") || "nothing"}`);
+      }
     }
     // Role seeding on a temp user: marker present exactly once (idempotent).
     const trioBase = `verify_trio_${Date.now()}`;

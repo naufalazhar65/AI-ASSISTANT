@@ -22,6 +22,15 @@ export interface GmailToken {
   refreshToken: string;
   expiresAt: number;
   connectedAt: number;
+  /**
+   * Set once the refresh token was rejected as dead (invalid_grant / expired
+   * or revoked). A Google app still in "Testing" consent status gets its
+   * refresh token killed after 7 days, so this is permanent until the owner
+   * re-authorizes — retrying can never succeed (measured 2026-10-07: refresh
+   * failed with "Token has been expired or revoked." after ~7.4 days).
+   * Cleared implicitly by `writeGmailToken` on the next successful exchange.
+   */
+  revokedAt?: number;
 }
 
 function gmailPath(userKey: string): string {
@@ -30,6 +39,36 @@ function gmailPath(userKey: string): string {
 
 export function gmailConfigured(): boolean {
   return !!(GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET);
+}
+
+/**
+ * Thrown (as a message prefix) when the refresh token itself is dead.
+ *
+ * Distinct from a transient failure (network blip, 5xx, 400 from a malformed
+ * request): `invalid_grant` / `expired or revoked` are terminal — the token
+ * is gone and no amount of retrying brings it back, so the only fix is
+ * re-authorizing through `gmailAuthUrl`. One owner for both the marker and the
+ * human wording, so the tool layer and the honesty guard can never drift.
+ */
+export const GMAIL_TOKEN_REVOKED = "gmail_token_revoked";
+
+/** Pure: does a Google token-endpoint error describe a dead refresh token? */
+export function isRevokedRefreshError(description: string): boolean {
+  const d = (description || "").toLowerCase();
+  return (
+    d.includes("invalid_grant") ||
+    d.includes("expired or revoked") ||
+    d.includes("token has been expired") ||
+    d.includes("unauthorized_client")
+  );
+}
+
+/** The one honest Indonesian explanation, with the relink link attached. */
+export function revokedMessage(authUrl: string): string {
+  return (
+    `Error: ${GMAIL_TOKEN_REVOKED}: token Gmail sudah dicabut atau kedaluwarsa (biasanya Google mencabut refresh token setelah 7 hari kalau aplikasi masih berstatus consent "Testing"). ` +
+    `Mencoba lagi sendiri TIDAK akan berhasil — satu-satunya jalan: hubungkan ulang lewat link ini: ${authUrl}`
+  );
 }
 
 export function readGmailToken(rawUser?: unknown): GmailToken | null {
@@ -47,6 +86,7 @@ export function readGmailToken(rawUser?: unknown): GmailToken | null {
       refreshToken: t.refreshToken,
       expiresAt: t.expiresAt,
       connectedAt: typeof t.connectedAt === "number" ? t.connectedAt : Date.now(),
+      ...(typeof t.revokedAt === "number" ? { revokedAt: t.revokedAt } : {}),
     };
   } catch {
     return null;
@@ -118,6 +158,19 @@ export async function exchangeGmailCode(code: string, rawUser?: unknown, redirec
   );
 }
 
+/** Stamp `revokedAt` on the stored token so later calls know it is dead. */
+function markGmailTokenRevoked(rawUser?: unknown): void {
+  const userKey = canonicalUserKey(rawUser);
+  if (!userKey) return;
+  const token = readGmailToken(userKey);
+  if (!token) return;
+  try {
+    // Re-stamp is harmless; a token already stamped keeps its first timestamp
+    // so "known dead since <date>" stays stable across turns.
+    writeGmailToken({ ...token, revokedAt: token.revokedAt ?? Date.now() }, userKey);
+  } catch { /* best-effort: the in-memory throw still carries the reason */ }
+}
+
 async function refreshGmailToken(token: GmailToken, rawUser?: unknown): Promise<GmailToken> {
   const body = new URLSearchParams({
     client_id: GMAIL_CLIENT_ID,
@@ -132,7 +185,16 @@ async function refreshGmailToken(token: GmailToken, rawUser?: unknown): Promise<
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   const data = (await res.json()) as Record<string, unknown>;
-  if (!res.ok) throw new Error(`Gmail refresh failed: ${String(data.error_description ?? data.error ?? res.status)}`);
+  if (!res.ok) {
+    const desc = String(data.error_description ?? data.error ?? res.status);
+    // Terminal failure: remember it so `gmailConnected` stops claiming the
+    // account is usable and `gmail_link` hands back the relink URL.
+    if (isRevokedRefreshError(desc)) {
+      markGmailTokenRevoked(rawUser);
+      throw new Error(`${GMAIL_TOKEN_REVOKED}: ${desc}`);
+    }
+    throw new Error(`Gmail refresh failed: ${desc}`);
+  }
   const accessToken = typeof data.access_token === "string" ? data.access_token : "";
   const expiresIn = typeof data.expires_in === "number" ? data.expires_in : 3600;
   const fresh: GmailToken = {
@@ -149,6 +211,10 @@ async function gmailRequest<T>(rawUser: unknown, method: string, path: string, b
   if (!gmailConfigured()) throw new Error("Gmail is not configured");
   let token = readGmailToken(rawUser);
   if (!token) throw new Error("gmail_not_connected");
+  // Known-dead token: fail fast with the terminal reason instead of spending a
+  // network round-trip on a refresh that Google will reject again. Still
+  // throws the same marker, so the tool layer maps it identically.
+  if (token.revokedAt) throw new Error(`${GMAIL_TOKEN_REVOKED}: token ditandai mati sejak ${token.revokedAt}`);
   if (Date.now() >= token.expiresAt) token = await refreshGmailToken(token, rawUser);
   const doFetch = async (tok: GmailToken): Promise<Response> => {
     const headers: Record<string, string> = { Authorization: `Bearer ${tok.accessToken}` };
@@ -178,8 +244,14 @@ async function gmailRequest<T>(rawUser: unknown, method: string, path: string, b
   }
 }
 
+/**
+ * Is the account actually USABLE? A token file whose refresh token was
+ * rejected as dead counts as disconnected — otherwise `gmail_link` answers
+ * "sudah terhubung" and the only fix (re-authorize) becomes unreachable.
+ */
 export function gmailConnected(rawUser?: unknown): boolean {
-  return !!readGmailToken(rawUser);
+  const token = readGmailToken(rawUser);
+  return !!token && !token.revokedAt;
 }
 
 // Helpers: decode base64url, extract text from Gmail payload

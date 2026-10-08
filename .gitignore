@@ -50,3 +50,8 @@ bug-bounty-report-improvement-checklist.md
 # user data. The `.mjs` entry was added 2026-09-30: the Gemini Live wire-format
 # probes could not use top-level await under tsx, so they were written as `.mjs`,
 # and `git add -A` was about to sweep four of them into the commit.
+
+# Local agent-tooling config (2026-10-07). NOT project config: `.perch/` holds
+# per-machine MCP server definitions, and its `mcp.json` embeds a live API key
+# (COURTLISTENER_TOKEN), so it must never be committed.
+.perch/

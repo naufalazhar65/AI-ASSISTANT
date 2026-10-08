@@ -31,7 +31,16 @@ import { holidayInfo } from "./holiday";
 import { buildEveningRecap } from "./recap";
 import { buildWeeklyInsight } from "./weeklyInsight";
 import { habitStats, logHabit } from "./habits";
-import { gmailAuthUrl, gmailConfigured, gmailConnected, gmailList, gmailRead, gmailSearch } from "./email";
+import {
+  GMAIL_TOKEN_REVOKED,
+  gmailAuthUrl,
+  gmailConfigured,
+  gmailConnected,
+  gmailList,
+  gmailRead,
+  gmailSearch,
+  revokedMessage,
+} from "./email";
 
 /** Human-readable reminder state — now with soul (less kaku, more Mia):
  *  Single daily reminder → warm natural line, not stiff "Daftar ... total".
@@ -2697,8 +2706,11 @@ const toolRegistry: ToolPlugin[] = [
       // (measured 2026-09-30: refresh failed Bad Request, yet the tool claimed
       // connected, so no relink path existed). Re-authorizing is idempotent.
       const url = gmailAuthUrl(ctx.rawUser);
+      // `gmailConnected` now means "usable", not "a token file exists": a token
+      // whose refresh was rejected as revoked reports disconnected, so this
+      // branch is only reached for a genuinely live account.
       if (gmailConnected(ctx.rawUser))
-        return `Gmail sudah terhubung ✓ (kalau baca email gagal, tokennya mati — hubungkan ulang di sini: ${url})`;
+        return `Gmail sudah terhubung ✓ (kalau baca email gagal, tokennya bisa mati — hubungkan ulang di sini: ${url})`;
       return `Buka link ini untuk hubungkan Gmail: ${url}`;
     },
   },
@@ -2724,8 +2736,7 @@ const toolRegistry: ToolPlugin[] = [
         return await gmailList(ctx.rawUser, n);
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
-        if (m.includes("gmail_not_connected")) return `Gmail belum terhubung — ${gmailAuthUrl(ctx.rawUser)}`;
-        return `Error: ${m}`;
+        return gmailToolError(ctx.rawUser, m);
       }
     },
   },
@@ -2748,8 +2759,7 @@ const toolRegistry: ToolPlugin[] = [
         return await gmailRead(ctx.rawUser, String(args.id || ""));
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
-        if (m.includes("gmail_not_connected")) return `Gmail belum terhubung — ${gmailAuthUrl(ctx.rawUser)}`;
-        return `Error: ${m}`;
+        return gmailToolError(ctx.rawUser, m);
       }
     },
   },
@@ -2776,8 +2786,7 @@ const toolRegistry: ToolPlugin[] = [
         return await gmailSearch(ctx.rawUser, String(args.query || ""), n);
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
-        if (m.includes("gmail_not_connected")) return `Gmail belum terhubung — ${gmailAuthUrl(ctx.rawUser)}`;
-        return `Error: ${m}`;
+        return gmailToolError(ctx.rawUser, m);
       }
     },
   },
@@ -6090,6 +6099,25 @@ function saveNote(content: string, userKey: string | null): string {
   if (JSON.stringify(notes).length > NOTE_BUDGET) notes.splice(0, Math.max(1, notes.length - 5));
   writeNotes(notes, userKey);
   return `Saved note #${notes.length}: "${note}".`;
+}
+
+/**
+ * One owner for the Gmail failure wording shared by `gmail_list` /
+ * `gmail_read` / `gmail_search` (and any future reader).
+ *
+ * Before this existed each tool only knew `gmail_not_connected`, so the real
+ * failure — `invalid_grant` / "Token has been expired or revoked" — escaped
+ * as raw English into the model's context. Measured 2026-10-07: Mia then
+ * improvised ("nanti aku coba lagi ya"), a promise that can never come true,
+ * and offered a relink link it never actually received from a tool.
+ *
+ * The revoked branch is deliberately explicit about retrying being useless and
+ * carries the relink URL, so the model has the true next step in hand.
+ */
+function gmailToolError(rawUser: unknown, message: string): string {
+  if (message.includes("gmail_not_connected")) return `Gmail belum terhubung — ${gmailAuthUrl(rawUser)}`;
+  if (message.includes(GMAIL_TOKEN_REVOKED)) return revokedMessage(gmailAuthUrl(rawUser));
+  return `Error: ${message}`;
 }
 
 function listNotes(userKey: string | null): string {

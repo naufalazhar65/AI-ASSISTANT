@@ -64,6 +64,7 @@ import { hostOfUrl } from "./findingGate";
 import { readLedgerForTurn, recordTurnExec } from "./pocRuns";
 import { EXECUTED_PLACEHOLDER, RECEIPT_HEADER, mergeReceiptRecords, stripReceiptBlock } from "./actionReceipt";
 import { metaProseNote } from "./metaProse";
+import { gmailRetryPromiseNote } from "./gmailRetryPromise";
 import { recallContext } from "./rag";
 import { scheduleLinkCapture, isPentestAsk } from "./library";
 import { argsMentionPath, pathsInArgs } from "./urlMatch";
@@ -7611,6 +7612,16 @@ async function runAssistantTurnImpl(opts: {
   if (!collector.verbatimHit && text.trim()) {
     const metaNote = metaProseNote(text);
     if (metaNote) text = `${text}${metaNote}`;
+  }
+
+  // Gmail honesty guard (live 2026-10-07, 22:53): the refresh token had been
+  // revoked by Google, so every retry was doomed — yet three replies in a row
+  // promised "nanti aku coba lagi". Correct the promise deterministically when
+  // a terminal Gmail failure is visible in this turn and the reply never hands
+  // over the relink link. Pure helper, tested both ways.
+  if (!collector.verbatimHit && !needsConfirmation?.length && text.trim()) {
+    const gmailNote = gmailRetryPromiseNote(messages, text);
+    if (gmailNote) text = `${text}${gmailNote}`;
   }
 
   // Honest exploit-chain guard: user asked for pentest/exploit work and

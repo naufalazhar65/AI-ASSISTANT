@@ -20,10 +20,49 @@ const PREF_TOPICS = new Set([
 
 const PREF_PREFIX = /^(?:preference|pref|preferensi|favorit|favourite|favorite|fav|kesukaan|suka)[._](.+)$/i;
 
+/**
+ * Indonesian first-person aliases → canonical keys (2026-10-07).
+ *
+ * Live drift this fixes: the owner's USER.md carried `namaku: Naufal` beside
+ * `name: Naufal`, `pekerjaan: pentester` beside `job: cybersecurity (…)`, and
+ * — worst — `kopi_favoritku: latte` beside `preference.coffee: americano`:
+ * two live, contradicting coffee facts, because the keys differed so neither
+ * mergeFact nor hygiene ever collapsed them.
+ *
+ * Deliberately NOT here: `nama_panggilanku` → `nickname`. They look like
+ * synonyms but they are two different facts — `nickname: beb` is Mia's pet
+ * name for the owner (agentRole.ts: it belongs to HER voice alone) while
+ * `nama_panggilanku: Mas` is how the trio addresses him. Merging would make
+ * one of them wrong.
+ *
+ * A trailing `ku` is stripped before lookup (`kotaku` → `kota` → `city`), so
+ * the map only lists bare forms.
+ */
+const ID_ALIASES: Record<string, string> = {
+  nama: "name",
+  pekerjaan: "job",
+  profesi: "job",
+  kota: "city",
+  umur: "age",
+  kopi: "preference.coffee",
+  makanan: "preference.food",
+  minuman: "preference.drink",
+  lagu: "preference.song",
+  musik: "preference.music",
+  hobi: "preference.hobby",
+};
+
 /** Canonical key: merge `favorite_X` / `preference.X` / `fav_X` into one key. Pure. */
 export function canonicalFactKey(raw: string): string {
   const k = (raw || "").trim().toLowerCase().replace(/\s+/g, "_").replace(/:$/, "");
   if (!k) return "";
+  // Indonesian first-person aliases (`namaku`, `pekerjaanku`, `kopi_favoritku`…)
+  // fold to the same canonical key as their English form.
+  if (ID_ALIASES[k]) return ID_ALIASES[k];
+  const poss = k.replace(/ku$/, "");
+  if (poss !== k && ID_ALIASES[poss]) return ID_ALIASES[poss];
+  const favKu = /^(kopi|makanan|minuman|lagu|musik|hobi)_favorit$/.exec(poss.replace(/ku$/, ""));
+  if (favKu) return ID_ALIASES[favKu[1]];
   const m = PREF_PREFIX.exec(k);
   const topic = (m ? m[1] : k).replace(/[._]/g, "_");
   const bare = topic.replace(/^(?:favorite|favourite|fav)_/, "");

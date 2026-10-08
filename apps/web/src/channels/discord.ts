@@ -57,6 +57,7 @@ import { defaultProviderId } from "../lib/providers";
 import { buildStatusReport } from "../lib/status";
 import { handleUnifiedCommand, ChatSessionState } from "../lib/channelMessage";
 import { alreadyProcessed, alreadyStarted } from "../lib/once";
+import { discordRestTokenHeal } from "../lib/discordRestTokenHeal";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { appRoot, userDataRoot } from "../lib/users";
@@ -588,6 +589,13 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
 
   client.on(Events.ClientReady, async () => {
     console.log("[discord] logged in as", client.user?.tag);
+    // Self-heal the REST token on every ready. Without this, ONE transient
+    // gateway failure at boot leaves the bot half-alive: gateway up, REST
+    // token-less, every send throws "Expected token to be set for this request".
+    // See apps/web/src/lib/discordRestTokenHeal.ts for the full 2026-10-07
+    // forensics; the short version is that discord.js login() sets the REST
+    // token and then destroy() (its own error path) clears it again.
+    discordRestTokenHeal(client, token, cfg.label, (m) => console.warn(m));
     if (client.user) trioBotIds.add(client.user.id);
     // Register slash commands for Mia so "/status" etc. appear under Mia, not just as prefix.
     // Do it once per startup; Discord dedupes by name. Register both global and per-guild for fast propagation.
