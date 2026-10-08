@@ -2339,3 +2339,179 @@ Owner: "kenapa mia tidak mau merespon" (23:21). Gejalanya **bukan** model, dan t
 **Gates:** typecheck EXIT=0 · `npm test` **2027/2027** (111 file) · lint EXIT=0.
 
 **KEAMANAN — satu hal yang saya ubah tanpa diminta, dan alasannya:** `git status` menunjukkan `.perch/` untracked; isinya konfigurasi MCP lokal per-mesin dan **`mcp.json` memuat API key CourtListener yang masih hidup** (COURTLISTENER_TOKEN). `git add -A` akan menyapu masuk commit. Ditambahkan ke `.gitignore` dengan komentar alasannya, bukan sekadar dibuang dari staging — supaya tidak terulang. Kredensial itu tidak ikut ke mana pun dalam commit ini.
+
+## Sesi 2026-10-08 — Slack adapter (Socket Mode, trio, text-only): kode + guards selesai, BELUM live & BELUM commit
+
+Owner: "apakah AI agent kita bisa dikonekan ke slack seperti kebanyakan ai agent lainnya... apakah sama seperti discord?" → dijawab: bisa, dan Slack justru bisa melakukan satu hal yang Discord TIDAK bisa (lihat bawah). Owner memilih **opsi A = 3 Slack app / 3 bot token** (cermin Discord), **Socket Mode**, **text only**, dengan syarat eksplisit: **"kenapa tanpa trio? justru saya ingin mereka ada di sana bisa berinteraksi satu sama lain (text only)"**.
+
+**Temuan yang membentuk desain:** `discord.ts` memulai `messageCreate` dengan `if (!msg.author || msg.author.bot) return;`, jadi di Discord trio benar-benar buta satu sama lain — `detectDelegation` hanya meng-atribusi bus/avatar Pixel Office, tidak pernah me-route ke bot lain. Di Slack kita **berani menerima pesan dari bot**, karena itulah yang owner minta; konsekuensinya pengaman yang dulu "dapat gratis" dari gate `author.bot` harus dibangun eksplisit.
+
+**Empat file baru.** (1) `apps/web/src/lib/agentRouting.ts` (pure) — satu pemilik routing bersama Discord & Slack: `AgentLabel`, `ROUTING_NAMES` (label + displayName saja, tanpa env), `addressedAgentByName`, `isNameFragmentOnly`, `shouldRespondToAgent`. Diekstrak dari discord.ts (117 baris) dan di-`import`+`re-export` supaya API publik & verify.ts tidak pecah; `trioMentionFlags` tetap di discord.ts (memakai `trioBotIds`/`roleNamesFrom` yang private). (2) `apps/web/src/lib/slackTurnGuard.ts` (pure + stateful) — batas 3 lapis untuk percakapan bot↔bot: `BOT_HOP_LIMIT=1` (sibling boleh dibalas sekali), `OWNER_TURN_REPLY_CAP=3`, `CHAIN_TTL_MS=5m`, self-echo ditolak, owner **tidak pernah** di-gate, state di `globalThis` (HMR meng-reset module state → budget baru → loop terbuka lagi). 12 tes. (3) `apps/web/src/channels/slack.ts` — `@slack/bolt` Socket Mode, `handleIncoming` bersama untuk `app_mention` + `message`, routing → otorisasi → **loop guard** (setelah gate, sebelum turn) → command/confirm/runTurn, reply ber-`thread_ts`, `subscribeReminders` dengan ack jujur, `registerPushTarget`, dedupe `alreadyProcessed("slack", channel:ts)`, `alreadyStarted` per label, channel dedikatif diklaim eksklusif. (4) `apps/web/src/lib/slackTurnGuard.test.ts`.
+
+**Edit kecil:** `replyChunk.ts` (+`SLACK_MAX = 3000`), `agent.ts` (`Channel` +`"slack"` + `slackFormatInstruction()` — mrkdwn Slack: `*bold*` SATU asterisk, tanpa heading/tabel, link `<url|label>`, sengaja dipisah dari Telegram & Discord karena mrkdwn Slack bukan GFM), `instrumentation-node.ts` (blok slack setelah discord, try/catch + `logInfo("slack","not configured…")`), `.env.example` (blok `SLACK_*` + panduan setup per app).
+
+**Verify (blok baru, 4 kelas).** Wiring (instrumentation benar-benar import + memanggil `startSlackBot()` di belakang `isValidSlackConfig()`, dan `new App({… socketMode: true})`), **anti-drift** (`ROUTING_NAMES` vs `AGENT_SPECS` displayName discord), config/user-key (3 spec, `userKeyForAgent("naufal","michelle")` = `naufal.michelle` — persona tetap per-agent), dan loop guard (A→B boleh sekali, B→A ditolak, owner tak pernah di-gate).
+
+**Metode: 4 mutasi nyata.** (1) `await startSlackBot()` dihapus → FAIL "must call startSlackBot() behind isValidSlackConfig()". (2) `displayName` di `agentRouting.ts` diubah → FAIL, **tapi oleh assertion lama** (`addressedAgentByName` dari blok trio Discord) yang lebih dulu gagal — dilaporkan jujur: assertion baru saya sendiri **belum terbukti menangkap** lewat mutasi itu. (3) Konsekuensi (2) diuji ulang dengan mutate di sisi Discord (`displayName: "Michelle"` → `"Miche1le"`) → FAIL oleh assertion drift yang benar: "ROUTING_NAMES display names drifted … Agnes,Mia,Michelle vs Agnes,Mia,Miche1le". (4) **Mutasi yang MENEMUKAN BUG DI ASSERTION SAYA SENDIRI:** `if (!gate.allow)` → `if (false && !gate.allow)` (guard mati) **LULUS** verify — pola `/evaluateSlackMessage\(/` hanya membuktikan dipanggil, bukan bahwa verdict-nya dipakai. Diperbaiki jadi dua assert: `const gate = evaluateSlackMessage(` **dan** `if (!gate.allow) { … return; }`; mutasi yang sama lalu FAIL dengan pesan yang tepat. Ini kelas yang sama dengan discordRestTokenHeal: helper benar, kawatnya lepas.
+
+**Gates:** typecheck EXIT=0 (redirect file + `echo $?` terpisah) · `npm test` **2039/2039, 112 file** · `verify.ts` EXIT=0, **209 blok OK** · lint EXIT=0 · `restart-mia.sh` EXIT=0 (health ok, `logged_in_as 3`, telegram 1, 0×409, 0 chunk errors, boot 12:41:18 > mtime agent.ts 12:16:37, 9router pid 3857 utuh). Log nyata: `[slack] not configured — skipping bot start` (benar — token belum ada).
+
+**BELUM live & BELUM commit.** Prasyarat di sisi owner: 3 Slack app di api.slack.com/apps → Socket Mode ON (App-Level Token `xapp-…`, scope `connections:write`) → scopes `app_mentions:read, chat:write, im:history, im:read, channels:history, commands` → install → Bot Token `xoxb-…` → bot events `app_mention, message.im, message.channels` → `/invite @<bot>`. Lalu isi `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN` (+`_AGNES`/`_MICHELLE`) dan `SLACK_ALLOWED_USER_ID` di `apps/web/.env.local`, restart, lalu uji: satu mention → balasan masuk thread; lalu satu reminder benar-benar sampai Slack.
+
+## Sesi 2026-10-08 (lanjutan) — bug OTORISASI Slack yang tak akan pernah muncul di log: owner di-drop diam-diam
+
+Owner sudah menyelesaikan app "Mia" di api.slack.com dan melaporkan "sudah muncul xoxb-…" (nilai penuh TIDAK pernah masuk context — owner hanya menyebut prefixnya). Sesi ini tidak melakukan live test: token belum masuk `.env.local` (`grep -c SLACK apps/web/.env.local` = 0). Sesi ini justru menemukan **bug di kode yang baru ditulis**, sebelum sempat hidup.
+
+**Bug: solo Mia + `SLACK_USER` saja = semua pesan owner di-drop, tanpa satu baris error pun.** Cabang fail-open di `isAllowedAuthor` (slack.ts) berbunyi `ALLOWED_USER_IDS.length === 0 && configured.size === 0`, dengan `configured` = peta id-bot. Secara logika itu benar, dan sekaligus tidak terjangkau di produksi: `app.client.auth.test()` mengisi peta itu di `startAgentBot`, yaitu **sebelum event pertama tiba**, sehingga `configured.size` selalu minimal 1 begitu bot konek. Padahal `isValidSlackConfig()` untuk mode solo **menerima** konfigurasi yang hanya punya `SLACK_USER` tanpa allow-list — jadi Mia lolos start-up, room terlihat hidup, dan setiap pesan owner hilang di `if (!isAllowedAuthor(...)) return;` yang sunyi. Docblock yang saya tulis sendiri ("Fail-open only when nothing at all is configured, which is unreachable here") menyebut kata "unreachable" seolah itu kabar baik, padahal justru itu **gejalanya**.
+
+**Fix, dan kenapa bentuknya begitu.** Fail-open sekarang hanya melihat allow-list owner (`ALLOWED_USER_IDS.length === 0`), bukan "tidak ada apa pun yang dikonfigurasi". Sibling bot tetap dijaga `configured.has(userId)`, yang hanya berisi label terkonfigurasi. Konsekuensi yang harus disadari: tanpa allow-list, fail-open berarti mengizinkan siapa pun, termasuk bot lain di workspace yang bukan anggota trio — tidak bisa diterima di channel yang memang sengaja menerima pesan bot. Karena itu `isBotAuthor` sekarang **argumen wajib** (`isAllowedAuthor(userId, isBotAuthor)`), bukan short-circuit `!isBotAuthor &&` di sisi pemanggil: branch fail-open sendiri yang menolak penulis bot. Short-circuit di call site bisa hilang diam-diam saat refactor; argumen wajib tidak bisa (typecheck yang menangkap). Tidak ada default value justru untuk itu.
+
+**Bukti: mutasi, bukan "hijau = bukti".** Test baru `apps/web/src/channels/slack.test.ts` (4 tes, dua arah, `vi.resetModules()` per kasus supaya `ALLOWED_USER_IDS` yang module-const ter-read ulang). Memulihkan kondisi buggy (`&& configured.size === 0`) → **2 tes FAIL** (`expected false to be true` pada regression "owner masih boleh setelah bot konek" dan pada "bot asing tetap ditolak"); setelah dipulihkan → 4/4 hijau. Backup `/tmp/slack.bak-authz.ts`.
+
+**Verifikasi kode yang dipakai sebagai ground truth** (`slack.ts`): `ALLOWED_USER_IDS = parseIdList(process.env.SLACK_ALLOWED_USER_ID)` (123) · `isValidSlackConfig` (151-157): solo → `label === "mia" && !!(ALLOWED_USER_IDS.length || process.env.SLACK_USER)`, trio → `ALLOWED_USER_IDS.length > 0` · `slackAuthorLabel` (177-183) reverse lookup label dari peta globalThis · `botIds()` (170-174) peta di `globalThis.__slackBotIds` (alasan: bundel Next berbeda, sama seperti `pushTarget.ts`) · call site `if (!isAllowedAuthor(authorId, isBotAuthor)) return;` (443) · peta diisi di `startAgentBot` via `app.client.auth.test()` → `byLabel[bot.label] = auth.user_id` dan `byLabel["${label}:bot"] = auth.bot_id` (495-496) — **inilah yang membuat `configured.size` selalu bukan nol**.
+
+**Gates:** typecheck EXIT=0 (redirect file lalu `echo $?` terpisah) · `npm test` **2043/2043, 113 file** · `verify.ts` EXIT=0 **209 blok OK** (`slack adapter (socket mode wiring + shared trio routing + bot-to-bot loop guard): OK` baris 212) · lint EXIT=0 (0 error) · `restart-mia.sh` EXIT=0 (health ok, `logged_in_as 3`, telegram 1, 0×409, 0 chunk errors, boot `Thu Oct 8 13:14:31 2026` lebih baru dari mtime semua lib, 9router pid 3857 utuh) · scan CJK `slack.ts` + `slack.test.ts` = 0 hit.
+
+**Pelajaran yang layak dibawa:** breakpoint logika yang benar belum tentu terjangkau. "Kode yang tak akan pernah dieksekusi" bisa berarti dead code yang aman ATAU cabang mati yang justru bug; yang membedakan hanya pengukuran runtime (di sini: peta diisi sebelum event pertama). Membaca kode saja menghasilkan keyakinan yang salah arah. Selain itu: invariant yang bergantung pada pemanggil bisa hilang saat refactor — encode di signature lebih keras daripada menuliskannya di call site.
+
+**BELUM live & BELUM commit.** Prasyarat owner tinggal dua: (1) isi `SLACK_BOT_TOKEN` + `SLACK_APP_TOKEN` di `apps/web/.env.local`; (2) **isi juga `SLACK_ALLOWED_USER_ID`** — bukan karena kode membutuhkannya lagi (fix di atas menghapus kebutuhan itu), tapi karena tanpanya bot apa pun di channel itu bisa menjalankan giliran, dan itu keputusan owner, bukan kode. Setelah restart: satu mention → balasan masuk thread; lalu satu reminder benar-benar sampai Slack. Lalu ulangi app untuk Agnes & Michelle + `/invite @agnes` dan `/invite @michelle` (tanpa itu trio tak saling lihat).
+
+## Sesi 2026-10-08 (lanjutan 2) — live Slack menemukan routing bocor di SOLO mode, dan sekarang DI DISCORD juga
+
+Owner meng-invite Agnes & Mia ke `#all-mia-ltd` lalu menguji `@Agnes halo` (13:36) → **Mia yang menjawab** ("Pagi juga Mas Naufal! 🌸 Jam 13:36 pas nih…"). `@Mia halo` (13:37) → Mia benar. `@Agnes halo` lagi (13:37) → **Mia menjawab lagi** ("Halo lagi Mas Naufal! 🌸").
+
+**Dua lapis, dan lapis kedua baru ketahuan saat memperbaiki lapis pertama.** `addressedAgentByName("@Agnes halo")` sudah benar mengembalikan `"agnes"` dan `mentioned` sudah false — jadi mekanismenya BEKERJA; input-nya yang tidak dipakai. Di `shouldRespondToAgent`, cabang `if (!opts.trioMode) { if (label === "mia") return true; … }` mengembalikan true tanpa syarat: dengan hanya Mia yang punya token, `trioMode` = false, sementara=name-addressing hanya ada di cabang trio (`if (opts.nameAddressed) return opts.nameAddressed === label;`) dan tidak pernah dieksekusi. Solo justru kasus yang paling butuh dia: sibling yang dipanggil justru yang OFFLINE. Guard baru disisipkan SEBELUM cabang solo, dengan presedensi yang sama seperti cabang trio (`mentioned` menang, `isDM` menang — DM ke Mia berisi "agnes tolong cek ini" adalah item kerja, bukan summons).
+
+**Lapis kedua: Discord adalah salinan yang sudah melenceng.** Setelah guard-nya benar, baca call site Slack (`const nameAddressed = addressedAgentByName(text)`) versus Discord (`cfg.trioMode ? addressedAgentByName(stripMentions(...)) : null` dengan komentar "stays silent in solo mode, nobody to mis-address") — asumsi yang justru salah, dan **persis gejala yang sama akan terjadi di Discord** begitu owner sprinkle "halo agnes" di channel yang hanya punya Mia. Discord sekarang menghitung `nameAddressed` tanpa syarat juga. Pelajaran: menemukan satu bug di satu adapter berarti **menyelidiki adapter lain yang salinannya** — kalau tidak, perbaikannya berumur satu channel.
+
+**Bukti: 2 mutasi nyata pada unit test, 1 mutasi nyata pada wiring verify.**
+- Guard dihapus dari `agentRouting.ts` → 5 test FAIL (live shape solo, sibling name, dedicated-channel escape hatch, parity solo==trio, parser→router end-to-end).
+- DM carve-out (`!opts.isDM`) dihapus → 1 test FAIL tepat di kasus DM (proof over-suppression juga tertangkap, bukan hanya under-suppression).
+- `discord.ts` dikembalikan ke bentuk ternary → `verify.ts` FAIL: "discord.ts must compute nameAddressed unconditionally as `const nameAddressed = addressedAgentByName(...)`".
+
+**CACAT ASSERTION PERTAMA (dilaporkan, bukan disembunyikan).** Versi pertama memakai regex negatif `/trioMode\s*\?\s*addressedAgentByName…null/` — yang **match komentar penjelas yang saya tulis sendiri di `discord.ts`**, jadi verify FAIL pada kode yang sudah diperbaiki. Diganti bentuk positif `const nameAddressed = addressedAgentByName(`, yang tidak bisa salah baca komentar. Pelajaran: assertion sumber di file yang sama dengan dokumentasinya akan mengarang dirinya sendiri.
+
+**Test baru `apps/web/src/lib/agentRouting.test.ts` (16 tes).** Beberapa test awal GAGAL karena asumsi saya salah, bukan kodenya: `"@Agnes @Michellefib"` saya kira group-address (null) padahal word-bound membuat `Michellefib` bukan `Michelle` → hasilnya `"agnes"` (dipisah jadi test sendiri, justru mengunci aturan word-bound); dan urutan `.sort()` label diekspektasi salah (`["agnes","michelle","mia"]` vs real `["agnes","mia","michelle"]`) → kedua sisi di-sort. Semuanya dikoreksi di test, tidak ada kode dilonggarkan.
+
+**Verify baru (blok tersendiri, 58 baris, setelah blok Slack)** — "name addressing unconditional in both adapters": dua adapter harus menghitung `nameAddressed` tanpa syarat + keduanya harus meneruskannya ke router + parser→router end-to-end dari teks live + paritas solo==trio untuk 4 nilai name + carve-out mention/DM + unaddressed tetap sampai ke concierge.
+
+**Gates:** typecheck EXIT=0 (redirect + `echo $?` terpisah) · `npm test` **2059/2059, 114 file** (+16) · `verify.ts` EXIT=0 **154 blok OK** (`name addressing unconditional in both adapters (solo == trio, mention/DM carve-outs): OK` baris 213) · lint EXIT=0 · `restart-mia.sh` EXIT=0 (health ok, `logged_in_as 3`, telegram 1, 0×409, 0 chunk errors, boot `Thu Oct 8 13:59:50 2026` > mtime `agent.ts 12:16:37`, 9router pid 3857 utuh) · log `[slack:mia] connected as Mia (U0C7H9Z5KRB)` + `starting socket-mode connection…` · scan CJK 4 file = 0 hit.
+
+**Flake yang jujur dilaporkan:** run `verify.ts` pertama EXIT=1 di `places_search live should list Cipete cafes: No places found.` (baris 94) — `places.ts` tidak tersentuh, Overpass/Nominatim, third-party sesaat (hazard yang sama seperti tercatat 2026-10-02 dan 2026-10-07). Run kedua hijau, 154 blok.
+
+**BELUM commit.** Sisa untuk owner: uji ulang `@Agnes halo` di Slack (sekarang harus diam), lalu app Agnes + Michelle (`SLACK_BOT_TOKEN_AGNES`/`SLACK_APP_TOKEN_AGNES`/`..._MICHELLE`) + `/invite @agnes` `/invite @michelle` — tanpa itu, kebocoran routing hanya bisa diamati sebagai "tidak ada jawaban", bukan sebagai routing trio yang benar.
+
+## Sesi 2026-10-08 (lanjutan 3) — guard nama TIDAK menangkap mention markup: akar sebenarnya ada di autocomplete Slack
+
+Owner menguji ulang `@Agnes halo` di Slack dan Mia **tetap menjawab** ("Halo juga Mas Naufal!"). Guard `nameAddressed` yang baru dibuat tidak menyala — dan jejaknya menunjukkan itu bukan guard yang salah, tapi **kasus yang salah**.
+
+### Bukti dari Slack API (`conversations.history`, token dari `.env.local`, nilai tidak dicetak)
+
+`#all-mia-ltd` = `C0C7MV7RBHQ`. Bentuk mentah pesan owner (wajib dilihat apa adanya):
+
+```
+1791442942.660139 user:U0C7RQL8KU4  RAW: "<@U0C7LPQ3754> halo"
+1791442947.466399 bot:B0C777NUU0P   RAW: "Halo juga Mas Naufal! :cherry_blossom:"
+```
+
+**Owner TIDAK mengetik "@Agnes" — autocomplete Slack mengganti namanya menjadi mention markup `<@U0C7LPQ3754>`.** `U0C7H9Z5KRB` = id bot Mia (dari `auth.test`); `U0C7LPQ3754` = id user **Agnes yang tidak known**, karena app Agnes belum punya token sehingga id itu tidak pernah masuk `botIds().byLabel`.
+
+Rangkaian yang membuat semua guard lolos: `stripSlackMentions` menghapus `<@U0C7LPQ3754>` → teks tersisa `"halo"` → `addressedAgentByName("halo")` = **null** (nama lenyap bersama markup) → `mentioned` false → `mentionedOtherTrioBot` false → guard tidak pernah menyala. **Fix sebelumnya benar untuk kasus "nama diketik", tapi kasus live adalah "mention dengan id yang tidak dikenal".**
+
+Probe tambahan: `users.info` untuk ketiga id → **`missing_scope`** (butuh `users:read`, belum ada).
+
+### Fix — satu sinyal baru, tanpa scope baru
+
+`apps/web/src/lib/agentRouting.ts`: `SLACK_MENTION_RE` / `DISCORD_MENTION_RE` (hanya user/bobot; role/broadcast — `<@&id>`, `<#id>`, `@channel`, `<!subteam>` — sengaja tidak termasuk, supaya `@everyone` tidak pernah membungkam concierge), `mentionedIds(raw, pattern)`, dan `hasForeignMention(raw, knownIds, pattern)`. Opsi baru `mentionedForeignUser` pada `shouldRespondToAgent`, guard-nya disisipkan setelah guard `nameAddressed` dengan presedensi sama (`mentioned` menang, `isDM` menang, `nameAddressed === label` menang, dedicated channel menang).
+
+Alasan memilih **konservatif tanpa `users:read`**: mention id yang tidak bisa di-resolve BUKTI owner sedang-address orang lain; tidak perlu tahu siapa. Resolusi nama hanya menaikkan presisi, dan menambah scope berarti menambah jalur kedua yang perilakunya bisa berbeda — satu aturan yang butuh izin baru lebih buruk daripada satu aturan yang tidak butuh.
+
+`apps/web/src/channels/slack.ts`: `knownBotIds` = seluruh nilai peta bot, `mentionedForeignUser` dihitung dari `event.text` **mentah** (bukan teks yang sudah di-strip — itu justru menghilangkan buktinya) lalu diteruskan ke router; ada satu baris log saat drop (`[slack:mia] drop — addressed an unresolved mention (not mia)`) supaya kelas kegagalan ini tidak lagi sunyi seperti sebelumnya.
+
+### Bukti: 3 mutasi + 1 cacat assertion yang saya temukan sendiri
+
+Test `apps/web/src/lib/agentRouting.test.ts` 16 → **31 tes** (`mentionedIds`/`hasForeignMention` dua arah + 7 kasus guard dengan carve-out mentioned/DM/nama/dedicated, plus bentuk live `<@U0C7LPQ3754> halo`).
+
+- **Mutasi 1 — `mentionedForeignUser: false` di slack.ts → verify LULUS (exit 0).** Assertion `/mentionedForeignUser/` hanya membuktikan **nama** ada di file; meng-hardcode `false` mematikan seluruh guard tanpa menghapus namanya. **Ini cacat assertion saya sendiri** (kelas yang sama dengan `if (false && !gate.allow)` di gate loop Slack). Diperbaiki jadi dua assert: router argumen harus memakai bentuk shorthand `mentionedForeignUser,` (tidak bisa hidup berdampingan dengan nilai hardcode) + larangan eksplisit `mentionedForeignUser: false|true|null|undefined`. Mutasi sama → **exit 1**, pesan "must pass the COMPUTED mentionedForeignUser value".
+- **Mutasi 2 — hitung dari teks yang sudah di-strip → verify exit 1**: "must compute the foreign-mention signal from the RAW event text".
+- **Mutasi 3 — hapus body guard dari `agentRouting.ts` → 2 unit test FAIL + verify exit 1**: "solo Mia must NOT answer a message addressed by an unresolvable mention".
+
+### Gates
+
+typecheck EXIT=0 (redirect + `echo $?` terpisah) · `npm test` **2074/2074, 114 file** · `verify.ts` EXIT=0 **211 blok OK** (blok baru "unresolvable mentions never answered by the concierge (live 2026-10-08 regression): OK" baris 214) · lint EXIT=0 0 error · `restart-mia.sh` EXIT=0 (health ok, `logged_in_as 3`, telegram 1, 0×409, 0 chunk errors, boot `Thu Oct 8 14:38:15 2026` > mtime `agentRouting.ts` 14:31:39, 9router pid 3857 utuh) · log `[slack:mia] connected as Mia (U0C7H9Z5KRB)` · scan CJK 3 file = 0 hit.
+
+**Perbedaan jumlah blok OK antar dua run (211 vs 210):** run kedua kehilangan blok `places_search live Overpass assertions: OK` (Nominatim/Overpass sesaat — hazard yang sudah tercatat tiga kali (2026-10-02/07/08)), verify tetap exit 0. Dilaporkan, bukan disembunyikan.
+
+**BELUM commit.** Sisa untuk owner: uji ulang `@Agnes halo` di Slack (sekarang harus diam, dan jika tidak diam akan ada baris log "addressed an unresolved mention"), lalu app Agnes + Michelle + `/invite` agar routing trio bisa diamati sebagai routing yang benar, bukan sebagai "tidak ada jawaban".
+
+## Sesi 2026-10-08 (lanjutan 4) — routing bot-ke-bot: `mentioned` dustakan `event.bot_id`, dan hop budget terkunci 5 menit
+
+Live test setelah trio aktif (3 app/token terpasang, semua `/invite` ke `#all-mia-ltd` = `C0C7MV7RBHQ`) menunjukkan routing bot-ke-bot salah, dan **pengaman yang menahan bukan routing**. Dua bug nyata, keduanya hanya terlihat dari `conversations.history` + log, tidak dari kode.
+
+### Bug 1 — `mentioned` bernilai true untuk SETIAP bot pada pesan bot mana pun
+`slack.ts` lama: `const mentioned = !!event.bot_id || event.text.includes(\`<@${id}>\`)`. `event.bot_id` di-set pada setiap pesan yang ditulis bot mana pun, jadi ketiganya merasa "@-disebut" → `shouldRespondToAgent` selalu `return true` di cabang `if (opts.mentioned)`, sebelum cek `mentionedOtherTrioBot`. Bukti live: pesan Mia `"<@Agnes> cek dong"` → Agnes menjawab **karena menang race**, sementara Mia & Michelle hanya tertahan `hop-limit`; kalau race-nya lain, merekapakah yang akan menjawab. Bukti kedua: pesan Mia yang **tidak menyebut siapa pun** ("Eh, ada apa nih Mas Naufal?") dibalas Agnes — jelas bukan routing.
+
+Fix: helper pure `addressesThisBot(rawText, selfBotId, isBotAuthor, eventBotId)` di `agentRouting.ts` — `mentionsMe = rawText.includes(\`<@${selfId}>\`)`; kalau penulisnya bot, itu satu-satunya warrant (autocomplete manusia tidak berlaku untuk bot); jalur `app_mention` manusia (`!!eventBotId`) dipertahankan.
+
+### Bug 2 — pengaman yang silentyap (observability)
+Semua suppressions routing sebelumnya senyap kecuali satu cabang foreign-mention, sehingga "Mia menjawab karena routing atau hop-limit yang menghentikannya?" tak bisa dibedakan dari log. Fix: `routingDropReason(label, opts)` — verdict SELALU diambil dari `shouldRespondToAgent` (tidak pernah memutuskan apa pun; asimetri itu disengaja),_branch: typed name / unresolvable mention / sibling / not-mentioned (solo) / unaddressed chatter. Call site hoist options ke `routingOpts` dan log saat drop.
+
+### Bug 3 (ketahuan dari live retest Bug 1) — hop budget dipakai oleh pesan inisiator
+Setelah Bug 1 beres, pesan `"<@Michelle> ..."` (28 detik setelah `"<@Agnes> ..."`) **mati sebagai `(hop-limit)`**. Akar: `evaluateSlackMessage` menaikkan `hops` pada setiap pesan bot yang lolos, dan tidak ada yang mereset kecuali owner bicara atau TTL 5 menit lewat — jadi **satu pertukaran bot mengunci seluruh channel**. Fix: field baru `initiatesChain` ( pesan bot yang bukan threaded reply = percakapan BARU, bukan hop ) di `decideSlackChain` + `evaluateSlackMessage`; call site menurunkan dari `event.thread_ts`/`event.ts`. Bukti live sesudahnya: dua pertanyaan beruntun → Agnes lalu Michelle, keduanya dijawab.
+
+### Bukti = mutasi (house rule)
+- MUT1 helper dikembalikan ke `if (isBotAuthor) return !!eventBotId || mentionsMe` → 5 unit test FAIL + verify FAIL.
+- MUT2 call site hardcode `!!event.bot_id || …` → verify FAIL "must compute `mentioned` via addressesThisBot(...)".
+- MUT3 `isBotAuthor` → `false` di call site → verify FAIL "must pass BOTH isBotAuthor and event.bot_id". **Percobaan pertama INCONCLUSIVE** — tertangkap flake `places_search live should list Cipete cafes` yang jalan sebelum blok Slack (`verify.ts` throw di failure pertama); diulang, assertion yang benar yang menangkap. Dilaporkan, bukan disembunyikan.
+- MUT4 `routingDropReason` `return null` → 3 unit test FAIL. MUT5 hapus pemanggilan `routingDropReason` → verify FAIL "silent suppressions are indistinguishable from lost messages".
+- MUT6 `nameAddressed` dihapus dari `routingOpts` (assertion LAMA yang harusnya ikut/ethnic rusak oleh hoisting) → verify FAIL "must pass nameAddressed into shouldRespondToAgent (typed names would be invisible)".
+- MUT7 `initiatesChain` diabaikan di `decideSlackChain` → 1 unit test FAIL. MUT8 hardcode `initiatesChain: false` → verify FAIL.
+- **CACAT MUTATION PRIBADI (dilaporkan):** assertion regex `initiatesChain = isBotAuthor && …` saya tulis dari ingatan dan tidak cocok dengan teks file (baris `const initiatesChain =` lalu newline) — dua kali verify gagal karena itu. MUT8 sempat "tertangkap" oleh assertion yang sudah rusak itu, jadi **MUT8 belum terbukti**; setelah regex diperbaiki (`\s*\n?\s*`) MUT8 diulang → MUT8b menangkap dengan assertion yang benar. Pelajaran: pola regex untuk source harus diambil dari isi file, bukan dari ingatan — dan kalau sebuah mutasi "tertangkap" oleh assertion yang gagal di kondisi normal, hasilnya INCONCLUSIVE, bukan bukti.
+- Bug di test saya sendiri: akses `.reason` pada union `SlackChainVerdict` tidak bisa di-narrow oleh `expect(allow).toBe(false)` → diganti `toMatchObject({ allow: false, reason: … })`; dan `threadTs` bentrok dengan deklarasi yang sudah ada di `slack.ts` → diganti `chainThread`.
+
+### Gates
+typecheck EXIT=0 · lint EXIT=0 (1 warning baseline `writeup.ts:65`) · `npm test` **2090/2090** (114 file; slackTurnGuard 12 → 17 tes) · `verify.ts` EXIT=0 **155 blok OK** (`slack adapter (socket mode wiring + shared trio routing + bot-to-bot loop guard + per-agent dedupe + honest 'mentioned' + fresh-chain budget): OK` baris 212) · `restart-mia.sh` EXIT=0 (health ok, `logged_in_as 3`, telegram 1, 0×409, 0 chunk errors, 9router pid 3857 utuh).
+
+### Bukti live (Slack API + log, bukan prosa)
+`1791450829 Mia "<@Agnes> pertanyaan pertama"` → `1791450836 bot:Agnes` menjawab · `1791450857 Mia "<@Michelle> pertanyaan kedua"` → `1791450862 bot:Michelle` menjawab (sebelum fix ini: `(hop-limit)`). Log menunjukkan sibling yang benar dropping dengan **alasan routing** (`addressed a sibling bot`, `unaddressed channel chatter (not the concierge)`), bukan `hop-limit` — artinya routing, bukan loop guard, yang Holds giliran. Rantai tetap berbatas: balasan Agnes dibalas Mia sekali (hop 1), lalu berhenti.
+
+**BELUM commit** (pertanyaan "boleh komit push" sudah diajukan 2× tanpa jawaban).
+
+## Sesi 2026-10-08 (lanjutan 5) — balasan bot-ke-bot masih menyapa owner: klausul prompt TIDAK cukup, butuh pasangan deterministik
+
+Owner (Slack, 16:0x) menguji percakapan Mia↔Agnes lalu tanya: **"seperti itu? tapi kenapa masih menyebut nama saya? kan mia yang memanggil agnes"**. Transcript: Mia `"@Agnes halo, cek dong"` → Agnes `"Halo Mas Naufal! Lagi sibuk atau pas santai nih?"`; Mia `"Eh, malah balik nanya ke Mas Naufal ya."`; Michelle `"Dilanjut Mas Naufal, pertanyaan kedua apa nih..."`. Di percakapan itu owner **tidak pernah bicara** — nama dia tetap muncul di semua balasan.
+
+### Akar 1 — tidak ada sinyal siapa yang memicu giliran
+`runAssistantTurn` tidak tahu sama sekali bahwa pemicunya bot lain. `slack.ts` sudah menghitung `isBotAuthor` & `fromLabel` di `handleIncoming` tapi tidak meneruskannya ke giliran. Sementara system prompt **memaksa** addressing owner (`agent.ts:451` "Address the user by the exact name in USER (e.g. 'Mas Naufal') — never shorten it.", baris 452/525 untuk honorific & nickname 'beb'), jadi owner adalah satu-satunya nama yang tersedia bagi model.
+
+Fix: `opts.peerAgent` (display name bot pemicu) → `applyPeerTurn` di `agentRole.ts` menambah klausa `PEER TURN (overrides every name rule above)` di akhir prompt; `normalizeOwnerSalutation` + `thinGreetingRescue` dapat opsi `peer` dan early-return (keduanya deterministik dan hanya berisi vocative owner).
+
+### Akar 2 (lebih dalam) — lookup identitas bot hanya bisa mencocokkan `user_id`
+`slackAuthorLabel` membandingkan `byLabel[label]` (isi = `auth.test.user_id`, bentuk **U…**) dengan argumennya, padahal pesan bertulis bot membawa `bot_id` (bentuk **B…**) dan `event.user` kosong — sehingga `authorId = event.user || event.bot_id` menghasilkan B…, lookup selalu `null`, `fromLabel` jatuh ke label penerima sendiri, `peerLabel` jadi `null`, dan **`peerAgent` tidak pernah terbentuk**. Dipakai logger sementara: `[slack:agnes] DBG author=U0C7H9Z5KRB ... peer=Mia` — perhatikan `authorId` di sana justru U… (Slack mengisi `event.user` untuk pesan bot di app yang ter-install), jadi gejalanya BERVARIASI: benar di sebagian event, salah di sebagian lain. Fix: `slackAuthorLabel` menerima **kedua jenis id** (menyebut `${label}:bot`) dan mengiterasi `ROUTING_NAMES` sehingga kunci `:bot` tak pernah bocor jadi label; `isSelfAuthored(botId, label)` diekstrak dan dipakai untuk suppress self-echo (sebelumnya `event.bot_id === byLabel[bot.label]` — membandingkan B… dengan U…, jadi tidak pernah cocok; dedupe per-agent tak bisa menutup ini karena tiap agent punya namespace sendiri, jadi Mia bisa memproses pesan MILIKNYA sendiri).
+
+### Akar 3 — klausul prompt TIDAK berlaku, dan ini terukur
+Setelah Akar 1+2 benar dan logger membuktikan `peer=Mia` terkirim, balasan Agnes tetap `"Banget Mas Naufal! ..."`. 9router diberi dua aturan nama yang bertentangan dan memilih yang sering dilihatnya. Maka pasangan deterministik: `redirectPeerVocative(text, {ownerName, peerName})` — hanya menulis ulang vocative owner dalam dua bentuk yang benar-benar dihasilkan repo (`Mas/Masya/Pak/Bu/Bang/Kak/Bro/Sis + nama`, atau nama polos di awal balasan) menjadi nama peer tanpa honorific; "kamu" dibiarkan (peer memang addressee-nya) dan sebutan owner di tengah kalimat tidak disentuh. Dijalankan SEBELUM `normalizeOwnerSalutation` supaya repair itu tidak menyisipkan kembali honorific.
+
+### Bukti = mutasi (house rule; 8 mutasi total sesi ini)
+- MUT-A `applyPeerTurn` dilepas dari `agent.ts` → unit hijau (memang: unit menguji helper, wiring-nya verify yang menangkap) → **verify FAIL** "agent.ts must apply applyPeerTurn to the system prompt".
+- MUT-B guard `peer` di `thinGreetingRescue` dihapus → **1 unit test FAIL**.
+- MUT-C `peerLabel` di-hardcode tanpa cek `fromLabel !== bot.label` → **verify FAIL** (bot tak dikenal bisa jadi peer).
+- MUT-D `peerAgent` hilang di continuation FR-014 → **verify FAIL**.
+- MUT-E `slackAuthorLabel` kembali user-id-only → **3 unit FAIL + verify FAIL** "a sibling's bot_id must resolve to its label (B0C8H49CHLG -> null)".
+- MUT-F self-echo dikembalikan ke perbandingan user-id → **verify FAIL** "must suppress its own echo via isSelfAuthored".
+- MUT-G `redirectPeerVocative` dinonaktifkan → **3 unit FAIL + verify FAIL**.
+- MUT-H pemanggilan `redirectPeerVocative` di `agent.ts` dilepas → **verify FAIL** "must redirect the peer vocative on peer turns" (helper benar, kawatnya lepas — kelas yang sama dengan `discordRestTokenHeal` dan `if (false && !gate.allow)`).
+
+**Bug di harness saya sendiri (dilaporkan):** sisipan helper pertama sama sekali TIDAK masuk ke file — perintah shell-nya dirantai `&&` setelah `grep -c` yang mengembalikan 0 (exit 1), jadi seluruh python block tak pernah jalan, sementara output tetap menampilkan "helper added" karena pesan itu berasal dari run sebelumnya. Gejalanya `redirectPeerVocative is not a function` di 5 test. Ditulis ulang pakai tool Edit. Pelajaran: dalam satu baris `a && b && c`, jangan pakai `grep -c` sebagai penjaga (exit 1 = "nol", bukan gagal).
+
+### Bukti live (Slack API + log, bukan prosa)
+Setelah restart: Mia `"<@Agnes> how are you doing today? jawab singkat ya"` → Agnes `"Santai banget sambil siapin materi buat dibahas, **Mia**. Kamu sendiri gimana hari ini?"` — **nama owner hilang, nama peer muncul**. Balasan Mia di hop 1 juga tanpa nama owner.
+
+### Temuan lain yang TERBUKTI live dan belum ditutup (butuh keputusan owner)
+1. **`sessions` di `slack.ts` dibagi ketiga bot** (satu `Map` module-level, key `${channel}:${thread||"(top)"}`) → history & `pending` FR-014 milik Agnes terbaca Mia, sehingga KEDUA bot menampilkan prompt konfirmasi `pentest_scan` yang sama untuk satu keputusan, dan satu "batal" memicu propose ulang tanpa henti (teramati 4× berturut). Ini bukan banteran model: state-nya memang satu.
+2. **Mia (concierge) ikut menjawab balasan Agnes yang tidak menyebut siapa pun** (hop 1) — mahal dan sering tidak relevan; owner belum memutuskan apakah concierge boleh melakukan itu.
+
+### Gates
+typecheck EXIT=0 · `npm test` **2106/2106** (114 file) · lint EXIT=0 · `verify.ts` EXIT=0 **156 blok OK** (`slack adapter (… + peer turns skip user address): OK`) · `restart-mia.sh` EXIT=0 (health ok, `logged_in_as 3`, 0×409, 0 chunk errors, 9router pid 3857 utuh).
+
+**BELUM commit** (pertanyaan "boleh komit push" sudah diajukan 3× tanpa jawaban).

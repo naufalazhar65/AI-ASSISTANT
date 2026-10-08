@@ -1,6 +1,12 @@
 import { redactArgsForDisplay } from "../lib/args";
 export const DISCORD_MAX = 2000;
 export const TELEGRAM_MAX = 4096;
+/**
+ * Slack's practical per-message limit. Slack itself allows ~40 000 chars, but a
+ * 3 000-char chunk keeps one answer readable in a phone-width column and stays
+ * far under the rate-limit cost of a single oversized block.
+ */
+export const SLACK_MAX = 3000;
 
 /** Short interim "waiting" lines shown right after a risky-tool confirmation
  *  ("balas ya") before the follow-up turn runs — varied so repeated confirms

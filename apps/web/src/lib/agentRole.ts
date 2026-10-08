@@ -190,6 +190,66 @@ export function applyAgentRole(prompt: string, agent?: unknown): string {
   return `${role}\n\n${SHARED_TRIO_RULES}\n\n${out}`;
 }
 
+/**
+ * Prompt overlay for a turn triggered by ANOTHER agent, not by the user.
+ *
+ * Measured live 2026-10-08 (Slack trio): Mia posted "@Agnes halo, cek dong",
+ * Agnes answered "Halo Mas Naufal! ..." and Mia's follow-up said "Eh, malah
+ * balik nanya ke Mas Naufal ya." — every bot addressed the owner even though
+ * the owner had not spoken anywhere in that chain. The cause is missing signal,
+ * not politeness: the prompt MANDATES the owner's honorific (agent.ts: "Address
+ * the user by the exact name in USER ... never shorten it") and nothing ever
+ * said the last message came from a peer, so the owner was the only name the
+ * model had.
+ *
+ * Only APPENDS, so it has the last word on the topic even though the honorific
+ * rule sits far above it. Lives beside applyAgentRole because both are prompt
+ * overlays keyed on who is speaking — same choke point, and a peer turn is the
+ * case applyAgentRole alone left unhandled.
+ */
+export function applyPeerTurn(prompt: string, peerAgent?: unknown): string {
+  const peer = typeof peerAgent === "string" ? peerAgent.trim() : "";
+  if (!peer) return prompt;
+  return (
+    `${prompt}\n\nPEER TURN (overrides every name rule above): the message you are ` +
+    `answering was sent by ${peer}, another agent on your team — NOT by the user. ` +
+    `Reply to ${peer} directly. Do NOT greet the user, do NOT address the user by ` +
+    `name or honorific, and do NOT ask the user anything; you and ${peer} are ` +
+    `holding this conversation. If the question genuinely needs the user, say so ` +
+    `in one short line to ${peer} and stop.`
+  );
+}
+
+/**
+ * Redirect the owner's vocative to the peer the reply is actually aimed at.
+ *
+ * The PEER TURN prompt clause is necessary but NOT sufficient: measured live
+ * 2026-10-08 16:25 on 9router, the clause was verifiably in the prompt (the
+ * adapter logged `peer=Mia`) and the reply still opened "Banget Mas Naufal!". A
+ * small model handed two conflicting name rules picks the one it saw most
+ * often, so a deterministic counterpart has to carry this — same reasoning as
+ * normalizeOwnerSalutation, which exists for exactly the same reason (the prompt
+ * alone did not hold).
+ *
+ * Only the OWNER's vocative is rewritten, and only in the two shapes this repo
+ * produces: honorific + name ("Mas Naufal") or a bare name opening the reply
+ * ("Naufal, ..."). Second-person "kamu" is left alone — the peer IS the
+ * addressee — and a mention of the owner mid-sentence is not ours to rewrite.
+ */
+export function redirectPeerVocative(
+  text: string,
+  opts: { ownerName?: string | null; peerName?: string },
+): string {
+  const peer = (opts.peerName || "").trim();
+  const owner = (opts.ownerName || "").trim();
+  if (!peer || !text.trim() || !owner) return text;
+  const given = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const HONORIFIC = "(?:Mas|Masya|Pak|Bu|Bang|Kak|Bro|Sis)";
+  let out = text.replace(new RegExp(`\\b${HONORIFIC}\\s+${given}\\b`, "gi"), peer);
+  out = out.replace(new RegExp(`^(${given})\\b`), peer);
+  return out === text ? text : out;
+}
+
 /* ------------------------------------------------------------------ *
  * Agent persona template versioning
  *
@@ -327,8 +387,14 @@ export const TRIO_GREETING_WARMUP = [
 
 export function thinGreetingRescue(
   text: string,
-  opts: { greetingTurn: boolean; agent?: unknown; name?: string | null; variant?: number; at?: Date | number },
+  opts: { greetingTurn: boolean; agent?: unknown; name?: string | null; variant?: number; at?: Date | number; peer?: boolean },
 ): string {
+  // A peer turn is a conversation BETWEEN agents. The warm-up pool is built
+  // entirely out of owner vocatives ("Oh halo {name}. Lagi sibuk, ..."), so
+  // firing it here would re-insert the exact defect the PEER TURN prompt clause
+  // was added to stop (live 2026-10-08: every bot greeted "Mas Naufal" in a
+  // chain the owner was not part of).
+  if (opts.peer) return text;
   const out = (text || "").trim();
   if (!out || !opts.greetingTurn) return text;
   if (out.includes("\n")) return text;
@@ -715,8 +781,9 @@ const MISSPELT_GREETING = /^(heey|heyy|heiii|hei|helo|haii|hallo|hy)\b/i;
  */
 export function normalizeOwnerSalutation(
   text: string,
-  opts: { agent?: unknown; name?: string | null } = {},
+  opts: { agent?: unknown; name?: string | null; peer?: boolean } = {},
 ): string {
+  if (opts.peer) return text; // see thinGreetingRescue: owner vocatives are the defect
   if (!isAgentLabel(opts.agent) || opts.agent === "mia") return text;
   const original = text;
   let out = text.trim();

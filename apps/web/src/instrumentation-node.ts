@@ -37,6 +37,16 @@ export async function registerNode(): Promise<void> {
     logError("discord", `failed to start bot: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
+    const { isValidSlackConfig, startSlackBot } = await import("@/channels/slack");
+    if (isValidSlackConfig()) {
+      await startSlackBot();
+    } else {
+      logInfo("slack", "not configured — skipping bot start");
+    }
+  } catch (err) {
+    logError("slack", `failed to start bot: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
     const { startAutomationRunner } = await import("@/lib/automationRunner");
     startAutomationRunner();
   } catch (err) {

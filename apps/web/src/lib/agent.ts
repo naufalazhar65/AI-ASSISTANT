@@ -34,6 +34,8 @@ import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolu
 import { getPersonaFact, loadPersonaPrompt } from "./persona";
 import {
   applyAgentRole,
+  applyPeerTurn,
+  redirectPeerVocative,
   isEncyclopedicRegister,
   normalizeOwnerPronouns,
   normalizeOwnerSalutation,
@@ -117,7 +119,7 @@ export type ChatMessage = {
 };
 
 /** Channel kinds the shared core can be invoked from. "voice" keeps replies plain
- *  (TTS-friendly); "text" (Telegram) and "discord" allow platform markdown. */
+ *  (TTS-friendly); "text" (Telegram), "discord" and "slack" allow platform markdown. */
 export function messageText(content: unknown): string {
   if (!content) return "";
   if (typeof content === "string") return content;
@@ -127,7 +129,7 @@ export function messageText(content: unknown): string {
   return "";
 }
 
-export type Channel = "voice" | "text" | "discord";
+export type Channel = "voice" | "text" | "discord" | "slack";
 
 export const MAX_TOOL_ROUNDS = 7;
 /** Higher round cap for pentest turns only (audit 2026-09-23). */
@@ -603,10 +605,41 @@ function discordFormatInstruction(): string {
   ].join(" ");
 }
 
+/**
+ * Formatting guidance for a Slack channel. Slack "mrkdwn" is its own dialect,
+ * NOT GitHub-flavoured Markdown: bold is a SINGLE asterisk, `_italic_` and
+ * `` `code` `` work, but there are no headings, no tables, no nested lists, and
+ * link syntax is bare `<https://url|label>`. Kept separate from both the
+ * Telegram and Discord hints so Mia never emits `**bold**` (Slack would show the
+ * asterisks literally) or Telegram-style escaping.
+ */
+function slackFormatInstruction(): string {
+  return [
+    "You are chatting on a SLACK channel, not a voice interface, so you MAY use ",
+    "light Slack mrkdwn: *bold* (SINGLE asterisks) only for a key word/phrase you ",
+    "want to stress, _italics_ for a term, and `code` (or a ```code block```) for ",
+    "commands, file paths, provider/model names, or steps. Slack mrkdwn has NO ",
+    "headings, NO tables, and NO nested lists, and links must be written as ",
+    "<https://example.com|label> — never as [label](url). Do NOT wrap whole ",
+    "paragraphs in bold, do NOT use **double** asterisks (Slack renders them ",
+    "literally), and keep every reply short and natural. If there is nothing ",
+    "worth stressing, just answer in plain text. ",
+    "LIST-SHAPED ANSWERS (findings, steps, options, multiple results): do NOT ",
+    "write them as one paragraph. Put ONE item per line — a numbered list ",
+    "(1. 2. 3.) or a dash list (- ) — with a blank line between groups, and ",
+    "bold only the label (e.g. *CRITICAL · 9.8* `path` — one-line impact). ",
+    "Shape to imitate:\n",
+    "1. *CRITICAL 9.8* `GET /api/cari-berita?q=` — SQLi: dump tabel users + password plaintext\n",
+    "2. *HIGH 7.5* `GET /api/dokumen` — dokumen internal terbuka via header x-user-role\n",
+    "3. *MEDIUM 6.1* `POST /api/pengaduan` — stored XSS (payload tersimpan mentah)",
+  ].join(" ");
+}
+
 /** Select the formatting hint for the channel; undefined for voice (plain). */
 function formatInstructionFor(channel?: Channel): string | undefined {
   if (channel === "text") return textFormatInstruction();
   if (channel === "discord") return discordFormatInstruction();
+  if (channel === "slack") return slackFormatInstruction();
   return undefined;
 }
 
@@ -6511,13 +6544,21 @@ export async function runAssistantTurn(opts: {
   confirm_calls?: { call: ToolCall; allow: boolean }[];
   /** Headless/automated turns (no human to approve risky tools): auto-denied. */
   autoDenyRisky?: boolean;
-  /** Voice (default) keeps replies plain for TTS; "text"/"discord" allow markdown. */
+  /** Voice (default) keeps replies plain for TTS; "text"/"discord"/"slack" allow markdown. */
   channel?: Channel;
   /**
    * Trio member this turn runs as (Discord Michelle/Agnes). Omitted on every
    * non-trio path, in which case the prompt stays Mia's byte-for-byte.
    */
   agent?: AgentLabel;
+  /**
+   * Display name of the AGENT whose message triggered this turn (Slack trio).
+   * Undefined = the user triggered it. Drives the PEER TURN prompt clause and
+   * disables the deterministic owner-vocative repairs, which otherwise re-insert
+   * "Mas <owner>" into a conversation the owner is not part of (measured live
+   * 2026-10-08: every bot addressed the owner when two agents talked).
+   */
+  peerAgent?: string;
 }): Promise<TurnResult> {
   checkRateLimit(opts.user);
   for (const d of confirmDecisions(opts)) {
@@ -6611,13 +6652,15 @@ async function runAssistantTurnImpl(opts: {
   confirm_calls?: { call: ToolCall; allow: boolean }[];
   /** Headless/automated turns (no human to approve risky tools): auto-denied. */
   autoDenyRisky?: boolean;
-  /** Voice (default) keeps replies plain for TTS; "text"/"discord" allow markdown. */
+  /** Voice (default) keeps replies plain for TTS; "text"/"discord"/"slack" allow markdown. */
   channel?: Channel;
   /**
    * Trio member this turn runs as (Discord Michelle/Agnes). Omitted on every
    * non-trio path, in which case the prompt stays Mia's byte-for-byte.
    */
   agent?: AgentLabel;
+  /** Same meaning as the public wrapper's `peerAgent`; forwarded via `opts`. */
+  peerAgent?: string;
 }): Promise<TurnResult> {
   const { messages: inputMessages } = opts;
   const model = opts.model?.trim() || undefined;
@@ -6638,6 +6681,9 @@ async function runAssistantTurnImpl(opts: {
   // identity sentences and prepend that agent's ROLE block. One choke point
   // covers the slim, full AND opencode variants. No label = untouched prompt.
   systemPrompt = applyAgentRole(systemPrompt, opts.agent);
+  // Peer turn: the trigger was another agent, not the user. Appended last so it
+  // overrides the owner-honorific rule that sits far above in the prompt.
+  systemPrompt = applyPeerTurn(systemPrompt, opts.peerAgent);
   // 9router (qwen-class) ignores warm-style instructions and defaults to
   // stiff, listy output. Append a concise, format-level tone memo so even
   // when the base prompt is ignored, this small addendum nudges the model.
@@ -7976,7 +8022,18 @@ async function runAssistantTurnImpl(opts: {
   // the honorific, trio labels only, and only when the persona actually knows
   // his name — an unknown name leaves the salutation alone rather than guessing.
   try {
-    text = normalizeOwnerSalutation(text, { agent: opts.agent, name: getPersonaFact(opts.user, "name") });
+    // A peer turn: the model was told not to address the user and mostly
+    // listened, but 9router kept opening with "Mas Naufal" (live 2026-10-08
+    // 16:25) — so the vocative is redirected to whoever the reply is actually
+    // for. Runs BEFORE normalizeOwnerSalutation so that repair cannot re-insert
+    // the honorific we just removed.
+    if (opts.peerAgent) {
+      text = redirectPeerVocative(text, {
+        ownerName: getPersonaFact(opts.user, "name"),
+        peerName: opts.peerAgent,
+      });
+    }
+    text = normalizeOwnerSalutation(text, { agent: opts.agent, name: getPersonaFact(opts.user, "name"), peer: !!opts.peerAgent });
   } catch {
     /* persona unreadable: never guess a form of address */
   }
@@ -8001,6 +8058,7 @@ async function runAssistantTurnImpl(opts: {
       const lastUserThin = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content ?? "");
       text = thinGreetingRescue(text, {
         greetingTurn: detectGreetingTurn(lastUserThin),
+        peer: !!opts.peerAgent,
         agent: opts.agent,
         name: getPersonaFact(opts.user, "name"),
         variant: messages.filter((m) => m.role === "assistant").length,

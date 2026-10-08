@@ -7278,6 +7278,550 @@ async function main() {
     }
   }
 
+  // ── Slack adapter (Socket Mode, trio, text-only) ───────────────────────────
+  // Three classes of check, because each one has been a real bug class here:
+  //   (1) WIRING — a module that is written but never started is the Discord
+  //       heal regression all over again: the unit tests are green and the
+  //       feature simply never runs. So assert instrumentation-node imports and
+  //       calls it, not merely that slack.ts exists.
+  //   (2) SHARED ROUTING — Slack and Discord must not grow two copies of the
+  //       trio's display names (drift was a live bug: three bots answering
+  //       every message). The display names live in ONE owner (agentRouting),
+  //       and both adapters must read it from there.
+  //   (3) LOOP GUARD — Slack is the first channel where bots may read each
+  //       other. Without slackTurnGuard the trio would amplify forever, so the
+  //       gate must sit BEFORE the assistant turn, not after.
+  {
+    const { ROUTING_NAMES } = await import("./src/lib/agentRouting");
+    const {
+      slackBotConfigsFromEnv,
+      enabledSlackConfigs,
+      userKeyForAgent: slackUserKeyForAgent,
+      slackAuthorLabel,
+      isValidSlackConfig,
+    } = await import("./src/channels/slack");
+    const { BOT_HOP_LIMIT, OWNER_TURN_REPLY_CAP, evaluateSlackMessage } = await import("./src/lib/slackTurnGuard");
+
+    // (1) Wiring: instrumentation must actually start the adapter.
+    const instrSrc = readFileSync(join(import.meta.dirname, "src", "instrumentation-node.ts"), "utf8");
+    if (!/await import\("@\/channels\/slack"\)/.test(instrSrc)) {
+      throw new Error("instrumentation-node must import @/channels/slack (unwired adapter = Slack silently never starts)");
+    }
+    if (!/isValidSlackConfig\(\)[\s\S]{0,200}startSlackBot\(\)/.test(instrSrc)) {
+      throw new Error("instrumentation-node must call startSlackBot() behind isValidSlackConfig()");
+    }
+    const slackSrc = readFileSync(join(import.meta.dirname, "src", "channels", "slack.ts"), "utf8");
+    if (!/new App\(\{[\s\S]{0,200}socketMode: true/.test(slackSrc)) {
+      throw new Error("slack.ts must use Socket Mode (socketMode: true) — an HTTP receiver would need a public URL");
+    }
+
+    // (2) Shared routing: one owner of display names across both adapters.
+    const { agentConfigsFromEnv: discordAgentConfigs } = await import("./src/channels/discord");
+    const discordNames = discordAgentConfigs()
+      .map((c: { displayName: string }) => c.displayName)
+      .sort();
+    const routingNames = ROUTING_NAMES.map((r: { displayName: string }) => r.displayName).sort();
+    if (discordNames.join(",") !== routingNames.join(",")) {
+      throw new Error(
+        `ROUTING_NAMES display names drifted from the Discord trio: ${routingNames.join(",")} vs ${discordNames.join(",")}`
+      );
+    }
+    // Slack must read the names from that owner rather than redeclaring them.
+    if (!/ROUTING_NAMES[\s\S]{0,400}from "\.\.\/lib\/agentRouting"/.test(slackSrc)) {
+      throw new Error("slack.ts must import ROUTING_NAMES from ../lib/agentRouting (no second copy of the trio names)");
+    }
+
+    // (3) Config + user keys behave without any token present.
+    const noTokens = slackBotConfigsFromEnv();
+    if (noTokens.length !== 3) throw new Error(`expected 3 slack agent specs, got ${noTokens.length}`);
+    if (enabledSlackConfigs(noTokens).length !== 0 && !process.env.SLACK_BOT_TOKEN) {
+      throw new Error("enabledSlackConfigs must not report agents when no SLACK_BOT_TOKEN is set");
+    }
+    if (slackUserKeyForAgent("naufal", "michelle") !== "naufal.michelle") {
+      throw new Error("slack user keys must stay per-agent suffixed like the Discord trio (persona isolation)");
+    }
+    if (typeof isValidSlackConfig() !== "boolean") throw new Error("isValidSlackConfig must return a boolean");
+
+    // (4) Loop guard wiring: bounded and enforced, both directions.
+    if (BOT_HOP_LIMIT < 1 || OWNER_TURN_REPLY_CAP < BOT_HOP_LIMIT) {
+      throw new Error(`nonsensical loop-guard bounds: hops=${BOT_HOP_LIMIT} cap=${OWNER_TURN_REPLY_CAP}`);
+    }
+    // The guard call alone is NOT enough. A mutation that kept
+    // `const gate = evaluateSlackMessage(...)` but neutered the branch
+    // (`if (false && !gate.allow)`) still satisfied a "is it called?" regex and
+    // left Slack with an unbounded trio loop. So assert the branch that ACTUALLY
+    // short-circuits, and the behaviour test below proves the bound holds.
+    if (!/const gate = evaluateSlackMessage\(/.test(slackSrc)) {
+      throw new Error("slack.ts must gate bot-authored messages through evaluateSlackMessage (trio loop regression)");
+    }
+    if (!/if \(!gate\.allow\) \{[\s\S]{0,200}return;/.test(slackSrc)) {
+      throw new Error("slack.ts must RETURN on a refused gate verdict — a refused bot message that falls through still runs a turn (trio loop regression)");
+    }
+    // A -> B is allowed once; B -> A must then be refused, or three bots that can
+    // read each other talk forever.
+    {
+      const gk = "C_VERIFY:THREAD";
+      const first = evaluateSlackMessage(gk, { fromBot: true, from: "agnes", to: "michelle" });
+      if (!first.allow) throw new Error(`first sibling reply must be allowed, got ${first.reason}`);
+      const second = evaluateSlackMessage(gk, { fromBot: true, from: "michelle", to: "agnes" });
+      if (second.allow) throw new Error("loop guard must refuse the answering sibling (infinite trio loop)");
+      const owner = evaluateSlackMessage(gk, { fromBot: false, from: "mia", to: "agnes" });
+      if (!owner.allow) throw new Error("the owner must never be gated by the bot loop guard");
+    }
+    if (slackAuthorLabel("U_NOT_A_TRIO_BOT") !== null) {
+      throw new Error("slackAuthorLabel must return null for an unknown Slack user id");
+    }
+
+    // --- Exactly-once namespace must be PER AGENT --------------------------
+    // Live bug 2026-10-08: Slack fans every channel message out to every app in
+    // the channel, so all three trio bots receive the same `channel:ts`. With a
+    // shared "slack" namespace the first bot to arrive claimed the id and the
+    // other two dropped the message as a "duplicate" — one owner message logged
+    // exactly three `duplicate event ignored` lines and NO turn ran at all.
+    {
+      const { slackDedupeNamespace } = await import("./src/channels/slack");
+      const ns = (["mia", "agnes", "michelle"] as const).map((l) => slackDedupeNamespace(l));
+      if (new Set(ns).size !== 3) {
+        throw new Error(
+          `the trio must NOT share a dedupe namespace: Slack delivers one message to all 3 apps, so a shared key silences 2 of them (got ${ns.join(" | ")})`,
+        );
+      }
+      // The OTHER half: repeats must still collapse, or the namespace is unique
+      // but useless. Exercised through alreadyProcessed, exactly as onMessage does.
+      const { alreadyProcessed, __resetOnceForTests } = await import("./src/lib/once");
+      __resetOnceForTests();
+      const liveEventId = "C0C7MV7RBHQ:1791446049.264259";
+      if (alreadyProcessed(slackDedupeNamespace("mia"), liveEventId) !== false) {
+        throw new Error("first arrival of a message must not be deduped");
+      }
+      if (alreadyProcessed(slackDedupeNamespace("agnes"), liveEventId) !== false) {
+        throw new Error("a sibling bot must NOT be silenced by another bot claiming the same message (live 2026-10-08 regression)");
+      }
+      if (alreadyProcessed(slackDedupeNamespace("mia"), liveEventId) !== true) {
+        throw new Error("a real socket redelivery to the same bot must still be deduped");
+      }
+      __resetOnceForTests();
+      // The adapter must actually CALL it — a correct helper nobody uses is the
+      // same failure shape as the discordRestTokenHeal regression.
+      if (!/if \(alreadyProcessed\(slackDedupeNamespace\(bot\.label\), eventId\)\)/.test(slackSrc)) {
+        throw new Error("slack.ts must dedupe via alreadyProcessed(slackDedupeNamespace(bot.label), eventId) (per-agent trio regression)");
+      }
+      if (/alreadyProcessed\(\s*["'`]slack["'`]\s*,/.test(slackSrc)) {
+        throw new Error("slack.ts must not use a shared \"slack\" dedupe namespace — it silences the whole trio");
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // "mentioned" must not mean "the author is a bot".
+    //
+    // Live 2026-10-08 15:32 WIB, #all-mia-ltd: Mia posted an UNADDRESSED line
+    // and Agnes replied to it ("Hehe, malah balik nanya ke aku"), and when Mia
+    // wrote `<@Agnes> halo, cek dong` only the hop-limit budget — unrelated, and
+    // already spent by that previous exchange — kept Mia and Michelle quiet.
+    // Slack sets `event.bot_id` on every message any bot writes, so the old
+    // `!!event.bot_id || …` made "mentioned" true for all three bots on each
+    // other's messages and routing became a coin flip decided by which socket
+    // delivered first. The unit tests pin the pure rule; this block pins the
+    // wiring, because a correct helper nobody calls is the discordRestTokenHeal
+    // failure shape (and the `mentionedForeignUser: false` one).
+    // ---------------------------------------------------------------------
+    {
+      const { addressesThisBot, shouldRespondToAgent: routingFor } = await import(
+        "./src/lib/agentRouting"
+      );
+      const MIA = "U0C7H9Z5KRB";
+      const AGNES = "U0C7LPQ3754";
+      const MICHELLE = "U0C7LTQMGLE";
+
+      // Behavior, both directions, on the real ids.
+      if (addressesThisBot("Eh, ada apa nih Mas Naufal?", MIA, true, MIA) !== false) {
+        throw new Error("an unaddressed sibling message must NOT count as mentioning me (live 2026-10-08)");
+      }
+      if (addressesThisBot(`<@${AGNES}> halo, cek dong`, AGNES, true, MIA) !== true) {
+        throw new Error("a bot message that names me must count as mentioning me");
+      }
+      if (addressesThisBot(`<@${AGNES}> halo, cek dong`, MIA, true, MIA) !== false) {
+        throw new Error("the author's bot_id must not leak into 'was I mentioned' for a sibling");
+      }
+      if (addressesThisBot("halo", MIA, false, MIA) !== true) {
+        throw new Error("a human app_mention must keep working");
+      }
+
+      // End-to-end: routing on a bot-to-bot message follows the NAME.
+      const idFor = (l: "mia" | "agnes" | "michelle") =>
+        l === "mia" ? MIA : l === "agnes" ? AGNES : MICHELLE;
+      const raw = `<@${AGNES}> halo, cek dong`;
+      const opts = (label: "mia" | "agnes" | "michelle") => ({
+        mentioned: addressesThisBot(raw, idFor(label), true, MIA),
+        isDM: false,
+        inDedicatedChannel: false,
+        mentionedOtherTrioBot: true,
+        trioMode: true,
+        nameAddressed: null,
+      });
+      if (routingFor("agnes", opts("agnes")) !== true) {
+        throw new Error("the addressed sibling must answer a bot-to-bot message");
+      }
+      for (const other of ["mia", "michelle"] as const) {
+        if (routingFor(other, opts(other)) !== false) {
+          throw new Error(`${other} must NOT answer a bot-to-bot message addressed to Agnes — routing is a race, not routing`);
+        }
+      }
+
+      // Wiring: the call site must pass the computed author flag through, and
+      // must not reintroduce the bot_id short-circuit.
+      if (!/const mentioned = addressesThisBot\(/.test(slackSrc)) {
+        throw new Error("slack.ts must compute `mentioned` via addressesThisBot(...)");
+      }
+      if (!/isBotAuthor,\s*\n\s*event\.bot_id,/.test(slackSrc)) {
+        throw new Error("slack.ts must pass BOTH isBotAuthor and event.bot_id to addressesThisBot (bot-to-bot routing regression)");
+      }
+      if (/const mentioned = !!event\.bot_id/.test(slackSrc)) {
+        throw new Error("slack.ts must not derive `mentioned` from event.bot_id alone — every bot message sets it (live 2026-10-08)");
+      }
+
+      // The routing ladder was silent except for one branch, which is how a
+      // live mis-route survived two rounds of testing: a routing suppression and
+      // a lost message looked identical in the log. Every suppression must be
+      // nameable AND actually logged at the drop site.
+      const { routingDropReason } = await import("./src/lib/agentRouting");
+      const { decideSlackChain } = await import("./src/lib/slackTurnGuard");
+      if (routingDropReason("mia", {
+        mentioned: false, isDM: false, inDedicatedChannel: false,
+        mentionedOtherTrioBot: true, trioMode: true, nameAddressed: null,
+      }) !== "addressed a sibling bot") {
+        throw new Error("routingDropReason must name the sibling-suppression case (silent-drop regression)");
+      }
+      if (!/const reason = routingDropReason\(bot\.label, routingOpts\)/.test(slackSrc)) {
+        throw new Error("slack.ts must log routingDropReason at the drop site — silent suppressions are indistinguishable from lost messages");
+      }
+      if (!/if \(!shouldRespondToAgent\(bot\.label, routingOpts\)\)/.test(slackSrc)) {
+        throw new Error("slack.ts must gate the turn on shouldRespondToAgent(routingOpts)");
+      }
+
+      // Live 2026-10-08: one bot-to-bot exchange locked the whole channel for
+      // the TTL because the initiator spent the hop too. A top-level bot post is
+      // a NEW conversation; only a threaded reply is a hop.
+      if (!/const initiatesChain =\s*\n?\s*isBotAuthor && \(!chainThread \|\| chainThread === \(event\.ts \|\| ""\)\.trim\(\)\);/.test(slackSrc)) {
+        throw new Error("slack.ts must derive initiatesChain from event.thread_ts/event.ts (a fresh top-level bot post is not a spent hop)");
+      }
+      if (!/\{ fromBot: isBotAuthor, from: fromLabel, to: bot\.label, initiatesChain \}/.test(slackSrc)) {
+        throw new Error("slack.ts must pass the COMPUTED initiatesChain into evaluateSlackMessage");
+      }
+      if (/initiatesChain:\s*(false|true)/.test(slackSrc)) {
+        throw new Error("slack.ts must NOT hardcode initiatesChain — that silently re-locks the channel (live 2026-10-08)");
+      }
+      const twoFreshPosts = decideSlackChain(
+        { hops: 1, ownerReplies: 1, at: Date.now() },
+        { fromBot: true, from: "mia", to: "michelle", initiatesChain: true },
+      );
+      if (twoFreshPosts.allow !== true) {
+        throw new Error("a fresh top-level bot post must open a new chain, not inherit the previous one's spent hop");
+      }
+      const threadedSecond = decideSlackChain(
+        { hops: 1, ownerReplies: 1, at: Date.now() },
+        { fromBot: true, from: "agnes", to: "mia" },
+      );
+      if (threadedSecond.allow !== false || threadedSecond.reason !== "hop-limit") {
+        throw new Error("a SECOND reply inside the same thread must still be refused (hop-limit) — the loop guard must not be weakened");
+      }
+    }
+
+  // ---------------------------------------------------------------------
+  // Peer turns must never address the user (live 2026-10-08). Measured: Mia
+  // asked Agnes something in Slack; Agnes opened "Halo Mas Naufal!" and Mia
+  // replied "malah balik nanya ke Mas Naufal" — the owner was named in a chain
+  // he was not part of, because agent.ts MANDATES the honorific and nothing
+  // told the turn the trigger was a peer.
+  // ---------------------------------------------------------------------
+  {
+    const { applyPeerTurn, normalizeOwnerSalutation, thinGreetingRescue } = await import("./src/lib/agentRole");
+    const OWNER_RULE = 'Address the user by the exact name in USER (e.g. "Mas Naufal") - never shorten it.';
+
+    if (applyPeerTurn(OWNER_RULE, undefined) !== OWNER_RULE) throw new Error("peer: an owner turn must keep the prompt byte-identical");
+    const peerOut = applyPeerTurn(OWNER_RULE, "Agnes");
+    if (!peerOut.includes("NOT by the user") || !peerOut.includes("Do NOT greet the user")) {
+      throw new Error("peer: the PEER TURN clause must forbid greeting/addressing the user");
+    }
+    if (peerOut.lastIndexOf("PEER TURN") <= peerOut.indexOf("Mas Naufal")) {
+      throw new Error("peer: the clause must come AFTER the honorific rule or the rule wins");
+    }
+    // The deterministic repairs are what re-insert the name even when the model
+    // cooperates, so a prompt clause alone is not a fix.
+    const bare = "Halo.";
+    if (thinGreetingRescue(bare, { greetingTurn: true, agent: "agnes", name: "Naufal", variant: 0 }) === bare) {
+      throw new Error("peer: control failed — owner turn must still warm a bare greeting");
+    }
+    if (thinGreetingRescue(bare, { greetingTurn: true, agent: "agnes", name: "Naufal", variant: 0, peer: true }) !== bare) {
+      throw new Error("peer: thinGreetingRescue must leave a bare greeting alone on a peer turn");
+    }
+    if (normalizeOwnerSalutation("Halo Naufal", { agent: "agnes", name: "Naufal", peer: true }) !== "Halo Naufal") {
+      throw new Error("peer: normalizeOwnerSalutation must not insert an honorific on a peer turn");
+    }
+
+    const srcAgent = readFileSync(join(appRoot(), "src/lib/agent.ts"), "utf8");
+    if (!/applyPeerTurn,\n/.test(srcAgent)) throw new Error("agent.ts must import applyPeerTurn from agentRole");
+    if (!/systemPrompt = applyPeerTurn\(systemPrompt, opts\.peerAgent\);/.test(srcAgent)) {
+      throw new Error("agent.ts must apply applyPeerTurn to the system prompt (peer clause is the only fix)");
+    }
+    const peerFlags = srcAgent.match(/peer: !!opts\.peerAgent/g) || [];
+    if (peerFlags.length !== 2) {
+      throw new Error(`agent.ts must gate BOTH owner-vocative repairs on peer (got ${peerFlags.length} of 2)`);
+    }
+    if (/applyPeerTurn\(systemPrompt\)/.test(srcAgent)) {
+      throw new Error("agent.ts must pass opts.peerAgent, not a hardcoded value");
+    }
+
+    const srcSlack = readFileSync(join(appRoot(), "src/channels/slack.ts"), "utf8");
+    if (!/const peerLabel = isBotAuthor && fromLabel !== bot\.label \? fromLabel : null;/.test(srcSlack)) {
+      throw new Error("slack.ts must only treat a KNOWN SIBLING as the peer (self/unknown bots are not peers)");
+    }
+    if (!/ROUTING_NAMES\.find\(\(r\) => r\.label === peerLabel\)\?\.displayName/.test(srcSlack)) {
+      throw new Error("slack.ts must resolve the peer display name from ROUTING_NAMES");
+    }
+    if (!/\n        peerAgent,\n        confirm_call: confirmCall,/.test(srcSlack)) {
+      throw new Error("slack.ts must pass the computed peerAgent into runAssistantTurn");
+    }
+    if (!/peerAgent: pending\.peerAgent,/.test(srcSlack)) {
+      throw new Error("slack.ts must keep peerAgent across the FR-014 confirmation continuation");
+    }
+    if (!/await runTurn\(client, target, state, user, undefined, text, bot, peerAgent\);/.test(srcSlack)) {
+      throw new Error("slack.ts must forward peerAgent to runTurn");
+    }
+
+    // The peer can only be identified if a bot-authored id resolves at all.
+    // Live 2026-10-08 16:20: bot messages carry `bot_id` (B...) and no `user`,
+    // while the id map holds `user_id` (U...) under the label, so a user-id-only
+    // lookup returned null, peerAgent stayed undefined, and the whole peer-turn
+    // fix was inert — Agnes still answered "Halo Mas Naufal!".
+    const { slackAuthorLabel, isSelfAuthored } = await import("./src/channels/slack");
+    const gSlack = globalThis as unknown as { __slackBotIds?: unknown };
+    const prevIds = gSlack.__slackBotIds;
+    gSlack.__slackBotIds = {
+      byLabel: {
+        mia: "U0C7H9Z5KRB", "mia:bot": "B0C777NUU0P",
+        agnes: "U0C7LPQ3754", "agnes:bot": "B0C8H49CHLG",
+        michelle: "U0C7LTQMGLE", "michelle:bot": "B0C7QQYMR6V",
+      },
+      displayNames: {},
+    };
+    try {
+      for (const [botId, label] of [["B0C8H49CHLG", "agnes"], ["B0C7QQYMR6V", "michelle"], ["B0C777NUU0P", "mia"]] as const) {
+        const got = slackAuthorLabel(botId as string);
+        if (got !== label) throw new Error(`peer: a sibling's bot_id must resolve to its label (${botId} -> ${got})`);
+        if (String(got).endsWith(":bot")) throw new Error("peer: the map key must never leak out as a label");
+      }
+      if (slackAuthorLabel("U0RANDOMBOT") !== null) throw new Error("peer: unknown id must stay null");
+      if (!isSelfAuthored("B0C777NUU0P", "mia")) throw new Error("peer: a bot's own echo must be detected by bot_id");
+      if (isSelfAuthored("B0C8H49CHLG", "mia")) throw new Error("peer: a sibling's post is NOT a self echo");
+      if (isSelfAuthored(undefined, "mia")) throw new Error("peer: no bot_id means no self echo");
+    } finally {
+      gSlack.__slackBotIds = prevIds;
+    }
+    // The prompt clause alone did NOT hold (live 2026-10-08 16:25, 9router):
+    // `peer=Mia` was logged and the reply still opened "Banget Mas Naufal!".
+    // So the deterministic redirect is what actually carries the fix.
+    const { redirectPeerVocative } = await import("./src/lib/agentRole");
+    if (redirectPeerVocative("Banget Mas Naufal! Lagi santai.", { ownerName: "Naufal", peerName: "Mia" }) !== "Banget Mia! Lagi santai.") {
+      throw new Error("peer: the owner vocative must be redirected to the peer (prompt clause alone was measured insufficient)");
+    }
+    if (redirectPeerVocative("Halo Mas Naufal, siap.", { ownerName: "Naufal", peerName: "Agnes" }) !== "Halo Agnes, siap.") {
+      throw new Error("peer: honorific+name form must lose the honorific when retargeted at a colleague");
+    }
+    if (redirectPeerVocative("Ini untuk Naufal ya.", { ownerName: "Naufal", peerName: "Mia" }) !== "Ini untuk Naufal ya.") {
+      throw new Error("peer: a mid-sentence mention of the owner must be left alone");
+    }
+    if (redirectPeerVocative("Halo Mas Naufal", { ownerName: "Naufal", peerName: "" }) !== "Halo Mas Naufal") {
+      throw new Error("peer: no peer name means no rewrite");
+    }
+    if (!/if \(opts\.peerAgent\) \{\s*\n\s*text = redirectPeerVocative\(text, \{/m.test(srcAgent)) {
+      throw new Error("agent.ts must redirect the peer vocative on peer turns");
+    }
+    const vocIdx = srcAgent.indexOf("redirectPeerVocative(text, {");
+    const salIdx = srcAgent.indexOf("normalizeOwnerSalutation(text, {");
+    if (!(vocIdx > -1 && salIdx > vocIdx)) {
+      throw new Error("agent.ts must redirect BEFORE normalizeOwnerSalutation, or the honorific is re-inserted");
+    }
+    if (!/if \(isSelfAuthored\(event\.bot_id, bot\.label\)\) return;/.test(srcSlack)) {
+      throw new Error("slack.ts must suppress its own echo via isSelfAuthored (id-kind agnostic)");
+    }
+    if (/event\.bot_id === botIds\(\)\.byLabel\[bot\.label\]/.test(srcSlack)) {
+      throw new Error("slack.ts still compares event.bot_id against the user id (never matches)");
+    }
+  }
+
+    console.log("slack adapter (socket mode wiring + shared trio routing + bot-to-bot loop guard + per-agent dedupe + honest 'mentioned' + fresh-chain budget + peer turns skip user address): OK");
+  }
+
+  // ── Name addressing is unconditional in BOTH adapters (2026-10-08) ─────────
+  // Live Slack failure: only Mia had a token, so `trioMode` was false, and
+  // `shouldRespondToAgent`'s solo branch returned true unconditionally. The
+  // owner wrote "@Agnes halo" TWICE and Mia answered both times. The pure guard
+  // was not the bug — the INPUT was: Slack computed `nameAddressed` always,
+  // Discord had drifted to `cfg.trioMode ? addressedAgentByName(...) : null`,
+  // and the solo branch then never saw it.
+  //
+  // This block locks the three things a unit test cannot see: that both
+  // adapters compute the name unconditionally, that both actually hand it to
+  // the router, and that solo and trio mode agree for the concierge.
+  {
+    const { addressedAgentByName: byName, shouldRespondToAgent: respond } = await import(
+      "./src/lib/agentRouting"
+    );
+    const slackSrc = readFileSync(join(import.meta.dirname, "src", "channels", "slack.ts"), "utf8");
+    const discordSrc2 = readFileSync(join(import.meta.dirname, "src", "channels", "discord.ts"), "utf8");
+    for (const [name, src] of [
+      ["slack.ts", slackSrc],
+      ["discord.ts", discordSrc2],
+    ] as const) {
+      // Positive shape, not a negative regex: a negative one matched the
+      // explanatory COMMENT that quotes the old buggy line, which is how this
+      // assertion first "failed" on already-fixed code.
+      if (!/const nameAddressed = addressedAgentByName\(/.test(src)) {
+        throw new Error(
+          `${name} must compute nameAddressed unconditionally as \`const nameAddressed = addressedAgentByName(...)\` — gating it on trioMode means solo mode (the mis-addressed sibling is OFFLINE) never sees the name, and the concierge answers it`
+        );
+      }
+      // The options may now be hoisted into a `routingOpts` object so the
+      // router and the drop-site log share one literal (Slack adapter). Accept
+      // either shape, but require that `nameAddressed` really travels to the
+      // router — that is the invariant, not the formatting.
+      const passesNameAddressed =
+        /shouldRespondToAgent\([\s\S]{0,400}nameAddressed,?\s*\n?\s*\}\)/.test(src) ||
+        /nameAddressed,\s*\n\s*\};[\s\S]{0,200}shouldRespondToAgent\(/.test(src);
+      if (!passesNameAddressed) {
+        throw new Error(`${name} must pass nameAddressed into shouldRespondToAgent (typed names would be invisible)`);
+      }
+    }
+    // The live text, through the real parser, into the real router.
+    const liveName = byName("@Agnes halo");
+    if (liveName !== "agnes") throw new Error(`'@Agnes halo' must resolve to agnes, got ${liveName}`);
+    const CH = {
+      mentioned: false,
+      isDM: false,
+      inDedicatedChannel: false,
+      mentionedOtherTrioBot: false,
+    };
+    if (respond("mia", { ...CH, trioMode: false, nameAddressed: liveName })) {
+      throw new Error("solo Mia must NOT answer a message addressed by name to another agent (live 2026-10-08 regression)");
+    }
+    if (respond("mia", { ...CH, trioMode: true, nameAddressed: liveName })) {
+      throw new Error("trio Mia must NOT answer a message addressed by name to another agent");
+    }
+    // Solo and trio must never disagree — that disagreement IS the bug.
+    for (const nameAddressed of [null, "mia", "agnes", "michelle"] as const) {
+      if (
+        respond("mia", { ...CH, trioMode: false, nameAddressed }) !==
+        respond("mia", { ...CH, trioMode: true, nameAddressed })
+      ) {
+        throw new Error(`solo and trio mode disagree for the concierge when nameAddressed=${nameAddressed}`);
+      }
+    }
+    // Carve-outs, both directions: mention and DM still win.
+    if (!respond("mia", { ...CH, trioMode: false, nameAddressed: "agnes", mentioned: true })) {
+      throw new Error("an explicit mention of THIS bot must outrank a sibling's typed name");
+    }
+    if (!respond("mia", { ...CH, trioMode: false, nameAddressed: "agnes", isDM: true })) {
+      throw new Error("a DM must not be silenced by a sibling's typed name");
+    }
+    if (!respond("mia", { ...CH, trioMode: false, nameAddressed: null })) {
+      throw new Error("unaddressed channel chatter must still reach the concierge");
+    }
+    console.log("name addressing unconditional in both adapters (solo == trio, mention/DM carve-outs): OK");
+
+  // ── Unresolvable mentions (live Slack 2026-10-08 14:02) ───────────────────
+  // The typed-name guard above CANNOT see this case, and that is why the owner
+  // saw Mia answer twice. The owner typed "@Agnes halo"; Slack's autocomplete
+  // replaced the name with `<@U0C7LPQ3754>`; the Agnes app has no bot token, so
+  // that id is unknown to us; `stripSlackMentions` deletes the markup — and the
+  // typed name goes with it. `addressedAgentByName` then sees "halo" and returns
+  // null, so the router is looking at unaddressed concierge chatter and Mia says
+  // yes. Every guard that existed was technically correct and the product was
+  // still wrong: a mention of an id we cannot resolve is proof the owner
+  // addressed SOMEONE ELSE, and knowing who is unnecessary (that would need a
+  // `users:read` scope we deliberately do not require).
+  {
+    const { mentionedIds, hasForeignMention, SLACK_MENTION_RE, DISCORD_MENTION_RE } = await import(
+      "./src/lib/agentRouting"
+    );
+    const MIA_ID = "U0C7H9Z5KRB";
+    const UNKNOWN_SIBLING = "U0C7LPQ3754";
+    const LIVE = `<@${UNKNOWN_SIBLING}> halo`; // verbatim from conversations.history
+
+    // The raw live text must produce the signal...
+    if (mentionedIds(LIVE, SLACK_MENTION_RE).join(",") !== UNKNOWN_SIBLING) {
+      throw new Error("Slack mention ids must be extracted from the RAW text (live 2026-10-08 regression)");
+    }
+    if (!hasForeignMention(LIVE, [MIA_ID], SLACK_MENTION_RE)) {
+      throw new Error("a mention whose id we cannot resolve must count as addressed elsewhere");
+    }
+    // ...and never for our own id, a mapped sibling, or a broadcast/role ping.
+    if (hasForeignMention(`<@${MIA_ID}> halo`, [MIA_ID], SLACK_MENTION_RE)) {
+      throw new Error("our own mention must never count as a foreign mention");
+    }
+    if (hasForeignMention("<@channel> halo semua", [MIA_ID], SLACK_MENTION_RE)) {
+      throw new Error("@channel is a room broadcast, not a summons to one person");
+    }
+    if (hasForeignMention("<#C123> cek repo ini", ["1"], DISCORD_MENTION_RE)) {
+      throw new Error("a Discord channel link must never count as a foreign mention");
+    }
+
+    // Parser -> router, end to end, on the live text with no name left to read.
+    const stripped = LIVE.replace(SLACK_MENTION_RE, "").trim();
+    if (byName(stripped) !== null) {
+      throw new Error("the live shape must leave NO typed name after mention stripping, or this guard is testing the wrong thing");
+    }
+    if (respond("mia", { ...CH, trioMode: false, nameAddressed: null, mentionedForeignUser: true })) {
+      throw new Error("solo Mia must NOT answer a message addressed by an unresolvable mention (live 2026-10-08 regression)");
+    }
+    if (respond("mia", { ...CH, trioMode: true, mentionedForeignUser: true })) {
+      throw new Error("trio Mia must NOT answer a message addressed by an unresolvable mention");
+    }
+    // Carve-outs: naming US (markup or typed name), a DM, and our own dedicated
+    // channel all still win — otherwise this guard would silence Mia for any
+    // message that happens to mention a colleague.
+    if (!respond("mia", { ...CH, trioMode: false, mentionedForeignUser: true, mentioned: true })) {
+      throw new Error("an explicit mention of THIS bot must outrank an unresolvable mention");
+    }
+    if (!respond("mia", { ...CH, trioMode: false, mentionedForeignUser: true, nameAddressed: "mia" })) {
+      throw new Error("our own typed name must outrank an unresolvable mention");
+    }
+    if (!respond("mia", { ...CH, trioMode: false, mentionedForeignUser: true, isDM: true })) {
+      throw new Error("a DM must not be silenced by an unresolvable mention");
+    }
+    if (!respond("michelle", { ...CH, trioMode: false, mentionedForeignUser: true, inDedicatedChannel: true })) {
+      throw new Error("an agent must still answer inside its own dedicated channel");
+    }
+    // And ordinary chatter is untouched (the flag absent == pre-fix behavior).
+    if (!respond("mia", { ...CH, trioMode: false })) {
+      throw new Error("unaddressed concierge chatter must still reach Mia when no foreign mention is present");
+    }
+
+    // Adapter wiring: the signal only helps if Slack actually computes it and
+    // hands it to the router. A helper nobody calls is a silent no-op — the same
+    // class of regression as discordRestTokenHeal and the slack loop guard.
+    const srcSlack = readFileSync(join(appRoot(), "src/channels/slack.ts"), "utf8");
+    if (!/hasForeignMention\(\s*event\.text/.test(srcSlack)) {
+      throw new Error("slack.ts must compute the foreign-mention signal from the RAW event text (not the stripped text)");
+    }
+    // Assert the ROUTER ARGUMENT carries the computed value. A bare
+    // `/mentionedForeignUser/` test is worthless here: hardcoding
+    // `mentionedForeignUser: false` keeps the name in the file while
+    // disabling the whole guard. Mutation-tested — that version slipped past
+    // the first draft of this assertion. So require the shorthand
+    // `mentionedForeignUser,` as a router argument, which cannot coexist with
+    // a hardcoded value.
+    if (!/\n\s*mentionedForeignUser,\s*\n/.test(srcSlack)) {
+      throw new Error("slack.ts must pass the COMPUTED mentionedForeignUser value into shouldRespondToAgent (a hardcoded false would disable the guard silently)");
+    }
+    if (/mentionedForeignUser:\s*(false|true|null|undefined)/.test(srcSlack)) {
+      throw new Error("slack.ts must not hardcode mentionedForeignUser — the flag must come from hasForeignMention()");
+    }
+    console.log("unresolvable mentions never answered by the concierge (live 2026-10-08 regression): OK");
+  }
+
+  }
+
   // ── Persona overlay + agent-template versioning (2026-10-05) ────────────────
   // The trio's role must reach the PROMPT, not just the bus attribution: every
   // base prompt hard-codes Mia's identity, so an un-overlaid Agnes turn used to
