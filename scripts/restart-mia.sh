@@ -35,7 +35,23 @@ tmux kill-session -t mia 2>/dev/null || true
 rm -rf apps/web/.next
 
 # 4. Start.
-tmux new-session -d -s mia "npm run dev -w @voice/web 2>&1 | tee /tmp/mia-dev.log; sleep infinity"
+#
+# PERBAIKAN 2026-10-10: tmux server ikut mati bersama proses yang memulainya
+# (bukti: boot 17:11 dan 17:12 dua-duanya hilang dalam <5 menit, `tmux ls` →
+# "no server running", log Next bersambung rapi tanpa crash trace, tidak ada
+# jetsam/OOM di `log show`). Meaning: apa pun yang membersihkan process tree
+# shell tempat perintah ini dijalankan ikut mengenai tmux server + seluruh
+# sesinya — termasuk sesi `9router` yang saya buat. Proses yang owner jalankan
+# sendiri dari Terminal-nya (9router pid 38203, start 17:16:54) tetap hidup.
+# Fix: jalankan tmux lewat setsid() supaya server-nya punya session + process
+# group sendiri dan tidak terjangkau kebersihan process tree tadi.
+# `sleep infinity` di akhir perintah tetap dipertahankan (anti tmux-reap idle).
+tmux new-session -d -s mia "npm run dev -w @voice/web 2>&1 | tee /tmp/mia-dev.log; sleep infinity" 2>/dev/null || true
+if ! tmux has-session -t mia 2>/dev/null; then
+  echo "retry: start tmux via setsid"
+  perl -e 'use POSIX; POSIX::setsid(); exec @ARGV;' \
+    tmux new-session -d -s mia "npm run dev -w @voice/web 2>&1 | tee /tmp/mia-dev.log; sleep infinity"
+fi
 
 # 5. Verifikasi.
 for i in $(seq 1 60); do
