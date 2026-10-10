@@ -6899,64 +6899,7 @@ async function main() {
     console.log("event bus fase 2 (file_read/file_written/task_failed/task_cancelled via dispatch): OK");
   }
 
-  // ── Pixel Office Fase 3 (PRD Pixel Office): engine headless E2E ──────────
-  // Real tool events (genuine calculate execution, re-attributed to michelle
-  // via the turn context) drive a REAL engine: walk→work→done. task_assigned
-  // and task_done below are SYNTHETIC and labeled as such — the trio
-  // orchestrator has no callers yet, so assignment can only be simulated.
-  // States asserted on the engine, never on prose; mia isolation holds.
-  {
-    const { busCursor, busEventsSince, emitBusEvent, newBusTurn, withBusTurn } = await import("./src/lib/bus");
-    const { executeTool } = await import("./src/lib/tools");
-    const eng = await import("../pixel-office/src/engine");
-    const mapJson = (await import("../pixel-office/src/map.json")).default;
-    const U = "verify_pixel3";
-    const map = eng.parseMap(mapJson);
-    const before = busCursor();
-    const ctxM = newBusTurn(U, "michelle");
-    const calc = await withBusTurn(ctxM, () => executeTool({ id: "t-pxcalc", name: "calculate", arguments: JSON.stringify({ expression: "6*7" }) }, U));
-    if (calc.trim() !== "42") throw new Error("calculate sanity failed");
-    emitBusEvent({ user: U, turn: ctxM.turnId, task_id: ctxM.taskId, type: "task_assigned", actor: "michelle", station: "pc-2", summary: "SYNTHETIC assignment for headless E2E (no orchestrator caller yet)" });
-    const turnEvents = busEventsSince(before, U).events;
-    const toolEvs = turnEvents.filter((e) => e.type === "tool_called");
-    if (!toolEvs.some((e) => e.actor === "michelle" && e.data?.name === "calculate" && e.data?.ok === true)) {
-      throw new Error("real michelle tool_called missing");
-    }
-    // The REAL event alone puts her avatar to work at spawn (no assignment).
-    const st = eng.initialState(map);
-    for (const e of toolEvs) eng.applyEvent(st, map, e);
-    if (st.avatars["michelle"]?.status !== "working") throw new Error("real tool_called did not put michelle to work");
-    // Read status through a closure below: applyEvent/stepOffice mutate it,
-    // and direct reads would let tsc narrow the type across those calls.
-    const mStatus = () => st.avatars["michelle"]?.status;
-    // The SYNTHETIC assignment sends her walking to pc-2; arrival → working.
-    for (const e of turnEvents.filter((e) => e.type !== "tool_called")) eng.applyEvent(st, map, e);
-    if (mStatus() !== "walking") throw new Error("michelle not walking after task_assigned");
-    for (let i = 0; i < 200 && mStatus() === "walking"; i++) eng.stepOffice(st, map);
-    if (mStatus() !== "working") throw new Error("michelle never arrived at pc-2");
-    const stop = map.pcs.find((p) => p.id === "pc-2")!.stop;
-    const at = st.avatars["michelle"]!.pos;
-    if (at.x !== stop.x || at.y !== stop.y) throw new Error("michelle not on the pc-2 stop cell");
-    // SYNTHETIC done (labeled) → walks home → idle. Isolation: no mia-actor
-    // events in this turn, and the pre-seeded mia avatar stays idle at spawn.
-    emitBusEvent({ user: U, turn: ctxM.turnId, task_id: ctxM.taskId, type: "task_done", actor: "michelle", summary: "SYNTHETIC done for headless E2E (no orchestrator caller yet)" });
-    const doneEvs = busEventsSince(before, U).events.filter((e) => e.type === "task_done");
-    if (doneEvs.length === 0) throw new Error("synthetic task_done missing");
-    for (const e of doneEvs) eng.applyEvent(st, map, e);
-    for (let i = 0; i < 200 && mStatus() !== "idle"; i++) eng.stepOffice(st, map);
-    if (mStatus() !== "idle") throw new Error("michelle never returned idle");
-    if (turnEvents.some((e) => (e.actor ?? (e as { agent?: string }).agent) === "mia")) {
-      throw new Error("mia-actor event leaked into this turn (isolation)");
-    }
-    const miaHome = map.spawns["mia"];
-    const mia = st.avatars["mia"];
-    if (!mia || mia.status !== "idle" || mia.pos.x !== miaHome.x || mia.pos.y !== miaHome.y || mia.path.length !== 0 || mia.task !== null) {
-      throw new Error("pre-seeded mia avatar moved (isolation)");
-    }
-    console.log("pixel office fase 3 (headless E2E: real tool events → walk→work→done + isolation): OK");
-  }
-
-  // ── Delegation (PRD Pixel Office §13-14: Mia → Agnes/Michelle) ──────────
+  // ── Delegation (Event Bus): Mia → Agnes/Michelle ───────────────────────
   // A REAL mock turn whose ask names Michelle must emit agent_delegated
   // (actor mia → michelle) + task_assigned (actor michelle, station pc-2),
   // both parented on the turn task; a pentest ask stays silent (no stealing

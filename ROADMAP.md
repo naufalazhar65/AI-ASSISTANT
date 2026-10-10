@@ -274,9 +274,16 @@ _Disusun mengikuti PRD v2.0. Perbarui checkbox saat fitur selesai._
 
 ---
 
-## Fase 7 — Pixel Office Trio (Mia / Agnes / Michelle)
+## Fase 7 — Pixel Office Trio (Mia / Agnes / Michelle) — DIBATALKAN 2026-10-10
 
-Sumber: `PRD_Pixel_Office.md` (Draft v0.2). Prinsip: visualisasi aktivitas agent nyata, bukan animasi pura-pura.
+> **Dibatalkan.** Owner meminta office 2D dihapus (2026-10-10). `apps/pixel-office/`,
+> salinan tayang `apps/web/public/pixel-office/`, dan `PRD_Pixel_Office.md` dihapus;
+> blok E2E pixel-office di `verify.ts` serta entri vitest ikut dibersihkan.
+> Yang **tetap hidup**: Event Bus formal (`lib/bus.ts`, `GET /api/bus/stream`) dan
+> Discord/Slack trio — keduanya fitur mandiri, bukan milik pixel office.
+> Riwayat di bawah dipertahankan sebagai catatan.
+
+Sumber: `PRD_Pixel_Office.md` (Draft v0.2, sudah dihapus). Prinsip: visualisasi aktivitas agent nyata, bukan animasi pura-pura.
 
 ```text
 [x] PRD + desain arsitektur (tujuan/non-tujuan, trio, engine minimal, Event Bus, Discord trio, MVP 4 fase + gates)
@@ -286,7 +293,7 @@ Sumber: `PRD_Pixel_Office.md` (Draft v0.2). Prinsip: visualisasi aktivitas agent
 [x] Desain Discord trio (1 guild + 3 token, createDiscordBot factory, mention/channel routing + per-agent dedupe, push label per-agent, konfirmasi per-agent)
 [x] Implementasi Event Bus formal (Fase 1: envelope + stream + task_started/tool_called/task_done — live: `GET /api/bus/stream`, `lib/bus.ts`, ALS turn-context, no-fake-work; gates typecheck/vitest 1687/verify green)
 [x] Implementasi file + confirmation events (Fase 2: file_read/file_written sukses-only via fileEventFor, task_failed per-kegagalan-tool, task_cancelled pada decline eksplisit — "Not selected" bukan pembatalan; waiting_input tetap ter-wire fase 1 — live: frame SSE + envelope; gates typecheck/vitest 1689/verify green)
-[x] Implementasi Pixel Office MVP (Fase 3: `apps/pixel-office/` TS+Canvas tanpa framework — map JSON 20x12, A* deterministik, FSM idle→walk→work→done + send-home, viewer SSE `/api/bus/stream` — live: halaman 200 + frame SSE turn nyata + headless E2E; gates typecheck/vitest 1705/verify green)
+[-] Implementasi Pixel Office MVP — **DIBATALKAN 2026-10-10** (sebelumnya: `apps/pixel-office/` TS+Canvas, map JSON 20x12, A*, FSM idle→walk→work→done, viewer SSE `/api/bus/stream`; app + PRD + blok verify dihapus)
 [ ] Implementasi Discord trio (Fase 4: 3 bot reply sesuai identitas, tanpa cross-talk, konfirmasi terisolasi, dedupe)
 [ ] Keputusan terbuka (7 item di PRD §25): stream route, payload tool_called, DM policy, PC fixed/pool, viewer, movement, return-to-default + delegation rules
 ```
