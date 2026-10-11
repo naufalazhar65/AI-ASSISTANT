@@ -1,0 +1,8 @@
+# Runtime state — created automatically by server.js (ensureDirs()).
+# These files hold REAL activity produced at runtime (mirrored audit turns,
+# dispatched tasks, watchdog checks). They are per-machine, so they are not
+# versioned; an empty ledger is a valid state.
+data/*.jsonl
+data/dispatch.json
+PUBLIC_URL.txt
+watchdog-history.jsonl

@@ -55,3 +55,9 @@ bug-bounty-report-improvement-checklist.md
 # per-machine MCP server definitions, and its `mcp.json` embeds a live API key
 # (COURTLISTENER_TOKEN), so it must never be committed.
 .perch/
+
+# Pre-rewrite backup of the office dashboard's index.html, kept on disk only
+# (apps/.office-backup/index.html.20261011-122638.bak, 243 KB). It exists so the
+# hand-rolled three.js scene can be recovered by hand if the ruang port has to be
+# rolled back — it is a snapshot of a deleted revision, not part of the project.
+apps/.office-backup/

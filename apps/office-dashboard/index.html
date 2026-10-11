@@ -1,0 +1,2393 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI Office — Mia / Agnes / Michelle</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel-2:#1d212a; --line:#272c37;
+    --text:#e8eaf0; --muted:#9aa2b1; --faint:#6b7382;
+    --blue:#8b9dc3; --sage:#7fae9b; --lav:#a08fc0;
+    --ok:#7fae9b; --warn:#d9a75f; --bad:#d97f7f;
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;overflow:hidden;height:100%}
+  #app{display:flex;height:100dvh;width:100vw;overflow:hidden}
+
+  /* ── sidebar ─────────────────────────── */
+  aside{width:232px;flex:0 0 232px;background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;padding:16px 12px;gap:4px;overflow-y:auto}
+  .brand{padding:6px 10px 14px;display:flex;align-items:center;gap:10px}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--sage);flex:0 0 9px}
+  .brand b{font-size:14px;letter-spacing:.02em}
+  .brand small{display:block;color:var(--faint);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+    background:transparent;border:0;color:var(--muted);padding:9px 10px;border-radius:10px;
+    font-size:13px;cursor:pointer;transition:background .12s,color .12s}
+  nav button:hover{background:var(--panel-2);color:var(--text)}
+  nav button.on{background:var(--panel-2);color:var(--text);box-shadow:inset 2px 0 0 var(--blue)}
+  nav button .ic{width:16px;text-align:center;opacity:.85}
+  .spacer{flex:1}
+  .side-foot{padding:10px;font-size:11px;color:var(--faint);border-top:1px solid var(--line);line-height:1.5}
+
+  /* ── main ───────────────────────────── */
+  main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+  header{height:56px;flex:0 0 56px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:12px;padding:0 18px;background:var(--panel)}
+  header h1{font-size:14px;font-weight:600;margin:0;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+  header .sp{flex:1}
+  .pill{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;
+    color:var(--muted);background:var(--panel-2);white-space:nowrap}
+  .pill.ok{color:var(--ok);border-color:#2c4038}
+  .pill.bad{color:var(--bad);border-color:#4a2f2f}
+  .pill.warn{color:var(--warn);border-color:#4a3d2a}
+  .btn{background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    border-radius:9px;padding:6px 12px;font-size:12px;cursor:pointer}
+  .btn:hover{border-color:var(--blue)}
+  .btn.warn{border-color:#4a3d2a;color:var(--warn)}
+  .btn.ok{border-color:#2c4038;color:var(--ok)}
+  section.view{flex:1;min-height:0;overflow:auto;padding:18px}
+  section.view.hide{display:none}
+
+  /* ── cards ───────────────────────────── */
+  .grid{display:grid;gap:14px}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.28)}
+  .card h3{margin:0 0 4px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;
+    border-bottom:1px solid var(--line);font-size:13px}
+  .kv:last-child{border-bottom:0}
+  .kv span:first-child{color:var(--muted)}
+  .kv span:last-child{color:var(--text);text-align:right;word-break:break-word}
+  .big{font-size:26px;font-weight:600;letter-spacing:-.01em}
+  .note{font-size:12px;color:var(--faint);line-height:1.55;margin-top:8px}
+  .bar{height:6px;border-radius:3px;background:var(--panel-2);overflow:hidden;margin-top:8px}
+  .bar i{display:block;height:100%;border-radius:3px;background:var(--blue)}
+  .bar i.danger{background:var(--bad)}
+  .badge{display:inline-block;font-size:11px;padding:2px 9px;border-radius:999px;
+    border:1px solid var(--line);color:var(--muted);background:var(--panel-2)}
+  .badge.working{color:var(--ok);border-color:#2c4038}
+  .badge.idle{color:var(--faint)}
+  .badge.paused{color:var(--warn);border-color:#4a3d2a}
+  .unavail{color:var(--faint);font-style:italic}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;color:var(--faint);font-weight:600;text-transform:uppercase;
+    letter-spacing:.07em;font-size:10.5px;padding:6px 8px;border-bottom:1px solid var(--line)}
+  td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+
+  /* ── office ─────────────────────────── */
+  /* The 3D room must FILL the view. `#office` is a flex child, so its parent
+     view has to be a flex column — otherwise flex:1 resolves against a block
+     box and the canvas collapses to height 0.
+     `:not(.hide)` matters: an id selector outranks `section.view.hide`, so a
+     plain `#view-office{display:flex}` would leave the office visible on top
+     of whichever view was just opened. */
+  #view-office:not(.hide){display:flex;flex-direction:column;padding:0;overflow:hidden}
+  #office{position:relative;flex:1;min-height:0}
+  #officeWrap{position:absolute;inset:0}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+  .ovl{position:absolute;inset:0;pointer-events:none;padding:14px;
+    display:flex;flex-direction:column;justify-content:space-between}
+  .ovlTop{display:flex;gap:8px;flex-wrap:wrap;pointer-events:auto;align-items:center}
+  .ovlBottom{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  /* Room selector: small ghost buttons, same language as the rest of the UI. */
+  .rooms{display:inline-flex;gap:4px;padding:3px;border:1px solid var(--line);
+    border-radius:999px;background:rgba(17,20,26,.72)}
+  .rooms button{font:inherit;font-size:11px;color:var(--faint);background:none;
+    border:0;border-radius:999px;padding:4px 11px;cursor:pointer;white-space:nowrap}
+  .rooms button:hover{color:var(--text)}
+  .rooms button.on{background:rgba(139,157,195,.20);color:var(--text)}
+  .rooms button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  @media (max-width:560px){.rooms button{padding:4px 8px;font-size:10px}}
+  /* Agent label card: two stacked rows — name + room on top, a status pill
+     below. The pill carries the colour so status is readable without reading
+     the text, which is the part that matters when three cards overlap. */
+  .tagLbl{position:absolute;transform:translate(-50%,-100%);pointer-events:auto;cursor:pointer;
+    background:rgba(23,26,33,.92);border:1px solid var(--line);border-radius:10px;
+    padding:5px 8px 5px 9px;font-size:11px;white-space:nowrap;line-height:1.35;
+    box-shadow:0 6px 16px rgba(0,0,0,.45);transition:border-color .15s}
+  .tagLbl:hover{border-color:var(--accent)}
+  .tagLbl b{font-weight:600}
+  .tagLbl .tRow{display:flex;align-items:center;gap:5px}
+  .tagLbl .tRoom{color:var(--faint);font-size:10px}
+  .tagLbl .tDot{width:5px;height:5px;border-radius:50%;flex:0 0 auto;background:var(--faint)}
+  .tagLbl .tDot.working{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+  .tagLbl .tDot.idle{background:var(--faint)}
+  .tagLbl .tDot.error{background:var(--bad)}
+  .tagLbl .tDot.degraded{background:#e0a33c}
+  .tagLbl small{display:block;color:var(--faint);font-size:10px;
+    max-width:150px;overflow:hidden;text-overflow:ellipsis}
+  /* the little stem that ties the card to the character's head */
+  .tagLbl:after{content:'';position:absolute;left:50%;top:100%;width:1px;height:7px;
+    background:linear-gradient(to bottom,var(--line),transparent);transform:translateX(-50%)}
+  canvas.panning{cursor:grabbing}
+  .fb{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    text-align:center;padding:28px;background:var(--panel)}
+  .fb.on{display:flex}
+  .modalBg{position:fixed;inset:0;background:rgba(8,9,12,.72);display:none;
+    align-items:center;justify-content:center;padding:20px;z-index:50}
+  .modalBg.on{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    padding:18px;max-width:520px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+  textarea{width:100%;min-height:110px;background:var(--panel-2);color:var(--text);
+    border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;font-size:13px;resize:vertical}
+  textarea:focus,input:focus{outline:1px solid var(--blue);outline-offset:0}
+  .err{color:var(--bad);font-size:12px;margin-top:8px;min-height:16px}
+  details{margin-top:10px}
+  summary{cursor:pointer;color:var(--muted);font-size:12px;letter-spacing:.05em;text-transform:uppercase}
+  .logbox{max-height:420px;overflow:auto;background:var(--panel-2);border-radius:10px;
+    padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.6}
+  .logline{display:grid;grid-template-columns:78px 74px 1fr;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.03)}
+  .logline .t{color:var(--faint)}
+  .logline .a{color:var(--blue)}
+  .logline .a.agnes{color:var(--sage)} .logline .a.michelle{color:var(--lav)}
+  .logline .m{color:var(--muted);word-break:break-word}
+  .empty{color:var(--faint);font-size:12.5px;padding:14px;text-align:center;
+    border:1px dashed var(--line);border-radius:10px}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+
+  @media (max-width:820px){
+    #app{flex-direction:column-reverse}
+    aside{width:100%;flex:0 0 auto;flex-direction:row;overflow-x:auto;border-right:0;
+      border-top:1px solid var(--line);padding:8px;gap:6px}
+    .brand,.side-foot{display:none}
+    nav{display:flex;gap:6px}
+    nav button{white-space:nowrap}
+    section.view{padding:12px}
+  }
+  /* ── avatar editor ────────────────────────────────────────── */
+  /* top:148px, not the 14px it started at: .ovl's toolbar has TWO rows (the
+     room selector, then the theme/edit/reset buttons) and this panel shares the
+     overlay with it, so at 14px its header sat on top of the room buttons and
+     left them half-visible. 148px clears both rows. The panel is shorter as a
+     result, which is fine — .aeBody is the scrolling part (flex:1; min-height:0;
+     overflow-y:auto), so the option grids scroll instead of being clipped. */
+  #avatarEd{position:absolute;top:148px;right:14px;width:318px;max-height:calc(100% - 166px);
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    box-shadow:0 18px 44px rgba(0,0,0,.55);display:none;flex-direction:column;overflow:hidden;z-index:40}
+  #avatarEd.on{display:flex}
+  .aeHead{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line)}
+  .aeHead b{flex:1;font-size:12.5px;font-weight:600}
+  .aeIco{width:24px;height:24px;border-radius:7px;background:var(--panel-2);border:1px solid var(--line);
+    color:var(--muted);font-size:11px;line-height:1;cursor:pointer;padding:0;flex:none}
+  .aeIco:hover{border-color:var(--blue);color:var(--text)}
+  .aeBody{padding:2px 12px 12px;overflow-y:auto;flex:1;min-height:0}
+  .aeLbl{font-size:9.5px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase;margin:12px 0 6px}
+  .aeTabs{display:flex;gap:4px;margin-top:10px}
+  .aeTab{flex:1;font:inherit;font-size:9.5px;color:var(--faint);background:var(--panel-2);
+    border:1px solid var(--line);border-radius:999px;padding:4px 2px;cursor:pointer}
+  .aeTab:hover{color:var(--text)}
+  .aeTab.on{background:rgba(139,157,195,.20);color:var(--text);border-color:var(--blue)}
+  .aeGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+  .aeCell{border:1px solid var(--line);border-radius:9px;background:var(--panel-2);padding:3px;cursor:pointer}
+  .aeCell:hover{border-color:var(--blue)}
+  .aeCell.on{border-color:var(--blue);box-shadow:0 0 0 1px rgba(139,157,195,.45)}
+  .aeCell canvas{width:100%;height:auto;display:block;border-radius:6px}
+  .aeSw{width:22px;height:22px;border-radius:999px;border:1px solid var(--line);cursor:pointer;padding:0}
+  .aeSw.on{border-color:var(--blue);box-shadow:0 0 0 2px rgba(139,157,195,.4)}
+  .aeFoot{display:flex;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+  .aeFoot .sp{flex:1}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <div class="brand"><span class="dot" id="connDot"></span>
+      <span><b>AI Office</b><small>Mia · Agnes · Michelle</small></span></div>
+    <nav id="nav"></nav>
+    <div class="spacer"></div>
+    <div class="side-foot">
+      Sumber data: audit log Mia + ledger JSONL di <code>apps/office-dashboard/data/</code>.<br>
+      Tidak ada angka atau aktivitas yang dikarang.
+    </div>
+  </aside>
+
+  <main>
+    <header>
+      <h1 id="viewTitle">Virtual Office</h1>
+      <span class="sp"></span>
+      <span class="pill" id="apiPill">API …</span>
+      <span class="pill" id="lastPill">—</span>
+      <button class="btn warn" id="dispatchBtn">…</button>
+    </header>
+
+    <section class="view" id="view-office">
+      <div id="office">
+        <div id="officeWrap"><canvas id="c3d"></canvas></div>
+        <div class="ovl">
+          <div class="ovlTop">
+            <span class="pill" id="officeHint">Seret untuk memutar · scroll/trackpad untuk geser · Shift+scroll atau pinch untuk zoom · klik avatar untuk detail</span>
+            <span class="sp"></span>
+            <!-- Room selector. Buttons only set a camera destination; they never
+                 touch agent state, so switching rooms never interrupts work. -->
+            <span class="rooms" id="roomBar" role="group" aria-label="Pilih ruangan"></span>
+            <button class="btn" id="themeBtn">Tema: Malam</button>
+            <button class="btn" id="avatarBtn">Edit avatar</button>
+            <button class="btn" id="camReset">Reset kamera</button>
+          </div>
+          <div class="ovlBottom">
+            <span class="pill" id="activityPill">—</span>
+          </div>
+        </div>
+        <div class="fb" id="fb">
+          <div>
+            <h3 style="letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-size:12px">3D tidak tersedia</h3>
+            <p class="note" id="fbMsg" style="max-width:420px"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view hide" id="view-agents"></section>
+    <section class="view hide" id="view-queue"></section>
+    <section class="view hide" id="view-system"></section>
+    <section class="view hide" id="view-vps"></section>
+    <section class="view hide" id="view-sched"></section>
+    <section class="view hide" id="view-tokens"></section>
+    <section class="view hide" id="view-fleet"></section>
+    <section class="view hide" id="view-log"></section>
+  </main>
+</div>
+
+<div class="modalBg" id="modalBg">
+  <div class="modal">
+    <h3 style="margin:0 0 10px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)" id="mTitle">Prompt</h3>
+    <div id="mBody"></div>
+    <textarea id="mText" placeholder="Tulis prompt untuk agent ini…"></textarea>
+    <div class="err" id="mErr"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button class="btn" id="mCancel">Tutup</button>
+      <button class="btn ok" id="mSend">Antrekan</button>
+    </div>
+  </div>
+</div>
+
+<script src="/vendor/three.min.js"></script>
+<script>
+(function () {
+'use strict';
+var $ = function (s) { return document.querySelector(s); };
+
+/* ── static roster (identitas) ─────────────────────────── */
+var ROSTER = {
+  mia:      { name:'Mia',      role:'Main Assistant / Coordinator', duties:['Obrolan umum & personal assistance','Koordinasi dan delegasi ke Agnes / Michelle','Reminder & scheduling bila tool tersedia'], accent:'#8b9dc3' },
+  agnes:    { name:'Agnes',    role:'Researcher',                   duties:['Riset dan verifikasi fakta','Info terkini & perbandingan sumber','Rangkuman'], accent:'#7fae9b' },
+  michelle: { name:'Michelle', role:'Coder',                        duties:['Baca / tulis kode dan perubahan file','Jalankan test, debug, cek log','Kerja teknis lewat tool backend Mia'], accent:'#a08fc0' }
+};
+var MENU = [
+  ['office','Virtual Office','▣'], ['agents','Agent Overview','◉'], ['queue','Task Queue','≡'],
+  ['system','System Metrics','◔'], ['vps','VPS Status','▤'], ['sched','Tugas Terjadwal','⏱'],
+  ['tokens','Token Status','⬡'], ['fleet','Agent Fleet','⛬'], ['log','Real-Time Log','⌸']
+];
+var QUICK = [
+  ['General / Assistant','mia'], ['Research','agnes'], ['Coding & Testing','michelle']
+];
+
+var STATE = null, lastOk = null, inflight = false, currentView = 'office';
+
+/* ── helpers ─────────────────────────── */
+function fmtBytes(n) {
+  if (n == null || !isFinite(n)) return 'Unavailable';
+  var u = ['B','KB','MB','GB','TB'], i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return v.toFixed(v < 10 && i > 0 ? 1 : 0) + ' ' + u[i];
+}
+function fmtDur(s) {
+  if (s == null) return 'Unavailable';
+  var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  if (d) return d + 'h ' + h + 'j ' + m + 'm';
+  if (h) return h + 'j ' + m + 'm';
+  return m + 'm ' + Math.floor(s % 60) + 'd';
+}
+function hhmmss(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return d.toLocaleTimeString('id-ID', { hour12: false });
+}
+function ago(iso) {
+  if (!iso) return '—';
+  var t = Date.parse(iso);
+  if (!isFinite(t)) return '—';
+  var s = Math.round((Date.now() - t) / 1000);
+  if (s < 5) return 'baru saja';
+  if (s < 60) return s + ' detik lalu';
+  if (s < 3600) return Math.floor(s / 60) + ' menit lalu';
+  if (s < 86400) return Math.floor(s / 3600) + ' jam lalu';
+  return Math.floor(s / 86400) + ' hari lalu';
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c];
+  });
+}
+function na(v, note) { return '<span class="unavail">' + esc(note || 'Unavailable') + '</span>'; }
+function stBadge(s) { return '<span class="badge ' + esc(s) + '">' + esc(s) + '</span>'; }
+
+/* ── polling (no overlapping requests) ─────────────────────────── */
+function poll() {
+  if (inflight) return;
+  inflight = true;
+  fetch('/api/state', { headers: { accept: 'application/json' } })
+    .then(function (r) {
+      if (r.status === 401) throw new Error('401 unauthorized');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function (s) {
+      STATE = s; lastOk = new Date();
+      $('#apiPill').className = 'pill ok';
+      $('#apiPill').textContent = 'API OK';
+      $('#connDot').style.background = 'var(--ok)';
+      render();
+    })
+    .catch(function (e) {
+      // keep the last good data, mark it stale — never substitute dummy data
+      $('#apiPill').className = 'pill bad';
+      $('#apiPill').textContent = 'API ' + (e.message || 'error');
+      $('#connDot').style.background = 'var(--bad)';
+    })
+    .finally(function () { inflight = false; });
+}
+
+/* ── views ─────────────────────────── */
+function vAgents() {
+  if (!STATE) return '<div class="empty">Memuat…</div>';
+  return '<div class="grid g3">' + STATE.agents.map(function (a) {
+    var b = a.basis || {};
+    return '<div class="card">' +
+      '<h3>' + esc(a.name) + ' · ' + esc(a.id) + '</h3>' +
+      '<div style="margin:8px 0 10px">' + stBadge(a.status) + '</div>' +
+      '<div class="kv"><span>Peran</span><span>' + esc(a.role) + '</span></div>' +
+      '<div class="kv"><span>Task aktif</span><span>' + (a.active_task ? esc(a.active_task) : '<span class="unavail">tidak ada</span>') + '</span></div>' +
+      '<div class="kv"><span>Terakhir update</span><span>' + esc(hhmmss(a.last_update)) + ' · ' + esc(ago(a.last_update)) + '</span></div>' +
+      '<div class="kv"><span>Aktivitas terukur</span><span>' + (b.turns != null ? b.turns + ' turn · ' + b.tool_calls + ' tool call' + (b.turn_errors ? ' · ' + b.turn_errors + ' error' : '') : na('', b.note)) + '</span></div>' +
+      '<div class="kv"><span>Sumber status</span><span>' + esc(b.kind || 'unknown') + '</span></div>' +
+      '<div class="note">Status dihitung dari event audit log nyata dalam jendela ' + (b.window_ms != null ? (b.window_ms / 1000) + ' detik' : '—') + '. Umur event terakhir: ' + (b.last_age_ms != null ? b.last_age_ms + ' ms' : '—') + '.</div>' +
+      '</div>';
+  }).join('') + '</div>';
+}
+
+function vQueue() {
+  var q = (STATE && STATE.queue) || [];
+  var open = q.filter(function (x) { return x.status === 'queued'; });
+  return '<div class="card" style="margin-bottom:14px"><h3>Quick task</h3>' +
+    '<div class="note" style="margin:2px 0 10px">Prompt diminta dulu — tidak ada task yang dibuat hanya karena tombol dibuka.</div>' +
+    '<div class="acts">' + QUICK.map(function (q2) {
+      return '<button class="btn" data-quick="' + q2[1] + '" data-label="' + esc(q2[0]) + '">' + esc(q2[0]) + '</button>';
+    }).join('') + ' <span class="pill">' + open.length + ' antre</span></div>' +
+    '<div class="err" id="qErr"></div></div>' +
+    '<div class="card"><h3>Antrean</h3>' +
+    (q.length ? '<table><thead><tr><th>Waktu</th><th>Agent</th><th>Prompt</th><th>Status</th></tr></thead><tbody>' +
+      q.map(function (x) {
+        return '<tr><td>' + esc(hhmmss(x.ts)) + '</td><td>' + esc(x.agent) + '</td><td>' + esc(x.prompt) + '</td><td>' + stBadge(x.status === 'done' ? 'idle' : x.status) + '</td></tr>';
+      }).join('') + '</tbody></table>'
+      : '<div class="empty">Antrean kosong — ledger <code>data/queue.jsonl</code> belum berisi item.</div>') +
+    '</div>' +
+    '<div class="card" style="margin-top:14px"><h3>Riwayat task</h3>' +
+    ((STATE.tasks || []).length ? '<table><thead><tr><th>Task</th><th>Agent</th><th>Status</th><th>Detail</th></tr></thead><tbody>' +
+      STATE.tasks.slice(0, 40).map(function (t) {
+        return '<tr><td>' + esc(t.title) + '<br><span class="note">' + esc(t.task_id) + ' · ' + esc(t.source) + '</span></td>' +
+          '<td>' + esc(t.agent) + '</td><td>' + esc(t.status) + '</td><td>' + esc((t.detail || '').slice(0, 160)) + '</td></tr>';
+      }).join('') + '</tbody></table>'
+      : '<div class="empty">Belum ada task. Riwayat terisi otomatis dari turn nyata Mia (audit log) dan dari antrean dashboard.</div>') +
+    '</div>';
+}
+
+function vSystem() {
+  var s = STATE && STATE.system;
+  if (!s) return '<div class="empty">Memuat…</div>';
+  return '<div class="grid g2">' +
+    card('Host', [
+      ['Hostname', esc(s.hostname || 'Unavailable')],
+      ['Platform', esc(s.platform || 'Unavailable')],
+      ['Arsitektur', esc(s.arch || 'Unavailable')],
+      ['CPU', esc(s.cpu_model || 'Unavailable')],
+      ['Core', s.cpu_cores != null ? s.cpu_cores : 'Unavailable'],
+      ['Load 1 / 5 / 15 m', s.loadavg_1m + ' / ' + s.loadavg_5m + ' / ' + s.loadavg_15m],
+      ['Dashboard uptime', fmtDur(s.dashboard_uptime_s)],
+      ['Node', esc(s.node_version || 'Unavailable')]
+    ]) +
+    card('Memory', [
+      ['Host total', fmtBytes(s.host_memory_total_bytes)],
+      ['Host free', fmtBytes(s.host_memory_free_bytes)],
+      ['Host terpakai', s.host_memory_used_pct + '%'],
+      ['MEMORY (CONTAINER)', na('', s.container_memory.note)],
+      ['Dashboard RSS', fmtBytes(s.dashboard_rss_bytes)]
+    ]) + '</div>' +
+    '<div class="note" style="margin-top:12px">' + esc(s.scope_note) + '</div>';
+}
+
+function vVps() {
+  var v = STATE && STATE.vps;
+  if (!v) return '<div class="empty">Memuat…</div>';
+  var d = v.disk || {};
+  var t = v.tunnel || {};
+  var w = v.watchdog || {};
+  var m = v.memory || {};
+  var cards = [
+    card('Disk', d.available ? [['Dipakai', fmtBytes(d.used_bytes) + ' / ' + fmtBytes(d.total_bytes)],
+      ['Bebas', fmtBytes(d.free_bytes)], ['Persentase', d.used_pct + '%'],
+      ['Bar', '<span class="bar"><i class="' + (d.warning ? 'danger' : '') + '" style="width:' + Math.min(100, d.used_pct) + '%"></i></span>' + (d.warning ? ' <span class="badge paused">≥90%</span>' : '')]]
+      : [['Status', na('', d.note)]]),
+    card('CPU', [['Model', esc((v.cpu && v.cpu.model) || 'Unavailable')],
+      ['Core', (v.cpu && v.cpu.cores) != null ? v.cpu.cores : 'Unavailable'],
+      ['Load', (v.cpu && v.cpu.loadavg ? v.cpu.loadavg.join(' / ') : 'Unavailable')]]),
+    card('MEMORY (CONTAINER)', m.available
+      ? [['Tersedia', '<span class="unavail">N/A — host macOS, bukan container</span>'],
+         ['Host total', fmtBytes(m.total_bytes)], ['Host terpakai', m.used_pct + '%'],
+         ['Catatan', '<span class="unavail">' + esc(m.container.note) + '</span>']]
+      : [['Status', na('', m.container.note)]]),
+    card('Server uptime', [['Uptime', fmtDur(v.uptime_s)]]),
+    card('Tunnel', t.available
+      ? [['URL', '<span style="word-break:break-all">' + esc(t.url) + '</span>'],
+         ['Status', t.online ? '<span class="badge working">ONLINE</span>' : '<span class="badge paused">OFFLINE</span>'],
+         ['HTTP', t.status != null ? t.status : '—']]
+      : [['Status', na('', t.note)]]),
+    card('OS', [['Info', esc(v.os || 'Unavailable')]]),
+    card('Watchdog terakhir', w.available
+      ? [['Waktu', esc(hhmmss(w.last_check)) + ' · ' + esc(ago(w.last_check))],
+         ['Hasil', w.ok ? '<span class="badge working">ok</span>' : '<span class="badge paused">gagal</span>'],
+         ['Aksi', esc(w.action || '—')]]
+      : [['Status', na('', w.note)]])
+  ];
+  return '<div class="grid g3">' + cards.join('') + '</div>';
+}
+
+function vSched() {
+  var sc = (STATE && STATE.schedules) || {};
+  if (!sc.configured) {
+    return '<div class="card"><h3>Jadwal</h3><div class="empty" style="margin-top:8px">' +
+      na('', 'Belum dikonfigurasi — tidak ada direktori jadwal yang bisa dibaca.') +
+      '</div><div class="note">Direktori yang diperiksa: <code>' +
+      esc((sc.dirs || []).join('</code>, <code>') || '—') + '</code><br>' +
+      'Set <code>OFFICE_SCHEDULE_DIRS</code> (dipisah koma) untuk menunjuk sumber jadwal lain. ' +
+      'File frontmatter rusak: <b>' + esc(sc.skipped_files || 0) + '</b> dilewati tanpa error.</div></div>';
+  }
+  var mine = sc.items.filter(function (s) { return !s.is_system; });
+  var sys = sc.items.filter(function (s) { return s.is_system; });
+  function tbl(rows) {
+    if (!rows.length) return '<div class="empty">Tidak ada entri.</div>';
+    return '<table><thead><tr><th>Judul</th><th>Jenis</th><th>Jadwal</th><th>Berikutnya</th><th>Pemilik</th></tr></thead><tbody>' +
+      rows.map(function (s) {
+        return '<tr><td>' + esc(s.title) + '<br><span class="note">' + esc(s.id) + ' · ' + esc(s.enabled === null ? 'enabled tidak dinyatakan' : (s.enabled ? 'enabled' : 'disabled')) + '</span></td>' +
+          '<td>' + esc(s.kind) + '</td><td>' + esc(s.label) + '</td>' +
+          '<td>' + (s.next_iso ? esc(hhmmss(s.next_iso)) : na('', 'tidak bisa dihitung')) + '</td>' +
+          '<td>' + esc(s.owner || '—') + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+  return '<div class="card"><h3>Jadwal Saya</h3>' + tbl(mine) + '</div>' +
+    '<details class="card" style="margin-top:14px"><summary>Jadwal Sistem (' + sys.length + ')</summary>' +
+    '<div style="margin-top:10px">' + tbl(sys) + '</div></details>';
+}
+
+function vTokens() {
+  var t = (STATE && STATE.tokens) || {};
+  if (!t.available) {
+    return '<div class="card"><h3>Token Status</h3><div class="empty" style="margin-top:8px"><span class="badge">' + esc(t.label || 'Not configured') + '</span></div>' +
+      '<div class="note">' + esc(t.note || '') + '</div></div>';
+  }
+  return '<div class="card"><h3>Token Status</h3><div class="note" style="margin-bottom:10px">Sumber: ' + esc(t.source) + '</div>' +
+    '<table><thead><tr><th>Kunci</th><th>Nilai</th></tr></thead><tbody>' +
+    t.items.map(function (i) { return '<tr><td>' + esc(i.key || '-') + '</td><td>' + esc(String(i.value != null ? i.value : JSON.stringify(i))) + '</td></tr>'; }).join('') +
+    '</tbody></table></div>';
+}
+
+function vFleet() {
+  var live = window.__fleet || null;
+  var id = ['mia','agnes','michelle'].map(function (k) {
+    var r = ROSTER[k];
+    return '<div class="card"><h3>' + esc(r.name) + ' · ' + esc(r.role) + '</h3>' +
+      '<div style="margin:8px 0"><ul style="margin:0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.7">' +
+      r.duties.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul></div>' +
+      '<div class="kv"><span>Kemampuan saat ini</span><span>' + esc(live && live[k] ? live[k] : 'Tidak dikonfigurasi di dashboard') + '</span></div></div>';
+  }).join('');
+  return '<div class="grid g3">' + id + '</div>' +
+    '<div class="note" style="margin-top:12px">Kemampuan di atas adalah tanggung jawab peran, bukan klaim tool. ' +
+    'Tool yang benar-benar tersedia bagi agent di channel Discord/Slack ada di backend Mia, bukan di dashboard ini — ' +
+    'dashboard tidak menebak-nebak inventaris tool.</div>';
+}
+
+function vLog() {
+  var l = (STATE && STATE.log) || [];
+  if (!l.length) return '<div class="empty">Belum ada baris log dari sumber nyata.</div>';
+  return '<div class="logbox">' + l.map(function (x) {
+    return '<div class="logline"><span class="t">' + esc(hhmmss(x.ts)) + '</span>' +
+      '<span class="a ' + esc(x.agent) + '">' + esc(x.agent) + '</span>' +
+      '<span class="m">' + esc(x.action) + ' · ' + esc(x.message) + '</span></div>';
+  }).join('') + '</div>';
+}
+
+function card(title, rows) {
+  return '<div class="card"><h3>' + esc(title) + '</h3>' + rows.map(function (r) {
+    return '<div class="kv"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>';
+  }).join('') + '</div>';
+}
+
+function render() {
+  $('#lastPill').textContent = 'Update ' + hhmmss(lastOk && lastOk.toISOString());
+  var p = STATE && STATE.dispatch_paused;
+  $('#dispatchBtn').textContent = p ? 'Resume dispatch' : 'Pause dispatch';
+  $('#dispatchBtn').className = p ? 'btn ok' : 'btn warn';
+
+  if (currentView !== 'office') {
+    var m = { agents: vAgents, queue: vQueue, system: vSystem, vps: vVps, sched: vSched, tokens: vTokens, fleet: vFleet, log: vLog };
+    var fn = m[currentView];
+    var el = document.getElementById('view-' + currentView);
+    if (fn && el) el.innerHTML = fn();
+  }
+  syncOffice();
+}
+
+/* ── 3D office: five connected rooms, waypoint navigation, autonomous idle ── */
+// NOTE: the per-agent map is `avatar` (singular) — every call site below uses
+// office.avatar[id]; it was previously declared as `avatars`, so init3D threw
+// "Cannot set properties of undefined (setting 'mia')" and the 3D view silently
+// degraded to the WebGL fallback message.
+//
+// Two independent state machines live here and must never be confused:
+//   status    — REAL backend state (idle | working | paused), owned by the
+//               dashboard API and mirrored by syncOffice().
+//   activity  — visual only (standing/walking/sitting/reading/...), owned by
+//               the idle controller below. It never writes to the task ledger
+//               and never claims work that did not happen.
+var office = { ready: false, cam: null, three: null, avatar: {}, tags: {}, stats: null, room: 'work' };
+
+function init3D() {
+/* ══════════════════════════════════════════════════════════════════════════
+   3D OFFICE — faithful port of the layout, furniture, materials, lighting and
+   avatar design from https://github.com/yugienugraha/ruang (lantai 1).
+   Single storey, open plan, no corridor. All geometry is procedural: no image
+   or model files ship with this dashboard.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+var T = window.THREE;
+var canvas = $('#c3d');
+var AGENT_IDS = ['mia', 'agnes', 'michelle'];
+
+/* ── layout maths (ruang: src/office3d-layout.ts, verbatim constants) ───── */
+var PARTITION_X = 0.4;
+var LOUNGE_PARTITION_END_Z = -0.5;
+var GAME_ROOM = { minX: 9.5, maxX: 15.5, minZ: -5.2, maxZ: 0.6 };
+var GAME_LANE_Z = -3.7;
+var GAME_DOOR = { fromZ: -4.4, toZ: -3.0 };
+var PING_PONG = [12.6, 0, -1.4];
+var ARCADES = [[10.6, 0, -4.75], [11.6, 0, -4.75]];
+var GAME_TV = [14.2, 0, -5.05];
+var BEANBAGS = [[13.7, 0, -4.35], [14.7, 0, -4.35]];
+var CARROM = [10.6, 0, -0.1];
+var AISLE_Z = 0.4;
+var MEETING_TABLE = [-5.2, 0, 2.2];
+var TV = [4.6, 0, -4.8];
+var SOFA = [4.6, 0, -1.3];
+var LOUNGE_SEATS = [[4, 0, -1.8], [2.5, 0, -2.9], [6.7, 0, -2.9]];
+var LOUNGE_FACING = [Math.PI, Math.PI / 2, -Math.PI / 2];
+var COFFEE_TABLE = [4.6, 0, -2.9];
+var ENTRANCE_X = 5.8;
+var SIDEWALK_Z = 5.4;
+var LOUNGE_LANE_X = 3.1;
+var STALL_ROTATION = Math.PI / 2;
+var FLAG = [16.4, 0, 2.6];
+var WALL_H = 2.6;
+var WALL_T = 0.25;
+var DESK_RIGHT_X = -2;
+var DESK_PITCH = 2.6;
+var DESK_ROWS_Z = [-3.5, -1];
+var MIN_DESK_COLUMNS = 3;
+var BASE_MIN_X = -9.5;
+var BASE_SCENE_WIDTH = 28.7;
+var CAMERA_OFFSET_BASE = [-3.9, 15.2, 18.8];
+var STALL_SPOTS = {
+  bakso: [[-11.9, 0, -2.3]],
+  kopi: [[-11.9, 0, 1.6]]
+};
+var LAYOUT = createLayout(AGENT_IDS.length);
+
+/* ── renderer / scene / camera ─────────────────────────────────────────── */
+var renderer = new T.WebGLRenderer({ canvas: canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = T.PCFSoftShadowMap;
+renderer.outputEncoding = T.sRGBEncoding;
+
+var scene = new T.Scene();
+scene.background = new T.Color('#bfe0ef');
+scene.fog = new T.Fog('#bfe0ef', 38, 75);
+
+var camera = new T.PerspectiveCamera(40, 1, 0.5, 150);
+camera.position.set(-3, 13, 16);
+var camTarget = new T.Vector3(LAYOUT.camera.target[0], LAYOUT.camera.target[1], LAYOUT.camera.target[2]);
+camera.lookAt(camTarget);
+
+var NIGHT = false;
+
+/* ── lighting (ruang: Lighting component) ──────────────────────────────── */
+var hemi = new T.HemisphereLight('#fff4e0', '#5d7a4c', 1.1);
+scene.add(hemi);
+var ambient = new T.AmbientLight('#ffffff', 0.35);
+scene.add(ambient);
+var sun = new T.DirectionalLight('#fff1d6', 2.4);
+sun.position.set(10, 16, 9);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0004;
+sun.shadow.camera.left = -16; sun.shadow.camera.right = 16;
+sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16;
+sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 60;
+scene.add(sun);
+
+function applyTheme(night) {
+  NIGHT = night;
+  hemi.color.copy(lin(night ? '#7f95bd' : '#fff4e0'));
+  hemi.groundColor.copy(lin(night ? '#1e2620' : '#5d7a4c'));
+  hemi.intensity = night ? 0.30 : 0.72;
+  ambient.color.copy(lin(night ? '#8fa4d8' : '#ffffff'));
+  ambient.intensity = night ? 0.12 : 0.25;
+  sun.color.copy(lin(night ? '#ff9a5a' : '#fff1d6'));
+  // The reference numbers are written for a physically-lit renderer; this
+  // dashboard runs three r128, where light intensity is plain irradiance, so
+  // the same values blow every pale surface (desk tops, walls) out to white.
+  sun.intensity = night ? 0.60 : 1.20;
+  scene.background.copy(lin(night ? '#1a2335' : '#bfe0ef'));
+  scene.fog.color.copy(lin(night ? '#1a2335' : '#bfe0ef'));
+  LAMP_MATERIALS.forEach(function (m) {
+    m.emissiveIntensity = night ? 2.2 : 0.25;
+  });
+  office.theme = night ? 'night' : 'day';
+}
+
+/* ── procedural textures (ruang: scene3d/textures.ts) ──────────────────── */
+var texCache = {};
+function canvasTexture(key, w, h, draw, repeat) {
+  if (texCache[key]) return texCache[key];
+  var c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'));
+  var t = new T.CanvasTexture(c);
+  t.encoding = T.sRGBEncoding;
+  t.anisotropy = 4;
+  if (repeat) {
+    t.wrapS = t.wrapT = T.RepeatWrapping;
+    t.repeat.set(repeat[0], repeat[1]);
+  }
+  texCache[key] = t;
+  return t;
+}
+function lcg(seed) {
+  var v = seed;
+  return function () { v = (v * 16807) % 2147483647; return (v - 1) / 2147483646; };
+}
+
+function woodFloorTexture(rx, rz) {
+  return canvasTexture('wood-' + rx + 'x' + rz, 512, 512, function (ctx) {
+    var rand = lcg(7);
+    var tones = ['#b98355', '#a9744a', '#c48f5f', '#b07b4f', '#9f6c43'];
+    var plankH = 64;
+    for (var row = 0; row < 512 / plankH; row++) {
+      var x = row % 2 === 0 ? 0 : -96;
+      while (x < 512) {
+        var w = 128 + Math.floor(rand() * 96);
+        ctx.fillStyle = tones[Math.floor(rand() * tones.length)];
+        ctx.fillRect(x, row * plankH, w, plankH);
+        ctx.strokeStyle = 'rgba(60,35,20,0.18)';
+        for (var g = 0; g < 5; g++) {
+          var y = row * plankH + 8 + rand() * (plankH - 16);
+          ctx.beginPath();
+          ctx.moveTo(x + 4, y);
+          ctx.bezierCurveTo(x + w / 3, y + 3, x + (2 * w) / 3, y - 3, x + w - 4, y);
+          ctx.stroke();
+        }
+        ctx.fillStyle = 'rgba(50,28,15,0.55)';
+        ctx.fillRect(x, row * plankH, 2, plankH);
+        x += w;
+      }
+      ctx.fillStyle = 'rgba(50,28,15,0.5)';
+      ctx.fillRect(0, row * plankH, 512, 2);
+    }
+  }, [rx, rz]);
+}
+
+function tileTexture(rx, rz) {
+  return canvasTexture('tile-' + rx + 'x' + rz, 256, 256, function (ctx) {
+    ctx.fillStyle = '#e9e4da'; ctx.fillRect(0, 0, 256, 256);
+    ctx.fillStyle = '#d6cfc2';
+    for (var i = 0; i <= 256; i += 64) { ctx.fillRect(i - 1, 0, 2, 256); ctx.fillRect(0, i - 1, 256, 2); }
+  }, [rx, rz]);
+}
+
+function carpetTexture(color, rx, rz) {
+  return canvasTexture('carpet-' + color, 128, 128, function (ctx) {
+    var rand = lcg(11);
+    ctx.fillStyle = color; ctx.fillRect(0, 0, 128, 128);
+    for (var i = 0; i < 900; i++) {
+      ctx.fillStyle = 'rgba(0,0,0,' + rand() * 0.08 + ')';
+      ctx.fillRect(rand() * 128, rand() * 128, 1, 1);
+    }
+  }, [rx, rz]);
+}
+
+function grassTexture(rx, rz) {
+  return canvasTexture('grass-' + rx + 'x' + rz, 256, 256, function (ctx) {
+    var rand = lcg(3);
+    ctx.fillStyle = '#5d8f4e'; ctx.fillRect(0, 0, 256, 256);
+    for (var i = 0; i < 2600; i++) {
+      var s = 70 + Math.floor(rand() * 60);
+      ctx.fillStyle = 'rgb(' + (s - 25) + ',' + (s + 55) + ',' + (s - 30) + ')';
+      ctx.fillRect(rand() * 256, rand() * 256, 2, 3);
+    }
+  }, [rx, rz]);
+}
+
+function asphaltTexture(rx, rz) {
+  return canvasTexture('asphalt-' + rx + 'x' + rz, 256, 256, function (ctx) {
+    var rand = lcg(5);
+    ctx.fillStyle = '#3d4044'; ctx.fillRect(0, 0, 256, 256);
+    for (var i = 0; i < 3000; i++) {
+      var g = 50 + Math.floor(rand() * 40);
+      ctx.fillStyle = 'rgb(' + g + ',' + g + ',' + (g + 4) + ')';
+      ctx.fillRect(rand() * 256, rand() * 256, 1.5, 1.5);
+    }
+    ctx.fillStyle = '#e8dfa0';
+    ctx.fillRect(0, 124, 110, 8); ctx.fillRect(146, 124, 110, 8);
+  }, [rx, rz]);
+}
+
+function pavingTexture(rx, rz) {
+  return canvasTexture('paving-' + rx + 'x' + rz, 256, 256, function (ctx) {
+    ctx.fillStyle = '#b8b2a6'; ctx.fillRect(0, 0, 256, 256);
+    ctx.fillStyle = '#a19b8f';
+    for (var y = 0; y < 256; y += 32) {
+      ctx.fillRect(0, y, 256, 2);
+      for (var x = (y / 32) % 2 === 0 ? 0 : 32; x < 256; x += 64) ctx.fillRect(x, y, 2, 32);
+    }
+  }, [rx, rz]);
+}
+
+function signTexture(text, background, foreground, subtitle) {
+  return canvasTexture('sign-' + text + '-' + background + '-' + (subtitle || ''), 512, 160, function (ctx) {
+    ctx.fillStyle = background; ctx.fillRect(0, 0, 512, 160);
+    ctx.strokeStyle = foreground; ctx.lineWidth = 8; ctx.strokeRect(10, 10, 492, 140);
+    ctx.fillStyle = foreground;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 76px Georgia, "Times New Roman", serif';
+    ctx.fillText(text, 256, subtitle ? 66 : 82);
+    if (subtitle) { ctx.font = 'bold 30px Arial, sans-serif'; ctx.fillText(subtitle, 256, 124); }
+  });
+}
+
+function merahPutihTexture() {
+  return canvasTexture('merah-putih', 96, 64, function (ctx) {
+    ctx.fillStyle = '#ce1126'; ctx.fillRect(0, 0, 96, 32);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 32, 96, 32);
+  });
+}
+
+function screenTexture(active) {
+  return canvasTexture('screen-' + active, 128, 80, function (ctx) {
+    ctx.fillStyle = active ? '#15313a' : '#0d1112'; ctx.fillRect(0, 0, 128, 80);
+    if (!active) return;
+    var rand = lcg(13);
+    var cols = ['#7ee0c3', '#f2c58a', '#a9d4ff', '#e7e7e7'];
+    for (var line = 0; line < 9; line++) {
+      ctx.fillStyle = cols[line % 4];
+      ctx.fillRect(8 + (line % 3) * 6, 8 + line * 7.5, 30 + rand() * 70, 3);
+    }
+  });
+}
+
+function arcadeScreenTexture() {
+  return canvasTexture('arcade-screen', 128, 100, function (ctx) {
+    ctx.fillStyle = '#0b1026'; ctx.fillRect(0, 0, 128, 100);
+    var colors = ['#e63946', '#f4a261', '#f4d35e', '#2a9d8f', '#3a86ff'];
+    colors.forEach(function (color, row) {
+      ctx.fillStyle = color;
+      for (var col = 0; col < 8; col++) ctx.fillRect(6 + col * 15, 10 + row * 7, 13, 5);
+    });
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(52, 88, 26, 4); ctx.fillRect(70, 64, 4, 4);
+  });
+}
+
+/* ── geometry + material caches ────────────────────────────────────────── */
+var geoCache = {}, matCache = {};
+function box(w, h, d) {
+  var k = 'b' + w + '_' + h + '_' + d;
+  if (!geoCache[k]) geoCache[k] = new T.BoxGeometry(w, h, d);
+  return geoCache[k];
+}
+function cyl(rt, rb, h, seg) {
+  var k = 'c' + rt + '_' + rb + '_' + h + '_' + (seg || 12);
+  if (!geoCache[k]) geoCache[k] = new T.CylinderGeometry(rt, rb, h, seg || 12);
+  return geoCache[k];
+}
+function sph(r, w, h) {
+  var k = 's' + r + '_' + (w || 14) + '_' + (h || 10);
+  if (!geoCache[k]) geoCache[k] = new T.SphereGeometry(r, w || 14, h || 10);
+  return geoCache[k];
+}
+/* Rounded box, the shape every ruang prop is built from. Extruded rounded
+   rectangle with a small bevel — cheap, and it reads as "soft" like RBox. */
+function rbox(w, h, d, r) {
+  r = Math.max(0.002, Math.min(r, w / 2 - 0.001, h / 2 - 0.001));
+  var k = 'rb' + w.toFixed(3) + '_' + h.toFixed(3) + '_' + d.toFixed(3) + '_' + r.toFixed(3);
+  if (geoCache[k]) return geoCache[k];
+  var s = new T.Shape(), x = -w / 2, y = -h / 2;
+  s.moveTo(x + r, y);
+  s.lineTo(x + w - r, y); s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + h - r); s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  s.lineTo(x + r, y + h); s.quadraticCurveTo(x, y + h, x, y + h - r);
+  s.lineTo(x, y + r); s.quadraticCurveTo(x, y, x + r, y);
+  var bev = Math.min(r * 0.7, d * 0.24);
+  var depth = Math.max(0.001, d - bev * 2);
+  var g = new T.ExtrudeGeometry(s, {
+    depth: depth, bevelEnabled: true, bevelThickness: bev, bevelSize: bev,
+    bevelSegments: 2, curveSegments: 4
+  });
+  g.translate(0, 0, -depth / 2);
+  g.computeVertexNormals();
+  geoCache[k] = g;
+  return g;
+}
+/* Colours in this file are authored as sRGB hex — the same hexes the reference
+   uses — but three r128 feeds material/light colours to the shader as LINEAR
+   values and then applies sRGB encoding on output. Skipping the conversion
+   therefore brightens every mid-tone: a #7a4f33 table comes out cream, a #1c2024
+   monitor back comes out grey. Converting here keeps the palette honest. */
+function lin(hex) {
+  var c = new T.Color(hex);
+  if (c.convertSRGBToLinear) c.convertSRGBToLinear();
+  return c;
+}
+function mat(opts) {
+  var key = opts.__key || null;
+  if (key && matCache[key]) return matCache[key];
+  var o = opts;
+  if (typeof o.color === 'string' || typeof o.emissive === 'string') {
+    o = {};
+    for (var k in opts) o[k] = opts[k];
+    if (typeof opts.color === 'string') o.color = lin(opts.color);
+    if (typeof opts.emissive === 'string') o.emissive = lin(opts.emissive);
+  }
+  var m = new T.MeshStandardMaterial(o);
+  if (key) matCache[key] = m;
+  return m;
+}
+var LAMP_MATERIALS = [];
+function lampMaterial(opts) {
+  var m = mat(opts);
+  if (LAMP_MATERIALS.indexOf(m) < 0) LAMP_MATERIALS.push(m);
+  return m;
+}
+function add(geo, material, x, y, z, parent, ry) {
+  var mesh = new T.Mesh(geo, material);
+  mesh.position.set(x, y, z);
+  if (ry) mesh.rotation.y = ry;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  (parent || scene).add(mesh);
+  return mesh;
+}
+function group(parent, x, y, z, ry) {
+  var g = new T.Group();
+  g.position.set(x || 0, y || 0, z || 0);
+  if (ry) g.rotation.y = ry;
+  (parent || scene).add(g);
+  return g;
+}
+/* A rounded box placed in local space — the workhorse of every prop. */
+function RB(g, px, py, pz, w, h, d, r, color, rough) {
+  return add(rbox(w, h, d, r == null ? 0.04 : r),
+    mat({ color: color, roughness: rough == null ? 0.8 : rough }),
+    px, py, pz, g);
+}
+function CY(g, px, py, pz, rt, rb, h, seg, color, rough) {
+  return add(cyl(rt, rb, h, seg), mat({ color: color, roughness: rough == null ? 0.8 : rough }),
+    px, py, pz, g);
+}
+function SP(g, px, py, pz, r, color, rough) {
+  return add(sph(r), mat({ color: color, roughness: rough == null ? 0.8 : rough }),
+    px, py, pz, g);
+}
+function flat(g, px, py, pz, w, h, color, opts) {
+  var o = { color: color, roughness: 0.6, side: T.DoubleSide };
+  if (opts) for (var k in opts) o[k] = opts[k];
+  var m = new T.Mesh(new T.PlaneGeometry(w, h), mat(o));
+  m.position.set(px, py, pz);
+  m.receiveShadow = false;
+  g.add(m);
+  return m;
+}
+
+
+function spot(x, y, z, facing, seated, pose, height, label) {
+  return { position: [x, y, z], facing: facing, seated: !!seated, pose: pose, height: height, label: label };
+}
+function stallSpot(stall, x, z, facing, seated) {
+  var cos = Math.cos(STALL_ROTATION), sin = Math.sin(STALL_ROTATION);
+  return spot(stall[0] + x * cos + z * sin, 0, stall[2] - x * sin + z * cos,
+    facing + STALL_ROTATION, seated);
+}
+
+function createLayout(agentCount) {
+  var columns = Math.max(MIN_DESK_COLUMNS, Math.ceil(agentCount / 2));
+  var desks = [];
+  for (var row = 0; row < 2; row++) {
+    for (var col = 0; col < columns; col++) {
+      if (row * columns + col >= agentCount) break;
+      desks.push([DESK_RIGHT_X - col * DESK_PITCH, 0, DESK_ROWS_Z[row]]);
+    }
+  }
+  var minX = DESK_RIGHT_X - (columns - 1) * DESK_PITCH - 2.3;
+  var shift = minX - BASE_MIN_X;
+  var building = { minX: minX, maxX: 9.5, minZ: -5.2, maxZ: 4.2 };
+  var baksoCart = [minX - 2.4 + shift, 0, -2.3];
+  var kopiBike = [minX - 2.4 + shift, 0, 1.6];
+  var sceneMinX = minX - 3.7;
+  var sideLaneX = -10.15 + shift;
+  var gangCenterX = -11.4 + shift;
+  return {
+    deskCount: agentCount,
+    building: building,
+    desks: desks,
+    baksoCart: baksoCart,
+    kopiBike: kopiBike,
+    sideLaneX: sideLaneX,
+    gangCenterX: gangCenterX,
+    sceneMinX: sceneMinX,
+    camera: {
+      target: [(sceneMinX + 15.5) / 2 - 0.15, 0.6, 0.2],
+      offset: [CAMERA_OFFSET_BASE[0], CAMERA_OFFSET_BASE[1], CAMERA_OFFSET_BASE[2]]
+    },
+    pan: { minX: sceneMinX - 0.3, maxX: 17, minZ: -7, maxZ: 11 }
+  };
+}
+
+/* ── walk routing (ruang: walkPath / walkPath3) ────────────────────────── */
+function inGameRoom(p) { return p[0] > GAME_ROOM.minX && p[0] < GAME_ROOM.maxX && p[2] > GAME_ROOM.minZ && p[2] < GAME_ROOM.maxZ; }
+function inLounge(p) { return p[0] > 1.5 && p[0] < 7.8 && p[2] < -0.6; }
+function outdoors(p, layout) {
+  return p[0] < layout.building.minX || p[2] > layout.building.maxZ ||
+    (p[0] > layout.building.maxX && !inGameRoom(p));
+}
+function inGang(x, layout) { return x < layout.building.minX; }
+
+function toAisle(p, layout) {
+  if (inGameRoom(p)) return [[p[0], 0, GAME_LANE_Z], [LOUNGE_LANE_X, 0, GAME_LANE_Z], [LOUNGE_LANE_X, 0, AISLE_Z]];
+  if (inLounge(p)) return [[LOUNGE_LANE_X, 0, p[2]], [LOUNGE_LANE_X, 0, AISLE_Z]];
+  return [[p[0], 0, AISLE_Z]];
+}
+function toSidewalk(p, layout) {
+  if (inGang(p[0], layout)) return [[layout.sideLaneX, 0, p[2]], [layout.sideLaneX, 0, SIDEWALK_Z]];
+  return [[p[0], 0, SIDEWALK_Z]];
+}
+function reverse(list) { return list.slice().reverse(); }
+
+function walkPath(from, to, layout) {
+  var f = outdoors(from, layout), t = outdoors(to, layout);
+  var pts;
+  if (!f && !t) {
+    pts = toAisle(from, layout).concat(reverse(toAisle(to, layout)));
+  } else if (f && t && inGang(from[0], layout) && inGang(to[0], layout)) {
+    pts = [[layout.sideLaneX, 0, from[2]], [layout.sideLaneX, 0, to[2]]];
+  } else if (f && t) {
+    pts = toSidewalk(from, layout).concat(reverse(toSidewalk(to, layout)));
+  } else if (!f && t) {
+    pts = toAisle(from, layout)
+      .concat([[ENTRANCE_X, 0, AISLE_Z], [ENTRANCE_X, 0, SIDEWALK_Z]])
+      .concat(reverse(toSidewalk(to, layout)));
+  } else {
+    pts = toSidewalk(from, layout)
+      .concat([[ENTRANCE_X, 0, SIDEWALK_Z], [ENTRANCE_X, 0, AISLE_Z]])
+      .concat(reverse(toAisle(to, layout)));
+  }
+  pts.push([to[0], to[1] || 0, to[2]]);
+  return simplify(pts);
+}
+function simplify(points) {
+  var out = [];
+  for (var i = 0; i < points.length; i++) {
+    var p = points[i], last = out[out.length - 1];
+    if (last && Math.abs(last[0] - p[0]) < 0.2 && Math.abs(last[2] - p[2]) < 0.2) continue;
+    if (out.length >= 2) {
+      var a = out[out.length - 2], b = out[out.length - 1];
+      if ((Math.abs(a[0] - b[0]) < 0.01 && Math.abs(b[0] - p[0]) < 0.01) ||
+          (Math.abs(a[2] - b[2]) < 0.01 && Math.abs(b[2] - p[2]) < 0.01)) {
+        out.pop();
+      }
+    }
+    out.push(p);
+  }
+  return out;
+}
+
+/* ── idle stops (ruang: idleStops) ─────────────────────────────────────── */
+var IDLE_STOPS = [
+  { key: 'lounge', label: 'Relaxing in the lounge', spots: [0, 1, 2].map(function (i) {
+      return spot(LOUNGE_SEATS[i][0], 0, LOUNGE_SEATS[i][2], LOUNGE_FACING[i], true);
+    }) },
+  { key: 'galon', label: 'Getting water from the galon', spots: [
+      spot(8.35, 0, -0.4, Math.PI / 2),
+      spot(8.2, 0, -1.05, 2.2),
+      spot(8.2, 0, 0.3, 1.1)
+    ] },
+  { key: 'dapur', label: 'In the kitchen', spots: [
+      spot(8.25, 0, 2.6, Math.PI / 2),
+      spot(8.3, 0, 0.65, Math.PI / 2),
+      spot(8.25, 0, 3.3, Math.PI / 2)
+    ] },
+  { key: 'game', label: 'Playing ping-pong', spots: [
+      spot(PING_PONG[0] - 1.75, 0, PING_PONG[2], Math.PI / 2),
+      spot(PING_PONG[0] + 1.75, 0, PING_PONG[2], -Math.PI / 2),
+      spot(BEANBAGS[0][0], 0, BEANBAGS[0][2], Math.PI, true, undefined, undefined, 'Gaming on the console')
+    ] },
+  { key: 'arcade', label: 'Playing arcade games', spots: [
+      spot(10.6, 0, -3.95, Math.PI),
+      spot(11.6, 0, -3.95, Math.PI),
+      spot(BEANBAGS[1][0], 0, BEANBAGS[1][2], Math.PI, true, undefined, undefined, 'Gaming on the console')
+    ] },
+  { key: 'bakso', label: 'Eating bakso', spots: [
+      stallSpot(STALL_SPOTS.bakso[0], 0.5, 1.1, Math.PI, true),
+      stallSpot(STALL_SPOTS.bakso[0], -0.3, 1.2, Math.PI, true),
+      stallSpot(STALL_SPOTS.bakso[0], 1.3, 0.9, -2.4)
+    ] },
+  { key: 'kopi', label: 'Coffee at the kopi bike', spots: [
+      stallSpot(STALL_SPOTS.kopi[0], -0.5, 0.85, Math.PI),
+      stallSpot(STALL_SPOTS.kopi[0], 0.5, 0.85, Math.PI),
+      stallSpot(STALL_SPOTS.kopi[0], 1.45, 0.3, -Math.PI / 2)
+    ] },
+  { key: 'jalan', label: 'Taking a stroll', spots: [
+      spot(FLAG[0] - 0.8, 0, FLAG[2] + 0.3, Math.PI / 2),
+      spot(-9.5 + 0.95, 0, -0.9, -Math.PI / 2),
+      spot(1.3, 0, -4.4, Math.PI)
+    ] }
+];
+var IDLE_STOP_MS = 32000;
+var IDLE_ROUTE = ['lounge', 'galon', 'game', 'bakso', 'jalan', 'arcade', 'dapur', 'kopi', 'lounge', 'game'];
+
+function idleStop(seat, time, layout) {
+  var step = Math.floor(time / IDLE_STOP_MS);
+  var start = step + Math.max(seat, 1) * 3;
+  for (var i = 0; i < IDLE_ROUTE.length; i++) {
+    var stop = IDLE_STOPS.filter(function (s) { return s.key === IDLE_ROUTE[(start + i) % IDLE_ROUTE.length]; })[0];
+    if (!stop) continue;
+    var free = freeSpots(stop, seat);
+    if (free.length) return { stop: stop, spot: free[seat % free.length] };
+  }
+  var first = IDLE_STOPS[0];
+  return { stop: first, spot: first.spots[seat % first.spots.length] };
+}
+/* Deterministic occupancy so two agents never stand in the same spot. */
+function takenSpots(time) {
+  var taken = {};
+  IDLE_STOPS.forEach(function (stop) {
+    stop.spots.forEach(function (s) { taken[spotKey(s)] = true; });
+  });
+  return taken;
+}
+function spotKey(s) {
+  return s.position.map(function (n) { return n.toFixed(2); }).join(',');
+}
+function freeSpots(stop, seat) { return stop.spots; }
+
+var MEETING_RINGS = [
+  { radius: 1.4, angles: [Math.PI, 2 * Math.PI, 1.5 * Math.PI, 1.25 * Math.PI, 1.75 * Math.PI] },
+  { radius: 2.1, angles: [1.2 * Math.PI, 1.8 * Math.PI, 1.5 * Math.PI, 1.35 * Math.PI, 1.65 * Math.PI] }
+];
+function meetingSeat(index) {
+  var flatSeats = [];
+  MEETING_RINGS.forEach(function (ring) {
+    ring.angles.forEach(function (a) { flatSeats.push({ radius: ring.radius, angle: a }); });
+  });
+  var s = flatSeats[index % flatSeats.length];
+  var x = MEETING_TABLE[0] + s.radius * Math.cos(s.angle);
+  var z = MEETING_TABLE[2] + s.radius * Math.sin(s.angle);
+  return spot(x, 0, z, Math.atan2(MEETING_TABLE[0] - x, MEETING_TABLE[2] - z), false);
+}
+
+/* ── furniture kit (ruang: src/scene3d/props.tsx) ──────────────────────── */
+var M = {
+  wall: '#efe6d6', wallTop: '#d9cdb8',
+  desk: '#d9c3a0', deskLeg: '#e7e2d8', monitor: '#1c2024',
+  sofa: '#5b6f8c', cushion: '#6e83a2', pillow: '#e0a43a',
+  wood: '#7a5232', woodDk: '#5a3a24', woodLt: '#8a5a3a', white: '#f6f7f5',
+  steel: '#8b9297', dark: '#3a3f44', glass: '#cfe8ee',
+  cream: '#e9e4d8', blue: '#3d7fd6', teal: '#2a9d8f', terra: '#e76f51',
+  sand: '#e9c46a', plum: '#8d5bc1', red: '#d64545', rattan: '#c49a5c'
+};
+
+function Plant(parent, x, y, z, s) {
+  var g = group(parent || scene, x, y, z);
+  CY(g, 0, 0.11 * (s || 1), 0, 0.2 * (s || 1), 0.26 * (s || 1), 0.22 * (s || 1), 10, '#b0643a');
+  SP(g, 0, 0.42 * (s || 1), 0, 0.32 * (s || 1), '#4f7f4a');
+  SP(g, 0.16 * (s || 1), 0.5 * (s || 1), 0.08 * (s || 1), 0.22 * (s || 1), '#5c8f54');
+  SP(g, -0.14 * (s || 1), 0.46 * (s || 1), -0.1 * (s || 1), 0.24 * (s || 1), '#446b3f');
+  SP(g, 0.02 * (s || 1), 0.62 * (s || 1), -0.04 * (s || 1), 0.18 * (s || 1), '#6aa35e');
+  return g;
+}
+function Tree(parent, x, z, s) {
+  var g = group(parent || scene, x, 0, z);
+  var k = s || 1;
+  CY(g, 0, 0.9 * k, 0, 0.16 * k, 0.12 * k, 1.8 * k, 8, '#6b4a32');
+  SP(g, 0, 2.0 * k, 0, 0.72 * k, '#4f8046');
+  SP(g, 0.5 * k, 2.25 * k, 0.2 * k, 0.5 * k, '#5d9152');
+  SP(g, -0.45 * k, 2.3 * k, -0.2 * k, 0.46 * k, '#446f3d');
+  SP(g, 0.05 * k, 2.75 * k, -0.05 * k, 0.42 * k, '#6aa35e');
+  return g;
+}
+
+function WorkDesk(parent, x, z, ry, active) {
+  var g = group(parent, x, 0, z, ry);
+  RB(g, 0, 0.74, 0, 1.9, 0.07, 0.95, 0.03, M.desk);
+  RB(g, -0.9, 0.37, 0, 0.06, 0.72, 0.85, 0.02, M.deskLeg);
+  RB(g, 0.9, 0.37, 0, 0.06, 0.72, 0.85, 0.02, M.deskLeg);
+  RB(g, 0.55, 0.52, 0.02, 0.42, 0.4, 0.8, 0.02, M.deskLeg);
+  RB(g, 0, 1.13, 0.22, 0.86, 0.52, 0.05, 0.015, M.monitor);
+  var scr = flat(g, 0, 1.13, 0.196, 0.78, 0.46, '#1d5a6b', { emissive: '#2a8aa0', emissiveIntensity: 0.55 });
+  scr.rotation.y = Math.PI;
+  CY(g, 0, 0.88, 0.25, 0.03, 0.03, 0.22, 8, M.steel);
+  RB(g, 0, 0.78, 0.25, 0.24, 0.02, 0.14, 0.01, M.dark);
+  RB(g, 0, 0.79, -0.18, 0.56, 0.025, 0.18, 0.01, M.dark);
+  SP(g, 0.34, 0.795, -0.16, 0.05, M.dark);
+  CY(g, -0.55, 0.83, -0.1, 0.045, 0.04, 0.1, 10, '#e6e2da');
+  RB(g, 0.62, 0.85, -0.28, 0.3, 0.03, 0.22, 0.01, active ? '#7ea6c8' : '#c9c4b8');
+  return g;
+}
+function OfficeChair(parent, x, z, ry, color) {
+  var g = group(parent, x, 0, z, ry);
+  RB(g, 0, 0.48, 0, 0.52, 0.09, 0.5, 0.04, color || '#39424f');
+  RB(g, 0, 0.85, -0.23, 0.5, 0.6, 0.07, 0.04, color || '#39424f');
+  CY(g, 0, 0.25, 0, 0.035, 0.035, 0.42, 8, M.steel, 0.6);
+  for (var i = 0; i < 5; i++) {
+    var a = i / 5 * Math.PI * 2;
+    var sp = RB(g, Math.sin(a) * 0.2, 0.05, Math.cos(a) * 0.2, 0.05, 0.04, 0.42, 0.015, M.dark);
+    sp.rotation.y = a;
+  }
+  return g;
+}
+
+function MeetingTable(parent) {
+  var g = group(parent, MEETING_TABLE[0], 0, MEETING_TABLE[2]);
+  CY(g, 0, 0.74, 0, 1.05, 1.05, 0.08, 40, M.wood);
+  CY(g, 0, 0.37, 0, 0.12, 0.12, 0.72, 12, M.dark);
+  CY(g, 0, 0.03, 0, 0.5, 0.5, 0.05, 20, M.dark);
+  // the gorengan plate — the detail that makes it a kopitiam meeting table
+  CY(g, 0.2, 0.8, 0.1, 0.22, 0.22, 0.03, 24, '#f4efe6');
+  for (var i = 0; i < 4; i++) {
+    RB(g, 0.12 + (i % 2) * 0.14, 0.84, 0.02 + Math.floor(i / 2) * 0.14, 0.12, 0.05, 0.08, 0.02, '#c98a3c');
+  }
+  return g;
+}
+
+function Television(parent, x, y, z, ry) {
+  var g = group(parent, x, y, z, ry);
+  RB(g, 0, 0, 0, 2, 1.15, 0.08, 0.03, '#111416');
+  flat(g, 0, 0, 0.045, 1.88, 1.03, '#1d5a6b', { emissive: '#2a8aa0', emissiveIntensity: 0.55 });
+  return g;
+}
+
+function Sofa(parent, x, z, ry, color) {
+  var g = group(parent, x, 0, z, ry);
+  RB(g, 0, 0.28, 0, 2.4, 0.36, 0.9, 0.1, color || M.sofa);
+  RB(g, 0, 0.66, -0.36, 2.4, 0.62, 0.2, 0.1, color || M.sofa);
+  RB(g, -1.12, 0.52, 0, 0.2, 0.42, 0.9, 0.08, color || M.sofa);
+  RB(g, 1.12, 0.52, 0, 0.2, 0.42, 0.9, 0.08, color || M.sofa);
+  RB(g, -0.5, 0.5, 0.05, 0.95, 0.14, 0.7, 0.07, M.cushion);
+  RB(g, 0.5, 0.5, 0.05, 0.95, 0.14, 0.7, 0.07, M.cushion);
+  RB(g, -0.7, 0.72, -0.18, 0.38, 0.34, 0.14, 0.07, M.pillow);
+  return g;
+}
+function Armchair(parent, x, z, ry, color) {
+  var g = group(parent, x, 0, z, ry);
+  RB(g, 0, 0.3, 0, 0.9, 0.4, 0.85, 0.12, color);
+  RB(g, 0, 0.66, -0.34, 0.9, 0.52, 0.18, 0.08, color);
+  return g;
+}
+function CoffeeTable(parent, x, z) {
+  var g = group(parent, x, 0, z);
+  RB(g, 0, 0.36, 0, 1.3, 0.07, 0.7, 0.03, M.woodLt);
+  [[-0.55, -0.28], [0.55, -0.28], [-0.55, 0.28], [0.55, 0.28]].forEach(function (p) {
+    RB(g, p[0], 0.18, p[1], 0.06, 0.34, 0.06, 0.02, M.wood);
+  });
+  CY(g, -0.3, 0.48, 0.05, 0.04, 0.04, 0.18, 10, '#3a1f12');
+  CY(g, 0.25, 0.49, 0, 0.12, 0.12, 0.2, 14, '#dfe8e6');
+  CY(g, 0.25, 0.49, 0, 0.1, 0.1, 0.18, 14, '#f1d9a6');
+  return g;
+}
+
+function GalonDispenser(parent, x, z, ry) {
+  var g = group(parent, x, 0, z, ry);
+  RB(g, 0, 0.5, 0, 0.42, 1, 0.42, 0.05, '#eef0ee');
+  RB(g, 0, 0.72, 0.19, 0.3, 0.14, 0.06, 0.02, '#c9ced0');
+  var t1 = CY(g, -0.07, 0.72, 0.23, 0.022, 0.022, 0.06, 8, M.red); t1.rotation.x = Math.PI / 2;
+  var t2 = CY(g, 0.07, 0.72, 0.23, 0.022, 0.022, 0.06, 8, M.blue); t2.rotation.x = Math.PI / 2;
+  RB(g, 0, 0.54, 0.16, 0.28, 0.02, 0.14, 0.01, '#9aa2a6');
+  var galon = mat({ color: '#5fb4f2', roughness: 0.08, transparent: true, opacity: 0.55 });
+  CY(g, 0, 1.33, 0, 0.19, 0.19, 0.52, 24, '#5fb4f2', 0.08);
+  galon.opacity = 0.55;
+  CY(g, 0, 1.05, 0, 0.06, 0.17, 0.1, 16, '#5fb4f2', 0.1);
+  CY(g, 0, 1.6, 0, 0.17, 0.17, 0.03, 20, '#3d8fd6', 0.2);
+  return g;
+}
+function PantryCounter(parent, x, z, ry) {
+  var g = group(parent, x, 0, z, ry);
+  RB(g, 0, 0.45, 0, 2, 0.9, 0.6, 0.03, '#f2eee6');
+  RB(g, 0, 0.92, 0, 2.05, 0.05, 0.65, 0.02, M.dark);
+  CY(g, -0.6, 1.07, 0, 0.16, 0.16, 0.24, 14, '#f5f5f2');
+  CY(g, -0.6, 1.2, 0, 0.14, 0.1, 0.05, 14, M.red);
+  CY(g, 0.1, 1.05, 0, 0.1, 0.1, 0.2, 14, '#dfe8e6');
+  CY(g, 0.62, 1.06, 0, 0.12, 0.08, 0.22, 12, '#b9c0c4', 0.5);
+  return g;
+}
+function Fridge(parent, x, z, ry) {
+  var g = group(parent, x, 0, z, ry);
+  RB(g, 0, 0.9, 0, 0.7, 1.8, 0.7, 0.05, '#e8e9e6');
+  RB(g, 0, 0.62, 0.36, 0.66, 0.02, 0.02, 0.01, '#9aa2a6');
+  RB(g, 0, 1.15, 0.36, 0.66, 0.02, 0.02, 0.01, '#9aa2a6');
+  RB(g, -0.24, 1.4, 0.36, 0.05, 0.34, 0.04, 0.02, M.steel, 0.4);
+  return g;
+}
+function Bookshelf(parent, x, z, ry) {
+  var g = group(parent, x, 0, z, ry);
+  RB(g, 0, 1, 0, 1.4, 2, 0.4, 0.03, M.wood);
+  var cols = ['#b54b45', '#3d7fd6', '#e9c46a', '#2a9d8f', '#8f7ae6', '#d9534f', '#4f9c7a', '#c7a17a'];
+  [0.35, 0.95, 1.55].forEach(function (sy, row) {
+    RB(g, 0, sy, 0.02, 1.3, 0.04, 0.38, 0.01, M.woodDk);
+    for (var i = 0; i < 6; i++) {
+      var h = 0.26 + (i % 3) * 0.05;
+      RB(g, -0.5 + i * 0.2, sy + 0.02 + h / 2, 0.04, 0.13, h, 0.26, 0.01, cols[(row * 6 + i) % cols.length]);
+    }
+  });
+  return g;
+}
+
+function PingPongTable(parent, p) {
+  var g = group(parent, p[0], 0, p[2]);
+  RB(g, 0, 0.74, 0, 2.74, 0.05, 1.52, 0.01, '#1f5f8b');
+  RB(g, 0, 0.768, 0, 2.6, 0.005, 0.06, 0, '#f4f4f0');
+  RB(g, 0, 0.768, 0, 0.06, 0.005, 1.4, 0, '#f4f4f0');
+  RB(g, 0, 0.85, 0, 0.02, 0.16, 1.62, 0, '#f4f4f0');
+  [[-1.1, -0.6], [1.1, -0.6], [-1.1, 0.6], [1.1, 0.6]].forEach(function (q) {
+    CY(g, q[0], 0.36, q[1], 0.035, 0.035, 0.72, 8, '#2a2f33');
+  });
+  SP(g, 0.3, 0.81, 0.2, 0.03, '#ff8a1f');
+  return g;
+}
+function ArcadeCabinet(parent, p, color) {
+  var g = group(parent, p[0], 0, p[2], Math.PI);
+  RB(g, 0, 0.85, 0, 0.72, 1.7, 0.62, 0.04, color);
+  RB(g, 0, 0.95, 0.32, 0.66, 0.06, 0.22, 0.02, '#1c1f24');
+  [-0.15, 0.05, 0.2].forEach(function (bx, i) {
+    SP(g, bx, 0.99, 0.35, 0.03, ['#e63946', '#f4d35e', '#3a86ff'][i]);
+  });
+  var scr = flat(g, 0, 1.35, 0.315, 0.56, 0.44, '#ffffff', { map: arcadeScreenTexture(), emissive: '#ffffff', emissiveIntensity: 0.35 });
+  scr.rotation.y = 0;
+  RB(g, 0, 1.66, 0.3, 0.66, 0.14, 0.04, 0.02, '#f4d35e');
+  return g;
+}
+function Beanbag(parent, p, color) {
+  var g = group(parent, p[0], 0, p[2]);
+  var a = SP(g, 0, 0.24, 0, 0.42, color); a.scale.set(1, 0.62, 1);
+  var b = SP(g, 0, 0.36, -0.18, 0.36, color); b.scale.set(1, 0.9, 0.55);
+  return g;
+}
+function CarromTable(parent, p) {
+  var g = group(parent, p[0], 0, p[2]);
+  RB(g, 0, 0.3, 0, 0.5, 0.6, 0.5, 0.03, M.wood);
+  RB(g, 0, 0.63, 0, 0.9, 0.06, 0.9, 0.02, M.woodDk);
+  RB(g, 0, 0.664, 0, 0.78, 0.01, 0.78, 0.02, '#e8cf9c');
+  [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]].forEach(function (q) {
+    var c = add(cyl(0.035, 0.035, 0.012, 12), mat({ color: '#3a2f24' }), q[0], 0.671, q[1], g);
+  });
+  for (var i = 0; i < 5; i++) CY(g, -0.2 + i * 0.1, 0.672, 0.1, 0.022, 0.022, 0.01, 10, '#f4efe6');
+  PlasticStool(g, 0, 0, 0.75, M.blue);
+  PlasticStool(g, 0, 0, -0.75, M.red);
+  return g;
+}
+function PlasticStool(parent, x, y, z, color) {
+  var g = group(parent, x, y, z);
+  CY(g, 0, 0.21, 0, 0.19, 0.15, 0.4, 8, color);
+  CY(g, 0, 0.42, 0, 0.17, 0.17, 0.04, 12, color);
+  return g;
+}
+
+function OfficeLight(parent, x, y, z, ry) {
+  var g = group(parent, x, y, z, ry);
+  CY(g, -0.55, 0.3, 0, 0.006, 0.006, 0.6, 6, M.steel);
+  CY(g, 0.55, 0.3, 0, 0.006, 0.006, 0.6, 6, M.steel);
+  RB(g, 0, 0, 0, 1.4, 0.06, 0.16, 0.02, '#d9dde0', 0.4);
+  var em = lampMaterial({ color: '#ffffff', emissive: '#f2f6ff', emissiveIntensity: NIGHT ? 2.2 : 0.25, side: T.DoubleSide });
+  var panel = new T.Mesh(new T.PlaneGeometry(1.32, 0.11), em);
+  panel.rotation.x = Math.PI / 2;
+  panel.position.set(0, -0.032, 0);
+  g.add(panel);
+  return g;
+}
+function AirConditioner(parent, x, y, z, ry) {
+  var g = group(parent, x, y, z, ry);
+  RB(g, 0, 0, 0.13, 1.05, 0.32, 0.24, 0.06, '#f6f7f5');
+  RB(g, 0, -0.06, 0.255, 0.9, 0.012, 0.08, 0.004, '#c9ced0');
+  CY(g, -0.46, -0.3, 0.06, 0.02, 0.02, 0.35, 8, '#b9c0c4', 0.5);
+  SP(g, 0.4, 0.07, 0.256, 0.012, '#5ad27a');
+  return g;
+}
+function AcOutdoorUnit(parent, x, y, z, ry) {
+  var g = group(parent, x, y, z, ry);
+  RB(g, 0, 0.34, 0, 0.85, 0.6, 0.32, 0.03, '#e9ebe8');
+  add(cyl(0.22, 0.22, 0.02, 20), mat({ color: '#3a4046' }), -0.12, 0.34, 0.165, g).rotation.x = Math.PI / 2;
+  RB(g, 0, 0.02, 0, 0.9, 0.04, 0.36, 0.01, '#8b9297');
+  return g;
+}
+function StringLights(parent, x, y, z, len) {
+  var g = group(parent, x, y, z);
+  var n = Math.round(len / 0.45);
+  var em = lampMaterial({ color: '#fff1c4', emissive: '#ffcf6b', emissiveIntensity: NIGHT ? 2.2 : 0.25 });
+  for (var i = 0; i < n; i++) {
+    var t = i / (n - 1 || 1);
+    SP(g, -len / 2 + t * len, -Math.sin(t * Math.PI) * 0.25, 0, 0.05, '#fff1c4', 0.4);
+  }
+  var l = new T.PointLight('#ffcf8a', NIGHT ? 6 : 0.6, 6);
+  l.position.set(0, -0.4, 0);
+  g.add(l);
+  return g;
+}
+function StreetLamp(parent, x, z) {
+  var g = group(parent, x, 0, z);
+  CY(g, 0, 1.6, 0, 0.06, 0.06, 3.2, 10, '#2f3336');
+  RB(g, 0.35, 3.15, 0, 0.8, 0.06, 0.06, 0.02, '#2f3336');
+  var em = lampMaterial({ color: '#f5e6b8', emissive: '#ffd98a', emissiveIntensity: NIGHT ? 2.5 : 0.2 });
+  RB(g, 0.7, 3.05, 0, 0.3, 0.12, 0.2, 0.04, '#f5e6b8', 0.4);
+  var l = new T.PointLight('#ffd08a', NIGHT ? 10 : 1, 8);
+  l.position.set(0.7, 2.9, 0);
+  g.add(l);
+  em.emissiveIntensity = NIGHT ? 2.5 : 0.2;
+  return g;
+}
+function WallClock(parent, x, y, z, ry) {
+  var g = group(parent, x, y, z, ry);
+  CY(g, 0, 0, 0, 0.22, 0.22, 0.04, 20, M.cream).rotation.x = Math.PI / 2;
+  CY(g, 0, 0, 0.03, 0.19, 0.19, 0.02, 20, M.white).rotation.x = Math.PI / 2;
+  RB(g, 0, 0.05, 0.05, 0.02, 0.13, 0.01, 0.004, M.dark);
+  RB(g, 0.06, 0, 0.05, 0.11, 0.02, 0.01, 0.004, M.dark);
+  return g;
+}
+
+/* ── the gang (alley) stalls ───────────────────────────────────────────── */
+function Gerobak(parent, p) {
+  var g = group(parent, p[0], 0, p[2], STALL_ROTATION);
+  RB(g, 0, 0.72, 0, 1.8, 0.8, 0.8, 0.04, '#f3efe4');
+  RB(g, 0, 0.42, 0.42, 1.7, 0.12, 0.05, 0.02, '#c62828');
+  RB(g, -0.86, 0.4, 0.42, 0.05, 0.7, 0.05, 0.02, '#c62828');
+  RB(g, 0.86, 0.4, 0.42, 0.05, 0.7, 0.05, 0.02, '#c62828');
+  var w1 = add(cyl(0.3, 0.3, 0.08, 20), mat({ color: '#3a3f44' }), -0.6, 0.3, 0.42, g);
+  w1.rotation.x = Math.PI / 2;
+  var w2 = add(cyl(0.3, 0.3, 0.08, 20), mat({ color: '#3a3f44' }), 0.6, 0.3, 0.42, g);
+  w2.rotation.x = Math.PI / 2;
+  RB(g, 0.35, 1.45, 0, 0.9, 0.55, 0.62, 0.03, '#d8f0f4');
+  for (var i = 0; i < 6; i++) SP(g, 0.05 + (i % 3) * 0.3, 1.2, -0.15 + Math.floor(i / 3) * 0.3, 0.07, '#a98367');
+  CY(g, -0.45, 1.36, 0, 0.25, 0.25, 0.4, 16, '#b9c0c4', 0.5);
+  [[-0.85, -0.45], [-0.85, 0.45], [0.85, -0.45], [0.85, 0.45]].forEach(function (q) {
+    CY(g, q[0], 1.8, q[1], 0.025, 0.025, 1.2, 8, '#c9c4b8');
+  });
+  RB(g, 0, 2.38, 0, 2.1, 0.08, 1.1, 0.03, '#c62828');
+  var sign = new T.Mesh(new T.PlaneGeometry(1.7, 0.53), mat({ map: signTexture('BAKSO', '#c62828', '#fff4d6', 'MALANG · MANTAP'), roughness: 0.7 }));
+  sign.position.set(0, 1.78, 0.56);
+  g.add(sign);
+  var em = lampMaterial({ color: '#ffcc66', emissive: '#ffcc66', emissiveIntensity: NIGHT ? 2.2 : 0.1 });
+  SP(g, 0.2, 1.8, 0.2, 0.08, '#ffcc66', 0.4);
+  var l = new T.PointLight('#ffc978', NIGHT ? 4 : 0.4, 4.5);
+  l.position.set(0.2, 1.8, 0.3);
+  g.add(l);
+  PlasticStool(g, 1.1, 0, 0.6, M.blue);
+  PlasticStool(g, 1.2, 0, -0.4, M.red);
+  return g;
+}
+function KopiSepeda(parent, p) {
+  var g = group(parent, p[0], 0, p[2], STALL_ROTATION);
+  [[0.75, 0.3], [-0.55, 0.3]].forEach(function (q) {
+    var w = add(new T.TorusGeometry(0.3, 0.05, 8, 20), mat({ color: '#2a2f33' }), q[0], 0.3, q[1], g);
+    w.rotation.y = Math.PI / 2;
+    for (var i = 0; i < 4; i++) {
+      var sp = RB(g, q[0], 0.3, q[1], 0.02, 0.58, 0.02, 0.008, '#8b9297');
+      sp.rotation.x = i / 4 * Math.PI;
+    }
+  });
+  RB(g, 0.1, 0.62, 0.3, 1.3, 0.06, 0.06, 0.02, '#1f6f5c');
+  RB(g, 0.55, 0.5, 0.3, 0.06, 0.7, 0.06, 0.02, '#1f6f5c');
+  RB(g, -0.35, 0.85, 0.3, 0.06, 0.6, 0.06, 0.02, '#1f6f5c');
+  RB(g, -0.2, 1.05, 0.3, 0.34, 0.08, 0.24, 0.05, '#3a2f24');
+  RB(g, -0.62, 1.03, 0, 0.58, 0.44, 0.44, 0.04, M.blue);
+  var s1 = new T.Mesh(new T.PlaneGeometry(0.5, 0.24), mat({ map: signTexture('KOPI', '#4a2c1d', '#ffe3b3', 'PANAS · ES'), roughness: 0.7 }));
+  s1.position.set(-0.62, 1.16, 0.23); g.add(s1);
+  var s2 = new T.Mesh(new T.PlaneGeometry(0.5, 0.24), mat({ map: signTexture('KOPI', '#4a2c1d', '#ffe3b3', 'SACHET'), roughness: 0.7 }));
+  s2.position.set(-0.62, 1.16, -0.23); s2.rotation.y = Math.PI; g.add(s2);
+  [-0.78, -0.55, -0.32].forEach(function (tx, i) {
+    CY(g, tx, 1.32, 0, 0.05, 0.05, 0.22, 10, ['#d9534f', '#3d7fd6', '#e9c46a'][i]);
+  });
+  for (var i = 0; i < 6; i++) RB(g, 0.5, 0.78, -0.25 + i * 0.1, 0.012, 0.46, 0.07, 0.004, '#e9c46a');
+  var em = lampMaterial({ color: '#ffcc66', emissive: '#ffcc66', emissiveIntensity: NIGHT ? 2.2 : 0.1 });
+  SP(g, 0.52, 1.18, 0, 0.08, '#ffcc66', 0.4);
+  var l = new T.PointLight('#ffc978', NIGHT ? 4 : 0.4, 4.5);
+  l.position.set(0.52, 1.18, 0.1);
+  g.add(l);
+  return g;
+}
+/* The vendor: the same box-built body as the agents, but standing and still. */
+function Vendor(parent, x, z, ry, shirt, hat) {
+  var g = group(parent, x, 0, z, ry);
+  RB(g, -0.11, 0.35, 0, 0.17, 0.62, 0.2, 0.04, '#374052');
+  RB(g, 0.11, 0.35, 0, 0.17, 0.62, 0.2, 0.04, '#374052');
+  RB(g, 0, 0.98, 0, 0.48, 0.58, 0.3, 0.07, shirt, 0.85);
+  RB(g, -0.31, 0.95, 0.05, 0.12, 0.52, 0.14, 0.05, shirt, 0.85);
+  RB(g, 0.31, 0.95, 0.05, 0.12, 0.52, 0.14, 0.05, shirt, 0.85);
+  RB(g, 0, 1.5, 0, 0.4, 0.4, 0.37, 0.08, '#c98e5a', 0.7);
+  RB(g, -0.09, 1.52, 0.186, 0.06, 0.07, 0.01, 0.004, '#17201e');
+  RB(g, 0.09, 1.52, 0.186, 0.06, 0.07, 0.01, 0.004, '#17201e');
+  if (hat === 'peci') RB(g, 0, 1.76, 0, 0.36, 0.14, 0.34, 0.04, '#1b1d20', 0.9);
+  else { RB(g, 0, 1.74, 0, 0.42, 0.12, 0.4, 0.05, '#c0392b', 0.9); RB(g, 0, 1.68, 0.24, 0.4, 0.03, 0.18, 0.015, '#c0392b', 0.9); }
+  return g;
+}
+function FlagPole(parent, p) {
+  var g = group(parent, p[0], 0, p[2]);
+  CY(g, 0, 2.1, 0, 0.05, 0.06, 4.2, 10, '#d8d2c6');
+  var f = new T.Mesh(new T.PlaneGeometry(0.9, 0.6), mat({ map: merahPutihTexture(), side: T.DoubleSide, roughness: 0.9 }));
+  f.position.set(0.46, 3.5, 0);
+  g.add(f);
+  SP(g, 0, 4.24, 0, 0.07, '#e9c46a', 0.4);
+  return g;
+}
+
+/* ── environment (ruang: src/scene3d/environment.tsx) ──────────────────── */
+function Floor(parent, x, y, z, w, d, map) {
+  var m = new T.Mesh(new T.PlaneGeometry(w, d),
+    mat({ map: map, roughness: 0.9 }));
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(x, y, z);
+  m.receiveShadow = true;
+  (parent || scene).add(m);
+  return m;
+}
+function Wall(from, to, height) {
+  var dx = to[0] - from[0], dz = to[1] - from[1];
+  var len = Math.hypot(dx, dz);
+  var g = group(scene, (from[0] + to[0]) / 2, 0, (from[1] + to[1]) / 2, -Math.atan2(dz, dx));
+  RB(g, 0, height / 2, 0, len + WALL_T, height, WALL_T, 0.02, M.wall);
+  RB(g, 0, height + 0.02, 0, len + WALL_T + 0.02, 0.05, WALL_T + 0.04, 0.02, M.wallTop);
+  return g;
+}
+function Window(x, y, z, ry, width) {
+  var w = width || 1.8;
+  var g = group(scene, x, y, z, ry);
+  RB(g, 0, 0, 0, w + 0.12, 1.22, 0.12, 0.02, '#5a4636');
+  var glass = flat(g, 0, 0, 0.065, w, 1.1, NIGHT ? '#2d3f5c' : '#9fd3ea',
+    { emissive: NIGHT ? '#1c2c4a' : '#6fb6d6', emissiveIntensity: NIGHT ? 0.6 : 0.15, transparent: true, opacity: 0.55, roughness: 0.1 });
+  RB(g, 0, 0, 0.07, 0.04, 1.1, 0.04, 0.01, '#5a4636');
+  glass.castShadow = false;
+  return g;
+}
+var glassMat = mat({ color: M.glass, transparent: true, opacity: 0.25, roughness: 0.05 });
+function Glass(x, fromZ, toZ, bottom) {
+  var top = WALL_H - 0.2;
+  return add(rbox(0.05, top - bottom, Math.abs(toZ - fromZ), 0.02), glassMat,
+    x, (top + bottom) / 2, (fromZ + toZ) / 2, scene);
+}
+function GlassZ(z, fromX, toX, bottom, top) {
+  return add(rbox(Math.abs(toX - fromX), top - bottom, 0.05, 0.02), glassMat,
+    (fromX + toX) / 2, (top + bottom) / 2, z, scene);
+}
+
+var WOOD = woodFloorTexture(6, 6);
+var TILE = tileTexture(2, 4);
+var RUG_LOUNGE = carpetTexture('#5b7c8c', 3, 2);
+var RUG_MEET = carpetTexture('#8a4b3c', 3, 3);
+var RUG_GAME = carpetTexture('#3b4170', 4, 3);
+
+function buildBuilding() {
+  var L = LAYOUT, b = L.building;
+  Floor(scene, (b.minX + b.maxX) / 2, 0.005, (b.minZ + b.maxZ) / 2, b.maxX - b.minX, b.maxZ - b.minZ, WOOD);
+  Floor(scene, 8.35, 0.01, 1.4, 2.3, 5.4, TILE);
+  Floor(scene, 4.6, 0.012, -2.9, 4.4, 2.8, RUG_LOUNGE);
+  Floor(scene, MEETING_TABLE[0], 0.012, MEETING_TABLE[2], 3.6, 3, RUG_MEET);
+
+  // north + west are solid; east is split by the game-room door; the front is
+  // a low cutaway so the viewer can see in.
+  Wall([b.minX, b.minZ], [b.maxX, b.minZ], WALL_H);
+  Wall([b.minX, b.minZ], [b.minX, b.maxZ], WALL_H);
+  Wall([b.maxX, b.minZ], [b.maxX, GAME_DOOR.fromZ], 1.1);
+  Wall([b.maxX, GAME_DOOR.toZ], [b.maxX, b.maxZ], 1.1);
+  Glass(b.maxX, b.minZ, GAME_DOOR.fromZ, 1.1);
+  Glass(b.maxX, GAME_DOOR.toZ, b.maxZ, 1.1);
+  Wall([b.minX, b.maxZ], [4.9, b.maxZ], 0.55);
+  Wall([6.7, b.maxZ], [b.maxX, b.maxZ], 0.55);
+  // the glass partition that separates the workspace from the lounge
+  Wall([PARTITION_X, b.minZ], [PARTITION_X, LOUNGE_PARTITION_END_Z], 0.9);
+  Glass(PARTITION_X, b.minZ, LOUNGE_PARTITION_END_Z, 0.9);
+  // half wall around the meeting table
+  Wall([-3.2, 1], [-3.2, b.maxZ], 0.9);
+  add(rbox(0.06, 0.9, 3.2, 0.02), glassMat, -3.2, 1.35, 2.6, scene);
+
+  Window(-7, 1.55, b.minZ, 0);
+  Window(-3.6, 1.55, b.minZ, 0);
+  Window(1.4, 1.55, b.minZ, 0);
+  Window(6.6, 1.55, b.minZ, 0);
+  Window(b.minX, 1.55, -3, Math.PI / 2);
+  Window(b.minX, 1.55, 0.6, Math.PI / 2);
+
+  // hot desking: one desk per agent, two rows growing to the west. The chair
+  // sits on the -z side because the character's working placement is
+  // [x, 0, z - 0.75] facing +z — matching the monitor, which looks that way.
+  LAYOUT.desks.forEach(function (d) {
+    WorkDesk(scene, d[0], d[2], 0, true);
+    OfficeChair(scene, d[0], d[2] - 0.78, 0, '#39424f');
+  });
+
+  MeetingTable(scene);
+  Bookshelf(scene, b.minX + 0.35, -0.9, Math.PI / 2);
+  Plant(scene, b.minX + 0.6, 0, 2.4, 1);
+  Plant(scene, 0.9, 0, 1.3, 1);
+  Plant(scene, 0.9, 0, 2.3, 1);
+  Plant(scene, 0.9, 0, 3.3, 1);
+  WallClock(scene, -3.6, 2.35, b.minZ + 0.14, 0);
+
+  // lounge: sofa faces the TV on the back wall
+  Sofa(scene, SOFA[0], SOFA[2], Math.PI, M.sofa);
+  Armchair(scene, 2.1, -2.9, Math.PI / 2, '#d9784a');
+  Armchair(scene, 7.1, -2.9, -Math.PI / 2, '#3d7fd6');
+  CoffeeTable(scene, COFFEE_TABLE[0], COFFEE_TABLE[2]);
+  add(rbox(1.8, 0.6, 0.45, 0.03), mat({ color: M.wood }), TV[0], 0.3, TV[2] + 0.1, scene);
+  Television(scene, TV[0], 1.35, b.minZ + 0.17, 0);
+  Plant(scene, 7.6, 0, -1.2, 0.9);
+
+  // pantry on the east wall
+  GalonDispenser(scene, b.maxX - 0.45, -0.4, -Math.PI / 2);
+  Fridge(scene, b.maxX - 0.5, 0.6, -Math.PI / 2);
+  PantryCounter(scene, b.maxX - 0.45, 2.6, -Math.PI / 2);
+
+  AirConditioner(scene, -5.3, 2.3, b.minZ + 0.125, 0);
+  AirConditioner(scene, TV[0], 2.3, b.minZ + 0.125, 0);
+  AirConditioner(scene, b.minX + 0.125, 2.3, 2.6, Math.PI / 2);
+
+  LAYOUT.desks.forEach(function (d) {
+    OfficeLight(scene, d[0], 2.4, d[2] + 0.2, 0);
+  });
+  OfficeLight(scene, MEETING_TABLE[0], 2.4, MEETING_TABLE[2] + 0.2, 0);
+  OfficeLight(scene, COFFEE_TABLE[0], 2.4, COFFEE_TABLE[2] + 0.2, 0);
+  OfficeLight(scene, 8.2, 2.4, 1.2, 0);
+}
+
+function buildGameRoom() {
+  var G = GAME_ROOM;
+  Floor(scene, (G.minX + G.maxX) / 2, 0.012, (G.minZ + G.maxZ) / 2, G.maxX - G.minX, G.maxZ - G.minZ, RUG_GAME);
+  Wall([G.minX, G.minZ], [G.maxX, G.minZ], WALL_H);
+  Wall([G.maxX, G.minZ], [G.maxX, G.maxZ], WALL_H);
+  Wall([G.minX, G.maxZ], [G.maxX, G.maxZ], 0.55);
+  Window(G.maxX - 0.14, 1.55, -2.2, -Math.PI / 2, 1.6);
+  PingPongTable(scene, PING_PONG);
+  ARCADES.forEach(function (p, i) {
+    ArcadeCabinet(scene, p, i === 0 ? '#c62828' : '#1d4ed8');
+  });
+  add(rbox(1.8, 0.5, 0.4, 0.03), mat({ color: M.dark }), GAME_TV[0], 0.25, GAME_TV[2] + 0.2, scene);
+  RB(scene, GAME_TV[0], 0.55, GAME_TV[2] + 0.2, 0.3, 0.1, 0.3, 0.03, M.white);
+  Television(scene, GAME_TV[0], 1.35, GAME_TV[2] + 0.02, 0);
+  Beanbag(scene, BEANBAGS[0], '#e76f51');
+  Beanbag(scene, BEANBAGS[1], '#2a9d8f');
+  CarromTable(scene, CARROM);
+  Plant(scene, G.maxX - 0.5, 0, G.maxZ - 0.5, 1);
+  AirConditioner(scene, (G.minX + G.maxX) / 2 - 0.6, 2.3, G.minZ + 0.125, 0);
+  OfficeLight(scene, PING_PONG[0], 2.4, PING_PONG[2], 0);
+  OfficeLight(scene, ARCADES[0][0] + 0.5, 2.4, -3.6, 0);
+  OfficeLight(scene, GAME_TV[0], 2.4, -3.6, 0);
+}
+
+function buildOutdoors() {
+  var L = LAYOUT, b = L.building;
+  var shift = b.minX + 9.5;
+  Floor(scene, shift / 2, -0.02, 2, 60 - shift, 44, grassTexture(8, 8));
+  Floor(scene, shift / 2, -0.005, 7.1, 34 - shift, 5, pavingTexture(8, 2));
+  Floor(scene, shift / 2, -0.01, 12.1, 60 - shift, 5, asphaltTexture(10, 1));
+  Floor(scene, ENTRANCE_X, 0.005, 4.7, 1.8, 1, TILE);
+  FlagPole(scene, FLAG);
+  Floor(scene, L.gangCenterX, -0.008, -0.4, 3.6, 10, pavingTexture(2, 5));
+
+  Gerobak(scene, L.baksoCart);
+  Vendor(scene, L.baksoCart[0] - 1.6, L.baksoCart[2], Math.PI / 2, '#f1f1ec', 'peci');
+  KopiSepeda(scene, L.kopiBike);
+  Vendor(scene, L.kopiBike[0] - 1.35, L.kopiBike[2] - 0.1, Math.PI / 2, '#2f6d8f', 'cap');
+
+  AcOutdoorUnit(scene, -5.3, 0, b.minZ - 0.45, Math.PI);
+  AcOutdoorUnit(scene, TV[0] - 1.6, 0, b.minZ - 0.45, Math.PI);
+  StreetLamp(scene, -8, 9.3);
+  StreetLamp(scene, 4, 9.3);
+  [[-12.8 + shift, -7.4, 1.3], [13.5, -7.2, 1.2], [-14.8 + shift, 2.6, 1.1], [18.6, 4.8, 1.3],
+   [-10.5 + shift, 7.5, 1], [12, 8, 1.1], [-2, -8.5, 1.2], [6, -8, 1.1]].forEach(function (t) {
+    Tree(scene, t[0], t[1], t[2]);
+  });
+}
+
+buildBuilding();
+buildGameRoom();
+buildOutdoors();
+
+/* ── characters (ruang: Character in pages/Office3D.tsx + agents.ts) ────── */
+var HAIR_COLS = ['#1d293c', '#b54b45', '#6a4d8d', '#3b2a20', '#c9a24a', '#2f4f3a', '#8b5a2b', '#11151c'];
+var SKIN_COLS = ['#e9b57d', '#c98e5a', '#f1c9a0', '#a8714a', '#dca06e'];
+var SHIRT_COLS = ['#e6b34e', '#70bdcb', '#93ca67', '#e76f51', '#8f7ae6', '#f4a3b4', '#4f9c7a', '#d9534f', '#5a8dee', '#c7a17a'];
+var PANT_COLS = ['#36475d', '#374052', '#344349', '#4a3b2f', '#2f3a44', '#3d2f4a'];
+function hashName(name) {
+  var h = 2166136261;
+  for (var i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function agentLook(id) {
+  var h = hashName(id);
+  return { hair: HAIR_COLS[h % 8], skin: SKIN_COLS[(h >>> 4) % 5], shirt: SHIRT_COLS[(h >>> 8) % 10], pants: PANT_COLS[(h >>> 12) % 6] };
+}
+
+var LEG_GEO = new T.BoxGeometry(0.17, 0.62, 0.2).translate(0, -0.31, 0);
+var ARM_GEO = new T.BoxGeometry(0.12, 0.52, 0.14).translate(0, -0.26, 0);
+
+function makeCharacter(id) {
+  var look = agentLook(id);
+  var root = new T.Group();
+  var body = new T.Group();
+  root.add(body);
+  var mats = {
+    pants: mat({ color: look.pants, roughness: 0.8 }),
+    shirt: mat({ color: look.shirt, roughness: 0.85 }),
+    skin: mat({ color: look.skin, roughness: 0.7 }),
+    hair: mat({ color: look.hair, roughness: 0.9 })
+  };
+  var eyeMat = mat({ color: '#17201e', roughness: 0.5 });
+  var mouthMat = mat({ color: '#9a5a44', roughness: 0.5 });
+
+  function limb(geo, material, x, y) {
+    var m = new T.Mesh(geo, material);
+    m.position.set(x, y, 0);
+    m.castShadow = true;
+    body.add(m);
+    return m;
+  }
+  var legL = limb(LEG_GEO, mats.pants, -0.11, 0.66);
+  var legR = limb(LEG_GEO, mats.pants, 0.11, 0.66);
+  add(rbox(0.48, 0.58, 0.3, 0.07), mats.shirt, 0, 0.98, 0, body);
+  var armL = limb(ARM_GEO, mats.shirt, -0.31, 1.2);
+  var armR = limb(ARM_GEO, mats.shirt, 0.31, 1.2);
+  add(rbox(0.4, 0.4, 0.37, 0.08), mats.skin, 0, 1.5, 0, body);
+  add(rbox(0.43, 0.13, 0.41, 0.05), mats.hair, 0, 1.72, -0.02, body);
+  add(rbox(0.43, 0.3, 0.06, 0.03), mats.hair, 0, 1.58, -0.19, body);
+  var eyeL = add(rbox(0.06, 0.07, 0.01, 0.004), eyeMat, -0.09, 1.52, 0.186, body);
+  var eyeR = add(rbox(0.06, 0.07, 0.01, 0.004), eyeMat, 0.09, 1.52, 0.186, body);
+  var mouth = add(rbox(0.12, 0.025, 0.01, 0.004), mouthMat, 0, 1.4, 0.186, body);
+  [eyeL, eyeR, mouth].forEach(function (m) { m.castShadow = false; });
+  var ring = new T.Mesh(new T.RingGeometry(0.45, 0.55, 24),
+    new T.MeshBasicMaterial({ color: lin('#e9c47b'), transparent: true, opacity: 0.85 }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(0, 0.03, 0);
+  ring.visible = false;
+  root.add(ring);
+  var labelAnchor = new T.Object3D();
+  labelAnchor.position.set(0, 2.05, 0);
+  root.add(labelAnchor);
+  scene.add(root);
+
+  return {
+    id: id, group: root, body: body, legs: [legL, legR], arms: [armL, armR],
+    mats: mats, ring: ring, anchor: labelAnchor, cfg: look,
+    // tagY is the height the dashboard projects the name tag at. The anchor
+    // object above sits at the same place; this mirror keeps the dashboard
+    // contract (office.avatar[id].tagY) satisfied without reaching into the
+    // three.js graph.
+    tagY: 2.05,
+    applyLook: function (cfg) {
+      this.cfg = cfg;
+      mats.hair.color.set(cfg.hair);
+      mats.skin.color.set(cfg.skin);
+      mats.shirt.color.set(cfg.shirt);
+      mats.pants.color.set(cfg.pants);
+    }
+  };
+}
+
+/* ── agents ────────────────────────────────────────────────────────────── */
+var STATE_LABEL = { working: 'Working', idle: 'Idle', paused: 'Paused' };
+/* The dashboard owns the human-facing room names (ROOM_LABEL_UI / ACTIVITY_LABEL
+   live in the dashboard half of the file). The scene therefore reports the zone
+   a character is actually standing in — derived from the idleness stop, never
+   guessed — and the dashboard decides how to word it. */
+var STOP_ROOM = {
+  lounge: 'lounge', galon: 'pantry', dapur: 'pantry',
+  game: 'game', arcade: 'game',
+  bakso: 'outdoor', kopi: 'outdoor', jalan: 'outdoor'
+};
+var STOP_ACTIVITY = {
+  lounge: 'relaxing', galon: 'coffee_break', dapur: 'coffee_break',
+  game: 'playing_table', arcade: 'playing_arcade',
+  bakso: 'makan bakso', kopi: 'coffee_break', jalan: 'berjalan'
+};
+var agents = {};
+AGENT_IDS.forEach(function (id, seat) {
+  var ch = makeCharacter(id);
+  var first = idleStop(seat, 0, LAYOUT);
+  ch.group.position.set(first.spot.position[0], 0, first.spot.position[2]);
+  ch.group.rotation.y = first.spot.facing;
+  ch.seat = seat;
+  ch.state = 'Idle';
+  ch.status = 'idle';
+  ch.room = 'office';
+  ch.activity = 'standing';
+  ch.placement = first.spot;
+  ch.stopLabel = first.stop.label;
+  ch.path = [];
+  ch.pathTarget = null;
+  ch.walking = false;
+  ch.seated = false;
+  ch.offline = false;
+  ch.unknown = false;
+  office.avatar[id] = ch;
+  agents[id] = ch;
+});
+
+function placementFor(agent) {
+  var seat = agent.seat;
+  if (agent.status === 'working') {
+    var d = LAYOUT.desks[seat % LAYOUT.desks.length];
+    agent.room = 'work';
+    agent.activity = 'working';
+    agent.stopLabel = 'Mengerjakan tugas';
+    return spot(d[0], 0, d[2] - 0.75, 0, true, undefined, undefined, 'Mengerjakan tugas');
+  }
+  var p = idleStop(seat, clockTime, LAYOUT);
+  agent.stopLabel = p.spot.label || p.stop.label;
+  agent.room = STOP_ROOM[p.stop.key] || 'lounge';
+  // A spot may override the stop's activity (the beanbag spots carry their own
+  // 'Gaming on the console' label), so a per-spot label wins over the stop's.
+  agent.activity = p.spot.label ? 'relaxing' : (STOP_ACTIVITY[p.stop.key] || 'standing');
+  return p.spot;
+}
+
+var clockTime = 0;
+function stepAgent(agent, dt) {
+  var want = placementFor(agent);
+  var key = want.position.map(function (n) { return n.toFixed(2); }).join(',');
+  if (key !== agent.placementKey) {
+    agent.placementKey = key;
+    agent.path = walkPath(
+      [agent.group.position.x, 0, agent.group.position.z],
+      want.position, LAYOUT
+    );
+    agent.pathTarget = want;
+    agent.placement = want;
+    agent.room = agent.status === 'working' ? 'office' : agent.room;
+  }
+  var arrived = true;
+  agent.walking = false;
+  if (agent.path.length) {
+    var next = agent.path[0];
+    var dx = next[0] - agent.group.position.x;
+    var dz = next[2] - agent.group.position.z;
+    var dist = Math.hypot(dx, dz);
+    if (dist < 0.04) {
+      agent.group.position.x = next[0];
+      agent.group.position.z = next[2];
+      agent.path.shift();
+    } else {
+      arrived = false;
+      agent.walking = true;
+      agent.group.position.x += dx / dist * Math.min(dist, dt * 2.6);
+      agent.group.position.z += dz / dist * Math.min(dist, dt * 2.6);
+      if (Math.hypot(dx, dz) > 0.01) {
+        var heading = Math.atan2(dx, dz);
+        agent.group.rotation.y += Math.atan2(
+          Math.sin(heading - agent.group.rotation.y),
+          Math.cos(heading - agent.group.rotation.y)) * 0.25;
+      }
+    }
+  } else if (agent.placement) {
+    var p = agent.placement;
+    if (!outdoors([agent.group.position.x, 0, agent.group.position.z], LAYOUT)) {
+      agent.group.rotation.y += Math.atan2(
+        Math.sin(p.facing - agent.group.rotation.y),
+        Math.cos(p.facing - agent.group.rotation.y)) * 0.12;
+    }
+  }
+  agent.arrived = arrived;
+  agent.seated = !agent.walking && ((agent.placement && agent.placement.seated) || (agent.placement && agent.placement.pose === 'floor'));
+  return arrived;
+}
+
+function animateAgent(agent, dt, time) {
+  var lying = agent.arrived && agent.placement && agent.placement.pose === 'lie';
+  var onFloor = agent.arrived && agent.placement && agent.placement.pose === 'floor';
+  var seated = agent.seated;
+  var typing = !agent.walking && (agent.state === 'Working' || agent.state === 'Reviewing');
+  var talking = agent.state === 'Collaborating';
+  var swing = agent.walking ? Math.sin(time * 10) * 0.6 : 0;
+
+  agent.legs[0].rotation.x = lying ? 0 : seated ? -Math.PI / 2.2 : swing;
+  agent.legs[1].rotation.x = lying ? 0 : seated ? -Math.PI / 2.2 : -swing;
+  agent.arms[0].rotation.x = lying ? 0 : agent.walking ? -swing
+    : typing ? -1.1 + Math.sin(time * 14) * 0.12
+    : talking ? -0.4 + Math.sin(time * 3) * 0.3 : 0;
+  agent.arms[1].rotation.x = lying ? 0 : agent.walking ? swing
+    : typing ? -1.1 + Math.cos(time * 14) * 0.12 : 0;
+
+  var breathe = agent.state === 'Idle' ? Math.sin(time * (lying ? 1.2 : 2)) * 0.015 : 0;
+  var talk = talking && !agent.walking ? Math.abs(Math.sin(time * 5)) * 0.03 : 0;
+  var targetRot = lying ? -Math.PI / 2 : 0;
+  agent.body.rotation.x += (targetRot - agent.body.rotation.x) * 0.2;
+  agent.body.position.y = lying ? ((agent.placement.height || 0.5) + 0.16 + breathe)
+    : (onFloor ? -0.5 : seated ? -0.14 : 0) + talk + breathe;
+  agent.ring.visible = !!agent.unknown;
+}
+/* ── name tags ─────────────────────────────────────────────────────────── */
+AGENT_IDS.forEach(function (id) {
+  var el = document.createElement('div');
+  el.className = 'tagLbl';
+  el.innerHTML = '<b>' + ROSTER[id].name + '</b><small>—</small>';
+  el.addEventListener('click', function () { openAgent(id); });
+  $('#office').appendChild(el);
+  office.tags[id] = el;
+});
+
+/* ── camera ────────────────────────────────────────────────────────────────
+   Orbit state is spherical around `target`: phi is the polar angle from +Y
+   (so the floor is never viewed edge-on and never straight down the pole) and
+   theta is the azimuth. The limits are ruang's, not ours, so the framing feels
+   identical to the reference: 0.2 rad keeps the camera off the zenith, 1.32 rad
+   keeps it above the horizon, 5..48 m brackets the whole grounds. */
+var DIST_MIN = 5, DIST_MAX = 60, PHI_MIN = 0.2, PHI_MAX = 1.32;
+var cam = (function () {
+  var o = LAYOUT.camera.offset;
+  var d = Math.sqrt(o[0] * o[0] + o[1] * o[1] + o[2] * o[2]);
+  // Pulled back a little further than the reference offset: this dashboard
+  // frames the office next to a 320 px sidebar, so the grounds — including the
+  // alley with the bakso cart and the kopi bike — have to fit in the leftover
+  // width without the camera clipping through the west wall.
+  var phi0 = Math.min(PHI_MAX, Math.acos(o[1] / d) + 0.05);
+  return {
+    target: new T.Vector3(LAYOUT.camera.target[0], LAYOUT.camera.target[1], LAYOUT.camera.target[2]),
+    theta: Math.atan2(o[0], o[2]),
+    phi: phi0,
+    dist: d * 1.22,
+    from: null, to: null, t: 1, dur: 0.9
+  };
+})();
+
+/* Panning is clamped to the grounds: the target slides inside LAYOUT.pan and the
+   camera moves by the same delta, so the building can never be dragged out of
+   frame with nothing around it. */
+function clampTarget() {
+  var b = LAYOUT.pan;
+  var nx = Math.min(Math.max(cam.target.x, b.minX), b.maxX);
+  var nz = Math.min(Math.max(cam.target.z, b.minZ), b.maxZ);
+  var dx = nx - cam.target.x, dz = nz - cam.target.z;
+  if (dx || dz) {
+    cam.target.x = nx; cam.target.z = nz;
+    camera.position.x += dx; camera.position.z += dz;
+  }
+}
+
+/* A portrait/narrow viewport cannot hold the same offset: back the camera off by
+   the aspect ratio so the whole building still fits, and shift the focus a little
+   so the composition does not sit dead-centre in a tall column. */
+function fitOffset() {
+  var aspect = camera.aspect;
+  if (aspect >= 1) return;
+  var off = camera.position.clone().sub(cam.target);
+  off.setLength(off.length() * Math.max(1, 1.2 / aspect));
+  camera.position.copy(cam.target).add(off);
+  camera.lookAt(cam.target.x - 1.4, cam.target.y, cam.target.z + 0.8);
+}
+
+function applyCam() {
+  var sp = Math.sin(cam.phi);
+  camera.position.set(
+    cam.target.x + cam.dist * sp * Math.sin(cam.theta),
+    cam.target.y + cam.dist * Math.cos(cam.phi),
+    cam.target.z + cam.dist * sp * Math.cos(cam.theta)
+  );
+  camera.lookAt(cam.target);
+}
+
+/* ── room bar ───────────────────────────────────────────────────────────── */
+var ROOM_VIEWS = {
+  all: null,   // derived from LAYOUT.camera below
+  work: { target: new T.Vector3((LAYOUT.building.minX + DESK_RIGHT_X) / 2 + 1.2, 0.6, -2.2), theta: -0.20, phi: 0.72, dist: 15.5 },
+  lounge: { target: new T.Vector3(COFFEE_TABLE[0], 0.6, COFFEE_TABLE[2]), theta: 0.02, phi: 0.56, dist: 9.6 },
+  game: { target: new T.Vector3((GAME_ROOM.minX + GAME_ROOM.maxX) / 2, 0.6, (GAME_ROOM.minZ + GAME_ROOM.maxZ) / 2), theta: 0.26, phi: 0.52, dist: 8.8 },
+  pantry: { target: new T.Vector3(8.35, 0.6, 1.4), theta: 0.20, phi: 0.58, dist: 8.6 },
+  outdoor: { target: new T.Vector3(LAYOUT.gangCenterX + 0.6, 0.6, -0.4), theta: -0.85, phi: 0.70, dist: 11.5 }
+};
+ROOM_VIEWS.all = {
+  target: new T.Vector3(LAYOUT.camera.target[0], LAYOUT.camera.target[1], LAYOUT.camera.target[2]),
+  theta: cam.theta, phi: cam.phi, dist: cam.dist
+};
+var ROOM_LABEL = {
+  all: 'Semua Ruangan', work: 'Workspace', lounge: 'Lounge',
+  game: 'Game Room', pantry: 'Kitchen', outdoor: 'Halaman'
+};
+var roomBar = $('#roomBar');
+
+function gotoRoom(key) {
+  var v = ROOM_VIEWS[key];
+  if (!v) return;
+  office.room = key;
+  cam.from = { target: cam.target.clone(), theta: cam.theta, phi: cam.phi, dist: cam.dist };
+  cam.to = { target: v.target.clone(), theta: v.theta, phi: v.phi, dist: v.dist };
+  cam.t = 0;
+  if (roomBar) {
+    Array.prototype.forEach.call(roomBar.children, function (b) {
+      b.classList.toggle('on', b.dataset.room === key);
+    });
+  }
+  var pill = $('#activityPill');
+  if (pill && !window.STATE) pill.textContent = 'Ruang: ' + ROOM_LABEL[key];
+}
+if (roomBar) {
+  ['all', 'work', 'lounge', 'game', 'pantry', 'outdoor'].forEach(function (k) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.room = k;
+    b.textContent = ROOM_LABEL[k];
+    b.addEventListener('click', function () { gotoRoom(k); });
+    roomBar.appendChild(b);
+  });
+  roomBar.children[1].classList.add('on');
+}
+
+/* ── pointer + keyboard controls ───────────────────────────────────────────
+   Left-drag orbits. Right/middle-drag, Shift+left-drag and a two-finger touch
+   pan across the floor. Plain wheel pans (the hint text above the canvas promises
+   that), Shift+wheel or a pinch zooms. "Geser" swaps the two mouse modes for
+   trackpad users, exactly as the reference does. */
+var panMode = false;
+var drag = null;
+var pinch = null;
+var panBtn = document.createElement('button');
+panBtn.type = 'button';
+panBtn.className = 'btn';
+panBtn.textContent = 'Geser';
+panBtn.title = ' Tukar drag: putar <-> geser';
+panBtn.addEventListener('click', function () {
+  panMode = !panMode;
+  panBtn.textContent = panMode ? 'Putar' : 'Geser';
+});
+var top = document.querySelector('#office .ovlTop');
+if (top) top.insertBefore(panBtn, $('#camReset'));
+
+canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+canvas.addEventListener('pointerdown', function (e) {
+  canvas.setPointerCapture(e.pointerId);
+  var panning = panMode ? !e.shiftKey : (e.button === 2 || e.button === 1 || e.shiftKey);
+  drag = { x: e.clientX, y: e.clientY, pan: panning };
+  if (e.pointerType === 'touch' && !drag.pan) drag.pan = false;
+  cam.from = null; // any input cancels a running room tween
+});
+canvas.addEventListener('pointermove', function (e) {
+  if (!drag) return;
+  var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.pan) {
+    // Pan across the floor plane: screen-right moves the camera left, matching
+    // the direction the ground appears to slide under the pointer.
+    var scale = cam.dist * 0.0016;
+    var right = new T.Vector3(Math.cos(cam.theta), 0, -Math.sin(cam.theta));
+    cam.target.addScaledVector(right, -dx * scale);
+    cam.target.z += dy * scale;
+    clampTarget();
+    applyCam();
+  } else {
+    cam.theta -= dx * 0.005;
+    cam.phi = Math.min(PHI_MAX, Math.max(PHI_MIN, cam.phi - dy * 0.005));
+    applyCam();
+  }
+});
+function endDrag(e) {
+  if (drag) { try { canvas.releasePointerCapture(e.pointerId); } catch (_) {} }
+  drag = null;
+}
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', function (e) {
+  e.preventDefault();
+  cam.from = null;
+  if (e.shiftKey || e.ctrlKey) {
+    cam.dist = Math.min(DIST_MAX, Math.max(DIST_MIN, cam.dist * (1 + Math.sign(e.deltaY) * 0.12)));
+    applyCam();
+    return;
+  }
+  var scale = cam.dist * 0.0012;
+  cam.target.x += e.deltaX * scale;
+  cam.target.z += e.deltaY * scale;
+  clampTarget();
+  applyCam();
+}, { passive: false });
+canvas.addEventListener('touchstart', function (e) {
+  if (e.touches.length !== 2) return;
+  pinch = pinchDist(e);
+}, { passive: true });
+canvas.addEventListener('touchmove', function (e) {
+  if (e.touches.length !== 2 || !pinch) return;
+  var d = pinchDist(e);
+  if (d) {
+    cam.dist = Math.min(DIST_MAX, Math.max(DIST_MIN, cam.dist * (pinch / d)));
+    applyCam();
+  }
+  pinch = d;
+}, { passive: true });
+canvas.addEventListener('touchend', function () { pinch = null; }, { passive: true });
+function pinchDist(e) {
+  var a = e.touches[0], b = e.touches[1];
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
+var keys = {};
+window.addEventListener('keydown', function (e) {
+  var t = e.target && e.target.tagName;
+  if (t === 'INPUT' || t === 'TEXTAREA') return;
+  keys[e.key] = true;
+});
+window.addEventListener('keyup', function (e) { keys[e.key] = false; });
+var PAN_KEY_SPEED = 25;
+function nudge(dt) {
+  var kx = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
+  var kz = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
+  if (!kx && !kz) return;
+  var s = PAN_KEY_SPEED * dt;
+  var right = new T.Vector3(Math.cos(cam.theta), 0, -Math.sin(cam.theta));
+  cam.target.addScaledVector(right, kx * s);
+  cam.target.z += kz * s;
+  clampTarget();
+  applyCam();
+}
+
+var resetBtn = $('#camReset');
+if (resetBtn) resetBtn.addEventListener('click', function () { gotoRoom('all'); });
+
+/* ── theme ───────────────────────────────────────────────────────────────── */
+var themeBtn = $('#themeBtn');
+if (themeBtn) {
+  themeBtn.textContent = 'Tema: ' + (NIGHT ? 'Malam' : 'Siang');
+  themeBtn.addEventListener('click', function () {
+    NIGHT = !NIGHT;
+    applyTheme(NIGHT);
+    themeBtn.textContent = 'Tema: ' + (NIGHT ? 'Malam' : 'Siang');
+  });
+}
+
+/* ── avatar palette ─────────────────────────────────────────────────────────
+   The dashboard's own avatar editor used to live inside the 3D block, so it went
+   away with the rewrite. This keeps #avatarBtn working with the same contract:
+   it writes office.avatar[id].cfg and pushes the change through that avatar's
+   own applyLook(), so the character updates immediately — no rebuild, no reload. */
+var avatarBtn = $('#avatarBtn');
+if (avatarBtn) {
+  var panel = document.createElement('div');
+  // Reuse the dashboard's .fb chrome (panel background + .on display toggle)
+  // but pin it to the bottom-right corner instead of filling the view: the .fb
+  // rule is inset:0, so every edge has to be overridden inline.
+  panel.className = 'fb';
+  panel.style.cssText = 'inset:auto;right:14px;bottom:14px;left:auto;width:auto;' +
+    'padding:10px;align-items:flex-start;justify-content:flex-end;pointer-events:auto';
+  panel.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">' +
+    AGENT_IDS.map(function (id) {
+      return '<button type="button" class="btn" data-av="' + id + '">' + ROSTER[id].name + '</button>';
+    }).join('') + '</div>' +
+    '<div id="avSlots" style="display:flex;flex-wrap:wrap;gap:6px"></div>';
+  $('#office').appendChild(panel);
+  var avCurrent = AGENT_IDS[0];
+  var PALETTES = {
+    hair: HAIR_COLS, skin: SKIN_COLS, shirt: SHIRT_COLS, pants: PANT_COLS
+  };
+  var PAL_LABEL = { hair: 'Rambut', skin: 'Kulit', shirt: 'Baju', pants: 'Celana' };
+  function renderSlots() {
+    var box = panel.querySelector('#avSlots');
+    var av = office.avatar[avCurrent];
+    if (!av) return;
+    var html = '';
+    ['hair', 'skin', 'shirt', 'pants'].forEach(function (slot) {
+      PALETTES[slot].forEach(function (hex) {
+        var on = String(av.cfg[slot]).toLowerCase() === hex.toLowerCase();
+        html += '<button type="button" data-slot="' + slot + '" data-hex="' + hex + '" title="' +
+          PAL_LABEL[slot] + '" style="width:22px;height:22px;border-radius:6px;border:1px solid ' +
+          (on ? 'var(--accent)' : 'rgba(255,255,255,.15)') + ';background:' + hex + '"></button>';
+      });
+    });
+    box.innerHTML = html;
+  }
+  panel.addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('button') : null;
+    if (!t) return;
+    if (t.dataset.av) { avCurrent = t.dataset.av; renderSlots(); return; }
+    var av = office.avatar[avCurrent];
+    if (!av || !t.dataset.slot || !t.dataset.hex) return;
+    var cfg = {};
+    ['hair', 'skin', 'shirt', 'pants'].forEach(function (k) { cfg[k] = av.cfg[k]; });
+    cfg[t.dataset.slot] = t.dataset.hex;
+    av.applyLook(cfg);
+    renderSlots();
+  });
+  avatarBtn.addEventListener('click', function () {
+    var open = !panel.classList.contains('on');
+    if (open) renderSlots();
+    panel.classList.toggle('on', open);
+  });
+}
+
+/* ── resize ─────────────────────────────────────────────────────────────── */
+function resize() {
+  var w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas.parentNode || canvas);
+resize();
+applyCam();
+
+/* ── render loop ─────────────────────────────────────────────────────────── */
+var clockT = new T.Clock();
+var elapsed = 0;
+function loop() {
+  requestAnimationFrame(loop);
+  var dt = Math.min(0.05, clockT.getDelta());
+  elapsed += dt;
+  clockTime = elapsed;
+
+  if (cam.t < 1 && cam.from && cam.to) {
+    cam.t = Math.min(1, cam.t + dt / cam.dur);
+    var e = cam.t < 0.5 ? 4 * cam.t * cam.t * cam.t : 1 - Math.pow(-2 * cam.t + 2, 3) / 2;
+    cam.target.lerpVectors(cam.from.target, cam.to.target, e);
+    cam.theta = cam.from.theta + (cam.to.theta - cam.from.theta) * e;
+    cam.phi = cam.from.phi + (cam.to.phi - cam.from.phi) * e;
+    cam.dist = cam.from.dist + (cam.to.dist - cam.from.dist) * e;
+    applyCam();
+  } else {
+    nudge(dt);
+    fitOffset();
+  }
+
+  AGENT_IDS.forEach(function (id) {
+    var a = agents[id];
+    stepAgent(a, dt);
+    animateAgent(a, dt, elapsed);
+  });
+
+  renderer.render(scene, camera);
+
+  office.ready = true;
+  office.three = T;
+  office.scene = scene;
+  office.cam = camera;
+  office.gotoRoom = gotoRoom;
+  office.tuning = LAYOUT;
+  office.nodes = LAYOUT;
+  office.findPath = walkPath;
+  office.stats = function () { return renderer.info.render; };
+  // Read-only orbit state: pan assertions must read the TARGET, since a zoom
+  // moves the camera without revealing what the view is centred on.
+  office.camState = function () {
+    return {
+      tx: cam.target.x, ty: cam.target.y, tz: cam.target.z,
+      theta: cam.theta, phi: cam.phi, dist: cam.dist
+    };
+  };
+}
+loop();
+
+office.theme = NIGHT ? 'night' : 'day';
+window.__miaOffice = office;
+}
+function fail3D(msg) {
+  $('#fb').classList.add('on');
+  $('#fbMsg').textContent = msg + ' — status agent, antrean, dan log tetap dapat dilihat di menu lain.';
+  $('#officeHint').textContent = 'Mode 2D: data nyata tetap tampil di menu lain';
+}
+
+// Label copy is derived from REAL status + REAL task, plus the visual activity
+// the 3D scene is currently showing. Never the other way round: no task title is
+// ever shown when the backend has none.
+var ROOM_LABEL_UI = {
+  work: 'Workspace', lounge: 'Lounge', game: 'Game Room',
+  pantry: 'Kitchen', unknown: '—'
+};
+var ACTIVITY_LABEL = {
+  standing: 'berdiri', walking: 'berjalan', sitting: 'duduk', reading: 'membaca',
+  coffee_break: 'istirahat kopi', looking_out_window: 'melihat luar',
+  relaxing: 'santai', working: 'kerja', meeting: 'meeting',
+  playing_table: 'main ping-pong', playing_arcade: 'arcade'
+};
+// Label card rows: name + room, then a status badge underneath. Node id is
+// kept in the detail panel rather than the card — it is long, machine-shaped,
+// and only useful when debugging a stuck agent.
+function tagText(id, name, status, activeTask) {
+  var av = office.avatar[id];
+  var room = av ? (ROOM_LABEL_UI[av.room] || '—') : '—';
+  var act = av ? (ACTIVITY_LABEL[av.activity] || av.activity) : '';
+  var st = String(status || 'idle');
+  var dotCls = /work|run|busy|execut/i.test(st) ? 'working'
+    : /err|fail|down|offline/i.test(st) ? 'error'
+    : /degrad|warn|slow/i.test(st) ? 'degraded' : 'idle';
+  var sub = activeTask ? String(activeTask).slice(0, 30)
+    : (act && act !== '—' ? act : st);
+  return '<span class="tRow"><b>' + esc(name) + '</b>'
+    + '<span class="tDot ' + dotCls + '"></span>'
+    + '<span class="tRoom">' + esc(room) + '</span></span>'
+    + '<small>' + esc(sub) + '</small>';
+}
+
+function syncOffice() {
+  if (!office.ready || !STATE) return;
+  STATE.agents.forEach(function (a) {
+    var av = office.avatar[a.id];
+    if (av) av.status = a.status;
+    var tag = office.tags[a.id];
+    if (tag) tag.innerHTML = tagText(a.id, a.name, a.status, a.active_task);
+  });
+  projectTags();
+}
+
+// Labels follow the characters as they walk between rooms, so the text is
+// refreshed on the render tick rather than only when /api/state is polled.
+function refreshTagText() {
+  if (!office.ready || !STATE) return;
+  STATE.agents.forEach(function (a) {
+    var tag = office.tags[a.id];
+    if (tag) tag.innerHTML = tagText(a.id, a.name, a.status, a.active_task);
+  });
+  var pill = $('#activityPill');
+  if (pill && STATE.agents.length) {
+    pill.textContent = STATE.agents.map(function (a) {
+      var av = office.avatar[a.id];
+      return ROSTER[a.id].name + ' · ' + (av ? (ROOM_LABEL_UI[av.room] || '—') : '—');
+    }).join('   ');
+  }
+}
+
+function projectTags() {
+  if (!office.ready || !office.three || !office.cam) return;
+  var T = window.THREE;
+  var c = $('#c3d');
+  var w = c.clientWidth || 1, h = c.clientHeight || 1;
+  ['mia', 'agnes', 'michelle'].forEach(function (id) {
+    var a = office.avatar[id], tag = office.tags[id];
+    if (!a || !tag) return;
+    // a.tagY tracks the character height (1.77 m avatar + headroom), so the
+    // label stays just above the head instead of using a hardcoded offset.
+    var v = new T.Vector3(a.group.position.x, a.tagY || 2.05, a.group.position.z).project(office.cam);
+    tag.style.left = ((v.x + 1) / 2 * w) + 'px';
+    tag.style.top = ((-v.y + 1) / 2 * h) + 'px';
+    tag.style.display = v.z > 1 ? 'none' : '';
+  });
+}
+
+function openAgent(id) {
+  if (!STATE) return;
+  var a = STATE.agents.filter(function (x) { return x.id === id; })[0];
+  if (!a) return;
+  var t = (STATE.tasks || []).filter(function (x) { return x.agent === id; }).slice(0, 5);
+  var av = office.avatar[id];
+  var body = '<h3 style="margin:0 0 10px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)">' +
+      esc(a.name) + ' · ' + esc(a.role) + '</h3>' +
+    '<div class="kv"><span>Status (backend)</span><span>' + stBadge(a.status) + '</span></div>' +
+    '<div class="kv"><span>Aktivitas visual</span><span>' + esc(av ? (ACTIVITY_LABEL[av.activity] || av.activity) : '-') + '</span></div>' +
+    '<div class="kv"><span>Ruang</span><span>' + esc(av ? (ROOM_LABEL_UI[av.room] || '-') : '-') + '</span></div>' +
+    '<div class="kv"><span>Task aktif</span><span>' + (a.active_task ? esc(a.active_task) : 'tidak ada') + '</span></div>' +
+    '<div class="kv"><span>Update terakhir</span><span>' + esc(hhmmss(a.last_update)) + ' · ' + esc(ago(a.last_update)) + '</span></div>' +
+    '<div class="note" style="margin:10px 0 6px">Aktivitas visual hanyalah animasi - tidak pernah membuat task baru.</div>' +
+    '<div class="note" style="margin:10px 0 6px">Task terakhir</div>' +
+    (t.length ? '<table><tbody>' + t.map(function (x) {
+      return '<tr><td>' + esc(x.title) + '</td><td>' + esc(x.status) + '</td></tr>';
+    }).join('') + '</tbody></table>' : '<div class="note">Belum ada task tercatat.</div>');
+  modal('Detail agent', body, null);
+}
+
+/* ── modal: one implementation, static markup is reused ─────────────── */
+var modalTask = null;
+function modal(title, html, taskAgent) {
+  modalTask = taskAgent;
+  $('#mTitle').textContent = title;
+  $('#mBody').innerHTML = html || '';
+  $('#mText').style.display = taskAgent ? '' : 'none';
+  $('#mSend').style.display = taskAgent ? '' : 'none';
+  $('#mText').value = '';
+  $('#mErr').textContent = '';
+  $('#modalBg').classList.add('on');
+  if (taskAgent) $('#mText').focus();
+}
+function closeModal() { $('#modalBg').classList.remove('on'); }
+function submitTask() {
+  var txt = $('#mText').value.trim();
+  var err = $('#mErr');
+  if (!txt) { err.textContent = 'Prompt wajib diisi.'; return; }
+  err.textContent = '';
+  fetch('/api/queue', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prompt: txt, agent: modalTask })
+  }).then(function (r) {
+    return r.json().then(function (b) { return { ok: r.ok, b: b }; });
+  }).then(function (res) {
+    if (!res.ok) { err.textContent = (res.b && res.b.message) || res.b.error || 'Gagal mengantrekan.'; return; }
+    closeModal(); poll();
+  }).catch(function (e) { err.textContent = e.message; });
+}
+$('#mCancel').addEventListener('click', closeModal);
+$('#mSend').addEventListener('click', submitTask);
+$('#modalBg').addEventListener('click', function (e) { if (e.target === $('#modalBg')) closeModal(); });
+
+/* ── nav ─────────────────────────── */
+var nav = $('#nav');
+MENU.forEach(function (m, idx) {
+  var b = document.createElement('button');
+  b.innerHTML = '<span class="ic">' + m[2] + '</span>' + m[1];
+  b.dataset.view = m[0];
+  if (idx === 0) b.className = 'on';
+  b.addEventListener('click', function () { show(m[0]); });
+  nav.appendChild(b);
+});
+
+function show(v) {
+  currentView = v;
+  MENU.forEach(function (m) {
+    document.getElementById('view-' + m[0]).classList.toggle('hide', m[0] !== v);
+  });
+  Array.prototype.forEach.call(nav.children, function (b) { b.classList.toggle('on', b.dataset.view === v); });
+  $('#viewTitle').textContent = (MENU.filter(function (m) { return m[0] === v; })[0] || ['', '—'])[1];
+  render();
+}
+
+document.addEventListener('click', function (e) {
+  var t = e.target.closest && e.target.closest('[data-quick]');
+  if (t) modal(t.getAttribute('data-label'), '', t.getAttribute('data-quick'));
+});
+
+$('#dispatchBtn').addEventListener('click', function () {
+  var next = !(STATE && STATE.dispatch_paused);
+  fetch('/api/dispatch', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ paused: next })
+  }).then(function (r) { return r.json(); })
+    .then(function (b) { if (b.error) console.warn('dispatch', b); poll(); })
+    .catch(function () { poll(); });
+});
+
+/* ── boot ─────────────────────────── */
+try { init3D(); } catch (e) { fail3D('Three.js gagal berjalan: ' + e.message); }
+show('office');
+poll();
+setInterval(poll, 3000);
+setInterval(function () { if (currentView === 'office') projectTags(); }, 100);
+})();
+</script>
+</body>
+</html>
