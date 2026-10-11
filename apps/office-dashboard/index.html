@@ -617,10 +617,15 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = T.PCFSoftShadowMap;
 renderer.outputEncoding = T.sRGBEncoding;
+// ACES rolls highlights off instead of clipping them, which is what keeps the
+// sunlit floorboards, the desk tops and pale walls from turning into flat white
+// sheets at midday. Exposure is owned by the theme controller, not by hand.
+renderer.toneMapping = T.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1;
 
 var scene = new T.Scene();
 scene.background = new T.Color('#bfe0ef');
-scene.fog = new T.Fog('#bfe0ef', 38, 75);
+scene.fog = new T.Fog('#bfe0ef', 34, 78);
 
 var camera = new T.PerspectiveCamera(40, 1, 0.5, 150);
 camera.position.set(-3, 13, 16);
@@ -630,38 +635,185 @@ camera.lookAt(camTarget);
 var NIGHT = false;
 
 /* ── lighting (ruang: Lighting component) ──────────────────────────────── */
-var hemi = new T.HemisphereLight('#fff4e0', '#5d7a4c', 1.1);
+var hemi = new T.HemisphereLight('#eaf4ff', '#8a7a5e', 0.62);
 scene.add(hemi);
-var ambient = new T.AmbientLight('#ffffff', 0.35);
+var ambient = new T.AmbientLight('#dce8f5', 0.22);
 scene.add(ambient);
-var sun = new T.DirectionalLight('#fff1d6', 2.4);
+var sun = new T.DirectionalLight('#fff3dc', 1.15);
 sun.position.set(10, 16, 9);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.bias = -0.0004;
-sun.shadow.camera.left = -16; sun.shadow.camera.right = 16;
-sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16;
-sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 60;
+// bias alone cannot separate the floor plane from the shadow it receives in
+// r128; normalBias does that offset per-surface-normal instead, which is why
+// the shadows sit on the floorboards without the peter-panning detaching them
+// from the furniture legs.
+sun.shadow.bias = -0.0002;
+sun.shadow.normalBias = 0.02;
+// The ortho box is the whole point of the shadow map: anything wider than the
+// grounds divides the same 2048 px over wasted area and every edge gets jaggy.
+// Fitted to what is actually on screen — gang at x -11.4, flag at 16.4, trees
+// out to -14.8/18.6, road at z 12.1, back wall at z -8.5 — plus headroom for
+// the 3.2 m street lamps and the canopies.
+sun.shadow.camera.left = -19; sun.shadow.camera.right = 19;
+sun.shadow.camera.top = 14; sun.shadow.camera.bottom = -14;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 70;
+// Bounds were widened in place, so the projection has to be rebuilt or the old
+// matrix keeps rendering at the previous extent.
+sun.shadow.camera.updateProjectionMatrix();
 scene.add(sun);
+sun.target.position.set(0, 0, 0);
+scene.add(sun.target);
 
-function applyTheme(night) {
+/* ── theme controller ───────────────────────────────────────────────────────
+   One registry, one switch. Every light and every theme-dependent material in
+   the scene is registered here with a DAY and a NIGHT configuration, so
+   pressing "Tema: Siang / Malam" moves the whole atmosphere at once: sun,
+   hemisphere, ambient, sky, fog, exposure, every local lamp, and every emissive
+   surface that belongs to one.
+
+   The previous code initialised each PointLight with `NIGHT ? 10 : 1`, which
+   froze that decision at construction time — flipping the button changed the
+   sun but left the street lamps exactly where they were. Registration is the
+   fix: a light is created once, and both of its settings live in one table. */
+var THEMES = {
+  day: {
+    background: '#cfe6f2', fog: '#cfe6f2', fogNear: 34, fogFar: 78,
+    hemi: { sky: '#eaf4ff', ground: '#8a7a5e', intensity: 0.62 },
+    ambient: { color: '#dce8f5', intensity: 0.22 },
+    sun: { color: '#fff3dc', intensity: 1.25 },
+    exposure: 1.02
+  },
+  night: {
+    background: '#0e1622', fog: '#151f2f', fogNear: 26, fogFar: 68,
+    // Cool moon fill from above, near-black bounce from the ground. These are
+    // the numbers that darken the EXTERIOR: the lawn, the pavement and the road
+    // are lit almost entirely by hemisphere + ambient, so pulling them down is
+    // what stops the grounds reading as daylight under a night sky. The interior
+    // stays lit because it is carried by the practicals below.
+    hemi: { sky: '#5d78a6', ground: '#141a21', intensity: 0.13 },
+    ambient: { color: '#6f86b4', intensity: 0.045 },
+    sun: { color: '#9dbcff', intensity: 0.22 },
+    exposure: 1.08
+  }
+};
+var THEME_REG = [];
+
+/* Both configurations use the same shape, so a single blend routine drives
+   lights, emissive intensities, window glass and anything added later. */
+function registerTheme(obj, day, night) {
+  var entry = { obj: obj, day: day || {}, night: night || {} };
+  THEME_REG.push(entry);
+  return entry;
+}
+
+function themeSnapshot(night) {
+  var key = night ? 'night' : 'day';
+  var t = THEMES[key];
+  var s = {
+    key: key, night: night,
+    hemiSky: lin(t.hemi.sky), hemiGround: lin(t.hemi.ground), hemiI: t.hemi.intensity,
+    ambC: lin(t.ambient.color), ambI: t.ambient.intensity,
+    sunC: lin(t.sun.color), sunI: t.sun.intensity,
+    bg: lin(t.background), fog: lin(t.fog), fogNear: t.fogNear, fogFar: t.fogFar,
+    exposure: t.exposure,
+    items: []
+  };
+  for (var i = 0; i < THEME_REG.length; i++) {
+    var c = THEME_REG[i][key];
+    var e = { ref: THEME_REG[i], intensity: c.intensity, distance: c.distance, decay: c.decay, emissiveIntensity: c.emissiveIntensity };
+    if (c.color) e.color = lin(c.color);
+    if (c.emissive) e.emissive = lin(c.emissive);
+    s.items.push(e);
+  }
+  return s;
+}
+
+function applySnapshot(s) {
+  hemi.color.copy(s.hemiSky);
+  hemi.groundColor.copy(s.hemiGround);
+  hemi.intensity = s.hemiI;
+  ambient.color.copy(s.ambC);
+  ambient.intensity = s.ambI;
+  sun.color.copy(s.sunC);
+  sun.intensity = s.sunI;
+  scene.background.copy(s.bg);
+  scene.fog.color.copy(s.fog);
+  scene.fog.near = s.fogNear;
+  scene.fog.far = s.fogFar;
+  renderer.toneMappingExposure = s.exposure;
+  for (var i = 0; i < s.items.length; i++) {
+    var e = s.items[i], o = e.ref.obj;
+    if (e.intensity != null) o.intensity = e.intensity;
+    if (e.distance != null && o.distance !== undefined) o.distance = e.distance;
+    if (e.decay != null) o.decay = e.decay;
+    if (e.emissiveIntensity != null && o.emissiveIntensity !== undefined) o.emissiveIntensity = e.emissiveIntensity;
+    if (e.color && o.color) o.color.copy(e.color);
+    if (e.emissive && o.emissive) o.emissive.copy(e.emissive);
+  }
+}
+
+/* Interpolate between two snapshots so a theme change fades instead of
+   snapping. Colours interpolate in linear space, which is where they live. */
+function blendSnapshots(a, b, k) {
+  var s = {
+    key: b.key, night: b.night,
+    hemiSky: a.hemiSky.clone().lerp(b.hemiSky, k),
+    hemiGround: a.hemiGround.clone().lerp(b.hemiGround, k),
+    hemiI: a.hemiI + (b.hemiI - a.hemiI) * k,
+    ambC: a.ambC.clone().lerp(b.ambC, k),
+    ambI: a.ambI + (b.ambI - a.ambI) * k,
+    sunC: a.sunC.clone().lerp(b.sunC, k),
+    sunI: a.sunI + (b.sunI - a.sunI) * k,
+    bg: a.bg.clone().lerp(b.bg, k),
+    fog: a.fog.clone().lerp(b.fog, k),
+    fogNear: a.fogNear + (b.fogNear - a.fogNear) * k,
+    fogFar: a.fogFar + (b.fogFar - a.fogFar) * k,
+    exposure: a.exposure + (b.exposure - a.exposure) * k,
+    items: []
+  };
+  for (var i = 0; i < a.items.length; i++) {
+    var ia = a.items[i], ib = b.items[i], o = { ref: ia.ref };
+    ['intensity', 'distance', 'decay', 'emissiveIntensity'].forEach(function (k2) {
+      if (ia[k2] != null && ib[k2] != null) o[k2] = ia[k2] + (ib[k2] - ia[k2]) * k;
+    });
+    if (ia.color && ib.color) o.color = ia.color.clone().lerp(ib.color, k);
+    if (ia.emissive && ib.emissive) o.emissive = ia.emissive.clone().lerp(ib.emissive, k);
+    s.items.push(o);
+  }
+  return s;
+}
+
+/* One tween, owned by the render loop — no second rAF, so mashing the button
+   restarts this transition instead of stacking animations that fight each
+   other. Re-clicking mid-fade blends from wherever the scene actually is. */
+var themeAnim = { from: null, to: null, k: 1, dur: 0.85, current: null };
+
+function setTheme(night, instant) {
+  var target = themeSnapshot(night);
   NIGHT = night;
-  hemi.color.copy(lin(night ? '#7f95bd' : '#fff4e0'));
-  hemi.groundColor.copy(lin(night ? '#1e2620' : '#5d7a4c'));
-  hemi.intensity = night ? 0.30 : 0.72;
-  ambient.color.copy(lin(night ? '#8fa4d8' : '#ffffff'));
-  ambient.intensity = night ? 0.12 : 0.25;
-  sun.color.copy(lin(night ? '#ff9a5a' : '#fff1d6'));
-  // The reference numbers are written for a physically-lit renderer; this
-  // dashboard runs three r128, where light intensity is plain irradiance, so
-  // the same values blow every pale surface (desk tops, walls) out to white.
-  sun.intensity = night ? 0.60 : 1.20;
-  scene.background.copy(lin(night ? '#1a2335' : '#bfe0ef'));
-  scene.fog.color.copy(lin(night ? '#1a2335' : '#bfe0ef'));
-  LAMP_MATERIALS.forEach(function (m) {
-    m.emissiveIntensity = night ? 2.2 : 0.25;
-  });
   office.theme = night ? 'night' : 'day';
+  if (instant) {
+    themeAnim.from = null; themeAnim.to = null; themeAnim.k = 1;
+    themeAnim.current = target;
+    applySnapshot(target);
+  } else {
+    themeAnim.from = themeAnim.current || target;
+    themeAnim.to = target;
+    themeAnim.k = 0;
+  }
+  var btn = $('#themeBtn');
+  if (btn) btn.textContent = 'Tema: ' + (night ? 'Malam' : 'Siang');
+}
+
+function stepTheme(dt) {
+  if (themeAnim.k >= 1 || !themeAnim.from) return;
+  themeAnim.k = Math.min(1, themeAnim.k + dt / themeAnim.dur);
+  // ease-in-out so the switch settles rather than snapping at both ends
+  var t = themeAnim.k;
+  var e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  themeAnim.current = blendSnapshots(themeAnim.from, themeAnim.to, e);
+  applySnapshot(themeAnim.current);
+  if (themeAnim.k >= 1) { themeAnim.current = themeAnim.to; themeAnim.from = null; }
 }
 
 /* ── procedural textures (ruang: scene3d/textures.ts) ──────────────────── */
@@ -880,10 +1032,16 @@ function mat(opts) {
   if (key) matCache[key] = m;
   return m;
 }
-var LAMP_MATERIALS = [];
-function lampMaterial(opts) {
+/* Every lamp surface joins the theme registry on creation. Defaults are
+   deliberately restrained: a fixture that reads as "off" at midday still needs
+   to be visible as a pale diffuser, but it must not glow like a bulb — the sun
+   is doing that job. At night it becomes the brightest thing in its pool while
+   staying below the point where the colour clips to white. */
+function lampMaterial(opts, dayI, nightI) {
   var m = mat(opts);
-  if (LAMP_MATERIALS.indexOf(m) < 0) LAMP_MATERIALS.push(m);
+  registerTheme(m,
+    { emissiveIntensity: dayI == null ? 0.16 : dayI },
+    { emissiveIntensity: nightI == null ? 1.9 : nightI });
   return m;
 }
 function add(geo, material, x, y, z, parent, ry) {
@@ -909,7 +1067,13 @@ function RB(g, px, py, pz, w, h, d, r, color, rough) {
     px, py, pz, g);
 }
 function CY(g, px, py, pz, rt, rb, h, seg, color, rough) {
-  return add(cyl(rt, rb, h, seg), mat({ color: color, roughness: rough == null ? 0.8 : rough }),
+  // `color` may be a hex string OR an already-built material. Handing a
+  // material to a slot that stringifies its argument used to reach
+  // THREE.Color.set(<Material>), which silently yields white — white bins, white
+  // stool bases, a white lampshade. Accepting both keeps every prop free to use
+  // the shared PM materials without a per-call colour lookup.
+  return add(cyl(rt, rb, h, seg),
+    color && color.isMaterial ? color : mat({ color: color, roughness: rough == null ? 0.8 : rough }),
     px, py, pz, g);
 }
 function SP(g, px, py, pz, r, color, rough) {
@@ -1143,33 +1307,548 @@ function Tree(parent, x, z, s) {
   return g;
 }
 
-function WorkDesk(parent, x, z, ry, active) {
+/* ── detail materials (shared, cached) ───────────────────────────────────────
+   Every prop that repeats — chair frames, keyboards, appliance shells, book
+   spines — shares ONE material instance through matCache instead of allocating
+   a fresh MeshStandardMaterial per mesh. Same visual result, far fewer shader
+   state changes per frame. Kept separate from the palette M so the "office
+   wood + matte off-white + restrained metal" rule stays readable in one place. */
+var PM = {
+  plasticDark: mat({ __key: 'p-plastic-dark', color: '#2b2f36', roughness: 0.55 }),
+  plasticMid: mat({ __key: 'p-plastic-mid', color: '#4a5058', roughness: 0.6 }),
+  rubber: mat({ __key: 'p-rubber', color: '#1b1d21', roughness: 0.95 }),
+  metal: mat({ __key: 'p-metal', color: '#b9c0c6', roughness: 0.3, metalness: 0.85 }),
+  metalDark: mat({ __key: 'p-metal-dark', color: '#6d747b', roughness: 0.42, metalness: 0.7 }),
+  brass: mat({ __key: 'p-brass', color: '#c9a24a', roughness: 0.34, metalness: 0.8 }),
+  fabricGrey: mat({ __key: 'p-fabric-grey', color: '#59606b', roughness: 0.95 }),
+  fabricCharcoal: mat({ __key: 'p-fabric-charcoal', color: '#2f343c', roughness: 0.96 }),
+  fabricCream: mat({ __key: 'p-fabric-cream', color: '#e2dacb', roughness: 0.94 }),
+  paper: mat({ __key: 'p-paper', color: '#f6f4ee', roughness: 0.92 }),
+  paperWarm: mat({ __key: 'p-paper-warm', color: '#efe6d2', roughness: 0.9 }),
+  paperKraft: mat({ __key: 'p-paper-kraft', color: '#c8b79a', roughness: 0.93 }),
+  ceramic: mat({ __key: 'p-ceramic', color: '#f2efe9', roughness: 0.22 }),
+  woodPale: mat({ __key: 'p-wood-pale', color: '#c9a97e', roughness: 0.72 }),
+  woodCase: mat({ __key: 'p-wood-case', color: '#a9855b', roughness: 0.74 }),
+  boardWhite: mat({ __key: 'p-board-white', color: '#f7f8f6', roughness: 0.24 }),
+  glassClear: mat({ __key: 'p-glass-clear', color: '#dbe9ee', roughness: 0.06, transparent: true, opacity: 0.26 })
+};
+
+/* Screen contents per role. Three tiny canvases instead of three more lights or
+   three more meshes: the personality of a workstation has to live on the glass,
+   not in the room. */
+var UI_STYLE = {
+  mia: { bg: '#12212b', bar: '#7ee0c3', bar2: '#f2c58a', label: '#e7e7e7' },
+  agnes: { bg: '#1b1d2a', bar: '#a9d4ff', bar2: '#e9c46a', label: '#e7e7e7' },
+  michelle: { bg: '#0d1117', bar: '#7ee0c3', bar2: '#5a8dee', label: '#e7e7e7' }
+};
+function screenUiTexture(kind) {
+  return canvasTexture('screen-ui-' + kind, 256, 160, function (ctx) {
+    var s = UI_STYLE[kind] || UI_STYLE.mia;
+    ctx.fillStyle = s.bg;
+    ctx.fillRect(0, 0, 256, 160);
+    // chrome strip
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.fillRect(0, 0, 256, 18);
+    ctx.fillStyle = s.bar;
+    ctx.fillRect(8, 7, 26, 4);
+    ctx.fillStyle = s.bar2;
+    ctx.fillRect(40, 7, 18, 4);
+    var rows = kind === 'michelle' ? 11 : 9;
+    var seed = 7;
+    for (var i = 0; i < rows; i++) {
+      var y = 28 + i * (kind === 'michelle' ? 11 : 14);
+      var w = 40 + ((seed = seed * 16807 % 2147483647) % 150);
+      ctx.fillStyle = i % 3 === 0 ? s.bar2 : s.bar;
+      ctx.globalAlpha = 0.5 + ((i % 4) * 0.12);
+      ctx.fillRect(10, y, Math.min(w, 190), 4);
+      if (kind === 'agnes' && i % 3 === 1) {
+        ctx.fillStyle = s.label;
+        ctx.globalAlpha = 0.22;
+        ctx.fillRect(10, y + 6, 90, 3);
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (kind === 'mia') {
+      // a kanban-ish column on the right so the planner reads differently
+      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.fillRect(196, 28, 50, 122);
+      for (var c = 0; c < 4; c++) {
+        ctx.fillStyle = c === 1 ? s.bar : s.bar2;
+        ctx.globalAlpha = 0.8;
+        ctx.fillRect(202, 36 + c * 28, 38, 20);
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (kind === 'michelle') {
+      // minimap gutter
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      ctx.fillRect(216, 28, 30, 122);
+      ctx.fillStyle = s.bar;
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(220, 36, 22, 54);
+      ctx.globalAlpha = 1;
+    }
+  });
+}
+
+/* ── workstations ───────────────────────────────────────────────────────────
+   `profile` layers one agent's kit on top of the shared desk: Mia plans,
+   Agnes reads, Michelle ships. Same desk, three different rooms-in-a-desk. */
+var DESK_PROFILE = {
+  mia: { matColor: '#6d6252', laptop: false, books: false, mugs: true },
+  agnes: { matColor: '#7a6a52', laptop: true, books: true, mugs: false },
+  michelle: { matColor: '#2f343c', laptop: true, books: false, mugs: false }
+};
+
+function Keyboard(g, x, y, z) {
+  var kb = group(g, x, y, z);
+  // Three key SECTIONS plus a spacebar read as a keyboard at this scale; forty
+  // individual keys would be forty draw calls per desk for detail nobody can
+  // resolve at the camera distances this dashboard uses.
+  RB(kb, 0, 0, 0, 0.56, 0.022, 0.18, 0.008, '#2c3038');
+  add(rbox(0.16, 0.012, 0.14, 0.004), PM.fabricGrey, -0.17, 0.017, -0.005, kb);
+  add(rbox(0.24, 0.012, 0.032, 0.004), PM.fabricGrey, 0.08, 0.017, -0.05, kb);
+  add(rbox(0.24, 0.012, 0.032, 0.004), PM.fabricGrey, 0.08, 0.017, 0.05, kb);
+  add(rbox(0.18, 0.012, 0.03, 0.004), PM.fabricCream, -0.16, 0.017, 0.0, kb);
+  return kb;
+}
+
+function MonitorScreen(g, x, y, z, ry, kind, w) {
+  var ww = w || 0.78, hh = ww * 0.56;
+  var m = group(g, x, y, z, ry);
+  add(rbox(ww + 0.05, hh + 0.05, 0.035, 0.012), PM.plasticDark, 0, 0, 0, m);
+  var scr = new T.Mesh(new T.PlaneGeometry(ww, hh), new T.MeshBasicMaterial({ map: screenUiTexture(kind) }));
+  scr.position.set(0, 0, -0.021);
+  scr.rotation.y = Math.PI;
+  m.add(scr);
+  return m;
+}
+
+function WorkDesk(parent, x, z, ry, active, profile) {
   var g = group(parent, x, 0, z, ry);
+  var p = DESK_PROFILE[profile] || DESK_PROFILE.mia;
   RB(g, 0, 0.74, 0, 1.9, 0.07, 0.95, 0.03, M.desk);
   RB(g, -0.9, 0.37, 0, 0.06, 0.72, 0.85, 0.02, M.deskLeg);
   RB(g, 0.9, 0.37, 0, 0.06, 0.72, 0.85, 0.02, M.deskLeg);
+  // drawer pedestal: door seam + handle instead of a plain box
   RB(g, 0.55, 0.52, 0.02, 0.42, 0.4, 0.8, 0.02, M.deskLeg);
-  RB(g, 0, 1.13, 0.22, 0.86, 0.52, 0.05, 0.015, M.monitor);
-  var scr = flat(g, 0, 1.13, 0.196, 0.78, 0.46, '#1d5a6b', { emissive: '#2a8aa0', emissiveIntensity: 0.55 });
+  add(rbox(0.36, 0.012, 0.01, 0.004), PM.metalDark, 0.55, 0.55, -0.381, g);
+  add(rbox(0.012, 0.34, 0.01, 0.004), PM.metalDark, 0.55, 0.52, -0.381, g);
+  // cable tray under the back edge, and the cable that feeds the monitor
+  RB(g, 0, 0.68, 0.42, 1.5, 0.05, 0.12, 0.015, M.dark);
+  add(cyl(0.012, 0.012, 0.34, 6), PM.rubber, 0.1, 0.86, 0.34, g).rotation.x = 0.25;
+
+  // ── display: every profile gets the same bezel + stand, different content ──
+  add(rbox(0.9, 0.56, 0.05, 0.015), PM.plasticDark, 0, 1.13, 0.22, g);
+  var scr = flat(g, 0, 1.13, 0.196, 0.82, 0.48, '#1d5a6b',
+    { map: screenUiTexture(profile || 'mia'), emissive: '#2a8aa0', emissiveIntensity: active ? 0.5 : 0.12 });
   scr.rotation.y = Math.PI;
   CY(g, 0, 0.88, 0.25, 0.03, 0.03, 0.22, 8, M.steel);
   RB(g, 0, 0.78, 0.25, 0.24, 0.02, 0.14, 0.01, M.dark);
-  RB(g, 0, 0.79, -0.18, 0.56, 0.025, 0.18, 0.01, M.dark);
-  SP(g, 0.34, 0.795, -0.16, 0.05, M.dark);
-  CY(g, -0.55, 0.83, -0.1, 0.045, 0.04, 0.1, 10, '#e6e2da');
-  RB(g, 0.62, 0.85, -0.28, 0.3, 0.03, 0.22, 0.01, active ? '#7ea6c8' : '#c9c4b8');
+
+  // desk mat under the input area — the one surface that changes per person
+  var matMesh = add(rbox(0.92, 0.008, 0.44, 0.01), mat({ color: p.matColor, roughness: 0.95 }), 0.02, 0.779, -0.12, g);
+  matMesh.receiveShadow = true;
+
+  Keyboard(g, 0.0, 0.79, -0.16);
+  // mouse + pad: the pad is separate so the mouse reads as being ON something
+  add(rbox(0.2, 0.006, 0.18, 0.02), PM.fabricCharcoal, 0.44, 0.786, -0.18, g);
+  add(rbox(0.055, 0.026, 0.095, 0.025), PM.plasticMid, 0.44, 0.801, -0.18, g);
+
+  if (p.laptop) {
+    // open laptop, hinged, tilted back slightly — shared reference kit
+    var lap = group(g, -0.58, 0.79, -0.05, 0.5);
+    add(rbox(0.32, 0.014, 0.22, 0.008), PM.metal, 0, 0.007, 0, lap);
+    var lid = add(rbox(0.32, 0.21, 0.012, 0.006), PM.plasticDark, 0, 0.11, -0.1, lap);
+    lid.rotation.x = 0.28;
+    add(rbox(0.28, 0.16, 0.004, 0.003), PM.metalDark, 0, 0.115, -0.094, lid).rotation.x = 0;
+    add(rbox(0.24, 0.012, 0.09, 0.004), PM.fabricGrey, 0, 0.018, 0.03, lap);
+  }
+  if (p.books) {
+    // three spines, deliberately different heights and colours
+    var bs = [[0.8, 0.26, '#8d5bc1'], [0.74, 0.22, '#2a9d8f'], [0.78, 0.2, '#c9a24a']];
+    bs.forEach(function (b, i) {
+      var bk = add(rbox(0.035, b[1], 0.24, 0.004), mat({ color: b[2], roughness: 0.85 }), -0.74 + i * 0.045, 0.79 + b[1] / 2, -0.24, g);
+      bk.rotation.z = i === 2 ? 0.06 : 0;
+    });
+  }
+  if (p.mugs) {
+    // a ceramic mug on a coaster, and a pen beside the notebook
+    CY(g, -0.55, 0.795, -0.12, 0.055, 0.055, 0.01, 16, PM.woodPale);
+    CY(g, -0.55, 0.845, -0.12, 0.045, 0.04, 0.09, 14, PM.ceramic);
+    add(cyl(0.006, 0.006, 0.14, 6), mat({ color: '#3d5a80', roughness: 0.6 }), -0.3, 0.79, -0.36, g)
+      .rotation.z = Math.PI / 2;
+  }
+  // The one asymmetry that makes each desk recognisable from across the room.
+  if (profile === 'mia') {
+    // second screen for the coordination board
+    MonitorScreen(g, -0.68, 0.98, 0.1, 0.34, 'mia', 0.44);
+  } else if (profile === 'agnes') {
+    // tablet face-down on a folder of printouts
+    add(rbox(0.24, 0.022, 0.31, 0.006), PM.paperKraft, -0.58, 0.79, 0.28, g);
+    add(rbox(0.22, 0.01, 0.29, 0.004), PM.paper, -0.58, 0.806, 0.28, g);
+    add(rbox(0.2, 0.012, 0.27, 0.008), PM.plasticDark, -0.58, 0.818, 0.28, g);
+    add(rbox(0.18, 0.006, 0.25, 0.004), PM.glassClear, -0.58, 0.826, 0.28, g);
+  } else if (profile === 'michelle') {
+    // headphones on a stand, back-left corner
+    var hs = group(g, -0.76, 0.78, 0.24);
+    CY(hs, 0, 0.012, 0, 0.07, 0.08, 0.024, 14, PM.metalDark);
+    CY(hs, 0, 0.11, 0, 0.014, 0.014, 0.2, 8, PM.metalDark);
+    CY(hs, 0, 0.2, 0, 0.014, 0.014, 0.11, 8, PM.metalDark).rotation.z = Math.PI / 2;
+    [-0.055, 0.055].forEach(function (hx) {
+      CY(hs, hx, 0.15, 0, 0.042, 0.042, 0.035, 14, PM.plasticDark).rotation.z = Math.PI / 2;
+    });
+    add(rbox(0.15, 0.02, 0.02, 0.008), PM.plasticDark, 0, 0.24, 0, hs);
+  }
   return g;
 }
+
+/* Desk-top set dressing that is not part of any single profile: an organiser
+   tray, a pen pot and a phone live on every desk so no corner reads empty. */
+function DeskKit(parent, x, z, ry) {
+  var g = group(parent, x, 0, z, ry);
+  // paper organiser tray at the back-right, stacked sheets inside
+  add(rbox(0.3, 0.03, 0.23, 0.01), PM.plasticMid, 0.7, 0.79, -0.06, g);
+  add(rbox(0.27, 0.012, 0.2, 0.004), PM.paper, 0.7, 0.812, -0.06, g);
+  // pen pot
+  CY(g, 0.42, 0.85, 0.24, 0.045, 0.04, 0.12, 12, PM.metalDark);
+  [0.42, 0.44, 0.4].forEach(function (px, i) {
+    add(cyl(0.006, 0.006, 0.15, 6), mat({ color: ['#3d5a80', '#8d5bc1', '#2a9d8f'][i], roughness: 0.6 }),
+      px, 0.93, 0.24, g).rotation.z = (i - 1) * 0.09;
+  });
+  // phone on a small stand, screen facing the seat
+  add(rbox(0.08, 0.012, 0.14, 0.01), PM.plasticDark, 0.3, 0.79, 0.3, g);
+  add(rbox(0.075, 0.11, 0.012, 0.008), PM.plasticDark, 0.3, 0.85, 0.31, g);
+  return g;
+}
+
 function OfficeChair(parent, x, z, ry, color) {
   var g = group(parent, x, 0, z, ry);
-  RB(g, 0, 0.48, 0, 0.52, 0.09, 0.5, 0.04, color || '#39424f');
-  RB(g, 0, 0.85, -0.23, 0.5, 0.6, 0.07, 0.04, color || '#39424f');
+  var c = color || '#39424f';
+  RB(g, 0, 0.48, 0, 0.52, 0.09, 0.5, 0.04, c);
+  RB(g, 0, 0.85, -0.23, 0.5, 0.6, 0.07, 0.04, c);
+  // gas column with a telescoping sleeve, so the seat is not floating on a stick
   CY(g, 0, 0.25, 0, 0.035, 0.035, 0.42, 8, M.steel, 0.6);
+  CY(g, 0, 0.42, 0, 0.05, 0.05, 0.2, 10, PM.plasticDark);
   for (var i = 0; i < 5; i++) {
     var a = i / 5 * Math.PI * 2;
     var sp = RB(g, Math.sin(a) * 0.2, 0.05, Math.cos(a) * 0.2, 0.05, 0.04, 0.42, 0.015, M.dark);
     sp.rotation.y = a;
+    // individual caster at the end of each spoke
+    CY(g, Math.sin(a) * 0.4, 0.035, Math.cos(a) * 0.4, 0.035, 0.035, 0.03, 8, PM.rubber).rotation.z = Math.PI / 2;
   }
+  return g;
+}
+
+/* A meeting chair: four legs, no casters, lighter back. Deliberately a
+   different object from OfficeChair so the meeting table does not look like six
+   desk chairs pushed together. */
+function MeetingChair(parent, x, z, ry, color) {
+  var g = group(parent, x, 0, z, ry);
+  var c = color || '#5b6470';
+  add(rbox(0.44, 0.07, 0.44, 0.03), PM.fabricGrey, 0, 0.46, 0, g);
+  add(rbox(0.4, 0.05, 0.4, 0.025), mat({ color: c, roughness: 0.9 }), 0, 0.5, 0.01, g);
+  add(rbox(0.42, 0.42, 0.05, 0.03), PM.fabricGrey, 0, 0.74, -0.19, g);
+  [[-0.16, -0.16], [0.16, -0.16], [-0.16, 0.16], [0.16, 0.16]].forEach(function (p) {
+    add(cyl(0.016, 0.014, 0.44, 6), PM.metalDark, p[0], 0.22, p[1], g);
+  });
+  return g;
+}
+
+function Notebook(parent, x, y, z, ry, cover) {
+  var g = group(parent, x, y, z, ry);
+  add(rbox(0.17, 0.016, 0.23, 0.006), mat({ color: cover || '#2f343c', roughness: 0.8 }), 0, 0.008, 0, g);
+  add(rbox(0.155, 0.008, 0.215, 0.003), PM.paper, 0.005, 0.019, 0, g);
+  add(cyl(0.005, 0.005, 0.15, 6), PM.plasticDark, 0.11, 0.012, 0.02, g).rotation.z = Math.PI / 2;
+  return g;
+}
+
+function BookStack(parent, x, y, z, count) {
+  var g = group(parent, x, y, z, 0);
+  var cols = ['#8d5bc1', '#2a9d8f', '#c9a24a', '#3d7fd6', '#b54b45'];
+  for (var i = 0; i < (count || 3); i++) {
+    var w = 0.2 - i * 0.012;
+    var b = add(rbox(w, 0.032, 0.15, 0.004), mat({ color: cols[i % cols.length], roughness: 0.85 }),
+      (i % 2 ? 0.012 : -0.01), 0.02 + i * 0.034, (i % 2 ? 0.01 : -0.008), g);
+    b.rotation.y = (i % 2 ? 0.1 : -0.06);
+  }
+  return g;
+}
+
+function Mug(parent, x, y, z, color) {
+  var g = group(parent, x, y, z, 0);
+  CY(g, 0, 0.005, 0, 0.055, 0.055, 0.01, 16, PM.woodPale);
+  CY(g, 0, 0.055, 0, 0.042, 0.037, 0.09, 14, mat({ color: color || '#f2efe9', roughness: 0.25 }));
+  CY(g, 0, 0.099, 0, 0.036, 0.036, 0.006, 14, mat({ color: '#3a2a1c', roughness: 0.3 }));
+  return g;
+}
+
+/* Conference speakerphone: a puck with a dial ring. Small, but it is the object
+   that says "this table is for calls" without any text. */
+function Speakerphone(parent, x, y, z) {
+  var g = group(parent, x, y, z, 0);
+  CY(g, 0, 0.012, 0, 0.11, 0.12, 0.024, 24, PM.plasticDark);
+  CY(g, 0, 0.026, 0, 0.07, 0.08, 0.006, 20, PM.metalDark);
+  for (var i = 0; i < 6; i++) {
+    var a = i / 6 * Math.PI * 2;
+    CY(g, Math.cos(a) * 0.085, 0.014, Math.sin(a) * 0.085, 0.008, 0.008, 0.006, 8, PM.rubber);
+  }
+  return g;
+}
+
+function Whiteboard(parent, x, y, z, ry, w, h) {
+  var g = group(parent, x, y, z, ry);
+  var ww = w || 1.2, hh = h || 0.8;
+  add(rbox(ww, hh, 0.03, 0.01), PM.metalDark, 0, 0, 0, g);
+  add(rbox(ww - 0.06, hh - 0.06, 0.012, 0.006), PM.boardWhite, 0, 0, -0.022, g);
+  add(rbox(ww - 0.2, 0.02, 0.05, 0.008), PM.metal, 0, -hh / 2 + 0.06, -0.04, g);
+  // a few marker strokes: a plan board, not a menu
+  var strokes = [[-0.3, 0.18, 0.28, '#3d7fd6'], [-0.05, 0.1, 0.2, '#d64545'], [0.18, -0.05, 0.24, '#2a9d8f'], [-0.2, -0.16, 0.18, '#c9a24a']];
+  strokes.forEach(function (s) {
+    add(rbox(s[2], 0.018, 0.006, 0.002), mat({ color: s[3], roughness: 0.7 }), s[0], s[1], -0.03, g);
+  });
+  return g;
+}
+
+function FramedArt(parent, x, y, z, ry, w, h, tone) {
+  var g = group(parent, x, y, z, ry);
+  var ww = w || 0.7, hh = h || 0.52;
+  add(rbox(ww, hh, 0.035, 0.008), mat({ color: tone || '#8a5a3a', roughness: 0.6 }), 0, 0, 0, g);
+  add(rbox(ww - 0.08, hh - 0.08, 0.01, 0.004), mat({ color: '#f4f1ea', roughness: 0.85 }), 0, 0, -0.024, g);
+  // abstract blocks — no text, no faces
+  var blocks = [['#3d7fd6', -0.12, 0.04, 0.22, 0.2], ['#e9c46a', 0.14, -0.06, 0.16, 0.14], ['#2a9d8f', 0.02, 0.12, 0.3, 0.06]];
+  blocks.forEach(function (b) {
+    add(rbox(b[2], b[3], 0.006, 0.002), mat({ color: b[0], roughness: 0.8 }), b[1], b[2] - 0.02, -0.03, g);
+  });
+  return g;
+}
+
+/* ── pantry appliances ─────────────────────────────────────────────────────
+   Sized against the 2.0 m counter: espresso + microwave on the counter, the
+   sink cut into it, everything else on a rail or a shelf. Warm wood, matte
+   off-white shell, dark worktop, metal only where metal is the point. */
+function EspressoMachine(parent, x, y, z, ry) {
+  var g = group(parent, x, y, z, ry);
+  add(rbox(0.34, 0.34, 0.3, 0.02), PM.metal, 0, 0.17, 0, g);
+  add(rbox(0.3, 0.06, 0.26, 0.01), PM.plasticDark, 0, 0.35, 0, g);
+  // group head + two spouts
+  add(rbox(0.12, 0.06, 0.08, 0.01), PM.metalDark, 0, 0.28, 0.14, g);
+  add(cyl(0.008, 0.008, 0.05, 6), PM.metal, -0.02, 0.23, 0.16, g);
+  add(cyl(0.008, 0.008, 0.05, 6), PM.metal, 0.02, 0.23, 0.16, g);
+  // pressure gauge
+  CY(g, 0.1, 0.24, 0.15, 0.035, 0.035, 0.01, 16, PM.boardWhite).rotation.x = Math.PI / 2;
+  // cup warming rail
+  add(rbox(0.3, 0.012, 0.02, 0.004), PM.metal, 0, 0.39, -0.1, g);
+  return g;
+}
+
+function Microwave(parent, x, y, z, ry) {
+  var g = group(parent, x, y, z, ry);
+  add(rbox(0.46, 0.28, 0.34, 0.015), mat({ color: '#2f3338', roughness: 0.5 }), 0, 0.14, 0, g);
+  add(rbox(0.3, 0.2, 0.01, 0.004), PM.glassClear, -0.07, 0.15, 0.175, g);
+  add(rbox(0.06, 0.2, 0.012, 0.004), PM.metal, 0.17, 0.15, 0.178, g);
+  add(rbox(0.05, 0.02, 0.012, 0.004), PM.metalDark, 0.17, 0.24, 0.182, g);
+  add(rbox(0.05, 0.02, 0.012, 0.004), PM.metalDark, 0.17, 0.18, 0.182, g);
+  add(rbox(0.34, 0.012, 0.26, 0.004), PM.boardWhite, 0, 0.286, 0, g);
+  return g;
+}
+
+function SinkFaucet(parent, x, y, z) {
+  var g = group(parent, x, y, z, 0);
+  CY(g, 0, 0.015, 0, 0.07, 0.07, 0.03, 16, PM.metal);
+  CY(g, 0, 0.13, 0, 0.016, 0.016, 0.23, 10, PM.metal);
+  CY(g, 0, 0.24, 0.04, 0.014, 0.014, 0.1, 10, PM.metal).rotation.x = 0.9;
+  add(rbox(0.05, 0.012, 0.012, 0.004), PM.metal, 0, 0.26, -0.03, g);
+  return g;
+}
+
+function Canister(parent, x, y, z, ry, h, color) {
+  var g = group(parent, x, y, z, ry);
+  CY(g, 0, h / 2, 0, 0.055, 0.055, h, 16, PM.glassClear);
+  CY(g, 0, h * 0.35, 0, 0.05, 0.05, h * 0.6, 14, mat({ color: color || '#c8a06a', roughness: 0.6 }));
+  CY(g, 0, h + 0.008, 0, 0.058, 0.058, 0.016, 16, PM.metalDark);
+  return g;
+}
+
+function MugRack(parent, x, y, z, ry) {
+  var g = group(parent, x, y, z, ry);
+  // backplate: the rail has to touch the wall it is screwed to. It used to sit
+  // at z -0.05 with clear air between it and the rail at z 0 — the part check
+  // only excused it because it happened to look wall-attached at its old
+  // height, and stopped excusing it the moment the counter was measured
+  // correctly. Flush against the rail now, which is what screws it on.
+  add(rbox(0.5, 0.07, 0.02, 0.006), PM.metalDark, 0, 0, -0.01, g);
+  add(rbox(0.5, 0.02, 0.02, 0.006), PM.metalDark, 0, 0, 0, g);
+  for (var i = 0; i < 4; i++) {
+    var px = -0.18 + i * 0.12;
+    add(cyl(0.006, 0.006, 0.09, 6), PM.metalDark, px, -0.045, 0.012, g);
+    add(cyl(0.036, 0.032, 0.08, 14), mat({ color: ['#f2efe9', '#e8dcc0', '#dfe8e6', '#f2efe9'][i], roughness: 0.3 }), px, -0.11, 0.012, g);
+  }
+  return g;
+}
+
+function TissueBox(parent, x, y, z, ry) {
+  var g = group(parent, x, y, z, ry);
+  add(rbox(0.22, 0.1, 0.12, 0.014), mat({ color: '#dfe3e6', roughness: 0.8 }), 0, 0.05, 0, g);
+  add(rbox(0.12, 0.03, 0.05, 0.008), PM.paper, 0, 0.105, 0, g);
+  return g;
+}
+
+function WasteBin(parent, x, z, ry, color) {
+  var g = group(parent, x, 0, z, ry);
+  CY(g, 0, 0.18, 0, 0.16, 0.13, 0.36, 18, mat({ color: color || '#59606b', roughness: 0.7 }));
+  CY(g, 0, 0.37, 0, 0.165, 0.165, 0.03, 18, PM.metalDark);
+  CY(g, 0, 0.4, 0, 0.07, 0.07, 0.04, 14, PM.plasticDark);
+  return g;
+}
+
+/* ── storage ──────────────────────────────────────────────────────────────── */
+function Printer(parent, x, z, ry) {
+  var g = group(parent, x, 0, z, ry);
+  add(rbox(0.5, 0.16, 0.34, 0.01), PM.plasticDark, 0, 0.08, -0.02, g);  // paper trays, from the floor up
+  add(rbox(0.5, 0.16, 0.34, 0.01), PM.plasticMid, 0, 0.24, -0.02, g);
+  add(rbox(0.62, 0.4, 0.48, 0.02), mat({ color: '#e6e8ea', roughness: 0.55 }), 0, 0.52, 0, g);
+  add(rbox(0.66, 0.04, 0.5, 0.012), PM.plasticDark, 0, 0.74, 0, g);
+  add(rbox(0.5, 0.05, 0.3, 0.012), PM.plasticDark, 0, 0.665, 0.05, g);  // output slot lid
+  add(rbox(0.36, 0.012, 0.22, 0.004), PM.paper, 0, 0.695, 0.12, g);     // a sheet waiting
+  add(rbox(0.34, 0.02, 0.26, 0.006), PM.boardWhite, 0.14, 0.72, 0.12, g);  // control panel
+  return g;
+}
+
+function FilingCabinet(parent, x, z, ry, drawers) {
+  var g = group(parent, x, 0, z, ry);
+  var n = drawers || 3;
+  add(rbox(0.52, 1.18, 0.6, 0.012), mat({ color: '#e8e6e1', roughness: 0.6 }), 0, 0.59, 0, g);
+  add(rbox(0.56, 0.03, 0.64, 0.008), PM.metalDark, 0, 1.2, 0, g);
+  for (var i = 0; i < n; i++) {
+    var y = 0.22 + i * (1.06 / n);
+    add(rbox(0.46, 1.06 / n - 0.03, 0.02, 0.006), PM.metalDark, 0, y, -0.31, g);
+    add(rbox(0.16, 0.018, 0.014, 0.005), PM.metal, 0, y, -0.315, g);
+  }
+  return g;
+}
+
+function Sideboard(parent, x, z, ry, w) {
+  var g = group(parent, x, 0, z, ry);
+  var ww = w || 1.2;
+  add(rbox(ww, 0.62, 0.42, 0.014), PM.woodCase, 0, 0.44, 0, g);
+  add(rbox(ww + 0.03, 0.03, 0.45, 0.008), PM.woodPale, 0, 0.77, 0, g);
+  var doors = ww > 1 ? 3 : 2;
+  for (var i = 0; i < doors; i++) {
+    var dx = -ww / 2 + (ww / doors) * (i + 0.5);
+    add(rbox(ww / doors - 0.04, 0.5, 0.014, 0.005), PM.woodPale, dx, 0.44, -0.215, g);
+    add(cyl(0.008, 0.008, 0.1, 6), PM.brass, dx + (ww / doors) * 0.32, 0.44, -0.23, g);
+  }
+  [[-ww / 2 + 0.06, -0.15], [ww / 2 - 0.06, 0.15]].forEach(function (p) {
+    CY(g, p[0], 0.06, p[1], 0.02, 0.025, 0.12, 8, PM.woodDk);
+  });
+  return g;
+}
+
+function StorageBox(parent, x, y, z, ry, w, color) {
+  var g = group(parent, x, y, z, ry);
+  var ww = w || 0.42;
+  add(rbox(ww, 0.3, 0.36, 0.02), mat({ color: color || '#c8b79a', roughness: 0.92 }), 0, 0.15, 0, g);
+  add(rbox(ww + 0.02, 0.03, 0.38, 0.01), mat({ color: '#b5a284', roughness: 0.9 }), 0, 0.3, 0, g);
+  add(rbox(0.12, 0.04, 0.012, 0.005), PM.paper, 0, 0.17, -0.185, g);
+  return g;
+}
+
+function CoatStand(parent, x, z, ry) {
+  var g = group(parent, x, 0, z, ry);
+  CY(g, 0, 0.02, 0, 0.16, 0.18, 0.04, 16, PM.metalDark);
+  CY(g, 0, 0.9, 0, 0.02, 0.02, 1.76, 10, PM.metalDark);
+  [[0.3, 0], [-0.3, 0], [0, 0.3], [0, -0.3]].forEach(function (d) {
+    var a = Math.atan2(d[0], d[1]);
+    var arm = add(cyl(0.012, 0.012, 0.3, 8), PM.metalDark, d[0] / 2, 1.72, d[1] / 2, g);
+    arm.rotation.z = -Math.cos(a) * 0.9;
+    arm.rotation.x = Math.sin(a) * 0.9;
+  });
+  // one coat already on it
+  add(rbox(0.26, 0.7, 0.1, 0.04), PM.fabricCharcoal, 0.2, 1.33, 0.05, g);
+  return g;
+}
+
+/* ── lounge extras ────────────────────────────────────────────────────────── */
+function LoungeSideTable(parent, x, z) {
+  var g = group(parent, x, 0, z, 0);
+  CY(g, 0, 0.015, 0, 0.2, 0.22, 0.03, 20, PM.metalDark);
+  CY(g, 0, 0.27, 0, 0.03, 0.03, 0.48, 10, PM.metalDark);
+  CY(g, 0, 0.52, 0, 0.22, 0.22, 0.035, 24, PM.woodPale);
+  // a small tray with two coasters on it, so the table is not bare
+  add(rbox(0.16, 0.014, 0.12, 0.006), PM.metal, 0.02, 0.545, 0, g);
+  CY(g, -0.02, 0.556, 0.02, 0.045, 0.045, 0.008, 14, PM.woodPale);
+  CY(g, 0.06, 0.558, -0.02, 0.038, 0.038, 0.008, 14, PM.woodPale);
+  return g;
+}
+
+function Ottoman(parent, x, z, ry) {
+  var g = group(parent, x, 0, z, ry);
+  add(rbox(0.56, 0.16, 0.44, 0.06), PM.fabricCream, 0, 0.34, 0, g);
+  add(rbox(0.5, 0.1, 0.38, 0.05), PM.fabricGrey, 0, 0.46, 0, g);
+  [[-0.2, -0.14], [0.2, -0.14], [-0.2, 0.14], [0.2, 0.14]].forEach(function (p) {
+    add(cyl(0.018, 0.014, 0.28, 6), PM.woodDk, p[0], 0.14, p[1], g);
+  });
+  return g;
+}
+
+function FloorLamp(parent, x, z) {
+  var g = group(parent, x, 0, z, 0);
+  CY(g, 0, 0.015, 0, 0.16, 0.18, 0.03, 20, PM.metalDark);
+  CY(g, 0, 0.78, 0, 0.02, 0.02, 1.52, 10, PM.metalDark);
+  // warm shade; emissive is registered so it follows the day/night theme
+  var shade = mat({ color: '#f6e7c8', emissive: '#ffcf8a', emissiveIntensity: 0.12, transparent: true, opacity: 0.92 });
+  registerTheme(shade, { emissiveIntensity: 0.12 }, { emissiveIntensity: 2.1 });
+  CY(g, 0, 1.62, 0, 0.16, 0.22, 0.28, 20, shade);
+  var l = new T.PointLight('#ffd9a8', 0.1, 4, 2);
+  l.position.set(0, 1.5, 0);
+  registerTheme(l, { intensity: 0.10, distance: 4, decay: 2 }, { intensity: 1.8, distance: 4, decay: 2 });
+  g.add(l);
+  return g;
+}
+
+function AcousticPanel(parent, x, y, z, ry, w) {
+  var g = group(parent, x, y, z, ry);
+  var ww = w || 0.9;
+  add(rbox(ww, 1.1, 0.05, 0.015), PM.fabricCharcoal, 0, 0, 0, g);
+  add(rbox(ww - 0.08, 1.02, 0.012, 0.006), mat({ color: '#3b414b', roughness: 0.98 }), 0, 0, -0.03, g);
+  return g;
+}
+
+function WallShelf(parent, x, y, z, ry, w) {
+  var g = group(parent, x, y, z, ry);
+  var ww = w || 1.2;
+  add(rbox(ww, 0.035, 0.24, 0.008), PM.woodPale, 0, 0, 0, g);
+  [[-ww / 2 + 0.14, -0.09], [ww / 2 - 0.14, 0.09]].forEach(function (p) {
+    add(rbox(0.03, 0.12, 0.16, 0.006), PM.metalDark, p[0], -0.07, p[1], g);
+  });
+  BookStack(g, -ww / 4, 0.018, 0, 3);
+  // one object with a silhouette, so the shelf is not only paper
+  add(rbox(0.1, 0.22, 0.1, 0.03), mat({ color: '#d9c3a0', roughness: 0.6 }), ww / 4, 0.11, 0, g);
+  add(cyl(0.05, 0.07, 0.14, 14), PM.ceramic, ww / 4 + 0.16, 0.07, 0.01, g);
+  return g;
+}
+
+function SignBoard(parent, x, y, z, ry, w, text) {
+  var g = group(parent, x, y, z, ry);
+  var ww = w || 2.0;
+  add(rbox(ww, 0.46, 0.05, 0.012), PM.plasticDark, 0, 0, 0, g);
+  // letterforms are a texture, not geometry: one plane instead of 11 boxes
+  var tex = canvasTexture('sign-' + text, 512, 128, function (ctx) {
+    ctx.fillStyle = '#12161c';
+    ctx.fillRect(0, 0, 512, 128);
+    ctx.strokeStyle = 'rgba(126,224,195,0.45)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(10, 10, 492, 108);
+    ctx.fillStyle = '#e9eef2';
+    ctx.font = 'bold 58px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 256, 68);
+  });
+  var face = new T.Mesh(new T.PlaneGeometry(ww - 0.08, 0.38), new T.MeshBasicMaterial({ map: tex }));
+  face.position.set(0, 0, -0.028);
+  g.add(face);
   return g;
 }
 
@@ -1323,11 +2002,20 @@ function OfficeLight(parent, x, y, z, ry) {
   CY(g, -0.55, 0.3, 0, 0.006, 0.006, 0.6, 6, M.steel);
   CY(g, 0.55, 0.3, 0, 0.006, 0.006, 0.6, 6, M.steel);
   RB(g, 0, 0, 0, 1.4, 0.06, 0.16, 0.02, '#d9dde0', 0.4);
-  var em = lampMaterial({ color: '#ffffff', emissive: '#f2f6ff', emissiveIntensity: NIGHT ? 2.2 : 0.25, side: T.DoubleSide });
+  var em = lampMaterial({ color: '#ffffff', emissive: '#f2f6ff', side: T.DoubleSide }, 0.16, 2.4);
   var panel = new T.Mesh(new T.PlaneGeometry(1.32, 0.11), em);
   panel.rotation.x = Math.PI / 2;
   panel.position.set(0, -0.032, 0);
   g.add(panel);
+  // The fixture used to be a glowing mesh with no light behind it: at night
+  // the ceiling read as decorated while the desks underneath stayed black.
+  // A tight, short-range light makes it actually light the surface it is
+  // mounted over. Not a shadow caster — nine of those would be ruinous, and
+  // the sun/moon already carries every shadow in the room.
+  var l = new T.PointLight('#f1f5ff', 0.3, 5.2, 2);
+  l.position.set(0, -0.28, 0);
+  registerTheme(l, { intensity: 0.30, distance: 5.2, decay: 2 }, { intensity: 2.1, distance: 5.2, decay: 2 });
+  g.add(l);
   return g;
 }
 function AirConditioner(parent, x, y, z, ry) {
@@ -1348,13 +2036,14 @@ function AcOutdoorUnit(parent, x, y, z, ry) {
 function StringLights(parent, x, y, z, len) {
   var g = group(parent, x, y, z);
   var n = Math.round(len / 0.45);
-  var em = lampMaterial({ color: '#fff1c4', emissive: '#ffcf6b', emissiveIntensity: NIGHT ? 2.2 : 0.25 });
+  var em = lampMaterial({ color: '#fff1c4', emissive: '#ffcf6b' });
   for (var i = 0; i < n; i++) {
     var t = i / (n - 1 || 1);
     SP(g, -len / 2 + t * len, -Math.sin(t * Math.PI) * 0.25, 0, 0.05, '#fff1c4', 0.4);
   }
-  var l = new T.PointLight('#ffcf8a', NIGHT ? 6 : 0.6, 6);
+  var l = new T.PointLight('#ffcf8a', 0.2, 6, 2);
   l.position.set(0, -0.4, 0);
+  registerTheme(l, { intensity: 0.20, distance: 6, decay: 2 }, { intensity: 2.6, distance: 6, decay: 2 });
   g.add(l);
   return g;
 }
@@ -1362,12 +2051,14 @@ function StreetLamp(parent, x, z) {
   var g = group(parent, x, 0, z);
   CY(g, 0, 1.6, 0, 0.06, 0.06, 3.2, 10, '#2f3336');
   RB(g, 0.35, 3.15, 0, 0.8, 0.06, 0.06, 0.02, '#2f3336');
-  var em = lampMaterial({ color: '#f5e6b8', emissive: '#ffd98a', emissiveIntensity: NIGHT ? 2.5 : 0.2 });
+  var em = lampMaterial({ color: '#f5e6b8', emissive: '#ffd98a' });
   RB(g, 0.7, 3.05, 0, 0.3, 0.12, 0.2, 0.04, '#f5e6b8', 0.4);
-  var l = new T.PointLight('#ffd08a', NIGHT ? 10 : 1, 8);
+  // Sodium-warm and reaching well past its own pole: the pool of light on the
+  // pavement is the thing that makes night read as night.
+  var l = new T.PointLight('#ffd08a', 0.4, 6.2, 2);
   l.position.set(0.7, 2.9, 0);
+  registerTheme(l, { intensity: 0.40, distance: 6.2, decay: 2 }, { intensity: 2.4, distance: 6.2, decay: 2 });
   g.add(l);
-  em.emissiveIntensity = NIGHT ? 2.5 : 0.2;
   return g;
 }
 function WallClock(parent, x, y, z, ry) {
@@ -1399,11 +2090,18 @@ function Gerobak(parent, p) {
   RB(g, 0, 2.38, 0, 2.1, 0.08, 1.1, 0.03, '#c62828');
   var sign = new T.Mesh(new T.PlaneGeometry(1.7, 0.53), mat({ map: signTexture('BAKSO', '#c62828', '#fff4d6', 'MALANG · MANTAP'), roughness: 0.7 }));
   sign.position.set(0, 1.78, 0.56);
+  // hang the sign off the frame instead of floating it in front of the cart:
+  // two rods up to the roof beam, so the sign has something to be attached to
+  [-0.78, 0.78].forEach(function (hx) {
+    var rod = add(cyl(0.012, 0.012, 0.6, 6), PM.metalDark, hx, 2.04, 0.56, g);
+    rod.rotation.x = -0.18;
+  });
   g.add(sign);
-  var em = lampMaterial({ color: '#ffcc66', emissive: '#ffcc66', emissiveIntensity: NIGHT ? 2.2 : 0.1 });
+  var em = lampMaterial({ color: '#ffcc66', emissive: '#ffcc66' }, 0.05, 2.2);
   SP(g, 0.2, 1.8, 0.2, 0.08, '#ffcc66', 0.4);
-  var l = new T.PointLight('#ffc978', NIGHT ? 4 : 0.4, 4.5);
+  var l = new T.PointLight('#ffc978', 0.12, 4.5, 2);
   l.position.set(0.2, 1.8, 0.3);
+  registerTheme(l, { intensity: 0.12, distance: 4.5, decay: 2 }, { intensity: 2.4, distance: 4.5, decay: 2 });
   g.add(l);
   PlasticStool(g, 1.1, 0, 0.6, M.blue);
   PlasticStool(g, 1.2, 0, -0.4, M.red);
@@ -1431,11 +2129,17 @@ function KopiSepeda(parent, p) {
   [-0.78, -0.55, -0.32].forEach(function (tx, i) {
     CY(g, tx, 1.32, 0, 0.05, 0.05, 0.22, 10, ['#d9534f', '#3d7fd6', '#e9c46a'][i]);
   });
+  // the sachets hang from a bar: without it they are six rectangles floating
+  // in mid-air beside the frame, which is what the placement audit flagged
+  RB(g, 0.5, 1.03, -0.0, 0.03, 0.03, 0.62, 0.008, PM.metalDark);
   for (var i = 0; i < 6; i++) RB(g, 0.5, 0.78, -0.25 + i * 0.1, 0.012, 0.46, 0.07, 0.004, '#e9c46a');
-  var em = lampMaterial({ color: '#ffcc66', emissive: '#ffcc66', emissiveIntensity: NIGHT ? 2.2 : 0.1 });
+  var em = lampMaterial({ color: '#ffcc66', emissive: '#ffcc66' }, 0.05, 2.2);
+  // bracket: the lamp used to hover a hand's width above the frame post
+  CY(g, 0.52, 1.0, 0.05, 0.014, 0.014, 0.36, 8, PM.metalDark);
   SP(g, 0.52, 1.18, 0, 0.08, '#ffcc66', 0.4);
-  var l = new T.PointLight('#ffc978', NIGHT ? 4 : 0.4, 4.5);
+  var l = new T.PointLight('#ffc978', 0.12, 4.5, 2);
   l.position.set(0.52, 1.18, 0.1);
+  registerTheme(l, { intensity: 0.12, distance: 4.5, decay: 2 }, { intensity: 2.4, distance: 4.5, decay: 2 });
   g.add(l);
   return g;
 }
@@ -1486,8 +2190,15 @@ function Window(x, y, z, ry, width) {
   var w = width || 1.8;
   var g = group(scene, x, y, z, ry);
   RB(g, 0, 0, 0, w + 0.12, 1.22, 0.12, 0.02, '#5a4636');
-  var glass = flat(g, 0, 0, 0.065, w, 1.1, NIGHT ? '#2d3f5c' : '#9fd3ea',
-    { emissive: NIGHT ? '#1c2c4a' : '#6fb6d6', emissiveIntensity: NIGHT ? 0.6 : 0.15, transparent: true, opacity: 0.55, roughness: 0.1 });
+  // The glazing used to bake `NIGHT ? darkBlue : paleBlue` into the material at
+// construction time, so the windows stayed sky-lit after sunset — the exact
+// "bright daytime element left behind in a dark scene" failure. Registered, so
+// the same pane cools and dims with the rest of the atmosphere.
+var glass = flat(g, 0, 0, 0.065, w, 1.1, '#9fd3ea', {
+  emissive: '#6fb6d6', emissiveIntensity: 0.12, transparent: true, opacity: 0.55, roughness: 0.1 });
+  registerTheme(glass.material,
+    { color: '#9fd3ea', emissive: '#6fb6d6', emissiveIntensity: 0.12 },
+    { color: '#2d3f5c', emissive: '#22375c', emissiveIntensity: 0.10 });
   RB(g, 0, 0, 0.07, 0.04, 1.1, 0.04, 0.01, '#5a4636');
   glass.castShadow = false;
   return g;
@@ -1508,6 +2219,449 @@ var TILE = tileTexture(2, 4);
 var RUG_LOUNGE = carpetTexture('#5b7c8c', 3, 2);
 var RUG_MEET = carpetTexture('#8a4b3c', 3, 3);
 var RUG_GAME = carpetTexture('#3b4170', 4, 3);
+
+/* ── placement system ───────────────────────────────────────────────────────
+   Root cause of every "floating / sinking / clipping" defect in this scene:
+   every prop was positioned by hand-typed absolute Y values written against
+   guessed surface heights (desk 0.775, counter 0.945, table 0.78 ...). One
+   centimetre off and a mug hovers or a filing cabinet sinks.
+
+   This system replaces that convention with measurement:
+     registerSurface()  records the REAL top of a support, once, from geometry
+     placeOnFloor()     snaps a group so its lowest world point sits on the floor
+     placeOnSurface()   snaps a group so its lowest world point sits on that top
+     placeOnWall()      snaps a group flat against a wall's inner face
+   All of them measure the group's own world AABB, so they are self-correcting:
+   they work no matter what Y the builder typed, and they keep working if the
+   supporting furniture later moves. */
+
+var FLOOR_Y = 0;
+var FLOOR_TOL = 0.02;      // 2 cm — below this nobody can see it
+var CONTACT_TOL = 0.02;    // penetration that counts as "clipping"
+var PENETRATION_VOL = 0.0004; // m^3 of AABB overlap that counts as a collision
+
+/* Inner faces of the real walls, derived from how Wall() builds them: the box
+   is centred on the line with WALL_T thickness, so the room-side face sits half
+   a thickness inside the line. `axis` is the wall's normal. */
+var WALLS = [
+  { id: 'north', axis: 'z', side: 1, at: LAYOUT.building.minZ + WALL_T / 2, from: LAYOUT.building.minX, to: LAYOUT.building.maxX, height: WALL_H },
+  { id: 'west', axis: 'x', side: 1, at: LAYOUT.building.minX + WALL_T / 2, from: LAYOUT.building.minZ, to: LAYOUT.building.maxZ, height: WALL_H },
+  { id: 'east', axis: 'x', side: -1, at: LAYOUT.building.maxX - WALL_T / 2, from: LAYOUT.building.minZ, to: LAYOUT.building.maxZ, height: 1.1 },
+  { id: 'front-a', axis: 'z', side: -1, at: LAYOUT.building.maxZ - WALL_T / 2, from: LAYOUT.building.minX, to: 4.9, height: 0.55 },
+  { id: 'front-b', axis: 'z', side: -1, at: LAYOUT.building.maxZ - WALL_T / 2, from: 6.7, to: LAYOUT.building.maxX, height: 0.55 },
+  { id: 'partition', axis: 'x', side: -1, partial: true, at: PARTITION_X, from: LAYOUT.building.minZ, to: LOUNGE_PARTITION_END_Z, height: 0.9 },
+  { id: 'meeting', axis: 'x', side: -1, partial: true, at: -3.2, from: 1, to: LAYOUT.building.maxZ, height: 0.9 },
+  // The game room is an ANNEX east of the building, with its own three walls.
+  // Without those, its furniture looked like it was inside the building's east
+  // wall; with them it is judged against the wall that actually encloses it.
+  { id: 'game-north', axis: 'z', side: 1, at: GAME_ROOM.minZ + WALL_T / 2, from: GAME_ROOM.minX, to: GAME_ROOM.maxX, height: WALL_H },
+  { id: 'game-east', axis: 'x', side: -1, at: GAME_ROOM.maxX - WALL_T / 2, from: GAME_ROOM.minZ, to: GAME_ROOM.maxZ, height: WALL_H },
+  { id: 'game-south', axis: 'z', side: -1, partial: true, at: GAME_ROOM.maxZ - WALL_T / 2, from: GAME_ROOM.minX, to: GAME_ROOM.maxX, height: 0.55 }
+];
+
+/* Rooms outside the main building footprint. Furniture whose centre falls in one
+   of these belongs to that room and is judged against its own walls. */
+var ANNEXES = [
+  { id: 'game', minX: GAME_ROOM.minX, maxX: GAME_ROOM.maxX, minZ: GAME_ROOM.minZ, maxZ: GAME_ROOM.maxZ }
+];
+function annexAt(x, z) {
+  for (var i = 0; i < ANNEXES.length; i++) {
+    var a = ANNEXES[i];
+    if (x >= a.minX - 0.4 && x <= a.maxX + 0.4 && z >= a.minZ - 0.4 && z <= a.maxZ + 0.4) return a.id;
+  }
+  return null;
+}
+
+var SURFACES = {};   // name -> measured top Y (world)
+var SURFACE_BOXES = {}; // name -> world AABB of the support (footprint)
+var PLACED = [];     // { name, group, kind, support, zone, note }
+var PLACED_INDEX = {}; // name -> record
+var PLACEMENT_ISSUES = [];
+
+function worldBounds(obj) {
+  obj.updateWorldMatrix(true, true);
+  return new T.Box3().setFromObject(obj);
+}
+
+/* Register the group for validation and diagnostics, then return it so call
+   sites stay one-liners: placeFurniture('desk:mia', WorkDesk(...)). */
+function placeFurniture(name, group, opts) {
+  var o = opts || {};
+  group.name = name;
+  var rec = {
+    name: name, group: group,
+    kind: o.kind || 'floor',           // floor | surface | wall | outdoor
+    support: o.support || null,        // surface record this one stands on
+    zone: o.zone || '',
+    note: o.note || '',
+    radius: o.radius || null,          // circular furniture: an AABB is not its shape
+    hosts: o.hosts || [],              // agent spots this furniture legitimately IS
+    tuckedUnder: o.tuckedUnder || null, // a chair under its own desk is not a collision
+    assembly: o.assembly || name       // parts of one assembly never collide
+  };
+  PLACED.push(rec);
+  PLACED_INDEX[name] = rec;
+  return group;
+}
+
+/* The working surface of a support is its topmost SLAB, not its tallest point.
+
+   Measuring max.y of the whole group is wrong in a way that is invisible to
+   the eye until you look for it: on a desk the tallest point is the MONITOR
+   standing on the desktop, on a coffee table it is the CANDLE standing on the
+   top, on the pantry counter it is the KETTLE. Every accessory placed on that
+   number therefore landed on top of whatever was already there — the desk pen
+   pots floated 62 cm in the air at monitor height, and the pantry appliances
+   sank 3.5 cm into the worktop because the old override named the cabinet
+   carcass rather than the slab on it.
+
+   So: among the meshes of the support, the working surface is the one with the
+   largest footprint. A tabletop is wide; a monitor, a candle and a kettle are
+   not. This is still measured from real geometry, never a typed-in number. */
+function slabTop(group) {
+  group.updateWorldMatrix(true, true);
+  var best = null, bestArea = 0;
+  group.traverse(function (c) {
+    if (!c.isMesh || !c.geometry) return;
+    var b = new T.Box3().setFromObject(c);
+    var area = (b.max.x - b.min.x) * (b.max.z - b.min.z);
+    if (area > bestArea) { bestArea = area; best = b; }
+  });
+  return best ? best.max.y : worldBounds(group).max.y;
+}
+
+/* Measure and remember a support's top surface. Call it right after the support
+   is built, before anything is stacked on it. */
+function registerSurface(name, group, surfaceY) {
+  // `surfaceY` stays available for the one case a footprint cannot decide: a
+  // support whose surface you deliberately stand on something OTHER than its
+  // widest slab (the game TV sits on the little riser on top of the cabinet).
+  var b = worldBounds(group);
+  SURFACES[name] = surfaceY == null ? slabTop(group) : surfaceY;
+  SURFACE_BOXES[name] = b; // the footprint matters: a mug must be over the table, not merely near it
+  return SURFACES[name];
+}
+
+/* Five footprint samples: the centre plus four inset corners. A single centre
+   sample falls outside the support for anything that overhangs (a printer lid,
+   a keyboard wider than its own key section) and inside nothing at all for a
+   panel set back on its housing — which is exactly how floaters slipped
+   through the first version of this check. */
+function supportSamples(b, inset) {
+  var i = inset == null ? 0.25 : inset;
+  var x0 = b.min.x, x1 = b.max.x, z0 = b.min.z, z1 = b.max.z;
+  var dx = (x1 - x0) * i, dz = (z1 - z0) * i;
+  return [[(x0 + x1) / 2, (z0 + z1) / 2], [x0 + dx, z0 + dz], [x1 - dx, z0 + dz],
+    [x0 + dx, z1 - dz], [x1 - dx, z1 - dz]];
+}
+function pointInBox(x, z, b, pad) {
+  var p = pad || 0;
+  return x >= b.min.x - p && x <= b.max.x + p && z >= b.min.z - p && z <= b.max.z + p;
+}
+
+function placeOnFloor(group, floorY) {
+  var y = floorY == null ? FLOOR_Y : floorY;
+  group.updateWorldMatrix(true, true);
+  var min = worldBounds(group).min.y;
+  group.position.y += y - min;
+  group.updateWorldMatrix(true, true);
+  return y - min;
+}
+
+/* Sit a group exactly on a registered surface. The group's own lowest point —
+   not its origin — becomes the contact point, which is what makes a laptop's
+   base and a mug's coaster land on the wood instead of near it. */
+function placeOnSurface(group, surfaceName) {
+  var top = SURFACES[surfaceName];
+  if (top == null) return null;
+  group.updateWorldMatrix(true, true);
+  var min = worldBounds(group).min.y;
+  group.position.y += top - min;
+  group.updateWorldMatrix(true, true);
+  return top;
+}
+
+/* Push a wall-mounted group until its back face rests on the wall's inner face.
+   `gap` is the deliberate stand-off (e.g. a frame's own depth). */
+function placeOnWall(group, wallId, gap) {
+  var w = null;
+  for (var i = 0; i < WALLS.length; i++) if (WALLS[i].id === wallId) w = WALLS[i];
+  if (!w) return null;
+  var b = worldBounds(group);
+  var off = gap || 0;
+  // `side` says which way the room lies. The object's back face is the one
+  // furthest from the room, and that is what has to land on the wall plane.
+  if (w.axis === 'z') {
+    group.position.z += w.side > 0 ? (w.at + off) - b.min.z : (w.at - off) - b.max.z;
+  } else {
+    group.position.x += w.side > 0 ? (w.at + off) - b.min.x : (w.at - off) - b.max.x;
+  }
+  group.updateWorldMatrix(true, true);
+  return w;
+}
+
+/* ── validator ──────────────────────────────────────────────────────────────
+   Runs once after the scene is built. It reports, with names and measured
+   offsets: floaters, sinkers, surface mismatches, wall penetrations,
+   out-of-zone furniture, furniture on an agent spot, and AABB overlaps between
+   INDEPENDENT assemblies (parts of the same assembly are exempt — a chair seat
+   is supposed to touch its own frame). No auto-resolver: this exists to tell
+   us what is wrong, and every fix is applied deliberately. */
+function overlapVolume(a, b) {
+  var ox = Math.min(a.max.x, b.max.x) - Math.max(a.min.x, b.min.x);
+  var oy = Math.min(a.max.y, b.max.y) - Math.max(a.min.y, b.min.y);
+  var oz = Math.min(a.max.z, b.max.z) - Math.max(a.min.z, b.min.z);
+  if (ox <= 0 || oy <= 0 || oz <= 0) return null;
+  return { x: ox, y: oy, z: oz, v: ox * oy * oz };
+}
+
+/* Agent destinations that furniture must not stand on. */
+var AGENT_SPOTS = (function () {
+  var pts = [];
+  LAYOUT.desks.forEach(function (d) { pts.push({ x: d[0], z: d[2] - 0.75, what: 'workstation seat' }); });
+  IDLE_STOPS.forEach(function (st) {
+    st.spots.forEach(function (s) { pts.push({ x: s.position[0], z: s.position[2], what: 'idle spot:' + st.key }); });
+  });
+  return pts;
+})();
+
+function validateFurniturePlacement(opts) {
+  var o = opts || {};
+  scene.updateMatrixWorld(true);
+  var issues = [];
+  var boxes = {};
+  PLACED.forEach(function (r) { boxes[r.name] = worldBounds(r.group); r.bounds = boxes[r.name]; });
+
+  // 1 — floor contact
+  PLACED.forEach(function (r) {
+    if (r.kind !== 'floor' && r.kind !== 'outdoor') return;
+    var d = boxes[r.name].min.y - FLOOR_Y;
+    if (d > FLOOR_TOL) issues.push({ name: r.name, zone: r.zone, issue: 'floats', offset: +d.toFixed(3) });
+    else if (d < -FLOOR_TOL) issues.push({ name: r.name, zone: r.zone, issue: 'sunk into floor', offset: +d.toFixed(3) });
+  });
+
+  // 2 — surface contact
+  PLACED.forEach(function (r) {
+    if (r.kind !== 'surface') return;
+    var top = SURFACES[r.support];
+    if (top == null) { issues.push({ name: r.name, issue: 'unknown support', detail: r.support }); return; }
+    var d = boxes[r.name].min.y - top;
+    if (Math.abs(d) > FLOOR_TOL) {
+      issues.push({
+        name: r.name, zone: r.zone,
+        issue: d > 0 ? 'floats above support' : 'sunk into support',
+        support: r.support, offset: +d.toFixed(3)
+      });
+    }
+  });
+
+  // 3 — wall penetration
+  PLACED.forEach(function (r) {
+    if (r.kind === 'outdoor') return;
+    var b = boxes[r.name];
+    var annex = annexAt((b.min.x + b.max.x) / 2, (b.min.z + b.max.z) / 2);
+    r.annex = annex;
+    WALLS.forEach(function (w) {
+      // annex walls judge the annex, building walls judge the building; neither
+      // has anything to say about the other
+      var isAnnexWall = w.id.indexOf('game-') === 0;
+      if (annex !== null ? !isAnnexWall : isAnnexWall) return;
+      if (b.max.y < 0.02 || b.min.y > w.height + 0.02) return;
+      // Penetration = the object has crossed the wall's room-side plane. An
+      // object merely standing near the wall reports a negative depth and is
+      // left alone; only real crossings are reported.
+      // A wall's `axis` is its NORMAL; the segment runs along the other axis.
+      // Getting that backwards reported the sofa as clipping the meeting
+      // half-wall, which is nine metres away on the other axis.
+      var span = w.axis === 'z' ? b.min.x : b.min.z;
+      var spanFar = w.axis === 'z' ? b.max.x : b.max.z;
+      if (spanFar < w.from - 0.3 || span > w.to + 0.3) return;
+      var near = w.axis === 'z' ? b.min.z : b.min.x;
+      var far = w.axis === 'z' ? b.max.z : b.max.x;
+      var pen;
+      if (w.partial) {
+        // A half-wall has a room on BOTH sides; only an object straddling its
+        // plane is clipping it. A one-sided test read the whole lounge as
+        // nine metres inside the partition.
+        if (!(near < w.at - CONTACT_TOL && far > w.at + CONTACT_TOL)) return;
+        pen = Math.min(w.at - near, far - w.at);
+      } else {
+        pen = w.side > 0 ? (w.at - near) : (far - w.at);
+      }
+      if (pen > CONTACT_TOL) issues.push({ name: r.name, issue: 'clips wall:' + w.id, offset: +pen.toFixed(3) });
+    });
+  });
+
+  // 4 — independent-assembly overlap
+  for (var i = 0; i < PLACED.length; i++) {
+    for (var j = i + 1; j < PLACED.length; j++) {
+      var a = PLACED[i], b2 = PLACED[j];
+      if (a.assembly === b2.assembly) continue;          // same furniture
+      if (a.support === b2.name || b2.support === a.name) continue; // stack contact is legal
+      // A chair rolled under its own desk overlaps the desk's AABB while being
+      // perfectly correct: the desk has a knee space between its legs. This is
+      // the one overlap an axis-aligned box cannot judge, so it is declared.
+      if (a.tuckedUnder === b2.name || b2.tuckedUnder === a.name) continue;
+      var ov = overlapVolume(a.bounds, b2.bounds);
+      // A circular table tested as its 2.1 m bounding square reports every
+      // chair as buried in it. Records with `radius` get a real circle test in
+      // XZ: penetration is r minus the distance from the centre to the closest
+      // point of the other's box.
+      if (a.radius || b2.radius) {
+        var round = a.radius ? a : b2, boxR = a.radius ? b2 : a;
+        var cy = Math.min(Math.max(round.group.position.y, boxR.bounds.min.y), boxR.bounds.max.y);
+        var cxq = Math.min(Math.max(round.group.position.x, boxR.bounds.min.x), boxR.bounds.max.x);
+        var czq = Math.min(Math.max(round.group.position.z, boxR.bounds.min.z), boxR.bounds.max.z);
+        var dist = Math.hypot(cxq - round.group.position.x, czq - round.group.position.z);
+        var ry = Math.min(round.bounds.max.y, boxR.bounds.max.y) - Math.max(round.bounds.min.y, boxR.bounds.min.y);
+        var rpen = round.radius - dist;
+        if (rpen > CONTACT_TOL && ry > CONTACT_TOL) {
+          issues.push({ name: boxR.name, zone: boxR.zone, issue: 'overlaps round ' + round.name,
+            detail: { pen: +rpen.toFixed(3), y: +ry.toFixed(3) } });
+        }
+        continue;
+      }
+      if (ov && ov.v > PENETRATION_VOL && ov.y > CONTACT_TOL) {
+        issues.push({
+          name: a.name, zone: a.zone, issue: 'overlaps ' + b2.name,
+          detail: { x: +ov.x.toFixed(3), y: +ov.y.toFixed(3), z: +ov.z.toFixed(3), vol: +ov.v.toFixed(5) }
+        });
+      }
+    }
+  }
+
+  // 5 — furniture parked on an agent destination
+  PLACED.forEach(function (r) {
+    if (r.kind === 'outdoor') return;
+    var b = boxes[r.name];
+    AGENT_SPOTS.forEach(function (sp) {
+      if (r.hosts.indexOf(sp.what) < 0 &&
+          b.min.x < sp.x + 0.3 && b.max.x > sp.x - 0.3 && b.min.z < sp.z + 0.3 && b.max.z > sp.z - 0.3 && b.min.y < 1.9) {
+        issues.push({ name: r.name, issue: 'blocks ' + sp.what, at: [sp.x, sp.z] });
+      }
+    });
+  });
+
+  PLACEMENT_ISSUES = issues;
+  if (!o.silent && issues.length) {
+    console.groupCollapsed('[office] placement issues: ' + issues.length);
+    console.table(issues);
+    console.groupEnd();
+  }
+  return issues;
+}
+
+/* ── unsupported-part check ─────────────────────────────────────────────────
+   The one thing the group-level checks above structurally cannot see: a part
+   INSIDE an assembly. Same-assembly pairs are exempt from collision (a chair
+   seat must touch its own frame), which also means a laptop base hovering
+   1.4 cm over the desk top is invisible to every other check.
+
+   Rule: every mesh inside a registered group must either rest on something
+   (a sibling whose top it lands on, a surface, or the floor) or be on the
+   HANGING whitelist — things that are legitimately attached only at the top:
+   wall glass, clock hands, canopies, lamp heads, hanging mugs, sign faces.
+   Only gaps large enough to see are reported. */
+/* Horizontal distance between two axis-aligned XZ rectangles (0 if they
+   overlap). Used to decide whether one part is attached to another: a coffee
+   machine spout sticks 1 cm out of its own body and still counts as attached,
+   which a strict overlap test would miss. */
+function rectGap(a, b) {
+  var dx = Math.max(0, Math.max(a.min.x - b.max.x, b.min.x - a.max.x));
+  var dz = Math.max(0, Math.max(a.min.z - b.max.z, b.min.z - a.max.z));
+  return Math.sqrt(dx * dx + dz * dz);
+}
+
+function checkUnsupportedParts(tol) {
+  var gapTol = tol || 0.03;
+  var touch = 0.03;
+  scene.updateMatrixWorld(true);
+  var out = [];
+  PLACED.forEach(function (r) {
+    var parts = [];
+    r.group.traverse(function (n) {
+      if (!n.isMesh || !n.geometry) return;
+      if (!n.geometry.boundingBox) n.geometry.computeBoundingBox();
+      parts.push({ node: n, b: n.geometry.boundingBox.clone().applyMatrix4(n.matrixWorld) });
+    });
+    if (parts.length < 2) return;
+    var base = r.bounds || worldBounds(r.group);
+    var surfY = r.support ? SURFACES[r.support] : null;
+    var surfBox = r.support ? SURFACE_BOXES[r.support] : null;
+
+    parts.forEach(function (p) {
+      var h = p.b.max.y - p.b.min.y;
+      if (h > 2.4) return;              // walls, canopies, whole shells
+      if (p.b.min.y <= touch) return;   // standing on the floor already
+
+      /* COLUMN TEST. The previous version asked "is any sibling within 45 cm
+         and vertically overlapping?", which a keyboard 30 cm from a monitor
+         satisfies — so it reported nothing while clutter floated. What actually
+         matters is whether something is DIRECTLY UNDER this part. Sample the
+         footprint (centre + four inset corners, because panels overhang and
+         lids overhang) and look straight down at each point. */
+      var samples = supportSamples(p.b);
+      var ceiling = p.b.min.y + 0.006;   // ignore neighbours at our own height
+      var top = 0, supported = false;
+      for (var s = 0; s < samples.length && !supported; s++) {
+        for (var i = 0; i < parts.length; i++) {
+          var q = parts[i];
+          if (q === p || q.b.max.y > ceiling) continue;
+          if (!pointInBox(samples[s][0], samples[s][1], q.b)) continue;
+          if (q.b.max.y > top) top = q.b.max.y;
+        }
+        if (surfY != null && surfBox && pointInBox(samples[s][0], samples[s][1], surfBox) && surfY > top) {
+          top = surfY;
+        }
+        if (top > 0 && p.b.min.y - top <= gapTol) supported = true;
+      }
+      if (!supported && surfY != null) {
+        var d2 = p.b.min.y - surfY;
+        if (d2 >= -gapTol && d2 <= gapTol) supported = true;
+      }
+
+      // hanging under something (a cable tray bolted to the underside of a desk)
+      var hanging = false;
+      for (var i2 = 0; i2 < parts.length && !hanging; i2++) {
+        var hq = parts[i2];
+        if (hq === p || rectGap(p.b, hq.b) > touch) continue;
+        if (hq.b.min.y > p.b.min.y && hq.b.min.y <= p.b.max.y + touch) hanging = true;
+      }
+      // hinged or bolted: shares an edge with a neighbour and touches it
+      // (a monitor panel on its housing, a laptop lid at its hinge)
+      var hinged = false;
+      for (var i3 = 0; i3 < parts.length && !hinged; i3++) {
+        var eq = parts[i3];
+        if (eq === p || rectGap(p.b, eq.b) > touch) continue;
+        if (p.b.min.y <= eq.b.max.y + touch && p.b.max.y >= eq.b.min.y - touch) hinged = true;
+      }
+      // A wall is a support too: picture rails, backplates and shelf brackets
+      // have no mesh beneath them, and they are not floating — they are screwed
+      // to the wall. Checked against the real inner faces, not a whitelist.
+      var walled = false;
+      if (!walled && r.zone !== 'outdoor') {
+        for (var i4 = 0; i4 < WALLS.length && !walled; i4++) {
+          var w = WALLS[i4];
+          if (p.b.max.y > w.height + 0.05) continue;
+          if (w.axis === 'z') {
+            if (p.b.max.x < w.from - 0.1 || p.b.min.x > w.to + 0.1) continue;
+            if (Math.abs((w.side > 0 ? p.b.min.z : p.b.max.z) - w.at) <= 0.06) walled = true;
+          } else {
+            if (p.b.max.z < w.from - 0.1 || p.b.min.z > w.to + 0.1) continue;
+            if (Math.abs((w.side > 0 ? p.b.min.x : p.b.max.x) - w.at) <= 0.06) walled = true;
+          }
+        }
+      }
+      if (supported || hanging || hinged || walled) return;
+      out.push({
+        name: r.name, part: (p.node.name || p.node.geometry.type) + '#' + p.node.id,
+        issue: 'part rests on nothing', height: +p.b.min.y.toFixed(3),
+        aboveGroupBase: +(p.b.min.y - base.min.y).toFixed(3)
+      });
+    });
+  });
+  return out;
+}
 
 function buildBuilding() {
   var L = LAYOUT, b = L.building;
@@ -1540,39 +2694,132 @@ function buildBuilding() {
   Window(b.minX, 1.55, -3, Math.PI / 2);
   Window(b.minX, 1.55, 0.6, Math.PI / 2);
 
-  // hot desking: one desk per agent, two rows growing to the west. The chair
-  // sits on the -z side because the character's working placement is
-  // [x, 0, z - 0.75] facing +z — matching the monitor, which looks that way.
-  LAYOUT.desks.forEach(function (d) {
-    WorkDesk(scene, d[0], d[2], 0, true);
-    OfficeChair(scene, d[0], d[2] - 0.78, 0, '#39424f');
+  // ── workstations ──────────────────────────────────────────────────────────
+  // Everything below is registered with the placement system: the support is
+  // measured once, and each accessory is snapped onto that measured top instead
+  // of a hand-typed Y. Seat index i owns LAYOUT.desks[i], which is the same
+  // order AGENT_IDS is walked in, so a character's chair is always in front of
+  // its own desk.
+  LAYOUT.desks.forEach(function (d, i) {
+    var who = AGENT_IDS[i] || 'mia';
+    var z = d[2];
+    var desk = placeFurniture('desk:' + who, WorkDesk(scene, d[0], z, 0, true, who),
+      { zone: 'workstation', hosts: ['workstation seat'] });
+    placeOnFloor(desk);
+    registerSurface('desk:' + who, desk);
+    // the chair faces +z so the seated character's back is to the wall
+    placeOnFloor(placeFurniture('chair:' + who, OfficeChair(scene, d[0], z - 0.78, 0, '#39424f'),
+      { zone: 'workstation', hosts: ['workstation seat'], tuckedUnder: 'desk:' + who }));
+    placeOnSurface(placeFurniture('deskkit:' + who, DeskKit(scene, d[0], z, 0),
+      { kind: 'surface', support: 'desk:' + who, zone: 'workstation' }), 'desk:' + who);
   });
 
-  MeetingTable(scene);
-  Bookshelf(scene, b.minX + 0.35, -0.9, Math.PI / 2);
-  Plant(scene, b.minX + 0.6, 0, 2.4, 1);
-  Plant(scene, 0.9, 0, 1.3, 1);
-  Plant(scene, 0.9, 0, 2.3, 1);
-  Plant(scene, 0.9, 0, 3.3, 1);
-  WallClock(scene, -3.6, 2.35, b.minZ + 0.14, 0);
+  // ── meeting ───────────────────────────────────────────────────────────────
+  var table = placeFurniture('meeting:table', MeetingTable(scene), { zone: 'meeting', radius: 1.05 });
+  placeOnFloor(table);
+  registerSurface('meeting:table', table);  // the wide top, not the gorengan plate on it
+  // four chairs at 45/135/225/315 degrees, each turned to face the table
+  [[0.25, '#5b6470'], [0.75, '#4a5560'], [1.25, '#5b6470'], [1.75, '#4a5560']].forEach(function (c, i) {
+    var ang = Math.PI * c[0];
+    var x = MEETING_TABLE[0] + Math.cos(ang) * 1.56;
+    var z = MEETING_TABLE[2] + Math.sin(ang) * 1.56;
+    placeOnFloor(placeFurniture('meeting:chair:' + i,
+      MeetingChair(scene, x, z, Math.atan2(MEETING_TABLE[0] - x, MEETING_TABLE[2] - z), c[1]),
+      { zone: 'meeting' }));
+  });
+  placeOnSurface(placeFurniture('meeting:notebook:a', Notebook(scene, MEETING_TABLE[0] - 0.42, 0, MEETING_TABLE[2] + 0.28, 0.5, '#8d5bc1'), { kind: 'surface', support: 'meeting:table', zone: 'meeting' }), 'meeting:table');
+  placeOnSurface(placeFurniture('meeting:notebook:b', Notebook(scene, MEETING_TABLE[0] + 0.38, 0, MEETING_TABLE[2] - 0.3, -0.4, '#2a9d8f'), { kind: 'surface', support: 'meeting:table', zone: 'meeting' }), 'meeting:table');
+  var mlap = group(scene, MEETING_TABLE[0] + 0.1, 0, MEETING_TABLE[2] + 0.1, 0.6);
+  add(rbox(0.34, 0.016, 0.24, 0.008), PM.metal, 0, 0.008, 0, mlap);
+  add(rbox(0.34, 0.23, 0.012, 0.006), PM.plasticDark, 0, 0.12, -0.11, mlap).rotation.x = 0.3;
+  add(rbox(0.26, 0.014, 0.1, 0.004), PM.fabricGrey, 0, 0.02, 0.03, mlap);
+  placeOnSurface(placeFurniture('meeting:laptop', mlap, { kind: 'surface', support: 'meeting:table', zone: 'meeting' }), 'meeting:table');
+  placeOnSurface(placeFurniture('meeting:speaker', Speakerphone(scene, MEETING_TABLE[0] - 0.62, 0, MEETING_TABLE[2] - 0.1), { kind: 'surface', support: 'meeting:table', zone: 'meeting' }), 'meeting:table');
+  placeOnSurface(placeFurniture('meeting:mug:a', Mug(scene, MEETING_TABLE[0] + 0.5, 0, MEETING_TABLE[2] + 0.22, '#f2efe9'), { kind: 'surface', support: 'meeting:table', zone: 'meeting' }), 'meeting:table');
+  placeOnSurface(placeFurniture('meeting:mug:b', Mug(scene, MEETING_TABLE[0] - 0.52, 0, MEETING_TABLE[2] - 0.2, '#e8dcc0'), { kind: 'surface', support: 'meeting:table', zone: 'meeting' }), 'meeting:table');
 
-  // lounge: sofa faces the TV on the back wall
-  Sofa(scene, SOFA[0], SOFA[2], Math.PI, M.sofa);
-  Armchair(scene, 2.1, -2.9, Math.PI / 2, '#d9784a');
-  Armchair(scene, 7.1, -2.9, -Math.PI / 2, '#3d7fd6');
-  CoffeeTable(scene, COFFEE_TABLE[0], COFFEE_TABLE[2]);
-  add(rbox(1.8, 0.6, 0.45, 0.03), mat({ color: M.wood }), TV[0], 0.3, TV[2] + 0.1, scene);
-  Television(scene, TV[0], 1.35, b.minZ + 0.17, 0);
-  Plant(scene, 7.6, 0, -1.2, 0.9);
+  // ── storage + wall dressing ───────────────────────────────────────────────
+  var shelf = placeFurniture('shelf:books', Bookshelf(scene, b.minX + 0.35, -0.9, Math.PI / 2), { zone: 'workspace' });
+  placeOnFloor(shelf);
+  placeOnFloor(placeFurniture('printer', Printer(scene, -8.8, -4.75, 0), { zone: 'workspace' }));
+  placeOnFloor(placeFurniture('cabinet:filing', FilingCabinet(scene, -8.0, -4.72, 0, 3), { zone: 'workspace' }));
 
-  // pantry on the east wall
-  GalonDispenser(scene, b.maxX - 0.45, -0.4, -Math.PI / 2);
-  Fridge(scene, b.maxX - 0.5, 0.6, -Math.PI / 2);
-  PantryCounter(scene, b.maxX - 0.45, 2.6, -Math.PI / 2);
+  var art = placeFurniture('wall:art', FramedArt(scene, b.minX, 1.85, 1.95, -Math.PI / 2, 0.62, 0.46, '#5a3a24'), { kind: 'wall', zone: 'workspace' });
+  placeOnWall(art, 'west');
+  [-1.1, 0.0].forEach(function (ax, i) {
+    var pan = placeFurniture('wall:acoustic:' + i, AcousticPanel(scene, ax, 1.75, b.minZ, Math.PI, 0.9), { kind: 'wall', zone: 'workspace' });
+    placeOnWall(pan, 'north');
+  });
+  var sign = placeFurniture('wall:sign', SignBoard(scene, 8.4, 2.05, b.minZ, Math.PI, 1.7, 'PIXEL OFFICE'), { kind: 'wall', zone: 'pantry' });
+  placeOnWall(sign, 'north');
+  var board = placeFurniture('wall:whiteboard', Whiteboard(scene, -2.125, 1.75, b.minZ, Math.PI, 1.1, 0.7), { kind: 'wall', zone: 'workspace' });
+  placeOnWall(board, 'north');
+  var wshelf = placeFurniture('wall:shelf', WallShelf(scene, 2.94, 1.85, b.minZ, 0, 1.2), { kind: 'wall', zone: 'lounge' });
+  placeOnWall(wshelf, 'north');
+  placeFurniture('wall:clock', WallClock(scene, 3.0, 2.35, b.minZ + 0.14, 0), { kind: 'wall', zone: 'workspace' });
+  [-5.3, TV[0]].forEach(function (ax, i) {
+    placeFurniture('wall:ac:' + i, AirConditioner(scene, ax, 2.42, b.minZ + 0.125, 0), { kind: 'wall', zone: 'workspace' });
+  });
+  placeFurniture('wall:ac:pantry', AirConditioner(scene, b.minX + 0.125, 2.42, 3.4, Math.PI / 2), { kind: 'wall', zone: 'pantry' });
 
-  AirConditioner(scene, -5.3, 2.3, b.minZ + 0.125, 0);
-  AirConditioner(scene, TV[0], 2.3, b.minZ + 0.125, 0);
-  AirConditioner(scene, b.minX + 0.125, 2.3, 2.6, Math.PI / 2);
+  [2.4, 1.3, 2.3, 3.3].forEach(function (pz, i) {
+    var g = i === 0 ? Plant(scene, b.minX + 0.6, 0, pz, 1) : Plant(scene, 0.9, 0, pz, 1);
+    placeOnFloor(placeFurniture('plant:' + i, g, { zone: i === 0 ? 'workspace' : 'lounge' }));
+  });
+
+  // ── lounge ────────────────────────────────────────────────────────────────
+  // The sofa and both armchairs HOST the agents' idle seats, so the validator
+  // must not treat the seats' footprints as blocked ground.
+  var sofa = placeFurniture('lounge:sofa', Sofa(scene, SOFA[0], SOFA[2], Math.PI, M.sofa), { zone: 'lounge', hosts: ['idle spot:lounge'] });
+  placeOnFloor(sofa);
+  placeOnFloor(placeFurniture('lounge:armchair:a', Armchair(scene, 2.1, -2.9, Math.PI / 2, '#d9784a'), { zone: 'lounge', hosts: ['idle spot:lounge'] }));
+  placeOnFloor(placeFurniture('lounge:armchair:b', Armchair(scene, 7.1, -2.9, -Math.PI / 2, '#3d7fd6'), { zone: 'lounge', hosts: ['idle spot:lounge'] }));
+  var ctable = placeFurniture('lounge:coffee-table', CoffeeTable(scene, COFFEE_TABLE[0], COFFEE_TABLE[2]), { zone: 'lounge' });
+  placeOnFloor(ctable);
+  registerSurface('lounge:coffee-table', ctable);
+  var tvcab = group(scene, TV[0], 0, TV[2] + 0.1, 0);
+  add(rbox(1.8, 0.6, 0.45, 0.03), mat({ color: M.wood }), 0, 0.3, 0, tvcab);
+  placeOnFloor(placeFurniture('lounge:tv-cabinet', tvcab, { zone: 'lounge' }));
+  registerSurface('lounge:tv-cabinet', tvcab);
+  placeFurniture('lounge:tv', Television(scene, TV[0], 1.35, b.minZ + 0.17, 0), { kind: 'wall', zone: 'lounge' });
+  placeOnFloor(placeFurniture('lounge:plant', Plant(scene, 7.4, 0, -1.0, 0.9), { zone: 'lounge' }));
+  placeOnFloor(placeFurniture('lounge:side-table', LoungeSideTable(scene, 6.2, -1.5), { zone: 'lounge' }));
+  placeOnFloor(placeFurniture('lounge:ottoman', Ottoman(scene, 3.0, -0.55, 0.2), { zone: 'lounge' }));
+  placeOnFloor(placeFurniture('lounge:floor-lamp', FloorLamp(scene, 6.55, -0.95), { zone: 'lounge' }));
+  placeOnSurface(placeFurniture('lounge:books', BookStack(scene, COFFEE_TABLE[0] + 0.22, 0, COFFEE_TABLE[2] + 0.06, 3), { kind: 'surface', support: 'lounge:coffee-table', zone: 'lounge' }), 'lounge:coffee-table');
+  placeOnSurface(placeFurniture('lounge:mug', Mug(scene, COFFEE_TABLE[0] - 0.24, 0, COFFEE_TABLE[2] - 0.1, '#f2efe9'), { kind: 'surface', support: 'lounge:coffee-table', zone: 'lounge' }), 'lounge:coffee-table');
+  var remote = group(scene, TV[0] + 0.5, 0, TV[2] + 0.3, 0);
+  add(rbox(0.05, 0.014, 0.16, 0.01), PM.plasticDark, 0, 0.007, 0, remote);
+  placeOnSurface(placeFurniture('lounge:remote', remote, { kind: 'surface', support: 'lounge:tv-cabinet', zone: 'lounge' }), 'lounge:tv-cabinet');
+
+  // ── pantry ────────────────────────────────────────────────────────────────
+  placeOnFloor(placeFurniture('pantry:galon', GalonDispenser(scene, b.maxX - 0.45, -0.4, -Math.PI / 2), { zone: 'pantry' }));
+  placeOnFloor(placeFurniture('pantry:fridge', Fridge(scene, b.maxX - 0.5, 0.6, -Math.PI / 2), { zone: 'pantry' }));
+  var counter = placeFurniture('pantry:counter', PantryCounter(scene, b.maxX - 0.45, 2.6, -Math.PI / 2), { zone: 'pantry' });
+  placeOnFloor(counter);
+  registerSurface('pantry:counter', counter); // the worktop slab, not the kettle
+  placeOnSurface(placeFurniture('pantry:espresso', EspressoMachine(scene, b.maxX - 0.62, 0, 1.76, -Math.PI / 2), { kind: 'surface', support: 'pantry:counter', zone: 'pantry' }), 'pantry:counter');
+  var plank = group(scene, b.maxX - 0.55, 1.6, 3.3, 0);
+  add(rbox(0.6, 0.04, 0.5, 0.01), PM.woodCase, 0, 0, 0, plank);
+  // the plank is a wall shelf: its top becomes a support the microwave lands on
+  placeOnWall(placeFurniture('pantry:shelf', plank, { kind: 'wall', zone: 'pantry' }), 'east');
+  registerSurface('pantry:shelf', plank);
+  placeOnSurface(placeFurniture('pantry:microwave', Microwave(scene, b.maxX - 0.55, 0, 3.3, -Math.PI / 2), { kind: 'surface', support: 'pantry:shelf', zone: 'pantry' }), 'pantry:shelf');
+  placeOnSurface(placeFurniture('pantry:sink', SinkFaucet(scene, b.maxX - 0.62, 0, 2.6), { kind: 'surface', support: 'pantry:counter', zone: 'pantry' }), 'pantry:counter');
+  placeOnSurface(placeFurniture('pantry:mug-rack', MugRack(scene, b.maxX - 0.18, 1.5, 2.6, -Math.PI / 2), { kind: 'surface', support: 'pantry:counter', zone: 'pantry' }), 'pantry:counter');
+  [[2.05, 0.18, '#c8a06a'], [2.22, 0.14, '#8aa87a'], [2.36, 0.2, '#b98a6a']].forEach(function (c, i) {
+    placeOnSurface(placeFurniture('pantry:canister:' + i, Canister(scene, b.maxX - 0.38, 0, c[0], 0, c[1], c[2]), { kind: 'surface', support: 'pantry:counter', zone: 'pantry' }), 'pantry:counter');
+  });
+  placeOnSurface(placeFurniture('pantry:tissue', TissueBox(scene, b.maxX - 0.33, 0, 3.55, -Math.PI / 2), { kind: 'surface', support: 'pantry:counter', zone: 'pantry' }), 'pantry:counter');
+  placeOnFloor(placeFurniture('pantry:bin', WasteBin(scene, b.maxX - 0.5, 3.9, 0, '#59606b'), { zone: 'pantry' }));
+  // two stools at the counter, tucked so the walk lane stays open
+  placeOnFloor(placeFurniture('pantry:stool:a', PlasticStool(scene, b.maxX - 1.0, 0, 2.0, M.blue), { zone: 'pantry' }));
+  placeOnFloor(placeFurniture('pantry:stool:b', PlasticStool(scene, b.maxX - 1.0, 0, 3.9, M.red), { zone: 'pantry' }));
+
+  // ── entrance ──────────────────────────────────────────────────────────────
+  placeOnFloor(placeFurniture('entry:coat-stand', CoatStand(scene, 7.1, 3.7, Math.PI), { zone: 'entrance' }));
+  placeOnFloor(placeFurniture('entry:bin:a', WasteBin(scene, 7.95, 3.9, 0, '#59606b'), { zone: 'entrance' }));
+  placeOnFloor(placeFurniture('entry:bin:b', WasteBin(scene, 7.6, 3.9, 0, '#3d6b52'), { zone: 'entrance' }));
 
   LAYOUT.desks.forEach(function (d) {
     OfficeLight(scene, d[0], 2.4, d[2] + 0.2, 0);
@@ -1589,17 +2836,43 @@ function buildGameRoom() {
   Wall([G.maxX, G.minZ], [G.maxX, G.maxZ], WALL_H);
   Wall([G.minX, G.maxZ], [G.maxX, G.maxZ], 0.55);
   Window(G.maxX - 0.14, 1.55, -2.2, -Math.PI / 2, 1.6);
-  PingPongTable(scene, PING_PONG);
+  placeOnFloor(placeFurniture('game:pingpong', PingPongTable(scene, PING_PONG), { zone: 'game' }));
   ARCADES.forEach(function (p, i) {
-    ArcadeCabinet(scene, p, i === 0 ? '#c62828' : '#1d4ed8');
+    // +0.13 z: the cabinet's own screen/marquee geometry reaches 10 cm past the
+    // line the cabinet is placed on, which put it inside the north wall.
+    placeOnFloor(placeFurniture('game:arcade-' + i,
+      ArcadeCabinet(scene, [p[0], 0, p[2] + 0.13], i === 0 ? '#c62828' : '#1d4ed8'), { zone: 'game' }));
   });
-  add(rbox(1.8, 0.5, 0.4, 0.03), mat({ color: M.dark }), GAME_TV[0], 0.25, GAME_TV[2] + 0.2, scene);
-  RB(scene, GAME_TV[0], 0.55, GAME_TV[2] + 0.2, 0.3, 0.1, 0.3, 0.03, M.white);
-  Television(scene, GAME_TV[0], 1.35, GAME_TV[2] + 0.02, 0);
-  Beanbag(scene, BEANBAGS[0], '#e76f51');
-  Beanbag(scene, BEANBAGS[1], '#2a9d8f');
-  CarromTable(scene, CARROM);
-  Plant(scene, G.maxX - 0.5, 0, G.maxZ - 0.5, 1);
+  // TV console: two loose meshes, wrapped in their own group so the pair is
+  // audited as one piece of furniture instead of two orphaned boxes.
+  // 0.22 deep, not 0.4: the beanbags are agent seats at z -4.35 with a 0.42
+  // radius, and the old console's front edge reached back to -4.65, i.e.
+  // straight through them.
+  var gTv = group(scene, GAME_TV[0], 0, GAME_TV[2] + 0.08);
+  add(rbox(1.8, 0.5, 0.22, 0.03), mat({ color: M.dark }), 0, 0.25, 0, gTv);
+  RB(gTv, 0, 0.55, 0, 0.3, 0.1, 0.22, 0.03, M.white);
+  placeOnFloor(placeFurniture('game:tv-console', gTv, { zone: 'game' }));
+  // The TV stands on the small white riser on top of the cabinet, not on the
+  // cabinet's widest slab — a footprint cannot tell those two apart.
+  registerSurface('game:tv-console', gTv, 0.642);
+  placeOnSurface(placeFurniture('game:tv', Television(scene, GAME_TV[0], 0, GAME_TV[2] + 0.04, 0), {
+    zone: 'game', kind: 'surface', support: 'game:tv-console'
+  }), 'game:tv-console');
+  BEANBAGS.forEach(function (p, i) {
+    placeOnFloor(placeFurniture('game:beanbag-' + i,
+      Beanbag(scene, p, i === 0 ? '#e76f51' : '#2a9d8f'),
+      { zone: 'game', hosts: [i === 0 ? 'idle spot:game' : 'idle spot:arcade'] }));
+  });
+  var carrom = CarromTable(scene, CARROM);
+  // its two stools sit at local +/-z; turned 90 degrees they line up along x
+  // instead, clear of the south wall they were poking through
+  carrom.rotation.y = Math.PI / 2;
+  placeOnFloor(placeFurniture('game:carrom', carrom, { zone: 'game' }));
+  // Same rule as the outdoor props below: anything that stands on the floor has
+  // to be registered or the validator is blind to it. This corner plant was the
+  // last unregistered freestanding object in the annex.
+  placeOnFloor(placeFurniture('game:plant', Plant(scene, G.maxX - 0.5, 0, G.maxZ - 0.5, 1),
+    { zone: 'game' }));
   AirConditioner(scene, (G.minX + G.maxX) / 2 - 0.6, 2.3, G.minZ + 0.125, 0);
   OfficeLight(scene, PING_PONG[0], 2.4, PING_PONG[2], 0);
   OfficeLight(scene, ARCADES[0][0] + 0.5, 2.4, -3.6, 0);
@@ -1613,27 +2886,57 @@ function buildOutdoors() {
   Floor(scene, shift / 2, -0.005, 7.1, 34 - shift, 5, pavingTexture(8, 2));
   Floor(scene, shift / 2, -0.01, 12.1, 60 - shift, 5, asphaltTexture(10, 1));
   Floor(scene, ENTRANCE_X, 0.005, 4.7, 1.8, 1, TILE);
-  FlagPole(scene, FLAG);
   Floor(scene, L.gangCenterX, -0.008, -0.4, 3.6, 10, pavingTexture(2, 5));
-
-  Gerobak(scene, L.baksoCart);
-  Vendor(scene, L.baksoCart[0] - 1.6, L.baksoCart[2], Math.PI / 2, '#f1f1ec', 'peci');
-  KopiSepeda(scene, L.kopiBike);
-  Vendor(scene, L.kopiBike[0] - 1.35, L.kopiBike[2] - 0.1, Math.PI / 2, '#2f6d8f', 'cap');
-
-  AcOutdoorUnit(scene, -5.3, 0, b.minZ - 0.45, Math.PI);
-  AcOutdoorUnit(scene, TV[0] - 1.6, 0, b.minZ - 0.45, Math.PI);
-  StreetLamp(scene, -8, 9.3);
-  StreetLamp(scene, 4, 9.3);
+  // Outdoor props are audited on the same footing as indoor furniture: they were
+  // invisible to the validator before only because nobody registered them.
+  placeOnFloor(placeFurniture('out:flag', FlagPole(scene, FLAG), { zone: 'outdoor', kind: 'outdoor' }));
+  placeOnFloor(placeFurniture('out:gerobak', Gerobak(scene, L.baksoCart), {
+    zone: 'outdoor', kind: 'outdoor', hosts: ['idle spot:bakso']
+  }));
+  placeOnFloor(placeFurniture('out:vendor-bakso',
+    Vendor(scene, L.baksoCart[0] - 1.6, L.baksoCart[2], Math.PI / 2, '#f1f1ec', 'peci'),
+    { zone: 'outdoor', kind: 'outdoor' }));
+  placeOnFloor(placeFurniture('out:kopi', KopiSepeda(scene, L.kopiBike), {
+    zone: 'outdoor', kind: 'outdoor', hosts: ['idle spot:kopi']
+  }));
+  placeOnFloor(placeFurniture('out:vendor-kopi',
+    Vendor(scene, L.kopiBike[0] - 1.35, L.kopiBike[2] - 0.1, Math.PI / 2, '#2f6d8f', 'cap'),
+    { zone: 'outdoor', kind: 'outdoor' }));
+  placeOnFloor(placeFurniture('out:ac-1', AcOutdoorUnit(scene, -5.3, 0, b.minZ - 0.45, Math.PI),
+    { zone: 'outdoor', kind: 'outdoor' }));
+  placeOnFloor(placeFurniture('out:ac-2', AcOutdoorUnit(scene, TV[0] - 1.6, 0, b.minZ - 0.45, Math.PI),
+    { zone: 'outdoor', kind: 'outdoor' }));
+  placeOnFloor(placeFurniture('out:lamp-w', StreetLamp(scene, -8, 9.3), { zone: 'outdoor', kind: 'outdoor' }));
+  placeOnFloor(placeFurniture('out:lamp-e', StreetLamp(scene, 4, 9.3), { zone: 'outdoor', kind: 'outdoor' }));
   [[-12.8 + shift, -7.4, 1.3], [13.5, -7.2, 1.2], [-14.8 + shift, 2.6, 1.1], [18.6, 4.8, 1.3],
-   [-10.5 + shift, 7.5, 1], [12, 8, 1.1], [-2, -8.5, 1.2], [6, -8, 1.1]].forEach(function (t) {
-    Tree(scene, t[0], t[1], t[2]);
+   [-10.5 + shift, 7.5, 1], [12, 8, 1.1], [-2, -8.5, 1.2], [6, -8, 1.1]].forEach(function (t, i) {
+    placeOnFloor(placeFurniture('out:tree-' + i, Tree(scene, t[0], t[1], t[2]),
+      { zone: 'outdoor', kind: 'outdoor' }));
   });
 }
 
 buildBuilding();
 buildGameRoom();
 buildOutdoors();
+
+// Applied here, not at construction: every fixture has just registered itself,
+// so this first snapshot reaches the sun, the hemisphere, the fog, the exposure
+// AND all of the local lamps at once. Before this, the first frame showed the
+// raw constructor values — the ceiling panels and street lamps were dark until
+// the user pressed the theme button.
+setTheme(NIGHT, true);
+// Placement audit runs once, after every builder has registered itself. The
+// result is exposed on office.validate() so it can be re-run from the console
+// after any change; it costs nothing per frame.
+validateFurniturePlacement();
+// Second pass: the one class the group checks cannot see — parts floating
+// INSIDE their own furniture.
+var UNSUPPORTED = checkUnsupportedParts();
+if (UNSUPPORTED.length) {
+  console.groupCollapsed('[office] unsupported parts: ' + UNSUPPORTED.length);
+  console.table(UNSUPPORTED);
+  console.groupEnd();
+}
 
 /* ── characters (ruang: Character in pages/Office3D.tsx + agents.ts) ────── */
 var HAIR_COLS = ['#1d293c', '#b54b45', '#6a4d8d', '#3b2a20', '#c9a24a', '#2f4f3a', '#8b5a2b', '#11151c'];
@@ -1652,6 +2955,22 @@ function agentLook(id) {
 
 var LEG_GEO = new T.BoxGeometry(0.17, 0.62, 0.2).translate(0, -0.31, 0);
 var ARM_GEO = new T.BoxGeometry(0.12, 0.52, 0.14).translate(0, -0.26, 0);
+
+/* Soft radial falloff used for contact shadows. Cached like every other
+   procedural texture here, so the three characters share one 128 px canvas
+   instead of three. The alpha ramp is deliberately steep near the centre: the
+   job is to darken the few centimetres where a shoe meets the floorboard, not
+   to paint a disc of shadow around the character. */
+function contactBlobTexture() {
+  return canvasTexture('contact-blob', 128, 128, function (ctx) {
+    var g = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
+    g.addColorStop(0, 'rgba(0,0,0,0.55)');
+    g.addColorStop(0.45, 'rgba(0,0,0,0.26)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+  });
+}
 
 function makeCharacter(id) {
   var look = agentLook(id);
@@ -1692,6 +3011,20 @@ function makeCharacter(id) {
   ring.position.set(0, 0.03, 0);
   ring.visible = false;
   root.add(ring);
+  // Contact shadow. The sun's shadow map carries the cast shadow, but a 2048
+  // map spread over ~38 m of ortho box cannot resolve the millimetre of contact
+  // between a shoe and the floorboard, and at night the moon shadow is far too
+  // soft to ground anyone at all. A small radial blob supplies exactly that
+  // contact term — it is NOT a shadow caster, it is an additive darkening that
+  // sits just above the floor.
+  var blob = new T.Mesh(new T.PlaneGeometry(0.9, 0.9), new T.MeshBasicMaterial({
+    map: contactBlobTexture(), transparent: true, opacity: 0.75,
+    depthWrite: false, toneMapped: false
+  }));
+  blob.rotation.x = -Math.PI / 2;
+  blob.position.set(0, 0.012, 0);
+  blob.renderOrder = 1;
+  root.add(blob);
   var labelAnchor = new T.Object3D();
   labelAnchor.position.set(0, 2.05, 0);
   root.add(labelAnchor);
@@ -2074,12 +3407,7 @@ if (resetBtn) resetBtn.addEventListener('click', function () { gotoRoom('all'); 
 /* ── theme ───────────────────────────────────────────────────────────────── */
 var themeBtn = $('#themeBtn');
 if (themeBtn) {
-  themeBtn.textContent = 'Tema: ' + (NIGHT ? 'Malam' : 'Siang');
-  themeBtn.addEventListener('click', function () {
-    NIGHT = !NIGHT;
-    applyTheme(NIGHT);
-    themeBtn.textContent = 'Tema: ' + (NIGHT ? 'Malam' : 'Siang');
-  });
+  themeBtn.addEventListener('click', function () { setTheme(!NIGHT); });
 }
 
 /* ── avatar palette ─────────────────────────────────────────────────────────
@@ -2181,6 +3509,11 @@ function loop() {
     animateAgent(a, dt, elapsed);
   });
 
+  // Advanced from inside the render loop, not from its own rAF: a second loop
+  // would keep running after the transition finished, and two of them would
+  // fight each other when the button is clicked repeatedly.
+  stepTheme(dt);
+
   renderer.render(scene, camera);
 
   office.ready = true;
@@ -2191,6 +3524,25 @@ function loop() {
   office.tuning = LAYOUT;
   office.nodes = LAYOUT;
   office.findPath = walkPath;
+  // Placement diagnostics. `office.validate()` re-runs the audit on demand and
+  // returns [{ name, issue, offset }]. `office.debugBounds(true)` adds a wire
+  // box around every registered group; it is off unless explicitly asked for and
+  // costs nothing when off.
+  office.validate = function () { return validateFurniturePlacement({ silent: true }); };
+  office.checkParts = function () { return checkUnsupportedParts(); };
+  office.placed = PLACED;
+  var _boxHelpers = [];
+  office.debugBounds = function (on) {
+    _boxHelpers.forEach(function (h) { scene.remove(h); });
+    _boxHelpers.length = 0;
+    if (!on) return 0;
+    PLACED.forEach(function (r) {
+      var h = new T.Box3Helper(worldBounds(r.group), new T.Color(on === 'issue' ? 0xff3355 : 0x35ff9e));
+      scene.add(h);
+      _boxHelpers.push(h);
+    });
+    return PLACED.length;
+  };
   office.stats = function () { return renderer.info.render; };
   // Read-only orbit state: pan assertions must read the TARGET, since a zoom
   // moves the camera without revealing what the view is centred on.
@@ -2203,7 +3555,6 @@ function loop() {
 }
 loop();
 
-office.theme = NIGHT ? 'night' : 'day';
 window.__miaOffice = office;
 }
 function fail3D(msg) {
