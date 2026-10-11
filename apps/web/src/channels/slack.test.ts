@@ -46,7 +46,15 @@ afterEach(() => {
 });
 
 describe("isAllowedAuthor", () => {
-  it("allows the owner id and every configured sibling bot, rejects strangers", async () => {
+  // This is the first test in the file, so it is the one that pays the cold
+  // `import("./slack")` transform (the adapter pulls in @slack/bolt and the bot
+  // client). Measured 2026-10-11: in isolation the file runs in 3.4 s and
+  // passes; inside the full suite, where 110 other files transform in parallel,
+  // that first import occasionally exceeds vitest's 5 s default and the suite
+  // reports a failure that has nothing to do with what is being asserted. The
+  // budget is raised for this case only — it is a harness cost, not a slow
+  // assertion, and it still passes rather than "taking longer".
+  it("allows the owner id and every configured sibling bot, rejects strangers", { timeout: 20000 }, async () => {
     const slack = await loadWith(OWNER_ID, { mia: BOT_ID, michelle: SIBLING_BOT_ID });
     expect(slack.isAllowedAuthor(OWNER_ID, false)).toBe(true);
     expect(slack.isAllowedAuthor(BOT_ID, true)).toBe(true);
