@@ -118,6 +118,7 @@
   .tagLbl b{font-weight:600}
   .tagLbl .tRow{display:flex;align-items:center;gap:5px}
   .tagLbl .tRoom{color:var(--faint);font-size:10px}
+  .tagLbl .tProv{color:var(--faint);font-size:9px;opacity:.75;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tagLbl .tDot{width:5px;height:5px;border-radius:50%;flex:0 0 auto;background:var(--faint)}
   .tagLbl .tDot.working{background:var(--ok);box-shadow:0 0 6px var(--ok)}
   .tagLbl .tDot.idle{background:var(--faint)}
@@ -215,6 +216,7 @@
       <h1 id="viewTitle">Virtual Office</h1>
       <span class="sp"></span>
       <span class="pill" id="apiPill">API …</span>
+      <span class="pill" id="busPill" title="Live Event Bus dari Mia — sumber kebenaran status agent">BUS …</span>
       <span class="pill" id="lastPill">—</span>
       <button class="btn warn" id="dispatchBtn">…</button>
     </header>
@@ -332,16 +334,46 @@ function esc(s) {
 function na(v, note) { return '<span class="unavail">' + esc(note || 'Unavailable') + '</span>'; }
 function stBadge(s) { return '<span class="badge ' + esc(s) + '">' + esc(s) + '</span>'; }
 
+/* ── cachedSource: one in-flight request + TTL, per source ────────────
+   Three different callers want /api/state: the 3s poll, the queue submit
+   and the dispatch toggle. Left alone they each fire their own request, and
+   two of them landing in the same tick means two responses racing to write
+   STATE. cachedSource gives every source a single in-flight slot (N callers
+   share one request) and a TTL (a caller arriving within STATE_TTL_MS is
+   served the value already in memory instead of hitting the network).
+
+   Only ever use this for idempotent GETs — a POST that changes server state
+   must not be answered from cache. */
+var sourceCache = {};
+function cachedSource(name, ttlMs, loader) {
+  var slot = sourceCache[name];
+  if (!slot) slot = sourceCache[name] = { value: null, at: 0, inflight: null };
+  if (slot.value !== null && (Date.now() - slot.at) < ttlMs) {
+    return Promise.resolve(slot.value);
+  }
+  if (slot.inflight) return slot.inflight;
+  slot.inflight = loader().then(function (v) {
+    slot.value = v; slot.at = Date.now(); slot.inflight = null; return v;
+  }, function (e) {
+    slot.inflight = null;
+    throw e;
+  });
+  return slot.inflight;
+}
+var STATE_TTL_MS = 1200;
+
 /* ── polling (no overlapping requests) ─────────────────────────── */
 function poll() {
   if (inflight) return;
   inflight = true;
-  fetch('/api/state', { headers: { accept: 'application/json' } })
-    .then(function (r) {
-      if (r.status === 401) throw new Error('401 unauthorized');
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    })
+  cachedSource('state', STATE_TTL_MS, function () {
+    return fetch('/api/state', { headers: { accept: 'application/json' } })
+      .then(function (r) {
+        if (r.status === 401) throw new Error('401 unauthorized');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+  })
     .then(function (s) {
       STATE = s; lastOk = new Date();
       $('#apiPill').className = 'pill ok';
@@ -3064,15 +3096,159 @@ var STOP_ACTIVITY = {
   game: 'playing_table', arcade: 'playing_arcade',
   bakso: 'makan bakso', kopi: 'coffee_break', jalan: 'berjalan'
 };
+/* ── Event Bus: live activity as evidence ───────────────────────────────
+   /api/state describes the queue; the bus describes what Mia is doing right
+   now. Every agent state below is derived from evidence through an explicit
+   precedence chain, and every state carries a provenance string so the UI can
+   show WHY a character looks busy rather than us inventing it.
+
+   The load-bearing rule: if we cannot see the agent, the answer is 'Unknown',
+   never 'Idle'. 'Idle' is a claim about what an agent is doing; falling back
+   to it because we lost the stream is exactly the kind of quiet invention
+   this dashboard exists to avoid. */
+var BUS = { es: null, cursor: 0, last: {}, seen: 0, connected: false, error: null, frames: 0, lastSeen: 0 };
+var BUS_FRESH_MS = 45000;
+/* How long a keepalive may be missing before we stop believing the stream. The
+   proxy beats every 15 s, so 40 s means two beats were lost — enough to rule
+   out one dropped packet without hiding a real outage. */
+var BUS_LIVE_MS = 40000;
+/* Types that mean "this agent is doing something right now". Terminal types
+   clear the marker instead, so a finished task does not stay busy forever. */
+var BUS_ACTIVE = { task_started: 1, tool_called: 1, waiting_input: 1 };
+var BUS_TERMINAL = { task_done: 1, task_failed: 1, task_cancelled: 1 };
+
+function busCursorFrom(id) {
+  var m = /^evt_(\d+)$/.exec(id || '');
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function applyBusEvent(ev) {
+  if (!ev || typeof ev !== 'object' || !BUS_ACTIVE[ev.type] && !BUS_TERMINAL[ev.type]) return;
+  var c = busCursorFrom(ev.id);
+  if (c !== null && c > BUS.cursor) BUS.cursor = c;
+  var who = ev.agent || ev.actor;
+  if (!who || !ROSTER[who]) return;
+  if (BUS_ACTIVE[ev.type]) {
+    BUS.last[who] = { at: Date.now(), type: ev.type, summary: ev.summary || ev.type };
+  } else if (BUS.last[who] && BUS.last[who].task === ev.task_id) {
+    delete BUS.last[who];
+  }
+  if (BUS.last[who]) BUS.last[who].task = ev.task_id;
+  BUS.seen++;
+  busPill();
+}
+
+function busPill() {
+  /* Liveness is proven by a keepalive actually arriving, not by readyState.
+     A socket whose peer vanished keeps readyState OPEN and never fires
+     onerror, so trusting it is how a dashboard ends up cheerfully reporting
+     a live bus while Mia has been down for minutes. */
+  BUS.connected = !!BUS.es && BUS.es.readyState === 1 &&
+    BUS.lastSeen > 0 && (Date.now() - BUS.lastSeen) < BUS_LIVE_MS;
+  var p = $('#busPill');
+  if (!p) return;
+  if (BUS.connected) {
+    p.className = 'pill ok';
+    p.textContent = 'BUS LIVE ' + BUS.seen;
+  } else if (BUS.error) {
+    p.className = 'pill bad';
+    p.textContent = 'BUS ' + BUS.error;
+  } else if (BUS.lastSeen && Date.now() - BUS.lastSeen >= BUS_LIVE_MS) {
+    p.className = 'pill bad';
+    p.textContent = 'BUS diam ' + Math.round((Date.now() - BUS.lastSeen) / 1000) + 's';
+  } else {
+    p.className = 'pill';
+    p.textContent = 'BUS ...';
+  }
+}
+
+/* Reconnect is left to EventSource itself: it retries on its own and will
+   replay from our cursor, so a restart of Mia loses nothing after the last
+   frame we saw. We only track connectivity so the UI can be honest about it. */
+function connectBus() {
+  if (BUS.es || typeof EventSource === 'undefined') return;
+  var url = '/api/bus/stream' + (BUS.cursor ? '?since=' + BUS.cursor : '');
+  var es;
+  try { es = new EventSource(url); } catch (e) { BUS.error = 'blocked'; busPill(); return; }
+  BUS.es = es;
+  es.onopen = function () { BUS.lastSeen = Date.now(); BUS.error = null; busPill(); };
+  es.onerror = function () { busPill(); };
+  /* The proxy reports a refused upstream (401/429/502) as a named 'error'
+     frame rather than silently downgrading it to a healthy 200 — otherwise
+     the dashboard would show a live bus that is in fact delivering nothing. */
+  es.addEventListener('error', function (e) {
+    var d = e && e.data ? String(e.data) : '';
+    BUS.connected = false;
+    BUS.error = d ? d.slice(0, 40) : 'terputus';
+    busPill();
+  });
+  es.onmessage = function (msg) {
+    BUS.lastSeen = Date.now();
+    var ev;
+    try { ev = JSON.parse(msg.data); } catch (e) { return; }
+    BUS.frames++;
+    applyBusEvent(ev);
+  };
+  /* Proof of life. Without this the client has no way to tell a working
+     stream from a socket that died silently. */
+  es.addEventListener('keepalive', function () {
+    BUS.lastSeen = Date.now();
+    BUS.error = null;
+    busPill();
+  });
+  /* Watchdog: a silent stream must be re-checked even when nothing arrives,
+     or the pill would only ever refresh on the next real event. */
+  setInterval(busPill, 5000);
+}
+
+/* Precedence chain, strongest evidence first. Each rung must be backed by
+   something we actually observed; the last rung is the honest admission that
+   we observed nothing at all. */
+function deriveAgentState(id) {
+  var av = office.avatar[id];
+  var now = Date.now();
+  var act = BUS.last[id];
+  /* 1. explicit overlay — the owner marked this agent offline by hand. */
+  if (av && av.offline) {
+    return { state: 'Offline', working: false, provenance: 'ditandai offline manual' };
+  }
+  /* 2. live bus activity, still inside the freshness window. */
+  if (act && (now - act.at) < BUS_FRESH_MS) {
+    return { state: 'Working', working: true,
+      provenance: 'bus ' + act.type + ': ' + (act.summary || '') };
+  }
+  /* 3. the dashboard API reports an active task. This is weaker than the bus
+        because it lags a poll behind and only reflects Mia's own bookkeeping. */
+  if (av && av.apiStatus === 'working') {
+    return { state: 'Working', working: true, provenance: 'api /api/state: status working' };
+  }
+  /* 4. bus connected and genuinely quiet — managed idle is a real reading. */
+  if (BUS.connected && STATE) {
+    var p = idleStop(av ? av.seat : 0, clockTime, LAYOUT);
+    return { state: 'Idle', working: false,
+      provenance: 'bus terhubung, tidak ada aktivitas — strolling ke ' + (p.stop.label || p.spot.label) };
+  }
+  /* 5. nothing observed. Say Unknown; do not guess Idle. */
+  return { state: 'Unknown', working: false,
+    provenance: BUS.error ? ('tidak bisa melihat bus: ' + BUS.error)
+                         : 'menunggu data bus dan /api/state' };
+}
+
 var agents = {};
 AGENT_IDS.forEach(function (id, seat) {
   var ch = makeCharacter(id);
+  ch.id = id;
   var first = idleStop(seat, 0, LAYOUT);
   ch.group.position.set(first.spot.position[0], 0, first.spot.position[2]);
   ch.group.rotation.y = first.spot.facing;
   ch.seat = seat;
-  ch.state = 'Idle';
+  /* Nothing has been observed yet, so the honest starting state is Unknown.
+     'Idle' would be a claim we cannot back — the bus may simply not have
+     connected. deriveAgentState() promotes this once evidence arrives. */
+  ch.state = 'Unknown';
   ch.status = 'idle';
+  ch.provenance = 'baru dimuat';
+  ch.apiStatus = 'idle';
   ch.room = 'office';
   ch.activity = 'standing';
   ch.placement = first.spot;
@@ -3107,6 +3283,14 @@ function placementFor(agent) {
 
 var clockTime = 0;
 function stepAgent(agent, dt) {
+  /* Re-derive the state every frame from evidence, then let the placement
+     logic read it. Deriving here (not in syncOffice) means the precedence
+     chain always wins: a poll arriving mid-frame cannot quietly downgrade a
+     busy agent to idle. */
+  var d = deriveAgentState(agent.id);
+  agent.state = d.state;
+  agent.status = d.working ? 'working' : 'idle';
+  agent.provenance = d.provenance;
   var want = placementFor(agent);
   var key = want.position.map(function (n) { return n.toFixed(2); }).join(',');
   if (key !== agent.placementKey) {
@@ -3514,9 +3698,19 @@ function loop() {
   // fight each other when the button is clicked repeatedly.
   stepTheme(dt);
 
+  // Labels are projected here, in the same frame the camera was just applied
+  // in, so they stay welded to the characters. Driving this from a timer
+  // instead makes them lag the camera by up to a full tick while it is moved.
+  if (currentView === 'office') projectTags();
+
   renderer.render(scene, camera);
 
   office.ready = true;
+  /* The bus is opened from in here, not from the boot block: the agents and
+     the precedence chain live inside init3D, and if Three.js failed there are
+     no characters to colour anyway. Starting it here also means it never runs
+     against a half-built scene. */
+  connectBus();
   office.three = T;
   office.scene = scene;
   office.cam = camera;
@@ -3579,29 +3773,44 @@ var ACTIVITY_LABEL = {
 // Label card rows: name + room, then a status badge underneath. Node id is
 // kept in the detail panel rather than the card — it is long, machine-shaped,
 // and only useful when debugging a stuck agent.
-function tagText(id, name, status, activeTask) {
+function tagText(id, name, status, activeTask, provenance) {
   var av = office.avatar[id];
   var room = av ? (ROOM_LABEL_UI[av.room] || '—') : '—';
   var act = av ? (ACTIVITY_LABEL[av.activity] || av.activity) : '';
   var st = String(status || 'idle');
-  var dotCls = /work|run|busy|execut/i.test(st) ? 'working'
-    : /err|fail|down|offline/i.test(st) ? 'error'
+  /* The dot reflects the DERIVED state, not the raw API status — otherwise a
+     character the bus says is busy still shows a grey idle dot. */
+  var dot = av ? String(av.state || '') : '';
+  var dotCls = /work|busy/i.test(dot) || /work|run|busy|execut/i.test(st) ? 'working'
+    : /err|fail/i.test(dot) || /err|fail|down|offline/i.test(st) ? 'error'
+    : dot === 'Unknown' ? 'degraded'
     : /degrad|warn|slow/i.test(st) ? 'degraded' : 'idle';
   var sub = activeTask ? String(activeTask).slice(0, 30)
     : (act && act !== '—' ? act : st);
-  return '<span class="tRow"><b>' + esc(name) + '</b>'
+  var html = '<span class="tRow"><b>' + esc(name) + '</b>'
     + '<span class="tDot ' + dotCls + '"></span>'
     + '<span class="tRoom">' + esc(room) + '</span></span>'
     + '<small>' + esc(sub) + '</small>';
+  /* Provenance: the reason this character looks the way it does. Without it
+     the dashboard asserts state it cannot explain, which is how a UI starts
+     inventing things. Shown small, and as the tooltip for quick reading. */
+  if (provenance) {
+    html += '<small class="tProv" title="' + esc(provenance) + '">'
+      + esc(String(provenance).slice(0, 64)) + '</small>';
+  }
+  return html;
 }
 
 function syncOffice() {
   if (!office.ready || !STATE) return;
   STATE.agents.forEach(function (a) {
     var av = office.avatar[a.id];
-    if (av) av.status = a.status;
+    /* apiStatus is EVIDENCE for the precedence chain, not the answer itself.
+       Writing it straight into av.status would let a 3s poll overwrite what
+       the bus just told us. */
+    if (av) av.apiStatus = a.status;
     var tag = office.tags[a.id];
-    if (tag) tag.innerHTML = tagText(a.id, a.name, a.status, a.active_task);
+    if (tag) tag.innerHTML = tagText(a.id, a.name, a.status, a.active_task, av && av.provenance);
   });
   projectTags();
 }
@@ -3612,7 +3821,7 @@ function refreshTagText() {
   if (!office.ready || !STATE) return;
   STATE.agents.forEach(function (a) {
     var tag = office.tags[a.id];
-    if (tag) tag.innerHTML = tagText(a.id, a.name, a.status, a.active_task);
+    if (tag) tag.innerHTML = tagText(a.id, a.name, a.status, a.active_task, office.avatar[a.id] && office.avatar[a.id].provenance);
   });
   var pill = $('#activityPill');
   if (pill && STATE.agents.length) {
@@ -3623,20 +3832,37 @@ function refreshTagText() {
   }
 }
 
+/* Label projector. Called from the render loop, not from a setInterval: the
+   camera moves every frame, so a timer-driven projection leaves the labels up
+   to a full tick behind and they visibly stutter while the camera is dragged.
+   The scale term makes the label grow/shrink with zoom like the 3D content
+   instead of staying a fixed pixel size at every distance. */
 function projectTags() {
   if (!office.ready || !office.three || !office.cam) return;
   var T = window.THREE;
   var c = $('#c3d');
   var w = c.clientWidth || 1, h = c.clientHeight || 1;
+  // Keep labels near their authored size at the default framing (dist ~26) and
+  // shrink/grow gently around it. The orbit distance is read from the exposed
+  // camState() because `cam` here is a local inside init3D() and is not in this
+  // function's scope. Clamped so close-ups stay readable and wide shots don't
+  // balloon.
+  var st = office.camState ? office.camState() : null;
+  var scale = Math.max(0.62, Math.min(1.35, 26 / Math.max(1, st ? st.dist : 26)));
   ['mia', 'agnes', 'michelle'].forEach(function (id) {
     var a = office.avatar[id], tag = office.tags[id];
     if (!a || !tag) return;
     // a.tagY tracks the character height (1.77 m avatar + headroom), so the
     // label stays just above the head instead of using a hardcoded offset.
     var v = new T.Vector3(a.group.position.x, a.tagY || 2.05, a.group.position.z).project(office.cam);
+    if (v.z > 1) { tag.style.display = 'none'; return; }
+    tag.style.display = '';
     tag.style.left = ((v.x + 1) / 2 * w) + 'px';
     tag.style.top = ((-v.y + 1) / 2 * h) + 'px';
-    tag.style.display = v.z > 1 ? 'none' : '';
+    // translate(-50%,-100%) centres and bottom-anchors the label; the extra
+    // scale is appended in the same transform so it composes with the anchor.
+    tag.style.transform = 'translate(-50%,-100%) scale(' + scale.toFixed(3) + ')';
+    tag.style.transformOrigin = '50% 100%';
   });
 }
 
@@ -3737,7 +3963,9 @@ try { init3D(); } catch (e) { fail3D('Three.js gagal berjalan: ' + e.message); }
 show('office');
 poll();
 setInterval(poll, 3000);
-setInterval(function () { if (currentView === 'office') projectTags(); }, 100);
+// Tag positions are now projected inside the render loop (see loop()), so this
+// timer is gone: re-projecting on a 100 ms tick only made the labels stutter
+// behind the camera.
 })();
 </script>
 </body>

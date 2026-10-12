@@ -34,6 +34,8 @@ const HOST = '127.0.0.1';
 const MIA_WEB_DIR = path.resolve(ROOT, '..', 'web');
 const AUDIT_DIR = path.join(MIA_WEB_DIR, '.data', 'audit');
 const MIA_LLM_URL = process.env.MIA_LLM_URL || 'http://127.0.0.1:3000/api/llm';
+// Origin of Mia's Next app, derived from the LLM URL so there is one knob.
+const MIA_WEB_BASE = process.env.MIA_WEB_BASE || new URL(MIA_LLM_URL).origin;
 const OWNER_USER = process.env.OFFICE_OWNER_USER || 'naufalazhar652952';
 const WORKING_WINDOW_MS = Number(process.env.OFFICE_WORKING_WINDOW_MS || 120000);
 const DISPATCH_TIMEOUT_MS = Number(process.env.OFFICE_DISPATCH_TIMEOUT_MS || 180000);
@@ -869,6 +871,96 @@ function serveStatic(req, res, urlPath) {
   fs.createReadStream(resolved).pipe(res);
 }
 
+/**
+ * Proxy SSE dari Mia Event Bus (`/api/bus/stream`) ke dashboard.
+ *
+ * Kenapa proxy, bukan EventSource langsung ke port 3000:
+ *  1. Route Next tidak mengirim `Access-Control-Allow-Origin`, jadi EventSource
+ *     lintas-origin (3001 → 3000) akan diblokir browser. Proxy membuat stream
+ *     tetap same-origin.
+ *  2. Tidak perlu melemahkan keamanan route Next (CORS wildcard) demi viewer.
+ *  3. Kunci user dipinjol dari server (`OWNER_USER`) — klien tidak pernah
+ *     menentukan event mana yang boleh dia lihat.
+ *
+ * Backpressure: `pipe` mengalirkan seluruh isi. Event murni display-only, jadi
+ * tidak ada ack yang perlu diteruskan balik.
+ */
+function proxyBusStream(req, res, url) {
+  const target = new URL('/api/bus/stream', MIA_WEB_BASE);
+  // Pinjol user key server-side. `since` tetap diteruskan supaya klien bisa
+  // mereplay event yang terlewat (cursor = seq terakhir yang diterima).
+  target.searchParams.set('user', OWNER_USER);
+  const since = url.searchParams.get('since');
+  if (since && /^\d+$/.test(since)) target.searchParams.set('since', since);
+
+  let upstream = null;
+  let closed = false;
+  try {
+    upstream = http.get(target, { headers: { accept: 'text/event-stream' } }, (up) => {
+      if (closed) {
+        up.resume();
+        return;
+      }
+      if (up.statusCode !== 200) {
+        // Teruskan status upstream apa adanya (mis. 429 rate-limit) supaya
+        // klien bisa membedakan "stream ditolak" dari "Mia tidak hidup".
+        const text = `event: error\ndata: {"error":"bus_unavailable","status":${up.statusCode}}\n\n`;
+        res.writeHead(up.statusCode, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' });
+        res.end(text);
+        up.resume();
+        return;
+      }
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      });
+      up.pipe(res);
+      /* Upstream hanya mengirim komentar `: keepalive`, yang dibuang oleh
+         EventSource. Akibatnya socket yang sudah mati tetap ber-readyState OPEN
+         dan tidak pernah memicu onerror, sehingga dashboard akan tetap
+         mengklaim bus "terhubung" padahal isinya sudah tak terlihat. Kita
+         kirim keepalive milik sendiri yang bisa diamati klien, supaya
+         konektivitas dibuktikan, bukan diasumsikan. */
+      const beat = setInterval(() => {
+        if (closed || res.writableEnded) return;
+        res.write(`event: keepalive\ndata: ${Date.now()}\n\n`);
+      }, 15000);
+      const stopBeat = () => clearInterval(beat);
+      res.on('close', stopBeat);
+      res.on('error', stopBeat);
+    });
+    upstream.on('error', (err) => {
+      if (closed) return;
+      closed = true;
+      if (!res.headersSent) {
+        sendJson(res, 502, { error: 'bus_unreachable', detail: redact(String(err && err.message)), hint: `is Mia running on ${MIA_WEB_BASE}?` });
+      } else {
+        res.end(`event: error\ndata: {"error":"bus_stream_broken"}\n\n`);
+      }
+    });
+    // Klien menutup EventSource / tab ditutup → stop biayanya upstream juga.
+    // Tanpa ini Mia akan tetap menahan satu koneksi terbuka per tab.
+  } catch (err) {
+    if (!res.headersSent) {
+      sendJson(res, 502, { error: 'bus_unreachable', detail: redact(String(err && err.message)) });
+    }
+  }
+  const abort = () => {
+    if (closed) return;
+    closed = true;
+    if (upstream) upstream.destroy();
+    try {
+      res.end();
+    } catch {
+      /* already closed */
+    }
+  };
+  req.on('close', abort);
+  res.on('error', abort);
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   const p = url.pathname;
@@ -879,6 +971,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (p.startsWith('/api/') && !isAuthorized(req)) {
       sendJson(res, 401, { error: 'unauthorized', hint: 'Set cookie mia_auth=<AUTH_TOKEN> or send Authorization: Bearer <AUTH_TOKEN>' });
+      return;
+    }
+    if (p === '/api/bus/stream' && req.method === 'GET') {
+      proxyBusStream(req, res, url);
       return;
     }
     if (p === '/api/state' && req.method === 'GET') {
