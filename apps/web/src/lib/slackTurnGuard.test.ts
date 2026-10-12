@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
+  BOT_BURST_LIMIT,
   BOT_HOP_LIMIT,
+  BURST_WINDOW_MS,
   CHAIN_TTL_MS,
   OWNER_TURN_REPLY_CAP,
+  __resetBotBurst,
   __resetSlackTurnGuard,
+  decideBotBurst,
   decideSlackChain,
+  evaluateBotBurst,
   evaluateSlackMessage,
   slackChainKey,
   type SlackChainState,
@@ -190,5 +195,103 @@ describe("initiatesChain — a fresh bot post is a new conversation, not a spent
     // A brand new top-level post is unaffected by the exhausted thread.
     expect(evaluateSlackMessage(top, { fromBot: true, from: "mia", to: "michelle", initiatesChain: true }, now + 3).allow).toBe(true);
     __resetSlackTurnGuard();
+  });
+});
+
+// Live incident 2026-10-12: the provider died (`403 ... An active OpenCode Go
+// subscription is required to use Go models`) and Agnes <-> Michelle produced
+// ~80 alternating turns in one channel. The hop budget could not stop it — see
+// these tests for why — so the burst brake bounds the channel instead.
+describe("burst brake (the limit no bot message can reset)", () => {
+  beforeEach(() => __resetBotBurst());
+
+  it("the owner is never gated, however loud the channel got", () => {
+    const v = decideBotBurst(
+      { count: 99, at: 1000 },
+      { fromBot: false },
+      1000
+    );
+    expect(v).toMatchObject({ allow: true, count: 0 });
+  });
+
+  it("stops the cascade once the window budget is spent", () => {
+    let state = { count: 0, at: 1000 };
+    for (let i = 0; i < BOT_BURST_LIMIT; i += 1) {
+      const v = decideBotBurst(state, { fromBot: true }, 1000);
+      expect(v.allow).toBe(true);
+      state = { count: v.allow ? v.count : 0, at: 1000 };
+    }
+    const denied = decideBotBurst(state, { fromBot: true }, 1000);
+    expect(denied).toMatchObject({ allow: false, reason: "burst-limit" });
+  });
+
+  it("a bot message CANNOT reset it — only time or the owner can (the unthreaded-reply hole)", () => {
+    let state = { count: 0, at: 1000 };
+    for (let i = 0; i < BOT_BURST_LIMIT; i += 1) {
+      const v = decideBotBurst(state, { fromBot: true }, 1000);
+      state = { count: v.allow ? v.count : 0, at: 1000 };
+    }
+    // Denied now...
+    expect(decideBotBurst(state, { fromBot: true }, 1000).allow).toBe(false);
+    // ...and still denied for every following bot message, however it is shaped.
+    for (let i = 0; i < 20; i += 1) {
+      expect(decideBotBurst(state, { fromBot: true }, 1000 + i).allow).toBe(false);
+    }
+    // Only the rolling window lapsing re-opens the channel.
+    expect(decideBotBurst(state, { fromBot: true }, 1000 + BURST_WINDOW_MS + 1).allow).toBe(true);
+  });
+
+  it("an owner message clears the whole counter (fresh allowance)", () => {
+    const v = evaluateBotBurst("C1:(top)", { fromBot: false });
+    expect(v.allow).toBe(true);
+    for (let i = 0; i < BOT_BURST_LIMIT; i += 1) {
+      evaluateBotBurst("C1:(top)", { fromBot: true });
+    }
+    expect(evaluateBotBurst("C1:(top)", { fromBot: true }).allow).toBe(false);
+    // Owner speaks -> counter cleared -> the trio can work again immediately.
+    expect(evaluateBotBurst("C1:(top)", { fromBot: false }).allow).toBe(true);
+    expect(evaluateBotBurst("C1:(top)", { fromBot: true }).allow).toBe(true);
+  });
+
+  it("bounds each channel independently", () => {
+    for (let i = 0; i < BOT_BURST_LIMIT; i += 1) evaluateBotBurst("A:(top)", { fromBot: true });
+    expect(evaluateBotBurst("A:(top)", { fromBot: true }).allow).toBe(false);
+    expect(evaluateBotBurst("B:(top)", { fromBot: true }).allow).toBe(true);
+  });
+
+  it("the stateful wrapper does not resurrect a stale entry past the window", () => {
+    const t0 = 2_000_000;
+    evaluateBotBurst("C1:(top)", { fromBot: true }, t0);
+    const later = evaluateBotBurst("C1:(top)", { fromBot: true }, t0 + BURST_WINDOW_MS + 1);
+    expect(later.allow).toBe(true);
+    expect(later.allow && later.count).toBe(1);
+  });
+});
+
+describe("the two limits answer different questions (both are needed)", () => {
+  beforeEach(() => {
+    __resetSlackTurnGuard();
+    __resetBotBurst();
+  });
+
+  it("hop limit closes ONE conversation; the brake stops an endless supply of new ones", () => {
+    const key = slackChainKey("C1", "1700.1");
+    // Two legitimate handoffs (top-level posts = new conversations) both pass.
+    expect(
+      evaluateSlackMessage(key, { fromBot: true, from: "michelle", to: "agnes", initiatesChain: true }).allow
+    ).toBe(true);
+    expect(
+      evaluateSlackMessage(key, { fromBot: true, from: "agnes", to: "michelle", initiatesChain: true }).allow
+    ).toBe(true);
+    expect(evaluateBotBurst(key, { fromBot: true }).allow).toBe(true);
+    expect(evaluateBotBurst(key, { fromBot: true }).allow).toBe(true);
+
+    // Both independent: a threaded reply in the same chain is hop-limited...
+    const thread = slackChainKey("C1", "1700.2");
+    evaluateSlackMessage(thread, { fromBot: true, from: "agnes", to: "michelle", initiatesChain: true });
+    expect(evaluateSlackMessage(thread, { fromBot: true, from: "michelle", to: "agnes" }).allow).toBe(false);
+    // ...while the channel brake keeps counting fresh conversations.
+    for (let i = 0; i < BOT_BURST_LIMIT; i += 1) evaluateBotBurst(key, { fromBot: true });
+    expect(evaluateBotBurst(key, { fromBot: true }).allow).toBe(false);
   });
 });

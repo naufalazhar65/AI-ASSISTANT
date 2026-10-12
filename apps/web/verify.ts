@@ -7629,9 +7629,18 @@ async function main() {
       // router and the drop-site log share one literal (Slack adapter). Accept
       // either shape, but require that `nameAddressed` really travels to the
       // router — that is the invariant, not the formatting.
+      // `nameAddressed` need not be the LAST key of the options literal any more
+      // (Slack hoists it into `routingOpts` and later added `fromPeerBot`
+      // after it), so the hoisted form tolerates trailing keys instead of
+      // demanding `nameAddressed,` be immediately followed by `};`.
+      // `nameAddressed` need not be the LAST key any more: Slack hoists it into
+      // `routingOpts` and both adapters now pass `fromPeerBot` after it. The
+      // invariant is that the key appears inside the OPTIONS LITERAL handed to
+      // the router, so tolerate trailing keys rather than demanding that
+      // `nameAddressed,` be immediately followed by `}`.
       const passesNameAddressed =
-        /shouldRespondToAgent\([\s\S]{0,400}nameAddressed,?\s*\n?\s*\}\)/.test(src) ||
-        /nameAddressed,\s*\n\s*\};[\s\S]{0,200}shouldRespondToAgent\(/.test(src);
+        /shouldRespondToAgent\([\s\S]{0,400}\bnameAddressed\b[\s\S]{0,200}\}\)/.test(src) ||
+        /nameAddressed,[\s\S]{0,200}\}?;[\s\S]{0,200}shouldRespondToAgent\(/.test(src);
       if (!passesNameAddressed) {
         throw new Error(`${name} must pass nameAddressed into shouldRespondToAgent (typed names would be invisible)`);
       }
@@ -7671,6 +7680,181 @@ async function main() {
       throw new Error("unaddressed channel chatter must still reach the concierge");
     }
     console.log("name addressing unconditional in both adapters (solo == trio, mention/DM carve-outs): OK");
+
+    // -- Discord bot-to-bot delegation (live 2026-10-11) --------------------
+    // Owner delegated to Michelle, Michelle delegated to Agnes by name, and
+    // Agnes never answered. Root cause: `messageCreate` opened with
+    // `if (!msg.author || msg.author.bot) return;` -- EVERY bot-authored
+    // message was dropped before routing AND before the log line, so the
+    // failure was completely silent. Slack solved the same problem a day
+    // earlier (isBotAuthor + evaluateSlackMessage + peerAgent); Discord was
+    // the drifted copy that never got the port.
+    //
+    // These assertions lock the WIRING, not just the helper. A correct helper
+    // whose call site was removed passes every unit test and fails in
+    // production -- that exact class (discordRestTokenHeal, the Slack
+    // loop-gate `if (false && !gate.allow)`) is why source shape is asserted.
+    {
+      const dSrc = readFileSync(join(import.meta.dirname, "src", "channels", "discord.ts"), "utf8");
+
+      // The blanket drop must be GONE. Positive match on the return form: a
+      // negative regex would match the explanatory comment quoting the old line.
+      if (!/if \(!msg\.author\) return;/.test(dSrc)) {
+        throw new Error(
+          "discord.ts must keep a `if (!msg.author) return;` guard for a missing author -- an unbounded property access on a partial message crashes the handler"
+        );
+      }
+      // Assert the FIX positively rather than the absence of the old line: the
+      // negative form matched the explanatory comment above, which quotes the
+      // buggy line verbatim -- the same self-match that already broke this
+      // file once. The invariant is "own echo is dropped, the bot class is not".
+      if (!/if \(isDiscordSelfAuthored\([\s\S]{0,200}\)\s*\) \{/.test(dSrc)) {
+        throw new Error(
+          "discord.ts must gate bot-authored messages on `isDiscordSelfAuthored(...)` -- dropping the whole bot class made the trio blind to delegation (live 2026-10-11)"
+        );
+      }
+      if (!/const isBotAuthor = /.test(dSrc)) {
+        throw new Error("discord.ts must compute isBotAuthor so a known sibling is told apart from a foreign bot");
+      }
+      if (!/isDiscordSelfAuthored\(/.test(dSrc)) {
+        throw new Error("discord.ts must still drop its OWN messages (self-echo), not the whole bot class");
+      }
+      // A bot id is never in `allowedUsers`, so an unconditional hard-return on
+      // the user gate re-creates the blindness one screen later.
+      if (!/if \(!isBotAuthor\) \{\s*if \(!isAllowedUser\(msg, cfg\.allowedUsers\)\) return;/.test(dSrc)) {
+        throw new Error(
+          "discord.ts must not hard-return on the user gate for bot authors -- a sibling id is never allow-listed, so this silently re-blocks delegation before routing"
+        );
+      }
+      if (!/evaluateSlackMessage\(/.test(dSrc) || !/slackChainKey\(/.test(dSrc)) {
+        throw new Error(
+          "discord.ts must reuse slackTurnGuard (evaluateSlackMessage + slackChainKey) -- a second, divergent guard would drift from Slack's BOT_HOP_LIMIT"
+        );
+      }
+      if (!/if \(!gate\.allow\)/.test(dSrc)) {
+        throw new Error(
+          "discord.ts must ACT on the guard verdict (`if (!gate.allow)`) -- computing it and continuing is the same bug as `if (false && !gate.allow)`"
+        );
+      }
+      if (!/peerAgent: pending\.peerAgent \?\? undefined/.test(dSrc)) {
+        throw new Error(
+          "discord.ts confirm continuation must forward pending.peerAgent, or a sibling's risky-tool confirmation gets answered to the owner"
+        );
+      }
+      if (!/peerAgent: peerAgent \?\? undefined/.test(dSrc)) {
+        throw new Error('discord.ts must pass peerAgent to runAssistantTurn (otherwise a sibling answers "Halo Mas Naufal!")');
+      }
+
+      // ── The loop guard that could not fire (live 2026-10-12) ──────────────
+      // `msg.messageReference` does not exist in discord.js v14; the reply
+      // reference is `msg.reference`. Reading the wrong property made
+      // `chainReply` permanently false, so every unthreaded bot reply counted
+      // as `initiatesChain`, re-armed the hop budget from zero, and
+      // BOT_HOP_LIMIT could never engage -- 80 alternating Agnes/Michelle turns.
+      if (!/const chainReply = !!msg\.reference\?\.messageId;/.test(dSrc)) {
+        throw new Error(
+          "discord.ts must read the reply reference from `msg.reference?.messageId` -- `msg.messageReference` is not a discord.js v14 message property, so chainReply was always false and the hop budget was re-armed by every bot reply (live 2026-10-12)"
+        );
+      }
+      if (!/evaluateBotBurst\(/.test(dSrc)) {
+        throw new Error(
+          "discord.ts must also apply the burst brake (evaluateBotBurst) -- hop limit bounds ONE conversation, the brake is what bounds the channel"
+        );
+      }
+      if (!/const brake = evaluateBotBurst\(/.test(dSrc) || !/if \(!brake\.allow\)/.test(dSrc)) {
+        throw new Error(
+          "discord.ts must ACT on the burst-brake verdict (`if (!brake.allow)`) -- computing it and continuing is the same bug as `if (false && !brake.allow)`"
+        );
+      }
+      if (!/async function reportTurnFailure\(/.test(dSrc)) {
+        throw new Error(
+          "discord.ts must route failures through reportTurnFailure -- a failing turn posted as a reply is itself a bot message, which is what fed the cascade"
+        );
+      }
+      // Four distinct failure paths must all go through it: the runTurn catch,
+      // the handleConfirmation catch, the vision-turn catch, and the
+      // handler-level catch. A threshold alone was NOT enough — mutating the
+      // handler catch away still left three call sites and passed (measured,
+      // MUT_C 2026-10-12), so the handler catch is asserted by its own shape.
+      const failureCallSites = dSrc.match(/await reportTurnFailure\(/g) || [];
+      if (failureCallSites.length < 4) {
+        throw new Error(
+          `discord.ts must send every failure path through reportTurnFailure (found ${failureCallSites.length}; runTurn, handleConfirmation, vision and handler catches are four)`
+        );
+      }
+      if (!/console\.error\("\[discord\] handler error:"[\s\S]{0,200}await reportTurnFailure\(msg, err, peerAgent\);/.test(dSrc)) {
+        throw new Error(
+          "discord.ts handler catch must route through reportTurnFailure -- a generic apology posted to a sibling is itself a bot message, which is what fed the cascade"
+        );
+      }
+      // Slack carries the identical hazard: `initiatesChain` treats an
+      // unthreaded bot post as a new conversation, and a bot replying to a
+      // top-level Slack message does exactly that.
+      {
+        const sSrc = readFileSync(join(import.meta.dirname, "src", "channels", "slack.ts"), "utf8");
+        if (!/evaluateBotBurst\(/.test(sSrc) || !/if \(!brake\.allow\)/.test(sSrc)) {
+          throw new Error(
+            "slack.ts must apply the burst brake too -- its hop budget is keyed per thread and an unthreaded bot reply re-arms it exactly as Discord's did (live 2026-10-12)"
+          );
+        }
+        if (!/async function reportSlackTurnFailure\(/.test(sSrc)) {
+          throw new Error(
+            "slack.ts must route failures through reportSlackTurnFailure -- a peer does not need to be told our provider is down"
+          );
+        }
+        const slackFailureSites = sSrc.match(/await reportSlackTurnFailure\(/g) || [];
+        if (slackFailureSites.length < 2) {
+          throw new Error(
+            `slack.ts must send BOTH turn-failure paths through reportSlackTurnFailure (runTurn and handleConfirmation; found ${slackFailureSites.length})`
+          );
+        }
+        // The handler-level catch has its own wording, so it is asserted by the
+        // rule it must obey rather than by the helper name.
+        if (!/handler error for peer \$\{peerAgent\}; not replying/.test(sSrc)) {
+          throw new Error(
+            "slack.ts handler catch must stay silent for a peer-triggered turn -- an internal error is not a message to hand back to a sibling"
+          );
+        }
+      }
+
+      // A turn triggered by a SIBLING is still the owner's turn. Deriving the
+      // per-user key from the author's display name wrote a delegated turn
+      // into `MichelleEngineer.agnes` instead of the owner's key -- measured
+      // from the live audit log 2026-10-12, and it silently splits persona /
+      // memory / findings per sibling.
+      if (!/const slug = msg\.author\.bot\s*\?\s*""\s*:/.test(dSrc)) {
+        throw new Error(
+          "discord.ts userKeyFor must not derive the user key from a BOT author's display name -- a delegated turn is the OWNER's turn and must land under the owner's key (live 2026-10-12 produced `MichelleEngineer.agnes`)"
+        );
+      }
+
+      // Behavioural: the shared guard really bounds bot ping-pong, and a fresh
+      // delegation is never blocked by a stale budget.
+      {
+        const { __resetSlackTurnGuard, evaluateSlackMessage: evalChain } = await import(
+          "./src/lib/slackTurnGuard"
+        );
+        __resetSlackTurnGuard();
+        const key = "discord-verify-chain";
+        const first = evalChain(key, { fromBot: true, from: "michelle", to: "agnes", initiatesChain: true });
+        if (!first.allow) throw new Error("a fresh delegation must be allowed");
+        const echo = evalChain(key, { fromBot: true, from: "agnes", to: "agnes" });
+        if (echo.allow || (echo as { reason?: string }).reason !== "self-echo") {
+          throw new Error(`a bot must never be handed its own message (got ${JSON.stringify(echo)})`);
+        }
+        const second = evalChain(key, { fromBot: true, from: "agnes", to: "michelle" });
+        if (second.allow || (second as { reason?: string }).reason !== "hop-limit") {
+          throw new Error(`bot ping-pong must be bounded (got ${JSON.stringify(second)})`);
+        }
+        if (!evalChain(key, { fromBot: false, from: "mia", to: "agnes" }).allow) {
+          throw new Error(
+            "the owner must never be gated by the bot loop guard -- gating a human is worse than the loop it prevents"
+          );
+        }
+        __resetSlackTurnGuard();
+      }
+      console.log("discord bot-to-bot delegation (sibling routing + shared loop guard + peer turn): OK");
+    }
 
   // ── Unresolvable mentions (live Slack 2026-10-08 14:02) ───────────────────
   // The typed-name guard above CANNOT see this case, and that is why the owner

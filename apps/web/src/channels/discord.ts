@@ -57,6 +57,7 @@ import { defaultProviderId } from "../lib/providers";
 import { buildStatusReport } from "../lib/status";
 import { handleUnifiedCommand, ChatSessionState } from "../lib/channelMessage";
 import { alreadyProcessed, alreadyStarted } from "../lib/once";
+import { evaluateBotBurst, evaluateSlackMessage, slackChainKey } from "../lib/slackTurnGuard";
 import { discordRestTokenHeal } from "../lib/discordRestTokenHeal";
 import {
   addressedAgentByName,
@@ -99,7 +100,7 @@ type ChatState = {
   /** Persistent text-only conversation (user/assistant) used as LLM context. */
   history: ChatMessage[];
   /** Waiting for a yes/no confirmation of risky tool(s) (FR-014). */
-  pending: { messages: ChatMessage[]; calls: ToolCall[] } | null;
+  pending: { messages: ChatMessage[]; calls: ToolCall[]; peerAgent?: string | null } | null;
 };
 
 const PROVIDER_DEFAULT = process.env.DISCORD_PROVIDER || defaultProviderId();
@@ -368,8 +369,47 @@ const botClients: Partial<Record<AgentLabel, Client | null>> = {};
  *  Used for mention-priority: when a message mentions ≥1 trio bot, only the
  *  mentioned ones reply — even inside a shared dedicated channel. */
 const trioBotIds = new Set<string>();
+/** bot id -> agent label, for the three bots running in THIS process.
+ *  Populated at ClientReady alongside `trioBotIds`. Needed because a bot's
+ *  REST user id and its gateway identity id can differ, so a single Set of ids
+ *  cannot answer "which sibling wrote this?" — the same reason Slack keeps both
+ *  `${label}` and `${label}:bot` keys. */
+const trioBotLabels = new Map<string, AgentLabel>();
 export function getDiscordClient(label: AgentLabel): Client | null {
   return botClients[label] ?? null;
+}
+
+/** Which trio member authored this Discord id, if any. Reverse lookup by
+ *  value, so callers need not know which id form they hold. */
+export function discordAuthorLabel(id: string | undefined | null): AgentLabel | null {
+  if (!id) return null;
+  return trioBotLabels.get(id) ?? null;
+}
+
+/**
+ * DRILL HOOK ONLY — registers a synthetic trio identity, exactly the way
+ * ClientReady does for a real bot. Mirrors lib/slackTurnGuard's
+ * `__resetSlackTurnGuard` and `getActiveDiscordClient` above: an inspection
+ * seam for the adapter drills, never called by production code.
+ *
+ * It exists because adapter drills deliberately run with an INVALID token, so
+ * `client.login()` 401s at REST and ClientReady never fires — without seeding an
+ * identity, `discordAuthorLabel()` returns null for every id and the sibling
+ * path collapses into a self-echo rejection (from === to), which would make the
+ * drill prove a wiring bug that production does not have.
+ */
+export function __seedDiscordBotIdentity(id: string, label: AgentLabel): void {
+  trioBotLabels.set(id, label);
+  trioBotIds.add(id);
+}
+
+/** True when this message was authored by `label` itself (own echo). */
+export function isDiscordSelfAuthored(
+  authorId: string | undefined | null,
+  botId: string | undefined | null,
+  label: AgentLabel
+): boolean {
+  return discordAuthorLabel(authorId) === label || discordAuthorLabel(botId) === label;
 }
 
 /** Owner DM/channel for proactive reminder pushes; recorded from any owner msg
@@ -425,7 +465,15 @@ function isAllowedMessage(msg: Message, cfg: AgentBotConfig): boolean {
 
 /** User key for per-user persona/memory; falls back to the owner id slug. */
 function userKeyFor(msg: Message, cfg: AgentBotConfig): string {
-  const slug = (msg.author.username || msg.author.id).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 60);
+  // A turn TRIGGERED BY A SIBLING BOT is still the OWNER's turn: its persona,
+  // memory and findings belong under the owner's key. Deriving the slug from
+  // the author's display name made a delegated turn land in a key named after
+  // the sibling — measured live 2026-10-12 as `MichelleEngineer.agnes` (from
+  // "Michelle | Engineer"), which silently split the owner's per-agent data
+  // and left the delegated agent with a blank persona.
+  const slug = msg.author.bot
+    ? ""
+    : (msg.author.username || msg.author.id).replace(/[^A-Za-z0-9._-]/g, "").slice(0, 60);
   return `${slug || cfg.userFallback}${cfg.userSuffix}`;
 }
 
@@ -494,7 +542,10 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
     // forensics; the short version is that discord.js login() sets the REST
     // token and then destroy() (its own error path) clears it again.
     discordRestTokenHeal(client, token, cfg.label, (m) => console.warn(m));
-    if (client.user) trioBotIds.add(client.user.id);
+    if (client.user) {
+      trioBotIds.add(client.user.id);
+      trioBotLabels.set(client.user.id, cfg.label);
+    }
     // Register slash commands for Mia so "/status" etc. appear under Mia, not just as prefix.
     // Do it once per startup; Discord dedupes by name. Register both global and per-guild for fast propagation.
     try {
@@ -614,6 +665,10 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
   });
 
   client.on("messageCreate", async (msg: Message) => {
+    // Declared OUTSIDE the try: the `catch` is a sibling scope, so a const
+    // assigned inside the try body is invisible there and the failure path
+    // could not tell whether it was answering a peer or the owner.
+    let peerAgent: string | null = null;
     try {
       // Unwrap a partial message (first-ever DM arrives partly cached).
       if (msg.partial) {
@@ -623,8 +678,24 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
           return;
         }
       }
-      // Ignore the bot's own messages and (optionally) non-allow-listed channels.
-      if (!msg.author || msg.author.bot) return;
+      // Author classification. Discord used to drop EVERY bot-authored
+      // message here (`if (!msg.author || msg.author.bot) return;`), which made
+      // the trio structurally blind to each other: a sibling delegating work in
+      // plain text was invisible to everyone, and because the drop sat before
+      // the log below it was also completely silent. Measured 2026-10-11 —
+      // Michelle's "Agnes, tolong dicarikan berita..." produced zero events in
+      // the log and Agnes never answered. Slack already handled this
+      // (`isBotAuthor` + `evaluateSlackMessage` + `peerAgent`); Discord was the
+      // drifted copy. Now: own echo is still dropped, a KNOWN sibling passes,
+      // and an unknown/foreign bot still passes to the router so it can decide
+      // (it will not be named as a peer, so it cannot start a delegation).
+      const authorId = msg.author?.id ?? "";
+      const isBotAuthor = !!msg.author?.bot || discordAuthorLabel(authorId) !== null;
+      if (!msg.author) return;
+      if (isDiscordSelfAuthored(authorId, msg.author.bot ? authorId : undefined, cfg.label)) {
+        console.log(`[discord] drop own echo (${authorId})`);
+        return;
+      }
       // One inbound message = one turn, even if Discord redelivers it (gateway
       // resume/replay) — live bug: the same message ran two full turns and sent
       // two `remind_me` confirmation prompts.
@@ -647,13 +718,20 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
       // died at `isAllowedMessage` with allowedUser=true/allowedChannel=false
       // and the bot stayed silent. Non-allow-listed users still can't trigger
       // it; ordinary chat turns below stay fully channel-gated.
-      if (!isAllowedUser(msg, cfg.allowedUsers)) return;
+      // A sibling bot is never in `allowedUsers`, so this gate used to
+      // hard-return before trio routing could ever see a delegated message —
+      // the second half of the same blindness the author-drop caused. Bots
+      // must not trigger voice sessions at all, so skip the block instead of
+      // returning; humans keep the exact gate they had.
+      if (!isBotAuthor) {
+        if (!isAllowedUser(msg, cfg.allowedUsers)) return;
+      }
       {
         const host = (process.env.DISCORD_VOICE_HOST || "mia") as AgentLabel;
         const voiceCmd = /^\s*!voice(?:\s+(on|off|stop|start|help))?([\s\S]*)$/i.exec(
           stripMentions(msg.content || "")
         );
-        if (cfg.label === host && voiceCmd) {
+        if (cfg.label === host && voiceCmd && !isBotAuthor) {
           const verb = (voiceCmd[1] || "on").toLowerCase();
           if (verb === "help") {
             await msg.reply(voiceCommandHelp()).catch(() => {});
@@ -763,9 +841,64 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
             mentionedOtherTrioBot,
             trioMode: cfg.trioMode,
             nameAddressed,
+            fromPeerBot: isBotAuthor,
           })
         )
           return;
+      }
+      // --- Bot-to-bot chain budget + peer identity ------------------------
+      // Reuses slackTurnGuard rather than a second, divergent guard: the rules
+      // (BOT_HOP_LIMIT, CHAIN_TTL_MS, owner never gated) must not be able to
+      // drift between the two adapters. Discord has no thread id, so a channel
+      // is the conversation - `slackChainKey(channel, null)` handles that.
+      //
+      // A bot message that is a REPLY is a hop; one that is not starts a new
+      // chain, matching Slack's `initiatesChain` so a fresh delegation from the
+      // owner is never blocked by a stale budget.
+      //
+      // The reply reference lives on `msg.reference`, NOT `msg.messageReference`
+      // — measured 2026-10-12 by reading node_modules/discord.js (v14.27.0):
+      // `Message` maps the REST `message_reference` payload into `reference`
+      // (src/structures/Message.js:371-384), and the only `messageReference` in
+      // the typings is the ReplyOptions INPUT, never a Message property. The old
+      // read was therefore always `undefined`, so `chainReply` was always false,
+      // so EVERY bot reply looked like a fresh chain and re-armed the hop budget
+      // from zero: `BOT_HOP_LIMIT` was unreachable and a dead provider produced
+      // ~80 alternating turns in one channel instead of stopping at one handoff.
+      const chainReply = !!msg.reference?.messageId;
+      const fromLabel: AgentLabel = isBotAuthor
+        ? discordAuthorLabel(authorId) ?? cfg.label
+        : cfg.label;
+      const peerLabel = isBotAuthor && fromLabel !== cfg.label ? fromLabel : null;
+      peerAgent = peerLabel
+        ? (AGENT_SPECS.find((s) => s.label === peerLabel)?.displayName ?? null)
+        : null;
+      const gate = evaluateSlackMessage(slackChainKey(msg.channelId, null), {
+        fromBot: isBotAuthor,
+        from: fromLabel,
+        to: cfg.label,
+        initiatesChain: isBotAuthor && !chainReply,
+      });
+      if (!gate.allow) {
+        console.log(
+          `[discord] drop ${authorId} message (${gate.reason}) - hops=${gate.hops}`
+        );
+        return;
+      }
+      // Burst brake: a per-channel ceiling that ONLY an owner message resets.
+      // The hop budget above is the primary rule, but it is keyed on whether a
+      // message is a reply — so a bot post that arrives unthreaded can escape
+      // it. This one cannot be escaped by any bot message. It exists because a
+      // dead provider turned the failure cascade into ~80 alternating turns on
+      // 2026-10-12; the cascade must stay bounded even if routing regresses.
+      const brake = evaluateBotBurst(slackChainKey(msg.channelId, null), {
+        fromBot: isBotAuthor,
+      });
+      if (!brake.allow) {
+        console.log(
+          `[discord] drop ${authorId} message (${brake.reason}) - bot messages in this channel: ${brake.count}`
+        );
+        return;
       }
       const user = userKeyFor(msg, cfg);
       seedAgentPersona(cfg, user);
@@ -879,13 +1012,13 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
 
       if (hasVision) {
         const visionContent = [{ type: "text" as const, text: text || "Tolong jelaskan gambar ini dengan rapi" }, ...visionParts];
-        await runTurnWithVision(msg, state, user, visionContent, isVoice, cfg.label === "mia" ? "" : ` (${cfg.label})`, cfg.label);
+        await runTurnWithVision(msg, state, user, visionContent, isVoice, cfg.label === "mia" ? "" : ` (${cfg.label})`, cfg.label, peerAgent);
       } else {
-        await runTurn(msg, state, user, undefined, text, isVoice, cfg.label === "mia" ? "" : ` (${cfg.label})`, cfg.label);
+        await runTurn(msg, state, user, undefined, text, isVoice, cfg.label === "mia" ? "" : ` (${cfg.label})`, cfg.label, peerAgent);
       }
     } catch (err) {
       console.error("[discord] handler error:", err instanceof Error ? (err.stack || err.message) : String(err));
-      await msg.reply("Maaf, ada kendala internal. Coba lagi ya.").catch(() => {});
+      await reportTurnFailure(msg, err, peerAgent);
     }
   });
 
@@ -1012,6 +1145,30 @@ async function replyMiaVoice(msg: Message, text: string, voiceTurn = false): Pro
   await replyMia(msg, text);
 }
 
+/**
+ * Report a failed turn to whoever is actually waiting for the answer.
+ *
+ * A sibling bot is NOT a valid audience. Measured 2026-10-12: with the provider
+ * down, Michelle's failure reply became a bot message that woke Agnes, whose
+ * failure reply woke Michelle, and the channel produced ~80 alternating turns.
+ * A sibling has nothing to do with a failing provider, and telling it produces
+ * the cascade instead of information — so a peer-triggered failure stays in the
+ * log and the owner is not troubled with a message they did not ask for either.
+ */
+async function reportTurnFailure(
+  msg: Message,
+  err: unknown,
+  peerAgent?: string | null
+): Promise<void> {
+  if (peerAgent) {
+    console.error(
+      `[discord] turn failed for peer ${peerAgent}; not replying (a failure is not a message to hand back)`
+    );
+    return;
+  }
+  await replyMia(msg, classifyAssistantError(err).userMessage);
+}
+
 async function handleCommand(msg: Message, state: ChatState, text: string, user: string, statusTag: string): Promise<void> {
   if (text.startsWith("/status")) {
     await replyMia(
@@ -1058,19 +1215,23 @@ async function handleConfirmation(
         user,
         channel: "discord",
         agent,
+        // Carried from the proposing turn: a risky tool requested BY a sibling
+        // must still be answered to that sibling, not to the owner (Slack parity
+        // — slack.ts stores `peerAgent` on `state.pending` for the same reason).
+        peerAgent: pending.peerAgent ?? undefined,
         confirm_calls: decisions,
       })
     );
   } catch (err) {
     console.error("[discord] confirm failed:", err instanceof Error ? err.message : String(err));
-    await replyMia(msg, classifyAssistantError(err).userMessage);
+    await reportTurnFailure(msg, err, pending.peerAgent);
     return;
   }
   if (result.needsConfirmation?.length) {
     // The follow-up asked for another risky tool: keep the confirmation chain
     // going (the agent's own context already has the tool results) instead
     // of silently dropping it and replying a bare "Selesai.".
-    state.pending = { messages: result.messages ?? pending.messages, calls: result.needsConfirmation };
+    state.pending = { messages: result.messages ?? pending.messages, calls: result.needsConfirmation, peerAgent: pending.peerAgent ?? null };
     await replyMia(msg, pendingConfirmPrompt(result.needsConfirmation));
     return;
   }
@@ -1092,7 +1253,8 @@ async function runTurn(
   userText: string | undefined,
   voiceTurn = false,
   botTag = "",
-  agent: AgentLabel = "mia"
+  agent: AgentLabel = "mia",
+  peerAgent?: string | null
 ): Promise<void> {
   const turnMessages = [...state.history];
   if (userText) {
@@ -1113,6 +1275,7 @@ async function runTurn(
         user,
         channel: "discord",
         agent,
+        peerAgent: peerAgent ?? undefined,
         confirm_call: confirmCall,
       })
     );
@@ -1122,7 +1285,7 @@ async function runTurn(
   } catch (err) {
     console.error("[discord] turn failed:", err instanceof Error ? err.message : String(err));
     broadcastMiaState("IDLE");
-    await replyMia(msg, classifyAssistantError(err).userMessage);
+    await reportTurnFailure(msg, err, peerAgent);
     return;
   }
 
@@ -1130,7 +1293,7 @@ async function runTurn(
     // Persist the agent's own context (which already includes the assistant
     // tool_calls message) so the "ya" continuation is a valid pair, not an
     // orphan tool result. All risky calls queue together for batch approval.
-    state.pending = { messages: result.messages ?? turnMessages, calls: result.needsConfirmation };
+    state.pending = { messages: result.messages ?? turnMessages, calls: result.needsConfirmation, peerAgent: peerAgent ?? null };
     await replyMia(msg, pendingConfirmPrompt(result.needsConfirmation));
     return;
   }
@@ -1150,7 +1313,8 @@ async function runTurnWithVision(
   visionContent: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>,
   voiceTurn = false,
   botTag = "",
-  agent: AgentLabel = "mia"
+  agent: AgentLabel = "mia",
+  peerAgent?: string | null
 ): Promise<void> {
   const textPart = visionContent.find((p) => p.type === "text")?.text || "";
   const turnMessages = [...state.history, { role: "user", content: visionContent as unknown as string }];
@@ -1159,17 +1323,17 @@ async function runTurnWithVision(
   try {
     broadcastMiaState("PROCESSING"); console.log(`[discord] vision turn start${botTag} (provider=${state.provider})`);
     result = await withTyping(msg.channel as unknown as SendableChannel, () =>
-      runAssistantTurn({ messages: turnMessages as never, provider: state.provider, model: state.model, user, channel: "discord", agent })
+      runAssistantTurn({ messages: turnMessages as never, provider: state.provider, model: state.model, user, channel: "discord", agent, peerAgent: peerAgent ?? undefined })
     );
     console.log(`[discord] vision turn done${botTag} (text len=${(result.text || "").length})`); broadcastMiaState(result.text ? "SPEAKING" : "IDLE", result.text || undefined); setTimeout(() => broadcastMiaState("IDLE"), 8000);
   } catch (err) {
     broadcastMiaState("IDLE");
     console.error("[discord] vision turn failed:", err instanceof Error ? err.message : String(err));
-    await replyMia(msg, classifyAssistantError(err).userMessage);
+    await reportTurnFailure(msg, err, peerAgent);
     return;
   }
   if (result.needsConfirmation?.length) {
-    state.pending = { messages: (result.messages ?? turnMessages) as never, calls: result.needsConfirmation };
+    state.pending = { messages: (result.messages ?? turnMessages) as never, calls: result.needsConfirmation, peerAgent: peerAgent ?? null };
     await replyMia(msg, pendingConfirmPrompt(result.needsConfirmation));
     return;
   }

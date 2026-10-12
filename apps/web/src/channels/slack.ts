@@ -78,7 +78,7 @@ import {
   shouldRespondToAgent,
   type AgentLabel,
 } from "../lib/agentRouting";
-import { evaluateSlackMessage } from "../lib/slackTurnGuard";
+import { evaluateBotBurst, evaluateSlackMessage, slackChainKey } from "../lib/slackTurnGuard";
 
 type ChatState = {
   provider: string;
@@ -328,6 +328,34 @@ async function handleCommand(
   }
 }
 
+/**
+ * A failing turn is not a message worth handing back.
+ *
+ * Measured 2026-10-12 on Discord: the provider went down (`403 … An active
+ * OpenCode Go subscription is required`), every turn failed, and because a
+ * failure reply is itself a bot message the sibling woke, failed, replied,
+ * woke the first bot again — ~80 alternating turns in one channel. The burst
+ * brake bounds that, but the honest fix is upstream of it: a SIBLING has
+ * nothing to do with our provider being down, and telling it produces noise
+ * instead of information. So a peer-triggered failure stays in the log, and
+ * the owner is not troubled with a message they did not ask for either.
+ */
+async function reportSlackTurnFailure(
+  client: { chat: { postMessage: (args: Record<string, unknown>) => Promise<unknown> } },
+  target: { channel: string; thread_ts?: string },
+  err: unknown,
+  peerAgent: string | undefined,
+  botLabel: string,
+): Promise<void> {
+  if (peerAgent) {
+    console.error(
+      `[slack:${botLabel}] turn failed for peer ${peerAgent}; not replying (a failure is not a message to hand back)`,
+    );
+    return;
+  }
+  await replyMia(client, target, classifyAssistantError(err).userMessage);
+}
+
 async function handleConfirmation(
   client: { chat: { postMessage: (args: Record<string, unknown>) => Promise<unknown> } },
   target: { channel: string; thread_ts?: string },
@@ -360,7 +388,7 @@ async function handleConfirmation(
     );
   } catch (err) {
     console.error(`[slack:${bot.label}] confirm failed:`, err instanceof Error ? err.message : String(err));
-    await replyMia(client, target, classifyAssistantError(err).userMessage);
+    await reportSlackTurnFailure(client, target, err, pending.peerAgent, bot.label);
     return;
   }
   if (result.needsConfirmation?.length) {
@@ -416,7 +444,7 @@ async function runTurn(
   } catch (err) {
     console.error(`[slack:${bot.label}] turn failed:`, err instanceof Error ? err.message : String(err));
     broadcastMiaState("IDLE");
-    await replyMia(client, target, classifyAssistantError(err).userMessage);
+    await reportSlackTurnFailure(client, target, err, peerAgent, bot.label);
     return;
   }
 
@@ -520,6 +548,7 @@ async function handleIncoming(
     mentionedForeignUser,
     trioMode,
     nameAddressed,
+    fromPeerBot: isBotAuthor,
   };
   if (!shouldRespondToAgent(bot.label, routingOpts)) {
     // Suppressions used to be silent except for one branch, which made a live
@@ -565,6 +594,18 @@ async function handleIncoming(
     console.log(`[slack:${bot.label}] drop ${authorId} message (${gate.reason}) — hops=${gate.hops}`);
     return;
   }
+  // Burst brake. Same hole as Discord measured 2026-10-12: `initiatesChain`
+  // treats an UNTHREADED bot post as a new conversation, and a bot replying to
+  // a top-level message does exactly that — so every reply re-arms the hop
+  // budget from zero and `BOT_HOP_LIMIT` never engages. Slack keys the hop
+  // budget per thread, so this backstop is what actually bounds the channel.
+  // Deliberately independent of threading: no bot message can reset it, only
+  // the owner can (an owner message clears the counter outright).
+  const brake = evaluateBotBurst(slackChainKey(event.channel, null), { fromBot: isBotAuthor });
+  if (!brake.allow) {
+    console.log(`[slack:${bot.label}] drop ${authorId} message (${brake.reason}) — bot messages in this channel: ${brake.count}`);
+    return;
+  }
 
   const threadTs = event.thread_ts || undefined;
   const target = threadTs ? { channel: event.channel, thread_ts: threadTs } : { channel: event.channel };
@@ -592,7 +633,15 @@ async function handleIncoming(
     await runTurn(client, target, state, user, undefined, text, bot, peerAgent);
   } catch (err) {
     console.error(`[slack:${bot.label}] handler error:`, err instanceof Error ? err.message : String(err));
-    await replyMia(client, target, "Maaf, ada kendala internal di sisi Mia. Coba lagi ya.").catch(() => {});
+    // Same rule as the turn failures: an internal error is not something to
+    // hand back to a sibling. Only the owner is told.
+    if (peerAgent) {
+      console.error(
+        `[slack:${bot.label}] handler error for peer ${peerAgent}; not replying (a failure is not a message to hand back)`,
+      );
+    } else {
+      await replyMia(client, target, "Maaf, ada kendala internal di sisi Mia. Coba lagi ya.").catch(() => {});
+    }
   }
 }
 

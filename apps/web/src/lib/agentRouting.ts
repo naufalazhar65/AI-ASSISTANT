@@ -244,6 +244,23 @@ export function shouldRespondToAgent(
      * into `<@U0C7LPQ3754> halo`, the typed name vanished, and Mia answered.
      */
     mentionedForeignUser?: boolean;
+    /**
+     * This message was authored by a SIBLING agent (bot-to-bot delegation).
+     *
+     * It changes exactly one thing: the concierge branch. Without it, a sibling
+     * that answers a delegation WITHOUT naming anyone (the normal case -- "ini
+     * berita yang sedang viral: ...") lands in unaddressed channel chatter,
+     * which routes to Mia by design. That design is right for HUMANS posting
+     * general chatter and wrong for bot output: it wakes the concierge into a
+     * private sibling handoff, which is the "everyone answers everything"
+     * failure this module exists to prevent. Measured 2026-10-11 on Discord
+     * right after sibling messages were allowed through: without this flag the
+     * delegation would be answered by the named agent AND Mia.
+     *
+     * Absent means "authored by a human" -- exactly the pre-existing behaviour,
+     * so no existing call site changes unless it opts in.
+     */
+    fromPeerBot?: boolean;
   }
 ): boolean {
   // A message addressed BY TYPED NAME to a different agent is not ours — and
@@ -313,6 +330,12 @@ export function shouldRespondToAgent(
   if (opts.isDM) return true;
   if (opts.mentionedOtherTrioBot) return false;
   if (opts.nameAddressed) return opts.nameAddressed === label;
+  // A sibling's message that named nobody is addressed to nobody. Falling
+  // through to the concierge here would answer a private handoff a second
+  // time (live Discord 2026-10-11); an unmentioned bot post is never a
+  // summons for Mia. The dedicated-channel escape hatch stays, so a sibling
+  // with its own room can still talk to itself there.
+  if (opts.fromPeerBot) return opts.inDedicatedChannel && label !== "mia";
   if (label === "mia") return true;
   return opts.inDedicatedChannel;
 }

@@ -311,6 +311,56 @@ describe("addressesThisBot (live 2026-10-08 bot-to-bot routing regression)", () 
     expect(shouldRespondToAgent("mia", opts("mia"))).toBe(false);
     expect(shouldRespondToAgent("michelle", opts("michelle"))).toBe(false);
   });
+
+  // A sibling answering a delegation normally does NOT name anyone ("ini
+  // berita yang sedang viral: ..."). That used to fall through to the
+  // concierge branch and wake Mia into a private handoff -- the exact
+  // "everyone answers everything" failure this module exists to prevent.
+  // Measured on Discord 2026-10-11, in the same turn that made sibling
+  // messages visible at all.
+  describe("fromPeerBot keeps a sibling handoff private (live 2026-10-11)", () => {
+    const base = {
+      mentioned: false,
+      isDM: false,
+      inDedicatedChannel: false,
+      mentionedOtherTrioBot: false,
+      trioMode: true,
+      nameAddressed: null as AgentLabel | null,
+    };
+
+    it("does not wake the concierge for an unnamed sibling message", () => {
+      expect(shouldRespondToAgent("mia", { ...base, fromPeerBot: true })).toBe(false);
+    });
+
+    it("leaves HUMAN unaddressed chatter with the concierge", () => {
+      // The flag is opt-in; absent means a human, exactly as before.
+      expect(shouldRespondToAgent("mia", { ...base })).toBe(true);
+      expect(shouldRespondToAgent("mia", { ...base, fromPeerBot: false })).toBe(true);
+    });
+
+    it("still lets the named sibling answer its delegation", () => {
+      expect(shouldRespondToAgent("agnes", { ...base, nameAddressed: "agnes", fromPeerBot: true })).toBe(true);
+    });
+
+    it("still lets an explicit mention of this bot win", () => {
+      expect(shouldRespondToAgent("agnes", { ...base, mentioned: true, fromPeerBot: true })).toBe(true);
+    });
+
+    it("still lets the dedicated channel talk to itself", () => {
+      expect(
+        shouldRespondToAgent("agnes", { ...base, inDedicatedChannel: true, fromPeerBot: true })
+      ).toBe(true);
+      // ...but Mia's dedicated channel is not a hole back into every handoff.
+      expect(
+        shouldRespondToAgent("mia", { ...base, inDedicatedChannel: true, fromPeerBot: true })
+      ).toBe(false);
+    });
+
+    it("does not change the solo branch: an unmentioned sibling stays silent", () => {
+      expect(shouldRespondToAgent("agnes", { ...base, trioMode: false, fromPeerBot: true })).toBe(false);
+      expect(shouldRespondToAgent("mia", { ...base, trioMode: false, fromPeerBot: true })).toBe(true);
+    });
+  });
 });
 
 describe("routingDropReason (every suppression is nameable, live 2026-10-08)", () => {

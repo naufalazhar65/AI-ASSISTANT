@@ -1,11 +1,14 @@
 // Loop guard for bot-to-bot conversation in a shared channel (Slack trio).
 //
-// WHY THIS IS NEW — and why it has no Discord counterpart:
-// Discord's `messageCreate` starts with `if (!msg.author || msg.author.bot)
-// return;` (channels/discord.ts), so bot-authored messages are dropped before
-// routing ever sees them. That is why the Discord trio cannot talk to each
-// other at all: `detectDelegation` in lib/delegation.ts only re-ATTRIBUTES bus
-// events / Pixel Office avatars, it never routes to another bot.
+// ORIGIN — Slack had no Discord counterpart until 2026-10-11. Discord's
+// `messageCreate` opened with `if (!msg.author || msg.author.bot) return;`, so
+// bot-authored messages were dropped before routing ever saw them and the trio
+// was blind to each other; `detectDelegation` in lib/delegation.ts only
+// re-ATTRIBUTES bus events, it never routes to another bot. Slack solved this by
+// accepting bot-authored messages, which REMOVED the accident that had made
+// Discord safe: sibling messages are now visible in both adapters, so both need
+// this file. The rules live here rather than in each adapter so they cannot
+// drift apart.
 //
 // The owner explicitly asked for the Slack trio to "berinteraksi satu sama
 // lain (text only)". So Slack must accept bot-authored messages — which
@@ -110,6 +113,93 @@ export function decideSlackChain(
     return { allow: false, reason: "owner-cap", ...fresh };
   }
   return { allow: true, ...fresh };
+}
+
+// ---------------------------------------------------------------------------
+// BURST BRAKE — a limit that NO bot message can reset.
+//
+// WHY IT EXISTS — measured 2026-10-12 on Discord. Once sibling bot messages
+// became visible (2026-10-11), a dead provider turned into an infinite cascade:
+// Michelle's turn failed, the failure reply was itself a bot message, Agnes
+// woke, failed, replied, woke Michelle… ~80 alternating turns in one channel.
+// Two things had been assumed and neither held:
+//   1. `BOT_HOP_LIMIT` was expected to stop it. It could not, because the hop
+//      budget was keyed on `initiatesChain` (is this message threaded?), and a
+//      bot reply can always arrive unthreaded — so every reply re-armed the
+//      budget from zero. The fix in the adapter (reading the real discord.js
+//      reply reference) closes that hole, but it leaves the policy fragile: any
+//      message that a bot sends outside a reply escapes the budget again.
+//   2. A failing turn was treated as an ordinary message worth answering.
+//      A sibling does not need to be told "the provider is down"; it only needs
+//      the owner to know once.
+//
+// This brake is deliberately independent of threading: it counts bot-authored
+// messages per channel in a rolling window, and ONLY an owner message resets
+// it. No bot message — threaded, unthreaded, or an error reply — can clear it,
+// so it bounds the cascade even if every other rule is defeated. It is a backstop
+// behind `BOT_HOP_LIMIT`, not a replacement: hop limit bounds one conversation,
+// this bounds the channel.
+
+/** Bot-authored messages accepted per channel inside {@link BURST_WINDOW_MS}. */
+export const BOT_BURST_LIMIT = 6;
+
+/** Rolling window for {@link BOT_BURST_LIMIT}. */
+export const BURST_WINDOW_MS = 60_000;
+
+export type BotBurstState = { count: number; at: number };
+
+export type BotBurstVerdict =
+  | { allow: true; count: number }
+  | { allow: false; reason: "burst-limit"; count: number };
+
+/**
+ * The decision — pure. `state` is the channel as it stands BEFORE this message;
+ * the caller applies the mutation.
+ */
+export function decideBotBurst(
+  state: BotBurstState,
+  msg: { fromBot: boolean },
+  now: number = Date.now()
+): BotBurstVerdict {
+  const live: BotBurstState =
+    now - state.at > BURST_WINDOW_MS ? { count: 0, at: now } : state;
+  // The owner is never gated, and a fresh owner turn is a fresh allowance.
+  if (!msg.fromBot) return { allow: true, count: 0 };
+  if (live.count >= BOT_BURST_LIMIT) {
+    return { allow: false, reason: "burst-limit", count: live.count };
+  }
+  return { allow: true, count: live.count + 1 };
+}
+
+type BurstCarrier = { bursts?: Map<string, BotBurstState> };
+
+function bursts(): Map<string, BotBurstState> {
+  const g = globalThis as unknown as BurstCarrier;
+  if (!g.bursts) g.bursts = new Map<string, BotBurstState>();
+  return g.bursts;
+}
+
+/** Stateful entry point used by the Discord adapter. */
+export function evaluateBotBurst(
+  key: string,
+  msg: { fromBot: boolean },
+  now: number = Date.now()
+): BotBurstVerdict {
+  const found = bursts().get(key);
+  const state: BotBurstState = found && now - found.at <= BURST_WINDOW_MS ? found : { count: 0, at: now };
+  const verdict = decideBotBurst(state, msg, now);
+  if (verdict.allow && msg.fromBot) {
+    if (bursts().size > 500) bursts().clear();
+    bursts().set(key, { count: verdict.count, at: now });
+  } else if (verdict.allow && !msg.fromBot) {
+    bursts().delete(key);
+  }
+  return verdict;
+}
+
+/** Test/reset hook — mirrors {@link __resetSlackTurnGuard}. */
+export function __resetBotBurst(): void {
+  (globalThis as unknown as BurstCarrier).bursts = new Map<string, BotBurstState>();
 }
 
 type GuardCarrier = { chains?: Map<string, SlackChainState> };
