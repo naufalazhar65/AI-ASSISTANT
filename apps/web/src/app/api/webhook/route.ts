@@ -67,6 +67,9 @@ export async function POST(req: NextRequest) {
       user: userKey,
       channel: "text",
       agent: agentLabel,
+      // When deliverTo is set this route pushes the reply itself below, so the
+      // model must NOT also send_channel -- that would deliver it twice.
+      ...(deliverTo ? { systemDelivers: deliverTo } : {}),
     });
 
     // If the model asked for a risky tool, we can't auto-confirm via webhook — just return the confirmation request

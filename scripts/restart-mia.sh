@@ -1,4 +1,9 @@
-# restart-mia.sh — restart HANYA server Mia (port 3000).
+# restart-mia.sh — restart server Mia (port 3000) + office-dashboard (port 3001).
+#
+# 2026-10-12: office digabung ke sini. Pelajaran: tiap kali Mia direstart,
+# tmux session `office` ikut di-reap (atau tidak pernah dinyalakan ulang),
+# lalu dashboard mati diam-diam dan `/api/queue` balas connection refused.
+# Satu script = satu perintah = kedua service hidup. JANGAN pecah lagi.
 #
 # JANGAN pernah pakai `pkill -f "next dev"` atau `pkill -f "next-server"` di
 # mesin ini: proxy 9router (LLM_API_BASE=http://127.0.0.1:20128/v1) juga
@@ -76,7 +81,32 @@ cc=$(grep -c 'Cannot find module' /tmp/mia-dev.log 2>/dev/null); echo "chunk err
 echo "boot time     : $(ps -o lstart= -p "$(lsof -ti tcp:$PORT | head -1)" 2>/dev/null)"
 echo "agent.ts mtime: $(stat -f '%Sm' apps/web/src/lib/agent.ts)"
 
-# 6. JANGAN sentuh 20128 — laporkan saja statusnya.
+# 6. Nyalakan office-dashboard (port 3001) — JANGAN skip.
+# Dashboard di-dispatch dari Mia tapi hidup di proses/tmux terpisah; kalau
+# tidak diurus di sini ia mati diam-diam tiap restart (2026-10-12).
+if lsof -ti tcp:3001 >/dev/null 2>&1; then
+  echo "office          : sudah jalan di port 3001 (pid $(lsof -ti tcp:3001 | tr '\n' ' '))"
+else
+  tmux kill-session -t office 2>/dev/null || true
+  tmux new-session -d -s office "cd $ROOT/apps/office-dashboard && node server.js 2>&1 | tee /tmp/office-dashboard.log; sleep infinity" 2>/dev/null || true
+  if ! tmux has-session -t office 2>/dev/null; then
+    echo "retry: start office tmux via setsid"
+    perl -e 'use POSIX; POSIX::setsid(); exec @ARGV;' \
+      tmux new-session -d -s office "cd $ROOT/apps/office-dashboard && node server.js 2>&1 | tee /tmp/office-dashboard.log; sleep infinity"
+  fi
+  for _ in $(seq 1 25); do
+    if curl -fsS -m 2 "http://127.0.0.1:3001/api/health" >/dev/null 2>&1; then break; fi
+    sleep 1
+  done
+  if curl -fsS -m 2 "http://127.0.0.1:3001/api/health" >/dev/null 2>&1; then
+    echo "office          : OK di http://127.0.0.1:3001 (pid $(lsof -ti tcp:3001 | tr '\n' ' '))"
+  else
+    echo "office          : GAGAL answering di port 3001 — lihat tail /tmp/office-dashboard.log" >&2
+    tail -20 /tmp/office-dashboard.log >&2 || true
+  fi
+fi
+
+# 7. JANGAN sentuh 20128 — laporkan saja statusnya.
 echo "--- 9router (JANGAN DIKILL) ---"
 if lsof -ti tcp:20128 >/dev/null 2>&1; then
   echo "9router pid   : $(lsof -ti tcp:20128 | head -1)  (alive ✓)"

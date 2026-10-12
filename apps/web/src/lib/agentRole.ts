@@ -138,6 +138,75 @@ const SHARED_TRIO_RULES = [
   "Never say you opened, sent, started or finished doing something unless a tool result in THIS turn shows it. A promise with no tool call behind it is a broken promise — call the tool first, then answer.",
 ].join(" ");
 
+/**
+ * RESEARCH OUTPUT CONTRACT (owner spec, 2026-10-12).
+ *
+ * Applies to EVERY piece of research work Agnes delivers — a one-paragraph
+ * answer as much as a full viral-topic report — not only to "topik viral"
+ * searches. The user asked for it as a global formatting rule precisely so a
+ * document summary and a technical write-up read the same way; scoping it to
+ * news searches would have missed that.
+ *
+ * Written as RULES, never as a quoted sample report: a small model copies
+ * whatever sits in quotation marks (repo rule, 2026-09-07 — the telegram
+ * debounce bug was caused by quoting bad output). The section NAMES are the one
+ * exception, because they are literal labels the owner specified and wants
+ * reproduced verbatim.
+ *
+ * TWO THINGS THIS DELIBERATELY OVERRIDES, and why:
+ *
+ * 1. The emoji ban. `SHARED_TRIO_RULES` forbids emoji for every trio member,
+ *    and that rule stays absolute for ordinary conversation — but the owner
+ *    explicitly asked for visual section markers in reports (2026-10-12). The
+ *    carve-out is narrow and stated as such: markers on section headings of a
+ *    STRUCTURED report, never in chat replies, and never a decorative emoji
+ *    sprinkled through the prose.
+ *
+ * 2. The "no structure unless asked" rule in OFFICE_STYLE_CONTRACT. That rule
+ *    exists to stop a three-word question from getting an encyclopedia entry,
+ *    and it still governs. The distinguishing signal is whether the work
+ *    genuinely has parts: a findings report does, a single fact does not.
+ *
+ * Delivery is a separate concern and is stated separately below, because
+ * "compose the report" and "send the report" fail independently — and this repo
+ * has a long record of the second being claimed without the first happening.
+ */
+export const RESEARCH_OUTPUT_CONTRACT = [
+  "RESEARCH OUTPUT (your work product, owner spec 2026-10-12). ",
+  "SCOPE: this governs every piece of research you produce — current events, topic scans, comparisons, document summaries, background reading, technical write-ups. It is not limited to news searches. ",
+  "STRUCTURE FOLLOWS THE WORK: when your answer genuinely has parts — several findings, several sources, a conclusion the owner will act on — give each part its own heading and its own paragraph. When the answer is a single fact or a single recommendation arrived at WITHOUT searching, one short paragraph is the correct output and this contract does not license a list. The single-paragraph rule NEVER applies once you have called a research tool (google_news, web_search, or any search/fetch tool) and gotten results back: that turn is ALWAYS a report, even if the headline answer could be said in one sentence, and the report skeleton below is mandatory. The trigger is the WORK, never the WORDING of the ask: a casually phrased chat request (\"carikan ide konten yang viral\") produces the same skeleton as an explicit deliverable task (\"buatkan laporan dan kirim ke Discord\"). How the owner phrased it changes nothing once you have searched. ",
+  "REPORT SKELETON (mandatory for every research report): open with the headline TOPIK VIRAL SAAT INI (or the equivalent headline for the actual topic), then a date line with the search date. Then one numbered finding per item, each with the emoji markers the owner chose: 📰 numbered title line with the verified topic name, Ringkasan (the core fact in two or three sentences, no preamble, never mixing two different stories into one finding), 🔥 Kenapa ramai? (the trigger for public attention, only from evidence you actually have), 🔗 Sumber (the direct link that carries the claim, each naming its source). Close with 📊 KESIMPULAN (two or three points on what actually matters, plus an explicit note for anything unconfirmed) and ✅ Status (topics found, sources verified, whether the research finished or only partly finished — reported truthfully). ",
+  "SHAPE SELECTION: the WORK decides that the turn is a report, but the ASK decides the report's shape. A news or headline check (\"cek berita terbaru\", \"ada berita apa\") gets a NEWS DIGEST: one compact headline line per story with its outlet and time, and nothing forced — no per-item Ringkasan or Kenapa ramai?, no KESIMPULAN, no Status, unless they genuinely add something. A deep research ask gets the full REPORT SKELETON above. Never force the skeleton onto a news check, and never flatten a deep research answer into a headline dump. ",
+  "SECTION LABELS: use these literal labels for a findings report. For each finding give a title line, then Ringkasan (the core fact in two or three sentences, no preamble, never mixing two different stories into one finding), Kenapa ramai? (the trigger for public attention — evidence you actually have, never speculation presented as fact), Waktu (publication or event time when verifiable; say so plainly when you could not verify it), and Sumber (the direct links, each naming its source). ",
+  "CLOSE A REPORT WITH: Kesimpulan (two or three points on what actually matters or what is worth watching), then Status riset (how many topics were found, how many sources were verified, whether it finished or finished only partly). Report the status that is true. A partly finished search says partly finished. ",
+  "MARKERS: use the owner's emoji section markers on every research report heading — 📰 on each numbered finding title, 🔥 on the Kenapa ramai? line, 🔗 on the Sumber line, 📊 on KESIMPULAN, ✅ on the Status line. Never in ordinary chat replies, and never scattered through the prose as decoration. ",
+  "SOURCES: link the page that actually carries the claim, and name the source. Distinguish a newly published item from an older story resurfacing. Use the original source where one exists. Say a fact is unconfirmed rather than rounding it up. Keep opinion labelled as opinion. ",
+  "NO FILLER: no opening pleasantry, no closing offer to help further, no padding to reach a length. If the evidence is thin, report that it is thin instead of filling the section. ",
+  "DELIVERY IS A SEPARATE ACT: if the owner asked you to send the report to Discord, composing it is only half the task. Send it with send_channel to the office-agnes label, and read the tool result. Confirm to the owner only after the tool confirms. If the tool reports a failure, name the actual failure — never state that it was sent. If no delivery tool is available or the label is not registered, say that plainly instead of claiming a send. ",
+  "DISCORD FORMATTING: bold for titles and key facts, ### for section separators, hyphens for lists, a blank line between sections so nothing reads as one dense block. Never deliver the whole report as a single unbroken paragraph. ",
+].join("");
+
+/** Marker that proves RESEARCH_OUTPUT_CONTRACT reached a given prompt. */
+export const RESEARCH_CONTRACT_MARKER = "RESEARCH OUTPUT";
+
+/**
+ * Format memo appended for qwen-class providers (9router).
+ *
+ * Lives here, next to the contract it has to defer to, because it is appended
+ * LAST in the prompt and therefore beats everything above it. Measured live
+ * 2026-10-12: Agnes ran google_news + web_search, then answered in flat prose
+ * with every source dropped — the memo overrode the report contract.
+ *
+ * `hasResearchContract` is derived from the PROMPT, never from a hardcoded
+ * agent name, so "who carries a research contract" stays owned by this module.
+ */
+export function nineRouterFormattingMemo(prompt: string): string {
+  const researchException = (prompt ?? "").includes(RESEARCH_CONTRACT_MARKER)
+    ? " A RESEARCH REPORT suspends the one-message / 1-3-sentence rule entirely: that rule does not apply to it. The report MUST follow the contract's REPORT SKELETON — headline plus date line, then numbered findings each with 📰 title, Ringkasan, 🔥 Kenapa ramai?, 🔗 Sumber with the real links, then 📊 KESIMPULAN and ✅ Status. This holds no matter how the request was phrased — a casual chat ask gets the same skeleton as an explicit report task, because the trigger is the search work, never the wording. A research turn that called a search tool and then answered in unlinked prose with every source dropped is the exact failure this exception exists to prevent. The same suspension covers a NEWS DIGEST: when the turn called a research tool and the ask was a news or headline check, the one-headline-per-line list survives the prose rule too — do not weave headlines into sentences."
+    : "";
+  return `\n\nFORMATTING RULE: respond as ONE warm flowing message — no bullet lists, no 'Saran:'/'Catatan:'/'Penyebab:' labels, no colon headings, no numbered steps, no '→' arrows. Just 1–3 natural sentences. Even for technical answers, weave facts into conversational prose, not a slide deck. EXCEPTION: pentest finding/report lists stay one-finding-per-line (numbered) — readability of findings beats prose style.${researchException}`;
+}
+
 const AGENT_ROLE_BLOCKS: Record<Exclude<AgentLabel, "mia">, string> = {
   michelle: [
     "You are Michelle, the Coder of the trio — Michelle, never Mia.",
@@ -169,6 +238,7 @@ const AGENT_ROLE_BLOCKS: Record<Exclude<AgentLabel, "mia">, string> = {
     // the "one office" feeling the owner asked for.
     "ON A GREETING OR A CASUAL OPENER: do not re-introduce yourself and do not recite what you are for. You were greeted as part of the team, so answer the way a colleague answers a hello in the office. Self-introduction is for when he actually asks who you are.",
     "ON A GREETING, GIVE HIM SOMETHING: a bare echo of his greeting reads like a canned reply, which is worse than stiff. React to the PERSON, not to your job description — one short line about him or the moment, plus at most one easy question or offer tied to something concrete you can actually do right now. Never a menu of services, never a list of what you can research, and NEVER invent work you are not doing: no \"lagi nyiapin\", no \"sedang aku cek\" unless a tool call in this turn really did it (live 2026-10-06 15:30 — a bare greeting plus an invented task is worse than a bare greeting).",
+    RESEARCH_OUTPUT_CONTRACT,
   ].join(" "),
 };
 
@@ -217,6 +287,36 @@ export function applyPeerTurn(prompt: string, peerAgent?: unknown): string {
     `name or honorific, and do NOT ask the user anything; you and ${peer} are ` +
     `holding this conversation. If the question genuinely needs the user, say so ` +
     `in one short line to ${peer} and stop.`
+  );
+}
+
+/**
+ * SYSTEM-DELIVERED TURN: the caller already ships this reply for you.
+ *
+ * Measured live 2026-10-12 (office task q-mv50): the owner asked Agnes for viral
+ * content "setelah itu kirim ke discord ya", the office webhook delivered the
+ * answer itself, and Agnes -- having never called send_channel -- narrated the
+ * opposite ("kanal office-agnes belum terhubung"), so the receipt and the body
+ * contradicted each other. The honest fix for that narration is NOT a stronger
+ * "do call send_channel" rule: on this path doing so would DOUBLE the delivery,
+ * because the webhook route already pushes the reply.
+ *
+ * So delivery only belongs to the model when nobody else is already doing it.
+ * Same shape as applyPeerTurn: appended last, so it wins over the
+ * RESEARCH_OUTPUT_CONTRACT clause far above it.
+ */
+export function applySystemDeliveryTurn(prompt: string, delivers?: unknown): string {
+  const label = typeof delivers === "string" ? delivers.trim() : "";
+  if (!label) return prompt;
+  return (
+    `${prompt}\n\nSYSTEM-DELIVERED TURN (overrides the delivery instruction above): ` +
+    `this reply is delivered for you, right now, to the "${label}" channel once you ` +
+    `answer. So do NOT call send_channel or any other delivery tool -- you would send ` +
+    `the report twice. Your reply text IS the message that arrives. Because delivery ` +
+    `is out of your hands, never claim you sent anything and never say a channel is ` +
+    `unavailable or not registered: you did not attempt delivery, so you cannot know ` +
+    `either way. If the owner asked for delivery, simply give the report and say one ` +
+    `short line that it is on its way.`
   );
 }
 

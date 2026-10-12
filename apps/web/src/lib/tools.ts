@@ -6722,6 +6722,17 @@ type GNItem = {
   pubMs: number; // 0 = no valid date
 };
 
+/**
+ * One owner of the news-row shape, shared by `googleNews` (user-facing) and
+ * `research` (model context). Title is the link (`• [Title](url) — outlet,
+ * time`) so a long RSS URL never lands as bare text and pushes a chat message
+ * past the channel limit; outlet falls back to "berita" and the time suffix is
+ * the item's own `when` (already " — date" formatted, empty when unknown).
+ */
+function renderNewsRows(items: GNItem[]): string[] {
+  return items.map((it) => `• [${it.title}](${it.url}) — ${it.source || "berita"}${it.when}`);
+}
+
 function gnTokens(title: string): string[] {
   return title
     .toLowerCase()
@@ -6835,7 +6846,7 @@ async function googleNews(query: string, language: string, region?: string, with
   const items = await fetchGnItems(query, buildGnLangs(language, region), withinHours);
   if (items === null) return "Error: Google News tidak bisa dihubungi sekarang — coba lagi nanti ya.";
   if (!items.length) return withinHours > 0 ? `No news in the last ${withinHours}h.` : "No news found.";
-  const rows = items.map((it) => `• ${it.title} (${it.source || "berita"}${it.when})${it.host ? ` — [${it.host}](${it.url})` : ""}`);
+  const rows = renderNewsRows(items);
   const head = query.trim()
     ? `Nih berita soal "${query.trim()}" — ${rows.length} hasil 🌸`
     : `Ini headline terbaru 🌸 — ${rows.length} hasil`;
@@ -6855,7 +6866,7 @@ async function research(query: string, language?: string, region?: string, withi
   if (!q) return "Error: empty research query";
   const withinHours = typeof within === "number" && within > 0 ? Math.floor(within) : 0;
   const items = (await fetchGnItems(q, buildGnLangs(language || "id-ID", region), withinHours)) ?? [];
-  const newsLines = items.map((it) => `• ${it.title} (${it.source || "berita"}${it.when})${it.host ? ` — [${it.host}](${it.url})` : ""}`);
+  const newsLines = renderNewsRows(items);
   const webText = await webSearch(q).catch(() => "Error: web search failed");
   // Publisher URLs from web-search rows (indented line holding a single URL).
   // Skip search-engine chrome (bing.com/duckduckgo.com own pages) and Google

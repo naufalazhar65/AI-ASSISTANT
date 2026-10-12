@@ -462,6 +462,32 @@ async function officeChannelTarget(ctx: BotPushContext): Promise<SendableChannel
   }
 }
 
+/**
+ * Send to Discord, splitting an oversized body into ordered parts.
+ *
+ * Discord rejects any content over 2000 chars with
+ * `Invalid Form Body ... content[BASE_TYPE_MAX_LENGTH]`. Every push target that
+ * called `target.send(content)` directly therefore died on a long report —
+ * AFTER the work was already done, so the failure surfaced as "the send failed"
+ * for a result that had been fully researched. The webhook route grew its own
+ * `chunkText` call for exactly this reason; doing it here instead covers every
+ * push target at the boundary (office results, `send_channel`, reminders,
+ * heartbeat), so no caller has to remember.
+ *
+ * Splits on line boundaries where possible so a chunk never ends mid-sentence.
+ * Returns the last sent message (discord.js convention: the caller may need its
+ * id), and re-throws whatever the underlying send threw — a partial delivery
+ * must still surface as an error rather than a silent success.
+ */
+async function sendChunked(target: SendableChannel, content: string): Promise<unknown> {
+  const parts = chunkText(content, DISCORD_MAX);
+  let last: unknown = null;
+  for (const part of parts) {
+    last = await target.send(part);
+  }
+  return last;
+}
+
 async function ownerDmTarget(ctx: BotPushContext): Promise<SendableChannel | null> {
   const client = ctx.client;
   const ownerId = ctx.allowedUsers[0];
@@ -1107,7 +1133,7 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
     registerPushTarget(pushLabel, async (content: string) => {
       const target = await resolvePushTarget(ctx);
       if (target == null) throw new Error("no discord owner channel seen");
-      return target.send(content);
+      return sendChunked(target, content);
     });
   }
 
@@ -1122,7 +1148,7 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
   registerPushTarget(`office${cfg.label === "mia" ? "" : `-${cfg.label}`}`, async (content: string) => {
     const target = await officeChannelTarget(ctx);
     if (target == null) throw new Error("office channel not configured (DISCORD_CHANNEL_ID_*)");
-    return target.send(content);
+    return sendChunked(target, content);
   });
 
   console.log(`[discord] connecting gateway…${cfg.label === "mia" ? "" : ` (${cfg.label})`}`);

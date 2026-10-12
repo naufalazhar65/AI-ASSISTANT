@@ -35,6 +35,8 @@ import { getPersonaFact, loadPersonaPrompt } from "./persona";
 import {
   applyAgentRole,
   applyPeerTurn,
+  applySystemDeliveryTurn,
+  nineRouterFormattingMemo,
   redirectPeerVocative,
   isEncyclopedicRegister,
   normalizeOwnerPronouns,
@@ -6559,6 +6561,13 @@ export async function runAssistantTurn(opts: {
    * 2026-10-08: every bot addressed the owner when two agents talked).
    */
   peerAgent?: string;
+  /**
+   * Label of the channel the CALLER will deliver this reply to itself (office
+   * webhook). Undefined = delivery is the model's job, via send_channel. Set it
+   * and the model is told to just answer, because calling send_channel as well
+   * would deliver the same report twice.
+   */
+  systemDelivers?: string;
 }): Promise<TurnResult> {
   checkRateLimit(opts.user);
   for (const d of confirmDecisions(opts)) {
@@ -6661,6 +6670,8 @@ async function runAssistantTurnImpl(opts: {
   agent?: AgentLabel;
   /** Same meaning as the public wrapper's `peerAgent`; forwarded via `opts`. */
   peerAgent?: string;
+  /** Same meaning as the public wrapper's `systemDelivers`; forwarded via `opts`. */
+  systemDelivers?: string;
 }): Promise<TurnResult> {
   const { messages: inputMessages } = opts;
   const model = opts.model?.trim() || undefined;
@@ -6684,11 +6695,18 @@ async function runAssistantTurnImpl(opts: {
   // Peer turn: the trigger was another agent, not the user. Appended last so it
   // overrides the owner-honorific rule that sits far above in the prompt.
   systemPrompt = applyPeerTurn(systemPrompt, opts.peerAgent);
+  // System-delivered turn: the caller pushes this reply itself (office webhook).
+  // Appended last so it overrides the per-agent delivery clause above.
+  systemPrompt = applySystemDeliveryTurn(systemPrompt, opts.systemDelivers);
   // 9router (qwen-class) ignores warm-style instructions and defaults to
   // stiff, listy output. Append a concise, format-level tone memo so even
   // when the base prompt is ignored, this small addendum nudges the model.
   if (providerId === "9router") {
-    systemPrompt += "\n\nFORMATTING RULE: respond as ONE warm flowing message — no bullet lists, no 'Saran:'/'Catatan:'/'Penyebab:' labels, no colon headings, no numbered steps, no '→' arrows. Just 1–3 natural sentences. Even for technical answers, weave facts into conversational prose, not a slide deck. EXCEPTION: pentest finding/report lists stay one-finding-per-line (numbered) — readability of findings beats prose style.";
+    // Appended LAST, so it beats every rule above it — including a per-agent
+    // report contract. That cost a real report its structure on 2026-10-12, so
+    // the memo lives in agentRole.ts and yields when a research contract is
+    // actually present in the prompt.
+    systemPrompt += nineRouterFormattingMemo(systemPrompt);
   }
 
   // Rolling summary: when the conversation grew very long, the oldest messages

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_PERSONA_VERSION,
   OFFICE_STYLE_CONTRACT,
+  RESEARCH_OUTPUT_CONTRACT,
+  nineRouterFormattingMemo,
   normalizeOwnerPronouns,
   normalizeOwnerSalutation,
   stripClosingMenuQuestion,
@@ -13,6 +15,7 @@ import {
   agentPersonaVersion,
   applyAgentRole,
   applyPeerTurn,
+  applySystemDeliveryTurn,
   redirectPeerVocative,
   isAgentLabel,
   isEncyclopedicRegister,
@@ -848,6 +851,99 @@ describe("office style contract — one text, three personalities", () => {
   });
 });
 
+describe("research output contract — Agnes only, both prompt variants", () => {
+  const full = buildSystemPrompt("naufalazhar652952", "discord");
+  const slim = buildSlimSystemPrompt("naufalazhar652952", "discord");
+
+  it("reaches Agnes in the full and the slim prompt", () => {
+    expect(applyAgentRole(full, "agnes")).toContain("RESEARCH OUTPUT");
+    expect(applyAgentRole(slim, "agnes")).toContain("RESEARCH OUTPUT");
+  });
+
+  it("does NOT leak into Michelle or Mia — it is Agnes's work product", () => {
+    expect(applyAgentRole(full, "michelle")).not.toContain("RESEARCH OUTPUT");
+    // Mia's prompt is passed through byte-identical by applyAgentRole; guard the
+    // raw builders too, so a future edit cannot smuggle it in there.
+    expect(full).not.toContain("RESEARCH OUTPUT");
+    expect(slim).not.toContain("RESEARCH OUTPUT");
+  });
+
+  it("names the section labels the owner specified verbatim", () => {
+    // These ARE quoted in the contract — deliberately, because they are literal
+    // labels the owner wants reproduced, not sample output to imitate.
+    for (const needle of ["Ringkasan", "Kenapa ramai?", "Waktu", "Sumber", "Kesimpulan", "Status riset"]) {
+      expect(RESEARCH_OUTPUT_CONTRACT).toContain(needle);
+    }
+  });
+
+  it("binds delivery to a real tool call and an honest result", () => {
+    // The failure this exists for: a report composed and described as sent while
+    // nothing was transmitted. Both halves must be present.
+    expect(RESEARCH_OUTPUT_CONTRACT).toContain("send_channel");
+    expect(RESEARCH_OUTPUT_CONTRACT).toContain("office-agnes");
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/only after the tool confirms/i);
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/never state that it was sent/i);
+  });
+
+  it("scopes the emoji carve-out to report headings only", () => {
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/use the owner's emoji section markers on every research report heading/i);
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/never in ordinary chat replies/i);
+  });
+
+  it("does not license a list where one paragraph is the honest answer", () => {
+    // The counter-rule to "always structured": OFFICE_STYLE bans padding a
+    // simple reply with a list, and a research contract that overrode it would
+    // make Agnes encyclopedic again (the 2026-10-05 regression).
+    expect(RESEARCH_OUTPUT_CONTRACT).toContain("STRUCTURE FOLLOWS THE WORK");
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/one short paragraph is the correct output/i);
+  });
+
+  it("names the owner's emoji markers literally (they are labels to reproduce, not decoration)", () => {
+    // Like the section labels above: the owner specified these markers, so the
+    // contract names them literally. What the repo rule forbids is a worked
+    // SAMPLE REPORT to imitate — asserted by the next test.
+    for (const marker of ["📰", "🔥", "🔗", "📊", "✅"]) {
+      expect(RESEARCH_OUTPUT_CONTRACT).toContain(marker);
+    }
+  });
+
+  it("carries no worked example report to imitate (repo rule)", () => {
+    // No sample headline, no sample finding body, no sample conclusion text —
+    // only labels, markers, and the skeleton's shape.
+    expect(RESEARCH_OUTPUT_CONTRACT).not.toMatch(/TOPIK VIRAL SAAT INI\n\n12 Oktober/);
+    expect(RESEARCH_OUTPUT_CONTRACT).not.toMatch(/Bang Haba|sushi taco|soundtrack lokal/);
+  });
+
+  it("mandates the report skeleton once a research tool has returned results", () => {
+    // The live failure of 2026-10-12: Agnes ran google_news + web_search, then
+    // answered in flat unlinked prose. The single-paragraph escape hatch must
+    // not cover that turn.
+    expect(RESEARCH_OUTPUT_CONTRACT).toContain("REPORT SKELETON");
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/once you have called a research tool/i);
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/that turn is ALWAYS a report/i);
+  });
+
+  it("fires on the work, never the wording — casual chat asks get the same skeleton", () => {
+    // The live divergence of 2026-10-12 17:03: office got a structured report
+    // 41s after a Discord-direct turn with a casually phrased ask went flat,
+    // same provider, same prompt wiring. The skeleton trigger must not depend
+    // on how the owner phrased the request.
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/never the WORDING of the ask/i);
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/casually phrased chat request/i);
+  });
+
+  it("selects the report shape from the ask: news check gets a digest, research gets the skeleton", () => {
+    // The live flat-news turn of 2026-10-12: "cek berita terbaru" got a raw
+    // headline dump because nothing said what a news answer should look like.
+    // The TRIGGER stays work-based (asserted above); the SHAPE follows the ask,
+    // so a news check is not forced into per-item Ringkasan/Kesimpulan/Status.
+    expect(RESEARCH_OUTPUT_CONTRACT).toContain("SHAPE SELECTION");
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/NEWS DIGEST/i);
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/never force the skeleton onto a news check/i);
+    expect(RESEARCH_OUTPUT_CONTRACT).toMatch(/never flatten a deep research answer into a headline dump/i);
+  });
+});
+
 describe("zero-information openers — Indonesian and English", () => {
   it("drops a leading corporate opener for the trio", () => {
     expect(stripFormalRegisterFrame("Certainly, the server is restarting now.", "agnes")).toBe(
@@ -1476,5 +1572,110 @@ describe("redirectPeerVocative — the owner's vocative must not survive a peer 
   it("handles a multi-word owner name as a literal", () => {
     expect(redirectPeerVocative("Halo Mas Abdul Rahman!", { ownerName: "Abdul Rahman", peerName: "Agnes" }))
       .toBe("Halo Agnes!");
+  });
+});
+
+/**
+ * SYSTEM-DELIVERED TURN (live defect, office task q-mv50, 2026-10-12).
+ *
+ * The office webhook pushes the reply itself. Agnes never called send_channel
+ * and instead narrated the opposite ("kanal office-agnes belum terhubung"), so
+ * the receipt ("Terkirim") and the body contradicted each other.
+ *
+ * The tempting fix — make the per-agent contract shout louder about send_channel
+ * — would DOUBLE the delivery on this exact path. So the tests below lock the
+ * conditional rule instead, in both directions: silent when delivery really is
+ * the model's job, decisive when the system already ships the reply.
+ */
+describe("applySystemDeliveryTurn — delivery is the model's job only when nobody else does it", () => {
+  it("stays silent when the caller is not delivering (chat turns must still send)", () => {
+    const prompt = "BASE PROMPT";
+    expect(applySystemDeliveryTurn(prompt, undefined)).toBe(prompt);
+    expect(applySystemDeliveryTurn(prompt, "")).toBe(prompt);
+    expect(applySystemDeliveryTurn(prompt, "   ")).toBe(prompt);
+    expect(applySystemDeliveryTurn(prompt, null)).toBe(prompt);
+    expect(applySystemDeliveryTurn(prompt, 42)).toBe(prompt);
+  });
+
+  it("names the destination so the model knows which channel it is", () => {
+    const out = applySystemDeliveryTurn("BASE", "office-agnes");
+    expect(out).toContain('"office-agnes"');
+  });
+
+  it("forbids send_channel explicitly, because obeying it would deliver twice", () => {
+    const out = applySystemDeliveryTurn("BASE", "office-agnes");
+    expect(out).toMatch(/do NOT call send_channel/i);
+    expect(out).toMatch(/twice/i);
+  });
+
+  it("forbids both failure narrations that the live turn actually produced", () => {
+    const out = applySystemDeliveryTurn("BASE", "office-agnes");
+    // The live body claimed a send it never made...
+    expect(out).toMatch(/never claim you sent/i);
+    // ...and claimed the channel was unregistered, which it never checked.
+    expect(out).toMatch(/unavailable or not registered/i);
+  });
+
+  it("OVERRIDES the per-agent delivery clause, and is appended after it", () => {
+    const agnes = applyAgentRole(`${RESEARCH_OUTPUT_CONTRACT}\n\nBASE`, "agnes");
+    const out = applySystemDeliveryTurn(agnes, "office-agnes");
+    // The override must come last so it wins over the contract's send_channel rule.
+    expect(out.lastIndexOf("SYSTEM-DELIVERED TURN")).toBeGreaterThan(out.indexOf("DELIVERY IS A SEPARATE ACT"));
+    expect(out).toMatch(/overrides the delivery instruction above/i);
+  });
+
+  it("does not touch Mia's plain prompt (no trio member, no clause)", () => {
+    expect(applySystemDeliveryTurn("BASE", undefined)).not.toContain("SYSTEM-DELIVERED TURN");
+  });
+});
+
+/**
+ * Live 2026-10-12: the 9router format memo is appended LAST, so it beat the
+ * research contract — Agnes researched (google_news + web_search both ran) and
+ * still answered in flat prose with every source dropped. The memo now yields.
+ */
+describe("nineRouterFormattingMemo — yields to a research contract, and only to one", () => {
+  it("keeps the prose style for an ordinary chat prompt", () => {
+    const memo = nineRouterFormattingMemo("You are Mia. Help the owner.");
+    expect(memo).toContain("ONE warm flowing message");
+    expect(memo).toContain("no bullet lists");
+    expect(memo).toContain("pentest finding/report lists");
+    expect(memo).not.toContain("suspends the one-message");
+  });
+
+  it("carries the research carve-out when the contract is in the prompt", () => {
+    const memo = nineRouterFormattingMemo(`PREFIX\n${RESEARCH_OUTPUT_CONTRACT}`);
+    expect(memo).toContain("suspends the one-message");
+    expect(memo).toContain("REPORT SKELETON");
+    expect(memo).toContain("every source dropped");
+    // The prose style is still there — this is a carve-out, not a replacement.
+    expect(memo).toContain("ONE warm flowing message");
+  });
+
+  it("holds the skeleton regardless of ask phrasing (casual chat vs explicit task)", () => {
+    const memo = nineRouterFormattingMemo(`PREFIX\n${RESEARCH_OUTPUT_CONTRACT}`);
+    expect(memo).toMatch(/no matter how the request was phrased/i);
+    expect(memo).toMatch(/never the wording/i);
+  });
+
+  it("keys off the PROMPT, not a hardcoded agent name (scoping is the contract's)", () => {
+    // Same memo either way: only the prompt decides. This is what stops the
+    // carve-out from leaking to Michelle and Mia.
+    const agnesPrompt = `A\n${RESEARCH_OUTPUT_CONTRACT}`;
+    expect(nineRouterFormattingMemo(agnesPrompt)).toContain("suspends the one-message");
+    expect(nineRouterFormattingMemo("Michelle's prompt, no contract")).not.toContain("suspends the one-message");
+  });
+
+  it("survives an undefined prompt rather than throwing mid-turn", () => {
+    expect(nineRouterFormattingMemo(undefined as unknown as string)).not.toContain("suspends the one-message");
+  });
+
+  it("extends the suspension to a news digest (one-headline-per-line survives)", () => {
+    // The live flat-news turn of 2026-10-12: even with the skeleton held for
+    // deep research, a headline check still needs its list form to survive the
+    // prose rule — without it the memo would weave headlines into sentences.
+    const memo = nineRouterFormattingMemo(`PREFIX\n${RESEARCH_OUTPUT_CONTRACT}`);
+    expect(memo).toMatch(/NEWS DIGEST/i);
+    expect(memo).toMatch(/one-headline-per-line/i);
   });
 });

@@ -8153,6 +8153,154 @@ async function main() {
         throw new Error("Mia's own opener must stay byte-identical");
       }
       console.log("office style contract (all prompt variants + pronoun rule + narrow opener strip): OK");
+
+      // ── research output contract (owner spec 2026-10-12) ──
+      // Asserted against the BUILT prompt, not the exported string: a constant
+      // that is correct but never wired into AGENT_ROLE_BLOCKS passes every
+      // constant-level assertion and changes nothing. That exact shape of bug
+      // (helper correct, wire loose) has bitten this repo repeatedly.
+      const { RESEARCH_OUTPUT_CONTRACT: roc, applyAgentRole: applyRole5 } = await import("./src/lib/agentRole");
+      // Imported here rather than reused from an earlier block: those bindings
+      // live in sibling `{}` scopes, and verify.ts IS typechecked, so a stale
+      // reference would have failed the gate instead of silently passing.
+      const { buildSystemPrompt: bsp5, buildSlimSystemPrompt: bssp5 } = await import("./src/lib/agent");
+      const agnesFull = applyRole5(bsp5("naufalazhar652952", "discord"), "agnes");
+      const agnesSlim = applyRole5(bssp5("naufalazhar652952", "discord"), "agnes");
+      for (const [name, p] of [["full", agnesFull], ["slim", agnesSlim]] as const) {
+        if (!p.includes("RESEARCH OUTPUT")) throw new Error(`research output contract missing from Agnes' ${name} prompt`);
+      }
+      // Scoped to Agnes: Michelle researches nothing, and Mia's prompt must stay
+      // byte-identical through applyAgentRole.
+      if (applyRole5(bsp5("naufalazhar652952", "discord"), "michelle").includes("RESEARCH OUTPUT")) {
+        throw new Error("research output contract must NOT reach Michelle");
+      }
+      if (bsp5("naufalazhar652952", "discord").includes("RESEARCH OUTPUT")) {
+        throw new Error("research output contract must not be baked into Mia's own prompt");
+      }
+      // Delivery must be bound to a real tool + honest result. A report composed
+      // and described as "sent" while nothing was transmitted is the exact live
+      // failure (office-dashboard 2026-10-12), so both halves are locked.
+      if (!/send_channel/.test(roc) || !/office-agnes/.test(roc)) {
+        throw new Error("research contract must name the real delivery tool and target label (send_channel → office-agnes)");
+      }
+      if (!/only after the tool confirms/i.test(roc) || !/never state that it was sent/i.test(roc)) {
+        throw new Error("research contract must forbid confirming a send the tool did not confirm");
+      }
+      // Emoji carve-out is scoped to report headings; the office-wide ban in
+      // SHARED_TRIO_RULES stays absolute for chat, so the two must not blur.
+      if (!/never in ordinary chat replies/i.test(roc)) {
+        throw new Error("research contract must keep the emoji carve-out to report headings only");
+      }
+      // Counter-rule: structure must not become unconditional, or Agnes goes
+      // encyclopedic again on a one-fact question (2026-10-05 regression).
+      // But the escape hatch closes the moment a research tool has returned
+      // results — the live failure of 2026-10-12 was Agnes researching and
+      // then answering in flat unlinked prose.
+      if (!/one short paragraph is the correct output/i.test(roc)) {
+        throw new Error("research contract must exempt single-fact answers from the structured layout");
+      }
+      if (!/that turn is ALWAYS a report/i.test(roc) || !/REPORT SKELETON/i.test(roc)) {
+        throw new Error("research contract must mandate the skeleton once a research tool has returned results");
+      }
+      // Live divergence 2026-10-12 17:03: a casually phrased Discord-direct ask
+      // went flat 41s before an explicit office task went structured, same
+      // provider and wiring. The trigger is the work, never the wording.
+      if (!/never the WORDING of the ask/i.test(roc)) {
+        throw new Error("research contract must fire on the search work regardless of ask phrasing");
+      }
+      // Discord push targets must chunk: a report over 2000 chars otherwise dies
+      // at content[BASE_TYPE_MAX_LENGTH] AFTER the work is already done.
+      const discordSrc2 = readFileSync(join(miaRepoRoot(), "apps/web/src/channels/discord.ts"), "utf8");
+      const officeReg = discordSrc2.match(/registerPushTarget\(`office[\s\S]{0,900}/);
+      if (!officeReg || !/sendChunked\(target, content\)/.test(officeReg[0])) {
+        throw new Error("the office push target must send via sendChunked — an unchunked long report fails at Discord after the work succeeded");
+      }
+      const ownerReg = discordSrc2.match(/for \(const pushLabel of cfg\.pushLabels\)[\s\S]{0,400}/);
+      if (!ownerReg || !/sendChunked\(target, content\)/.test(ownerReg[0])) {
+        throw new Error("the owner push target must send via sendChunked too");
+      }
+      if (!/async function sendChunked/.test(discordSrc2) || !/chunkText\(content, DISCORD_MAX\)/.test(discordSrc2)) {
+        throw new Error("sendChunked must split with chunkText(content, DISCORD_MAX)");
+      }
+      // The chunking BEHAVIOUR (every part within the limit, every section kept
+      // in order) is asserted as a unit test in replyChunk.test.ts, next to the
+      // module that owns it. Duplicating it here would create a second owner of
+      // the same contract that could drift; what verify owns is the WIRING.
+      // Live 2026-10-12 regression: the 9router format memo is appended LAST, so
+      // it overrode this contract and Agnes answered a researched question in flat
+      // prose with every source dropped. Lock BOTH halves: agent.ts must call the
+      // shared helper (an inline copy would silently drift again), and in a real
+      // Agnes 9router prompt the memo must come AFTER the contract it defers to.
+      {
+        const agentSrc5 = readFileSync(join(miaRepoRoot(), "apps/web/src/lib/agent.ts"), "utf8");
+        if (!/nineRouterFormattingMemo\(systemPrompt\)/.test(agentSrc5)) {
+          throw new Error("agent.ts must append the shared nineRouterFormattingMemo(systemPrompt) — an inline copy drifts from agentRole.ts");
+        }
+        const { nineRouterFormattingMemo: memo5, RESEARCH_OUTPUT_CONTRACT: roc5 } = await import("./src/lib/agentRole");
+        const real9r = agnesFull + memo5(agnesFull);
+        const contractAt = real9r.indexOf(roc5);
+        const memoAt = real9r.indexOf("FORMATTING RULE");
+        if (contractAt < 0 || memoAt < 0 || memoAt < contractAt) {
+          throw new Error("the 9router memo must be appended AFTER the research contract, or it silently overrides it");
+        }
+        if (!real9r.includes("suspends the one-message")) {
+          throw new Error("a real Agnes 9router prompt must carry the research carve-out");
+        }
+        // Scoping: the carve-out must not leak to a prompt without the contract.
+        const mia9r = bsp5("naufalazhar652952", "discord") + memo5(bsp5("naufalazhar652952", "discord"));
+        if (mia9r.includes("suspends the one-message")) {
+          throw new Error("the research carve-out leaked into a prompt that has no research contract");
+        }
+        // Live 2026-10-12 news regression: "cek berita terbaru" got a raw dump
+        // because nothing said what a news answer should look like. The contract
+        // must select SHAPE from the ask (digest vs skeleton) while the TRIGGER
+        // stays work-based — and the memo must let the digest's list survive.
+        if (!roc5.includes("SHAPE SELECTION") || !/NEWS DIGEST/.test(roc5)) {
+          throw new Error("the research contract must select digest-vs-skeleton from the ask (SHAPE SELECTION + NEWS DIGEST)");
+        }
+        if (!real9r.includes("NEWS DIGEST") || !/one-headline-per-line/.test(real9r)) {
+          throw new Error("a real Agnes 9router prompt must let a news digest list survive the prose rule");
+        }
+        // One owner of the row shape: googleNews (user-facing) and research
+        // (model context) must both render through renderNewsRows, or the two
+        // surfaces drift again (title-as-link vs bare-URL rows).
+        {
+          const toolsSrc5 = readFileSync(join(miaRepoRoot(), "apps/web/src/lib/tools.ts"), "utf8");
+          if (!/function renderNewsRows\(items: GNItem\[\]\): string\[\]/.test(toolsSrc5)) {
+            throw new Error("tools.ts must own the news-row shape in renderNewsRows");
+          }
+          for (const call of ["const rows = renderNewsRows(items)", "const newsLines = renderNewsRows(items)"]) {
+            if (!toolsSrc5.includes(call)) throw new Error(`shared row shape unused: missing "${call}"`);
+          }
+        }
+      }
+      console.log("research output contract (Agnes-scoped, delivery honest, discord push targets chunked, 9router memo yields, news digest shaped): OK");
+      // System-delivered turns (live defect q-mv50): the office webhook pushes
+      // the reply itself, so the model must NOT also send_channel. Checked as
+      // WIRING plus real prompt ORDER, because a correct helper nobody calls is
+      // the exact failure class this repo keeps re-learning.
+      {
+        const hookSrc = readFileSync(join(miaRepoRoot(), "apps/web/src/app/api/webhook/route.ts"), "utf8");
+        if (!/systemDelivers:\s*deliverTo/.test(hookSrc)) {
+          throw new Error("the webhook must tell the turn who delivers, or the model sends the report twice");
+        }
+        if (!/\.\.\.\(\s*deliverTo\s*\?/.test(hookSrc)) {
+          throw new Error("systemDelivers must be gated by deliverTo — a chat turn with no deliverTo must keep owning its own delivery");
+        }
+        const agentSrc6 = readFileSync(join(miaRepoRoot(), "apps/web/src/lib/agent.ts"), "utf8");
+        if (!/applySystemDeliveryTurn\(systemPrompt, opts\.systemDelivers\)/.test(agentSrc6)) {
+          throw new Error("agent.ts must apply applySystemDeliveryTurn(systemPrompt, opts.systemDelivers)");
+        }
+        const { applySystemDeliveryTurn: asd6 } = await import("./src/lib/agentRole");
+        const agnesDelivered = asd6(applyRole5(bsp5("naufalazhar652952", "discord"), "agnes"), "office-agnes");
+        if (agnesDelivered.lastIndexOf("SYSTEM-DELIVERED TURN") < agnesDelivered.indexOf("DELIVERY IS A SEPARATE ACT")) {
+          throw new Error("the system-delivered clause must be appended AFTER the per-agent delivery clause so it wins");
+        }
+        if (applyRole5(bsp5("naufalazhar652952", "discord"), "agnes").includes("SYSTEM-DELIVERED TURN")) {
+          throw new Error("an ordinary Agnes turn must NOT claim the system is delivering");
+        }
+      }
+      console.log("system-delivered turn (webhook ownership + override order, no double send): OK");
       // The closing MENU offer (measured on the live greeting the owner pasted:
       // all three agents offered the menu). Locked two-way, because the failure
       // that matters is removing a real decision question and stranding the turn.
