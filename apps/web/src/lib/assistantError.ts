@@ -19,18 +19,54 @@ const QUOTA_RE =
   /(quota|out of (tokens|credits)|insufficient.*credits|payment required|402|exceeded.*(quota|usage|limit)|billing|topped? up)/i;
 
 /**
+ * The provider is healthy — the ACCOUNT is not. Observed live (2026-10-12):
+ * `LLM failed (403): … "Upstream request failed: An active OpenCode Go
+ * subscription is required to use Go models."` None of the rate-limit/quota
+ * patterns above matched it, so it fell through as a generic "provider" error:
+ * the failover chain THREW instead of moving on to the next provider, and
+ * providerHealth left the dead record untouched so the next turn repeated it.
+ */
+const SUBSCRIPTION_RE =
+  /(an active .*subscription is required|active subscription|subscription (is )?(required|inactive|expired|not active|has expired)|requires? an active subscription|not entitled|entitlement)/i;
+
+/**
  * Failures where another attempt — or another model in the free chain — can
  * plausibly succeed: rate limits, provider/upstream 5xx, overload, a retired or
- * invalid model id, connection resets, timeouts. Deliberately NOT a catch-all:
- * a tool-argument or code error must not spend the fallback chain retrying.
+ * invalid model id, connection resets, timeouts, and entitlement failures.
+ *
+ * The last two are deliberately included: "worth trying a DIFFERENT provider"
+ * is the question this predicate answers (both the outer provider chain and the
+ * inner FreeRide model loop use it that way), and for 403/forbidden the answer
+ * is always yes — another provider can serve the same request. Whether the SAME
+ * provider is worth another try is a separate decision, owned by
+ * providerHealth.applyFailure's quota cooldown.
+ *
+ * Deliberately NOT a catch-all: a tool-argument or code error must not spend
+ * the fallback chain retrying.
  */
 const RETRYABLE_PROVIDER_RE =
-  /(rate ?limit|too many requests|tokens per minute|tokens_per_minute|\btpm\b|\brpm\b|\b429\b|provider error|upstream error|overloaded|service unavailable|bad gateway|gateway timeout|\b5\d\d\b|not a valid model|no allowed providers|model not found|\b404\b|econnreset|econnrefused|etimedout|enotfound|socket hang up|fetch failed|timed? out)/i;
+  /(rate ?limit|too many requests|tokens per minute|tokens_per_minute|\btpm\b|\brpm\b|\b429\b|provider error|upstream error|overloaded|service unavailable|bad gateway|gateway timeout|\b5\d\d\b|not a valid model|no allowed providers|model not found|\b404\b|\b403\b|forbidden|subscription|entitle|econnreset|econnrefused|etimedout|enotfound|socket hang up|fetch failed|timed? out)/i;
+
+/**
+ * App-level failures. These are bugs in OUR turn handling (bad tool arguments,
+ * malformed JSON from the model, a runtime exception in the agent). No other
+ * provider can possibly do better at the same thing, so they must never spend
+ * the fallback chain — and, unlike a rate limit, they must never mark a healthy
+ * provider "down" in providerHealth.
+ *
+ * Checked BEFORE the retryable regex on purpose: once `\b403\b`/`forbidden` is
+ * in that regex (an inactive subscription IS worth failing over), a message
+ * like `invalid tool arguments: missing field "page"` or a stray `403` column
+ * name in a SQL error would otherwise be misread as "the provider refused us".
+ */
+const CODE_ERROR_RE =
+  /(invalid tool arguments|tool_call|tool call|json parse|unexpected token|is not defined|is not a function|is not iterable|cannot read propert|referenceerror|typeerror|syntaxerror|rangeerror)/i;
 
 /** True when re-sending the request (same model or the next free fallback) is
  *  worth it. Used by the freeride chain to move on to the next model. */
 export function isProviderRetryable(err: unknown): boolean {
   const detail = err instanceof Error ? err.message : String(err ?? "");
+  if (CODE_ERROR_RE.test(detail)) return false;
   return RETRYABLE_PROVIDER_RE.test(detail);
 }
 
@@ -62,6 +98,18 @@ export function classifyAssistantError(err: unknown): ClassifiedError {
       detail,
       userMessage:
         `Jatah token AI (rate limit) habis${suffix}. Tunggu beberapa saat lalu coba lagi, atau upgrade tier di console Groq kalau sering kena. 🌸`,
+    };
+  }
+  if (SUBSCRIPTION_RE.test(detail)) {
+    // `kind: "quota"` on purpose: callers already treat quota as "tell the user
+    // to top up / fix the account" (isQuotaExhaustion, Slack/Discord/Telegram
+    // replies). The generic "provider" branch would tell them to just retry,
+    // which can never work — the plan is gone, not the server.
+    return {
+      kind: "quota",
+      detail,
+      userMessage:
+        "Langganan AI provider-nya sudah tidak aktif, jadi model itu nggak bisa kupakai. Aku otomatis pindah ke provider lain — kalau tetap gagal, cek langganan/isi ulang kuncinya ya. 🌸",
     };
   }
   if (QUOTA_RE.test(detail)) {

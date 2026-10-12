@@ -264,6 +264,10 @@
     <h3 style="margin:0 0 10px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)" id="mTitle">Prompt</h3>
     <div id="mBody"></div>
     <textarea id="mText" placeholder="Tulis prompt untuk agent ini…"></textarea>
+    <label class="dlrow" id="mDeliverRow" style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--dim);cursor:pointer">
+      <input type="checkbox" id="mDeliver">
+      <span>Kirim hasil ke Discord</span>
+    </label>
     <div class="err" id="mErr"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
       <button class="btn" id="mCancel">Tutup</button>
@@ -333,6 +337,16 @@ function esc(s) {
 }
 function na(v, note) { return '<span class="unavail">' + esc(note || 'Unavailable') + '</span>'; }
 function stBadge(s) { return '<span class="badge ' + esc(s) + '">' + esc(s) + '</span>'; }
+
+/* Delivery truth: a task that asked for Discord delivery must never read as a
+   plain success. Mirrors the server's `deliver`/`delivered` fields — the UI
+   only reports what the ledger actually recorded. */
+function deliveryTag(t) {
+  if (!t || t.deliver !== 'discord') return '';
+  if (t.delivered === true) return ' <span class="badge done">↩ discord</span>';
+  if (t.delivered === false) return ' <span class="badge failed">✗ gagal kirim</span>';
+  return ' <span class="badge">⧗ discord</span>';
+}
 
 /* ── cachedSource: one in-flight request + TTL, per source ────────────
    Three different callers want /api/state: the 3s poll, the queue submit
@@ -428,7 +442,7 @@ function vQueue() {
     ((STATE.tasks || []).length ? '<table><thead><tr><th>Task</th><th>Agent</th><th>Status</th><th>Detail</th></tr></thead><tbody>' +
       STATE.tasks.slice(0, 40).map(function (t) {
         return '<tr><td>' + esc(t.title) + '<br><span class="note">' + esc(t.task_id) + ' · ' + esc(t.source) + '</span></td>' +
-          '<td>' + esc(t.agent) + '</td><td>' + esc(t.status) + '</td><td>' + esc((t.detail || '').slice(0, 160)) + '</td></tr>';
+          '<td>' + esc(t.agent) + '</td><td>' + esc(t.status) + deliveryTag(t) + '</td><td>' + esc((t.detail || '').slice(0, 160)) + '</td></tr>';
       }).join('') + '</tbody></table>'
       : '<div class="empty">Belum ada task. Riwayat terisi otomatis dari turn nyata Mia (audit log) dan dari antrean dashboard.</div>') +
     '</div>';
@@ -3895,7 +3909,9 @@ function modal(title, html, taskAgent) {
   $('#mBody').innerHTML = html || '';
   $('#mText').style.display = taskAgent ? '' : 'none';
   $('#mSend').style.display = taskAgent ? '' : 'none';
+  $('#mDeliverRow').style.display = taskAgent ? '' : 'none';
   $('#mText').value = '';
+  $('#mDeliver').checked = false;
   $('#mErr').textContent = '';
   $('#modalBg').classList.add('on');
   if (taskAgent) $('#mText').focus();
@@ -3909,7 +3925,7 @@ function submitTask() {
   fetch('/api/queue', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prompt: txt, agent: modalTask })
+    body: JSON.stringify({ prompt: txt, agent: modalTask, deliver: $('#mDeliver').checked ? 'discord' : 'auto' })
   }).then(function (r) {
     return r.json().then(function (b) { return { ok: r.ok, b: b }; });
   }).then(function (res) {

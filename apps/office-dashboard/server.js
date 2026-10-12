@@ -34,6 +34,26 @@ const HOST = '127.0.0.1';
 const MIA_WEB_DIR = path.resolve(ROOT, '..', 'web');
 const AUDIT_DIR = path.join(MIA_WEB_DIR, '.data', 'audit');
 const MIA_LLM_URL = process.env.MIA_LLM_URL || 'http://127.0.0.1:3000/api/llm';
+// The only endpoint that actually pushes a reply to the owner's channel and
+// tells us whether the push happened (pushed: true/false).
+const MIA_WEBHOOK_URL = process.env.MIA_WEBHOOK_URL || new URL('/api/webhook', MIA_LLM_URL).toString();
+// Only needed when Mia has WEBHOOK_SECRET set; the webhook route rejects the
+// call with 401 otherwise, which we surface honestly as a failed task.
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
+// Push-target label the office dashboard delivers to. Must match a label
+// registerPushTarget() published (see channels/discord.ts pushLabels).
+const DELIVERY_LABEL = process.env.OFFICE_DELIVERY_LABEL || 'office';
+
+/**
+ * Which push label posts the result. Each trio member registers its OWN
+ * (`office` / `office-agnes` / `office-michelle`), so a task assigned to Agnes is
+ * delivered by Agnes' bot instead of whichever bot registered last.
+ */
+function deliveryLabelFor(agentId) {
+  const base = DELIVERY_LABEL;
+  if (agentId && agentId !== 'mia') return `${base}-${agentId}`;
+  return base;
+}
 // Origin of Mia's Next app, derived from the LLM URL so there is one knob.
 const MIA_WEB_BASE = process.env.MIA_WEB_BASE || new URL(MIA_LLM_URL).origin;
 const OWNER_USER = process.env.OFFICE_OWNER_USER || 'naufalazhar652952';
@@ -292,7 +312,7 @@ function deriveAgents(audit, paused) {
       role: a.role,
       accent: a.accent,
       status,
-      active_task: last && last.action.startsWith('tool') ? summarizeTool(last.action, last.detail) : null,
+      active_task: last && last.action.startsWith('tool') && age != null && age <= WORKING_WINDOW_MS ? summarizeTool(last.action, last.detail) : null,
       last_event: last ? { ts: last.ts, action: last.action, detail: last.detail, source: last.file } : null,
       last_update: last ? last.ts : null,
       basis: audit.available
@@ -308,12 +328,53 @@ function deriveAgents(audit, paused) {
 const observedTurns = new Set(); // task_ids already mirrored from the audit log
 
 /**
+ * `turn-<agent>-<at>` is stable for a given audit event, but an audit FILE can
+ * contain several turn_error rows for one turn (verify drills re-run the same
+ * confirm-decline completion, and Mia logs each attempt). Mirroring needs a
+ * key that identifies the failure itself, not just the turn.
+ */
+function mirrorFailureKey(taskId, detail) {
+  return `${taskId}::failed::${hash32(String(detail || ''))}`;
+}
+
+function hash32(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/**
  * Mirror real agent turns into tasks.jsonl so the dashboard has a durable,
  * append-only history without inventing anything. Each observed turn gets a
  * stable task_id and one `started` event; a turn_error closes it as `failed`.
+ *
+ * Dedup MUST be restart-durable. `observedTurns` is an in-memory Set, so after
+ * a dashboard restart every previously-mirrored turn looked new and got
+ * re-appended — which is why the owner saw one failure listed three times with
+ * three identical `ts` values. We therefore seed the sets from the file on
+ * first use, so restarts replay nothing.
  */
+let observedSeeded = false;
+function seedObservedFromLedger() {
+  if (observedSeeded) return;
+  observedSeeded = true; // set first: readJsonl below must not re-enter
+  const { rows } = readJsonl(TASKS_FILE);
+  for (const ev of rows) {
+    if (!ev.task_id) continue;
+    if (ev.status === 'failed') {
+      observedTurns.add(mirrorFailureKey(ev.task_id, ev.detail));
+    } else {
+      observedTurns.add(ev.task_id);
+    }
+  }
+}
+
 function mirrorAuditTurns(audit) {
   if (!audit.available) return;
+  seedObservedFromLedger();
   const openTurns = new Map(); // agent -> {task_id, ts}
   for (const e of audit.events) {
     if (e.action === 'turn_provider') {
@@ -333,16 +394,21 @@ function mirrorAuditTurns(audit) {
       }
       openTurns.set(e.agent, taskId);
     } else if (e.action === 'turn_error' && openTurns.has(e.agent)) {
+      const taskId = openTurns.get(e.agent);
+      const detail = redact(truncate(e.detail || 'turn failed', 400));
+      const failKey = mirrorFailureKey(taskId, detail);
+      if (observedTurns.has(failKey)) continue; // already mirrored — see above
       appendJsonl(TASKS_FILE, {
         ts: new Date().toISOString(),
-        task_id: openTurns.get(e.agent),
+        task_id: taskId,
         agent: e.agent,
         subagent: null,
         title: null,
         status: 'failed',
-        detail: redact(truncate(e.detail || 'turn failed', 400)),
+        detail,
         source: 'audit-mirror',
       });
+      observedTurns.add(failKey);
     }
   }
 }
@@ -363,6 +429,11 @@ function buildTasks() {
     if (ev.title && (t.title === '(tanpa judul)' || !t.title)) t.title = ev.title;
     if (ev.status) t.status = ev.status;
     if (ev.detail) t.detail = ev.detail;
+    // Delivery facts ride along so the UI never has to guess whether a
+    // "kirim ke Discord" task actually reached Discord.
+    if (ev.deliver) t.deliver = ev.deliver;
+    if (ev.deliver_to) t.deliver_to = ev.deliver_to;
+    if (ev.delivered !== undefined && ev.delivered !== null) t.delivered = ev.delivered;
     t.updated_at = ev.ts;
     t.history.push({ ts: ev.ts, status: ev.status, detail: ev.detail || '' });
   }
@@ -383,6 +454,7 @@ function buildQueue() {
       ts: r.ts,
       prompt: r.prompt,
       agent: r.agent,
+      deliver: r.deliver || (prev && prev.deliver) || 'auto',
       status: r.status || (prev && prev.status) || 'queued',
       detail: r.detail != null ? r.detail : prev ? prev.detail : null,
       task_id: r.task_id || (prev && prev.task_id) || null,
@@ -397,45 +469,89 @@ function newId(prefix) {
 }
 
 /**
+ * Does this quick-task want its result delivered somewhere?
+ *
+ * `explicit` is the UI checkbox (decisive when set). Otherwise we read the
+ * prompt — but ONLY when it names the destination AND asks for a send, so
+ * "apa kabar discord?" is not treated as a delivery request.
+ */
+function deliverRequested(prompt, explicit) {
+  if (explicit === 'discord') return true;
+  if (explicit === 'none') return false;
+  const p = String(prompt || '');
+  if (!/\bdiscord\b/i.test(p)) return false;
+  return /(kirim|kirimkan|teruskan|bagikan|share|send|balas|inbox|terima)/i.test(p);
+}
+
+/**
  * Real dispatch: call Mia's own /api/llm with the agent's user key.
  * No shell, no user-controlled command — just an HTTP POST to a fixed local URL.
+ *
+ * When delivery to Discord is requested we go through /api/webhook instead,
+ * because that endpoint is the only one that actually pushes the result to the
+ * owner's channel and REPORTS whether the push happened. /api/llm only returns
+ * text to us, so routing delivery through it would have been a silent no-op —
+ * the task would look finished while nothing reached Discord.
  */
 async function dispatchQueueItem(item) {
   const agent = AGENTS.find((a) => a.id === item.agent);
   const taskId = `task-${item.id}`;
-  appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: truncate(item.prompt, 120), status: 'started', detail: 'Dikirim ke Mia (POST /api/llm).', source: 'dashboard' });
+  const userKey = agent ? agent.user : OWNER_USER;
+  const wantDeliver = deliverRequested(item.prompt, item.deliver);
+  const target = wantDeliver ? MIA_WEBHOOK_URL : MIA_LLM_URL;
+  appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: truncate(item.prompt, 120), status: 'started', detail: `Dikirim ke Mia (POST ${wantDeliver ? '/api/webhook → Discord' : '/api/llm'}).`, deliver: wantDeliver ? 'discord' : 'none', delivered: null, source: 'dashboard' });
   appendJsonl(QUEUE_FILE, { ...item, status: 'done', task_id: taskId, detail: 'dispatched' });
   const started = Date.now();
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), DISPATCH_TIMEOUT_MS);
+  const payload = wantDeliver
+    ? { prompt: item.prompt, user: userKey, agent: item.agent, deliver_to: deliveryLabelFor(item.agent), ...(WEBHOOK_SECRET ? { secret: WEBHOOK_SECRET } : {}) }
+    : { messages: [{ role: 'user', content: item.prompt }], user: userKey, channel: 'office-dashboard' };
   try {
-    const res = await fetch(MIA_LLM_URL, {
+    const res = await fetch(target, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: item.prompt }],
-        user: agent ? agent.user : OWNER_USER,
-        channel: 'office-dashboard',
-      }),
+      body: JSON.stringify(payload),
       signal: ac.signal,
     });
-    const text = await res.text();
+    const raw = await res.text();
+    let data = null;
+    try { data = JSON.parse(raw); } catch { /* non-JSON body is handled below */ }
     if (!res.ok) {
-      appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'failed', detail: redact(truncate(`HTTP ${res.status}: ${text}`, 400)), source: 'dashboard' });
+      appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'failed', deliver: wantDeliver ? 'discord' : 'none', delivered: false, detail: redact(truncate(`HTTP ${res.status}: ${(data && data.message) || raw}`, 400)), source: 'dashboard' });
       return;
     }
-    appendJsonl(TASKS_FILE, {
-      ts: new Date().toISOString(),
-      task_id: taskId,
-      agent: item.agent,
-      subagent: null,
-      title: null,
-      status: 'done',
-      detail: redact(truncate(text.replace(/\s+/g, ' ').trim(), 400)),
-      source: 'dashboard',
-    });
+    if (!wantDeliver) {
+      appendJsonl(TASKS_FILE, {
+        ts: new Date().toISOString(),
+        task_id: taskId,
+        agent: item.agent,
+        subagent: null,
+        title: null,
+        status: 'done',
+        deliver: 'none',
+        delivered: null,
+        detail: redact(truncate(raw.replace(/\s+/g, ' ').trim(), 400)),
+        source: 'dashboard',
+      });
+      return;
+    }
+    // Delivery path — never say "done" unless Discord actually got it.
+    const text = redact(truncate(String((data && data.text) || '(no reply)').replace(/\s+/g, ' ').trim(), 300));
+    if (data && data.status === 'needs_confirmation') {
+      appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'failed', deliver: 'discord', delivered: false, detail: redact(truncate(`Butuh konfirmasi tool (${data.tool && data.tool.name ? data.tool.name : '?'}) — tidak dikirim ke Discord.`, 400)), source: 'dashboard' });
+      return;
+    }
+    if (data && data.pushed === true) {
+      // Name the destination. "✅ Terkirim ke Discord" was true but useless —
+      // the owner could not tell it had landed in his DM instead of the office
+      // channel, which is exactly how a mis-routed delivery stays invisible.
+      appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'done', deliver: 'discord', delivered: true, deliver_to: data.delivered_to || deliveryLabelFor(item.agent), detail: `✅ Terkirim ke Discord [${data.delivered_to || deliveryLabelFor(item.agent)}] — ${text}`, source: 'dashboard' });
+      return;
+    }
+    appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'failed', deliver: 'discord', delivered: false, detail: redact(truncate(`Mia menjawab tapi hasil TIDAK terkirim ke Discord${data && data.push_error ? ` (${data.push_error})` : ''} — ${text}`, 400)), source: 'dashboard' });
   } catch (err) {
-    appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'failed', detail: redact(truncate(`${err.name}: ${err.message} (${Date.now() - started}ms)`, 400)), source: 'dashboard' });
+    appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'failed', deliver: wantDeliver ? 'discord' : 'none', delivered: false, detail: redact(truncate(`${err.name}: ${err.message} (${Date.now() - started}ms)`, 400)), source: 'dashboard' });
   } finally {
     clearTimeout(timer);
   }
@@ -475,9 +591,66 @@ function diskInfo() {
   }
 }
 
+/**
+ * Honest host memory on macOS.
+ *
+ * `os.freemem()` counts only pages the kernel considers *free*; on Darwin it
+ * excludes inactive/purgeable/speculative pages, which the kernel reclaims
+ * instantly under pressure. Dividing (total - free)/total therefore reports a
+ * permanently alarming ~99% "used" on an idle 8 GB Mac — the same trap as
+ * `df /` on macOS (sealed system snapshot), already documented for Mia.
+ *
+ * Used  = active + wired + compressed  (what the kernel cannot hand back)
+ * Avail = free + inactive + speculative + purgeable
+ * Both are derived from `vm_stat`, so we report what macOS actually means and
+ * label the method instead of inventing a Linux-style number.
+ */
+function hostMemory() {
+  const total = os.totalmem();
+  const pageSize = 4096;
+  const base = { available: true, scope: 'host', total_bytes: total, method: 'os.freemem (linux-style)' };
+  if (process.platform !== 'darwin') {
+    const free = os.freemem();
+    return { ...base, free_bytes: free, used_bytes: total - free, used_pct: Number((((total - free) / total) * 100).toFixed(1)) };
+  }
+  try {
+    const out = execFileSync('/usr/bin/vm_stat', { encoding: 'utf8', timeout: 5000 });
+    const sizeLine = out.match(/page size of (\d+) bytes/);
+    const ps = sizeLine ? Number(sizeLine[1]) : pageSize;
+    const num = (label) => {
+      const m = out.match(new RegExp(`^${label}:\\s+(\\d+)\\.?$`, 'm'));
+      return m ? Number(m[1]) * ps : 0;
+    };
+    const free = num('Pages free');
+    const active = num('Pages active');
+    const inactive = num('Pages inactive');
+    const spec = num('Pages speculative');
+    const wired = num('Pages wired down');
+    const compressed = num('Pages occupied by compressor');
+    const purgeable = num('Pages purgeable');
+    const used = active + wired + compressed;
+    const avail = free + inactive + spec + purgeable;
+    const denom = used + avail;
+    if (denom <= 0) throw new Error('vm_stat produced no usable page counts');
+    return {
+      available: true,
+      scope: 'host',
+      total_bytes: total,
+      method: 'vm_stat (macOS: used = active+wired+compressed)',
+      free_bytes: avail,
+      used_bytes: used,
+      used_pct: Number(((used / denom) * 100).toFixed(1)),
+    };
+  } catch (err) {
+    // Never invent a number we could not measure.
+    return { ...base, free_bytes: os.freemem(), note: `vm_stat gagal (${err && err.message ? err.message : err}) — angka di bawah memakai os.freemem() yang menipu di macOS.` };
+  }
+}
+
 function systemInfo() {
   const load = os.loadavg();
   const cpus = os.cpus() || [];
+  const mem = hostMemory();
   return {
     available: true,
     hostname: os.hostname(),
@@ -488,9 +661,10 @@ function systemInfo() {
     loadavg_1m: Number(load[0].toFixed(2)),
     loadavg_5m: Number(load[1].toFixed(2)),
     loadavg_15m: Number(load[2].toFixed(2)),
-    host_memory_total_bytes: os.totalmem(),
-    host_memory_free_bytes: os.freemem(),
-    host_memory_used_pct: Number((((os.totalmem() - os.freemem()) / os.totalmem()) * 100).toFixed(1)),
+    host_memory_total_bytes: mem.total_bytes,
+    host_memory_free_bytes: mem.free_bytes,
+    host_memory_used_pct: mem.used_pct,
+    host_memory_method: mem.method,
     // Spec §5 container rule: on Linux we would sum resident pages from
     // /proc/[pid]/statm. This host is macOS — there is no container cgroup to
     // read, so we say so instead of inventing a container number.
@@ -795,6 +969,7 @@ async function buildState() {
   const { tasks, broken_lines: taskBroken, ledger_missing: tasksMissing } = buildTasks();
   const { queue, broken_lines: queueBroken, ledger_missing: queueMissing } = buildQueue();
   const tunnel = await tunnelStatus();
+  const mem = hostMemory();
   return {
     now: new Date().toISOString(),
     agents: deriveAgents(audit, paused),
@@ -804,7 +979,7 @@ async function buildState() {
     vps: {
       disk: diskInfo(),
       cpu: { model: (os.cpus()[0] || {}).model || null, cores: (os.cpus() || []).length || null, loadavg: os.loadavg().map((n) => Number(n.toFixed(2))) },
-      memory: { available: true, scope: 'host', total_bytes: os.totalmem(), free_bytes: os.freemem(), used_pct: Number((((os.totalmem() - os.freemem()) / os.totalmem()) * 100).toFixed(1)), container: { available: false, note: 'N/A di host macOS (tidak ada container).' } },
+      memory: { ...mem, container: { available: false, note: 'N/A di host macOS (tidak ada container).' } },
       uptime_s: Math.round(os.uptime()),
       tunnel,
       os: `${os.type()} ${os.release()} (${os.arch()})`,
@@ -991,10 +1166,11 @@ const server = http.createServer(async (req, res) => {
       }
       const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
       const agent = typeof body.agent === 'string' ? body.agent.trim() : '';
+      const deliver = body.deliver === 'discord' ? 'discord' : body.deliver === 'none' ? 'none' : 'auto';
       if (!prompt) return sendJson(res, 400, { error: 'prompt_required', message: 'prompt harus string non-kosong.' });
       if (prompt.length > MAX_PROMPT_CHARS) return sendJson(res, 400, { error: 'prompt_too_long', max: MAX_PROMPT_CHARS });
       if (!AGENT_IDS.includes(agent)) return sendJson(res, 400, { error: 'unknown_agent', allowed: AGENT_IDS });
-      const item = { id: newId('q'), ts: new Date().toISOString(), prompt: redact(truncate(prompt, 300)), agent, status: 'queued', task_id: null };
+      const item = { id: newId('q'), ts: new Date().toISOString(), prompt: redact(truncate(prompt, 300)), agent, deliver, status: 'queued', task_id: null };
       appendJsonl(QUEUE_FILE, item);
       dispatchLoop();
       sendJson(res, 201, { ok: true, item });

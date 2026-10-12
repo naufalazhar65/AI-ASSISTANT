@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAssistantTurn } from "@/lib/agent";
 import { defaultProviderId } from "@/lib/providers";
-import { pushToOwner } from "@/channels/pushTarget";
+import { pushToOwner, sendToChannel } from "@/channels/pushTarget";
+import { chunkText, DISCORD_MAX } from "@/channels/replyChunk";
+import { isAgentLabel } from "@/lib/agentRole";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,12 +21,27 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
-  const { secret, prompt, user, provider } = body as {
+  const { secret, prompt, user, provider, agent, deliver_to: deliverToRaw } = body as {
     secret?: unknown;
     prompt?: unknown;
     user?: unknown;
     provider?: unknown;
+    agent?: unknown;
+    deliver_to?: unknown;
   };
+
+  // Which trio member this turn belongs to. Without it `applyAgentRole` never
+  // runs, so Agnes answered a task addressed to her with Mia's coordinator
+  // voice — observed live 2026-10-12: "Agnes, tolong riset …" as the reply to a
+  // task the dashboard had assigned TO Agnes.
+  const agentLabel = isAgentLabel(agent) ? agent : undefined;
+
+  // Which channel the result must actually reach. `pushToOwner` picks whichever
+  // adapter registered LAST, which on a multi-bot host is arbitrary (observed:
+  // slack-michelle), so a caller that asked for Discord could be delivered to
+  // Slack — or to nothing. Naming the channel makes delivery verifiable.
+  const deliverTo =
+    typeof deliverToRaw === "string" && deliverToRaw.trim() ? deliverToRaw.trim() : "";
 
   if (expectedSecret) {
     if (typeof secret !== "string" || secret !== expectedSecret) {
@@ -49,6 +66,7 @@ export async function POST(req: NextRequest) {
       provider: providerId,
       user: userKey,
       channel: "text",
+      agent: agentLabel,
     });
 
     // If the model asked for a risky tool, we can't auto-confirm via webhook — just return the confirmation request
@@ -61,10 +79,38 @@ export async function POST(req: NextRequest) {
     }
 
     const text = result.text || "(no reply)";
-    // Best-effort push to owner channel (if any active)
-    const pushed = await pushToOwner(`🔔 *Webhook* — ${promptStr}\n${text}`).catch(() => false);
+    const note = `🔔 *Webhook* — ${promptStr}\n${text}`;
 
-    return NextResponse.json({ status: "ok", text, pushed });
+    // Deliver to the NAMED channel when asked, otherwise best-effort to the
+    // owner's current channel as before. `push_error` is returned so the caller
+    // can report WHY delivery failed instead of a bare false.
+    let pushed = false;
+    let pushError: string | null = null;
+    if (deliverTo) {
+      try {
+        // Discord rejects bodies over 2000 chars ("Invalid Form Body
+        // content[BASE_TYPE_MAX_LENGTH]"). A long research answer therefore used
+        // to fail at the very last step — after the turn had already succeeded —
+        // so split before sending instead.
+        for (const part of chunkText(note, DISCORD_MAX)) {
+          await sendToChannel(deliverTo, part);
+        }
+        pushed = true;
+      } catch (err) {
+        pushError = err instanceof Error ? err.message : String(err);
+      }
+    } else {
+      pushed = await pushToOwner(note).catch(() => false);
+      if (!pushed) pushError = "no owner channel could receive the push";
+    }
+
+    return NextResponse.json({
+      status: "ok",
+      text,
+      pushed,
+      delivered_to: deliverTo || null,
+      push_error: pushError,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[webhook] failed:", msg);

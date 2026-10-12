@@ -131,6 +131,8 @@ export interface AgentBotConfig {
   allowedChannels: string[];
   /** Dedicated channel(s) where this agent replies without needing a mention. */
   dedicatedChannels: string[];
+  /** Raw configured channel for office delivery (NOT first-claim-wins filtered). */
+  officeChannels: string[];
   userFallback: string;
   /** Suffix appended to the resolved user key ("" for Mia). Dots are
    *  sanitize-safe, so `owner.agnes` is a distinct user dir automatically. */
@@ -225,6 +227,12 @@ export function agentConfigsFromEnv(): AgentBotConfig[] {
     return {
       label: s.label,
       displayName: s.displayName,
+      // Delivery destination for the office dashboard. Deliberately the RAW
+      // configured id, NOT the first-claim-wins `dedicatedChannels`: that
+      // filtering exists so only Mia answers unaddressed chatter in a shared
+      // channel, and reusing it left Agnes/Michelle with an empty list — so
+      // their office results failed with "office channel not configured".
+      officeChannels: wantedDedicated.length > 0 ? wantedDedicated : allowedChannels,
       statusName: `${s.displayName} 2026.9`,
       token: process.env[s.tokenEnv] || "",
       providerDefault: process.env[s.providerEnv] || PROVIDER_DEFAULT,
@@ -418,6 +426,14 @@ export function isDiscordSelfAuthored(
  *  land in). */
 export interface BotPushContext {
   lastSeen: SendableChannel | null;
+  /**
+   * The agent's dedicated channel (the shared office channel). Used ONLY by the
+   * `office` push target, so a dashboard result always lands in the office
+   * channel instead of wherever the owner happened to talk last.
+   */
+  dedicatedChannels: string[];
+  /** Raw configured channel for office delivery (unfiltered, see agentConfigsFromEnv). */
+  officeChannels: string[];
   client: Client | null;
   allowedUsers: string[];
 }
@@ -433,6 +449,19 @@ export function getActiveDiscordClient(): Client | null {
  * Resolve the owner's DM as a sendable target. Falls back to the first
  * allow-listed owner user id; returns null when unavailable.
  */
+/** The agent's dedicated channel (office/general), resolved through the client. */
+async function officeChannelTarget(ctx: BotPushContext): Promise<SendableChannel | null> {
+  const client = ctx.client;
+  const id = ctx.officeChannels[0];
+  if (!client || !id) return null;
+  try {
+    const ch = await client.channels.fetch(id);
+    return ch && "send" in ch ? (ch as unknown as SendableChannel) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function ownerDmTarget(ctx: BotPushContext): Promise<SendableChannel | null> {
   const client = ctx.client;
   const ownerId = ctx.allowedUsers[0];
@@ -531,7 +560,7 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
     return s;
   };
 
-  const ctx: BotPushContext = { lastSeen: null, client, allowedUsers: cfg.allowedUsers };
+  const ctx: BotPushContext = { lastSeen: null, dedicatedChannels: cfg.dedicatedChannels, officeChannels: cfg.officeChannels, client, allowedUsers: cfg.allowedUsers };
 
   client.on(Events.ClientReady, async () => {
     console.log("[discord] logged in as", client.user?.tag);
@@ -1081,6 +1110,20 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
       return target.send(content);
     });
   }
+
+  // Office dashboard results go to the DEDICATED channel, never last-seen/DM.
+  // Registering a separate label (instead of changing `resolvePushTarget`)
+  // keeps reminder/heartbeat routing exactly as it was.
+  //
+  // ONE LABEL PER AGENT (`office`, `office-agnes`, `office-michelle`): a single
+  // shared label would be overwritten by whichever sibling registered last, so a
+  // task the dashboard assigned to Agnes was posted by whichever bot booted
+  // last (observed live 2026-10-12: Agnes's result arrived as "Mia | PM").
+  registerPushTarget(`office${cfg.label === "mia" ? "" : `-${cfg.label}`}`, async (content: string) => {
+    const target = await officeChannelTarget(ctx);
+    if (target == null) throw new Error("office channel not configured (DISCORD_CHANNEL_ID_*)");
+    return target.send(content);
+  });
 
   console.log(`[discord] connecting gateway…${cfg.label === "mia" ? "" : ` (${cfg.label})`}`);
   // Login is one-shot; do NOT block readiness (reflects telegram's fire-and-forget).

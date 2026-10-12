@@ -2,7 +2,7 @@ import { ConversationManager } from "./src/ai/ConversationManager";
 import { MockProvider } from "@ai-provider/mock";
 import { executeTool, getTOOLS } from "./src/lib/tools";
 import { autoUpdateStatus, runAutoUpdate, runAutoUpdaterTick } from "./src/lib/autoUpdater";
-import { resolveInSandbox, appRoot, userDataRoot } from "./src/lib/users";
+import { resolveInSandbox, appRoot, userDataRoot, repoRoot as miaRepoRoot } from "./src/lib/users";
 import {
   addLibraryEntry,
   captureLinkFromMessage,
@@ -966,6 +966,82 @@ async function main() {
     if (!sErr || !/503/.test(sErr) || !isProviderRetryable(new Error(sErr))) throw new Error(`parseStreamError/retryable failed: ${sErr}`);
     if (!isProviderRetryable(new Error("nvidia/x:free is not a valid model ID"))) throw new Error("a retired model id must be retryable");
     if (isProviderRetryable(new Error("invalid tool arguments: missing field"))) throw new Error("a tool error must NOT trigger failover");
+
+    // Live 2026-10-12: an inactive OpenCode Go subscription answered 403, which
+    // matched nothing -> the chain THREW instead of failing over, and
+    // providerHealth left the dead provider "ok" so it kept poisoning turns.
+    const sub403 = 'LLM failed (403): {"error":{"type":"server_error","message":"Upstream request failed: An active OpenCode Go subscription is required to use Go models."}}';
+    if (!isProviderRetryable(new Error(sub403))) throw new Error("an inactive-subscription 403 must be retryable so the chain moves to the next provider");
+    const { classifyAssistantError } = await import("./src/lib/assistantError");
+    if (classifyAssistantError(new Error(sub403)).kind !== "quota") throw new Error("an inactive-subscription 403 must classify as quota, not a generic provider error");
+    // Guard-first: a code error that merely CONTAINS 403 must not fail over.
+    for (const codeErr of ["invalid tool arguments: missing field 403", "ReferenceError: 403 is not defined"]) {
+      if (isProviderRetryable(new Error(codeErr))) throw new Error(`a code error must not trigger failover: ${codeErr}`);
+    }
+    // Wiring: the health watchdog must park a dead-subscription provider for the
+    // quota window, not just retry it. Helper-correct-but-unused has bitten this
+    // repo before (discordRestTokenHeal, the Slack loop guard).
+    const ph = await import("./src/lib/providerHealth");
+    const down24 = ph.applyFailure({ status: "ok", failCount: 0, lastCheckedAt: "" }, new Error(sub403), 1_700_000_000_000);
+    if (down24.status !== "down" || !down24.quotaHitAt) throw new Error("a 403 subscription failure must mark the provider down as a quota hit");
+    if (Date.parse(down24.cooldownUntil ?? "") !== 1_700_000_000_000 + 24 * 60 * 60 * 1000) throw new Error("a 403 subscription failure must use the 24h quota cooldown");
+    const chain403 = ph.buildChain("9router", { providers: { opencodego: down24 }, updatedAt: "" }, () => ({ url: "https://x.test/v1", apiKey: "k", defaultModel: "m" }), 1_700_000_000_000);
+    if (chain403.map((c) => c.id).includes("opencodego")) throw new Error("a dead-subscription provider must be OUT of the chain while its cooldown lasts");
+    // And the dashboard mirror must dedup a failure restart-durably, or the same
+    // turn is listed dozens of times in the office UI.
+    const dashSrc = readFileSync(join(miaRepoRoot(), "apps/office-dashboard/server.js"), "utf8");
+    if (!/function seedObservedFromLedger/.test(dashSrc) || !/observedTurns\.has\(failKey\)/.test(dashSrc)) {
+      throw new Error("office-dashboard mirrorAuditTurns must dedup failed events restart-durably (seedObservedFromLedger + observedTurns.has(failKey))");
+    }
+
+    // ── office quick-task: real delivery + honest status (2026-10-12) ──
+    // A task asked "cari berita viral ... kirim ke discord" was marked `done`
+    // after 2.2s with a delegation PROMISE as the reply: no tool call, nothing
+    // sent anywhere. Three separate defects let that read as success.
+    const dash = readFileSync(join(miaRepoRoot(), "apps/office-dashboard/server.js"), "utf8");
+    if (!/deliver_to: deliveryLabelFor\(item\.agent\)/.test(dash)) throw new Error("office delivery must name the target channel (deliver_to) — pushToOwner picks whichever adapter registered last");
+    if (!/deliverRequested\(/.test(dash)) throw new Error("office dispatch must route through deliverRequested()");
+    // Honest status: `done` may only be written when the push actually happened.
+    const doneRow = dash.match(/status: 'done', deliver: 'discord', delivered: true/);
+    if (!doneRow) throw new Error("office must only mark a Discord task done when delivered === true");
+    if (!/data\.pushed === true/.test(dash)) throw new Error("office delivery must be gated on the webhook's `pushed` flag");
+    if (!/push_error/.test(dash)) throw new Error("office must surface the webhook's push_error, not a bare false");
+    // macOS memory: os.freemem() reports ~99% used on an idle Mac.
+    if (/host_memory_used_pct: Number\(\(\(\(os\.totalmem\(\) - os\.freemem\(\)\)/.test(dash)) throw new Error("office memory must not use os.freemem() on macOS (misreports ~99% used) — use vm_stat");
+    if (!/vm_stat/.test(dash)) throw new Error("office memory must be derived from vm_stat on darwin");
+    // active_task must respect the working window, like status does.
+    if (!/active_task: last && last\.action\.startsWith\('tool'\) && age != null && age <= WORKING_WINDOW_MS/.test(dash)) {
+      throw new Error("office active_task must honour WORKING_WINDOW_MS — otherwise stale tool calls show as the current task");
+    }
+    // Delivery must survive Discord's 2000-char body limit.
+    const whSrc = readFileSync(join(miaRepoRoot(), "apps/web/src/app/api/webhook/route.ts"), "utf8");
+    if (!/chunkText\(note, DISCORD_MAX\)/.test(whSrc)) throw new Error("webhook delivery must chunk for Discord — a long reply fails the push at the last step");
+    if (!/sendToChannel\(deliverTo/.test(whSrc)) throw new Error("webhook must deliver via sendToChannel(deliverTo) when a channel is named");
+    // Destination must be the DEDICATED channel, not `lastSeen` (which is the
+    // owner's DM after a DM conversation — observed live 2026-10-12).
+    if (!/OFFICE_DELIVERY_LABEL \|\| 'office'/.test(dash)) throw new Error("office delivery label must default to 'office' (the dedicated-channel target), not 'discord' (last-seen/DM)");
+    if (!/deliver_to: data\.delivered_to \|\| deliveryLabelFor\(item\.agent\)/.test(dash)) throw new Error("a delivered task must RECORD which channel it went to — '✅ Terkirim ke Discord' without a destination hid a mis-route");
+    const discSrc = readFileSync(join(miaRepoRoot(), "apps/web/src/channels/discord.ts"), "utf8");
+    if (!/registerPushTarget\(`office\$\{cfg\.label/.test(discSrc)) throw new Error("discord must register a PER-AGENT office push target (office / office-agnes / office-michelle) — a shared label is overwritten by whichever sibling boots last, so Agnes' result posts as Mia");
+    if (!/const agentLabel = isAgentLabel\(agent\) \? agent : undefined/.test(whSrc)) throw new Error("webhook must resolve the agent label from the request");
+    if (!/agent: agentLabel/.test(whSrc)) throw new Error("webhook must pass `agent` to runAssistantTurn — without it applyAgentRole never runs and Agnes answers in Mia's voice");
+    if (!/deliver_to: deliveryLabelFor\(item\.agent\)/.test(dash)) throw new Error("office delivery must choose the label from the TARGET agent, not one shared label");
+    if (!/agent: item\.agent/.test(dash)) throw new Error("office dispatch must forward the target agent so the turn runs with that agent's identity");
+    if (!/officeChannelTarget/.test(discSrc)) throw new Error("the 'office' push target must resolve the DEDICATED channel, not lastSeen/DM");
+    // Siblings' `dedicatedChannels` is empty on purpose (first-claim-wins, so only
+    // Mia answers unaddressed chatter). Office DELIVERY must not reuse it: live
+    // 2026-10-12, Agnes' result failed with "office channel not configured".
+    if (!/const id = ctx\.officeChannels\[0\]/.test(discSrc)) throw new Error("office delivery must read ctx.officeChannels (raw config), not ctx.dedicatedChannels (empty for siblings)");
+    if (!/officeChannels: wantedDedicated\.length > 0 \? wantedDedicated : allowedChannels/.test(discSrc)) throw new Error("officeChannels must fall back to the allowed channel when no dedicated id is configured");
+    // Proof-by-mutation lesson (2026-10-12): asserting the helper merely EXISTS
+    // passed even when the call site was rewired to lastSeen/DM. Assert the wire:
+    // the dedicated-channel lookup must be INSIDE the registration block.
+    const officeBlock = discSrc.match(/registerPushTarget\(`office[\s\S]{0,900}/);
+    if (!officeBlock || !/officeChannelTarget\(ctx\)/.test(officeBlock[0])) {
+      throw new Error("the 'office' push target must CALL officeChannelTarget(ctx) inside its registration — an unused helper still routes to DM");
+    }
+    // …and reminder/heartbeat routing must stay untouched by that addition.
+    if (!/return ctx\.lastSeen \?\? \(await ownerDmTarget\(ctx\)\)/.test(discSrc)) throw new Error("resolvePushTarget must keep lastSeen behaviour for reminders/heartbeat — the office target is additive");
     if (!chainMayFailover(3, 3) || chainMayFailover(3, 5)) throw new Error("chainMayFailover must allow a no-effect retry only");
     if (!isProbeAliveResponse(200, { choices: [{}] })) throw new Error("a 200 with choices is alive");
     if (isProbeAliveResponse(200, { error: { code: 503 } }) || isProbeAliveResponse(429, { choices: [{}] })) throw new Error("200+error / non-2xx must read as dead");

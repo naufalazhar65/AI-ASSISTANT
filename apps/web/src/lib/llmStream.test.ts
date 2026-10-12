@@ -6,7 +6,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { chainMayFailover, endpointHeaders, parseStreamError, runOneCompletion } from "./agent";
-import { isProviderRetryable } from "./assistantError";
+import { classifyAssistantError, isProviderRetryable, isQuotaExhaustion } from "./assistantError";
 import { isProbeAliveResponse, shouldProbeNow } from "./freeride";
 
 function sseResponse(frames: string[], status = 200): Response {
@@ -202,5 +202,47 @@ describe("endpointHeaders", () => {
   });
   it("sanitises the user key in the session id", () => {
     expect(endpointHeaders("https://opencode.ai/zen/go/v1/chat/completions", "a b/c")?.["x-opencode-session"]).toBe("mia-abc");
+  });
+});
+
+// Live 2026-10-12: an inactive OpenCode Go subscription returned 403, which
+// matched NO retryable/quota pattern — so the provider chain threw instead of
+// moving to the next provider, and the health record stayed "ok" forever.
+describe("subscription 403 (inactive plan) is a failover signal, not a hard stop", () => {
+  const DEAD_SUB_403 =
+    'LLM failed (403): {"error":{"type":"server_error","message":"Upstream request failed: An active OpenCode Go subscription is required to use Go models."}}';
+
+  it("is retryable so the chain MOVES ON to another provider", () => {
+    expect(isProviderRetryable(new Error(DEAD_SUB_403))).toBe(true);
+  });
+
+  it("classifies as quota — the user is told to fix the plan, not to retry", () => {
+    const c = classifyAssistantError(new Error(DEAD_SUB_403));
+    expect(c.kind).toBe("quota");
+    expect(c.userMessage).toContain("langganan");
+    expect(isQuotaExhaustion(new Error(DEAD_SUB_403))).toBe(true);
+  });
+
+  it("covers the other entitlement phrasings gateways emit", () => {
+    for (const msg of [
+      "LLM failed (403): Forbidden",
+      "Your OpenCode Go subscription has expired",
+      "subscription inactive",
+      "not entitled to this model",
+    ]) {
+      expect(isProviderRetryable(new Error(msg))).toBe(true);
+    }
+  });
+
+  it("does NOT swallow code errors that merely mention 403", () => {
+    // A tool/arg bug must never be treated as "try another provider" — that
+    // would burn the whole chain on a bug that recurs everywhere.
+    for (const msg of [
+      "invalid tool arguments: missing field 403 required",
+      "Error: 403 column is not defined in table dokumen",
+      "invalid tool arguments: 403",
+    ]) {
+      expect(isProviderRetryable(new Error(msg))).toBe(false);
+    }
   });
 });

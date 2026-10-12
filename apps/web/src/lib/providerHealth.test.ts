@@ -151,3 +151,36 @@ describe("shouldProbeProvider", () => {
     expect(shouldProbeProvider("9router", state, now)).toBe(false);
   });
 });
+// Live 2026-10-12: an inactive OpenCode Go plan answered 403 forever. Before
+// the fix it was neither retryable nor quota-classified, so applyFailure left
+// the record UNCHANGED and the dead provider re-entered the chain every 24h
+// when its cooldown expired — one transient 9router hiccup was enough to kill
+// the whole turn.
+describe("inactive subscription (403) parks the provider for the quota window", () => {
+  const DEAD_SUB_403 =
+    'LLM failed (403): {"error":{"type":"server_error","message":"Upstream request failed: An active OpenCode Go subscription is required to use Go models."}}';
+  const ok: ProviderHealth = { status: "ok", failCount: 0, lastCheckedAt: "" };
+  const now = 1_700_000_000_000;
+
+  it("goes down immediately with a 24h cooldown and quotaHitAt set", () => {
+    const h = applyFailure(ok, new Error(DEAD_SUB_403), now);
+    expect(h.status).toBe("down");
+    expect(h.quotaHitAt).toBe(new Date(now).toISOString());
+    expect(Date.parse(h.cooldownUntil!)).toBe(now + 24 * 60 * 60 * 1000);
+  });
+
+  it("takes the dead provider OUT of the chain for the whole cooldown", () => {
+    const down24h: ProviderHealth = applyFailure(ok, new Error(DEAD_SUB_403), now);
+    const chain = buildChain("9router", { providers: { opencodego: down24h }, updatedAt: "" }, resolveAll, now);
+    expect(chain.map((c) => c.id)).not.toContain("opencodego");
+    expect(chain.map((c) => c.id)).toContain("9router");
+  });
+
+  it("a code error still never marks a provider down (guard-first check)", () => {
+    // `403` appears in the message, but this is our bug, not the provider's.
+    const h = applyFailure(ok, new Error("invalid tool arguments: missing field 403"), now);
+    expect(h.status).toBe("ok");
+    expect(h.failCount).toBe(0);
+    expect(h.cooldownUntil).toBeUndefined();
+  });
+});

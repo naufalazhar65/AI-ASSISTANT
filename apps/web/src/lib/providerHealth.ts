@@ -35,7 +35,7 @@ const DESIRED_ORDER: ProviderId[] = ["opencodego", "9router", "groq", "openroute
 export const PROBE_ELIGIBLE: ProviderId[] = ["groq", "9router", "openrouter"];
 
 const QUOTA_RE =
-  /(goUsageLimitError|usage limit reached|monthly limit|quota|out of tokens|insufficient credits|payment required|\b402\b|billing|topped? up)/i;
+  /(goUsageLimitError|usage limit reached|monthly limit|quota|out of tokens|insufficient credits|payment required|\b402\b|billing|topped? up|an active .*subscription is required|active subscription|subscription (is )?(required|inactive|expired|not active|has expired)|not entitled|entitlement)/i;
 
 export type ProviderHealth = {
   status: "ok" | "down";
