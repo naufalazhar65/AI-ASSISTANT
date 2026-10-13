@@ -2712,9 +2712,12 @@ function checkUnsupportedParts(tol) {
 function buildBuilding() {
   var L = LAYOUT, b = L.building;
   Floor(scene, (b.minX + b.maxX) / 2, 0.005, (b.minZ + b.maxZ) / 2, b.maxX - b.minX, b.maxZ - b.minZ, WOOD);
-  Floor(scene, 8.35, 0.01, 1.4, 2.3, 5.4, TILE);
-  Floor(scene, 4.6, 0.012, -2.9, 4.4, 2.8, RUG_LOUNGE);
-  Floor(scene, MEETING_TABLE[0], 0.012, MEETING_TABLE[2], 3.6, 3, RUG_MEET);
+  // Accent planes sit ≥20mm above their base: separations under ~15mm shimmer
+  // (z-fighting) at glancing camera angles. Rugs/tiles are thin textured sheets
+  // (invisible edge-on), so the extra height reads as mat thickness, not float.
+  Floor(scene, 8.35, 0.03, 1.4, 2.3, 5.4, TILE);
+  Floor(scene, 4.6, 0.035, -2.9, 4.4, 2.8, RUG_LOUNGE);
+  Floor(scene, MEETING_TABLE[0], 0.035, MEETING_TABLE[2], 3.6, 3, RUG_MEET);
 
   // north + west are solid; east is split by the game-room door; the front is
   // a low cutaway so the viewer can see in.
@@ -2877,7 +2880,7 @@ function buildBuilding() {
 
 function buildGameRoom() {
   var G = GAME_ROOM;
-  Floor(scene, (G.minX + G.maxX) / 2, 0.012, (G.minZ + G.maxZ) / 2, G.maxX - G.minX, G.maxZ - G.minZ, RUG_GAME);
+  Floor(scene, (G.minX + G.maxX) / 2, 0.055, (G.minZ + G.maxZ) / 2, G.maxX - G.minX, G.maxZ - G.minZ, RUG_GAME);
   Wall([G.minX, G.minZ], [G.maxX, G.minZ], WALL_H);
   Wall([G.maxX, G.minZ], [G.maxX, G.maxZ], WALL_H);
   Wall([G.minX, G.maxZ], [G.maxX, G.maxZ], 0.55);
@@ -2929,10 +2932,12 @@ function buildOutdoors() {
   var L = LAYOUT, b = L.building;
   var shift = b.minX + 9.5;
   Floor(scene, shift / 2, -0.02, 2, 60 - shift, 44, grassTexture(8, 8));
-  Floor(scene, shift / 2, -0.005, 7.1, 34 - shift, 5, pavingTexture(8, 2));
-  Floor(scene, shift / 2, -0.01, 12.1, 60 - shift, 5, asphaltTexture(10, 1));
+  // Same ≥20mm rule outdoors — and stay clear of the doorstep's ±15mm band
+  // (0.005): the paving overlaps the doorstep region, so it steps ABOVE it.
+  Floor(scene, shift / 2, 0.025, 7.1, 34 - shift, 5, pavingTexture(8, 2));
+  Floor(scene, shift / 2, 0.005, 12.1, 60 - shift, 5, asphaltTexture(10, 1));
   Floor(scene, ENTRANCE_X, 0.005, 4.7, 1.8, 1, TILE);
-  Floor(scene, L.gangCenterX, -0.008, -0.4, 3.6, 10, pavingTexture(2, 5));
+  Floor(scene, L.gangCenterX, 0.002, -0.4, 3.6, 10, pavingTexture(2, 5));
   // Outdoor props are audited on the same footing as indoor furniture: they were
   // invisible to the validator before only because nobody registered them.
   placeOnFloor(placeFurniture('out:flag', FlagPole(scene, FLAG), { zone: 'outdoor', kind: 'outdoor' }));
@@ -3392,7 +3397,7 @@ AGENT_IDS.forEach(function (id) {
    (so the floor is never viewed edge-on and never straight down the pole) and
    theta is the azimuth. The limits are ruang's, not ours, so the framing feels
    identical to the reference: 0.2 rad keeps the camera off the zenith, 1.32 rad
-   keeps it above the horizon, 5..48 m brackets the whole grounds. */
+   keeps it above the horizon, 5..60 m brackets the whole grounds. */
 var DIST_MIN = 5, DIST_MAX = 60, PHI_MIN = 0.2, PHI_MAX = 1.32;
 var cam = (function () {
   var o = LAYOUT.camera.offset;
@@ -3550,7 +3555,14 @@ canvas.addEventListener('wheel', function (e) {
   e.preventDefault();
   cam.from = null;
   if (e.shiftKey || e.ctrlKey) {
-    cam.dist = Math.min(DIST_MAX, Math.max(DIST_MIN, cam.dist * (1 + Math.sign(e.deltaY) * 0.12)));
+    // Proportional exponential zoom: the step follows the wheel DELTA, not a
+    // fixed ±12% per event. Old code used Math.sign(deltaY)*0.12, which made
+    // every trackpad micro-tick jump 12% (dozens of events per swipe =
+    // hypersensitive zoom). A mouse notch (dy=100) still gives ~12%/notch.
+    var dy = e.deltaY || 0;
+    if (e.deltaMode === 1) dy *= 33;            // lines → pixels
+    else if (e.deltaMode === 2) dy *= window.innerHeight || 800; // pages → pixels
+    cam.dist = Math.min(DIST_MAX, Math.max(DIST_MIN, cam.dist * Math.exp(dy * 0.02)));
     applyCam();
     return;
   }
@@ -3586,7 +3598,7 @@ window.addEventListener('keydown', function (e) {
   keys[e.key] = true;
 });
 window.addEventListener('keyup', function (e) { keys[e.key] = false; });
-var PAN_KEY_SPEED = 25;
+var PAN_KEY_SPEED = 12;
 function nudge(dt) {
   var kx = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
   var kz = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
