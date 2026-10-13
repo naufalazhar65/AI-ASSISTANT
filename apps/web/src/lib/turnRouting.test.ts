@@ -6,6 +6,8 @@
 
 import { describe, expect, it } from "vitest";
 import { metaProseNote } from "./metaProse";
+import { ensureMoodReplyQuality } from "./agent";
+import { countSectionLabels } from "./outputFormat";
 
 describe("metaProseNote (stage-direction register leak)", () => {
   it("catches the live 3:17 PM stage-direction prose", () => {
@@ -1435,5 +1437,54 @@ describe("world-action claim guard (bare action promise, no tool name, zero tool
   it("silent on a ledger-backed execution (truncation-immune path)", () => {
     const ledger = [{ name: "mac_open", executed: true }];
     expect(worldActionClaimNote(none, "aku buka youtube sekarang", ledger)).toBe("");
+  });
+});
+
+// -- live 2026-10-13: reflowStructuredReply flattened a 9-line report to 1 line --
+// Agnes produced a clean structured report whose labels were "Ringkasan:" and
+// "Waktu:" (emoji-prefixed, no bullets, no numbers). `looksLikeMarkdownList`
+// did not match, `isStructuredReply` counted the two colon labels as "rigid
+// listy prose", and `reflowStructuredReply` joined every fragment with ". " and
+// ran `.replace(/\s+/g," ")` -- deleting every newline. Measured on the real
+// reply: 9 lines in, 1 line out. The owner saw a tidy report at 13:03 and one
+// run-on paragraph at 13:50.
+describe("ensureMoodReplyQuality must not reflow a report (live 2026-10-13)", () => {
+  const messages = [{ role: "user", content: "agnes tolong riset tentang biaya cloud" }];
+  const REPORT = [
+    "Mas Naufal, riset tren biaya cloud tahun ini sudah aku kumpulkan.",
+    "",
+    "📰 Tren Biaya Cloud dan Infrastruktur AI 2026",
+    "Ringkasan: Pasar layanan cloud dipengaruhi eskalasi komputasi AI.",
+    "🔥 Kenapa ramai?: Lonjakan permintaan chip AI.",
+    "Waktu: Oktober 2026",
+    "🔗 Sumber: TechCrunch Cloud Insights",
+    "",
+    "📊 KESIMPULAN",
+    "Efisiensi komputasi AI menjadi penentu utama.",
+    "",
+    "✅ Status: dua sumber terverifikasi.",
+  ].join("\n");
+
+  it("keeps every line of an emoji-labelled report", () => {
+    const out = ensureMoodReplyQuality(messages as never, REPORT);
+    expect(out.split("\n").filter((l) => l.trim()).length).toBeGreaterThanOrEqual(9);
+    expect(out).toContain("📊 KESIMPULAN");
+    expect(out).toContain("🔗 Sumber");
+  });
+
+  it("still reflows a genuinely rigid chatty reply (the reflow's own job)", () => {
+    const rigid = ["Kuota habis karena: semua dipakai", "Saran: upgrade paket", "Tips: pantau usage tiap pagi"].join("\n");
+    const out = ensureMoodReplyQuality(messages as never, rigid);
+    expect(out.split("\n").filter((l) => l.trim()).length).toBe(1);
+  });
+
+  it("countSectionLabels is the shared definition, both ways", () => {
+    expect(countSectionLabels(REPORT)).toBeGreaterThanOrEqual(2);
+    expect(countSectionLabels("Halo Mas, aku baik-baik saja di sini hari ini")).toBe(0);
+    // "Saran:" IS a recognised alias (recommendation), so it counts as ONE -- and
+    // ONE label must stay below the >=2 guard, which is what keeps the reflow
+    // working for rigid chatty replies. My first assertion expected 0 and was
+    // wrong; the code was right.
+    expect(countSectionLabels("Kuota habis karena: semua dipakai\nSaran: upgrade paket")).toBeLessThan(2);
   });
 });

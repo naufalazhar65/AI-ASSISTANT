@@ -13,6 +13,7 @@ import { hygienizePersona } from "./src/lib/persona";
 import { detectPlaceIntent, placeNudge } from "./src/lib/placeIntent";
 import { appendDailyMemory } from "./src/lib/dailyMemory";
 import { buildEveningRecap, readLastRecapDay, saveLastRecapDay } from "./src/lib/recap";
+import { applyOutputFormat } from "./src/lib/outputFormat";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, basename } from "node:path";
@@ -7930,6 +7931,120 @@ async function main() {
         __resetSlackTurnGuard();
       }
       console.log("discord bot-to-bot delegation (sibling routing + shared loop guard + peer turn): OK");
+    }
+
+    // ── Task-aware output formatter (2026-10-13) ───────────────────────────
+    // Same house rule as the blocks above: a correct helper whose call site was
+    // removed passes every unit test and fails in production (discordRestTokenHeal,
+    // `if (false && !gate.allow)`). So we assert the WIRING in agent.ts source
+    // AND run one real turn shape end-to-end through the formatter.
+    {
+      const aSrc = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+      if (!/applyOutputFormat\(\{/.test(aSrc)) {
+        throw new Error(
+          "agent.ts must call applyOutputFormat({ ... }) -- a formatter nobody calls changes nothing"
+        );
+      }
+      // The verdict must be ACTED on: shorthand form, so a hardcoded object with a
+      // literal `text:` can never sit next to it.
+      if (!/text: shaped\.text, format: shaped\.outcome/.test(aSrc)) {
+        throw new Error(
+          "agent.ts must deliver the formatter's text and outcome (`text: shaped.text, format: shaped.outcome`) -- computing it and ignoring it is the same bug as `if (false && !gate.allow)`"
+        );
+      }
+      // A throw inside the formatter must never lose the answer.
+      if (!/catch \{\s*\/\/ Formatting must never be able to lose a good answer\.\s*return \{ \.\.\.result, text: cleaned \};/.test(aSrc)) {
+        throw new Error(
+          "agent.ts must fall back to the cleaned original text when the formatter throws -- formatting must never be able to destroy a good answer"
+        );
+      }
+      // The prompt-side guidance has to reach all three markdown channels.
+      for (const fn of ["textFormatInstruction", "discordFormatInstruction", "slackFormatInstruction"]) {
+        if (!new RegExp(`${fn}\\(\\)`).test(aSrc)) {
+          throw new Error(`agent.ts formatInstructionFor must still select ${fn}()`);
+        }
+      }
+      if (!/outputFormatGuidance\(/.test(aSrc)) {
+        throw new Error("agent.ts formatInstructionFor must append outputFormatGuidance(...) for markdown channels");
+      }
+      // Import direction must stay one-way: outputFormat must not import agent.ts.
+      const idxSrc = readFileSync(join(import.meta.dirname, "src", "lib", "outputFormat", "index.ts"), "utf8");
+      for (const f of ["taskTypes", "classify", "registry", "validate", "render", "guidance"]) {
+        const body = readFileSync(join(import.meta.dirname, "src", "lib", "outputFormat", `${f}.ts`), "utf8");
+        if (/from\s+"\.\.\/agent"/.test(body) || /from\s+"\.\/agent"/.test(body)) {
+          throw new Error(`outputFormat/${f}.ts must not import agent.ts -- that creates an import cycle`);
+        }
+      }
+      if (!/export \* from "\.\/classify"/.test(idxSrc) || !/export \* from "\.\/render"/.test(idxSrc)) {
+        throw new Error("outputFormat/index.ts must re-export every submodule so agent.ts has one import line");
+      }
+
+      // Real shapes through the real entry point (no mocks: these are pure fns).
+      const shapedReport = applyOutputFormat({
+        text: [
+          "## Scope",
+          "https://lab.example",
+          "",
+          "## Findings",
+          "1. HIGH 7.5 - IDOR pada `/api/dokumen`",
+        ].join("\n"),
+        askText: "audit keamanan lab dan bikin temuannya",
+        channel: "discord",
+        executedTools: ["http_request"],
+      });
+      if (shapedReport.outcome.taskType !== "security_audit") {
+        throw new Error(`a security audit ask must classify as security_audit, got ${shapedReport.outcome.taskType}`);
+      }
+      // Discord has no heading syntax: the report must arrive as bold lines.
+      if (/^#{1,6}\s/m.test(shapedReport.text)) {
+        throw new Error("discord render must convert headings to bold lines -- Discord renders '#' literally");
+      }
+      if (!shapedReport.text.includes("https://lab.example")) {
+        throw new Error("the renderer dropped a source link -- that is data loss, not formatting");
+      }
+      const shapedChat = applyOutputFormat({ text: "Halo Mas!", askText: "halo", channel: "chat" });
+      if (shapedChat.text !== "Halo Mas!" || shapedChat.outcome.rendered) {
+        throw new Error("a conversational answer must be delivered byte-identical and undecorated");
+      }
+      // Prompt budget: the guidance is a STATIC block on the prompt path, and this
+      // repo's Groq free tier already 413s on request size. The block only ships to
+      // markdown channels, so the binding number is the SLIM prompt delta.
+      {
+        const { buildSlimSystemPrompt } = await import("./src/lib/agent");
+        const voice = buildSlimSystemPrompt("naufalazhar652952", "voice", "http://127.0.0.1:20128/v1");
+        const discord = buildSlimSystemPrompt("naufalazhar652952", "discord", "http://127.0.0.1:20128/v1");
+        if (voice.includes("OUTPUT SHAPE")) {
+          throw new Error("voice must never receive the report-shape guidance -- a spoken answer must not be a report");
+        }
+        if (!discord.includes("OUTPUT SHAPE")) {
+          throw new Error("the discord slim prompt must carry the OUTPUT SHAPE guidance");
+        }
+        const delta = discord.length - voice.length;
+        // 2026-10-13: 5337 chars total (channel hint + shape block). A silent
+        // growth here is the request-size regression this repo has already paid
+        // for once (Groq 413 ITPM).
+        if (delta > 7000) {
+          throw new Error(`slim-prompt shape guidance grew too large: +${delta} chars (cap 7000)`);
+        }
+        console.log(`  (slim prompt: voice ${voice.length} · discord ${discord.length} · delta +${delta})`);
+      }
+      // The reflow guard (live 2026-10-13): a report was flattened 9 lines -> 1 by
+      // `reflowStructuredReply`. Its guard is now the shared label vocabulary, so
+      // assert both the import and the ACTUAL guard line, not just the name.
+      // Anchor on the WHOLE `if (...)` form. My first version matched only
+      // `countSectionLabels(text) >= 2) return text;` -- and the mutation
+      // `if (false && countSectionLabels(text) >= 2) return text;` still CONTAINS
+      // that substring, so the assertion passed against the very bug it was
+      // written to catch. Verified by mutation, not by reading.
+      if (!/if \(countSectionLabels\(text\) >= 2\) return text;/.test(aSrc)) {
+        throw new Error(
+          "agent.ts ensureMoodReplyQuality must skip reflowStructuredReply when the reply has 2+ recognised section labels -- that function joins every fragment with '. ' and deletes every newline (live 2026-10-13)"
+        );
+      }
+      if (!/countSectionLabels/.test(aSrc)) {
+        throw new Error("agent.ts must import countSectionLabels from ./outputFormat (one shared definition of a section label)");
+      }
+      console.log("task-aware output formatter (17 types + registry + per-channel render + reflow guard + wiring in runAssistantTurn): OK");
     }
 
   // ── Unresolvable mentions (live Slack 2026-10-08 14:02) ───────────────────

@@ -85,6 +85,9 @@ import { recordTurn } from "./turnStats";
 import { auditLog } from "./auditLog";
 import { busTurnContext, emitBusEvent, newBusTurn, withBusTurn } from "./bus";
 import { detectDelegation } from "./delegation";
+// Task-aware output formatter (classification → validation → per-channel render).
+// This module imports NOTHING from agent.ts, so the edge stays one-directional.
+import { applyOutputFormat, countSectionLabels, outputFormatGuidance, type FormatterOutcome } from "./outputFormat";
 import { fixAddressComma } from "./textStyle";
 import { dayRotated } from "./dayRotated";
 import { isProviderRetryable } from "./assistantError";
@@ -637,12 +640,63 @@ function slackFormatInstruction(): string {
   ].join(" ");
 }
 
-/** Select the formatting hint for the channel; undefined for voice (plain). */
+/**
+ * Select the formatting hint for the channel; undefined for voice (plain).
+ *
+ * The task-aware OUTPUT SHAPE block (lib/outputFormat) is appended here for the
+ * markdown channels. It is a static catalog — no per-turn prompt build, no extra
+ * LLM call — and it is what makes the model write the right shape in the first
+ * place; the answer-side formatter (applyOutputFormat, wired into
+ * runAssistantTurn) then validates and renders that answer per channel.
+ */
 function formatInstructionFor(channel?: Channel): string | undefined {
-  if (channel === "text") return textFormatInstruction();
-  if (channel === "discord") return discordFormatInstruction();
-  if (channel === "slack") return slackFormatInstruction();
-  return undefined;
+  const base =
+    channel === "text"
+      ? textFormatInstruction()
+      : channel === "discord"
+        ? discordFormatInstruction()
+        : channel === "slack"
+          ? slackFormatInstruction()
+          : undefined;
+  const shape = outputFormatGuidance(
+    channel === "discord" ? "discord" : channel === "slack" ? "slack" : channel === "text" ? "chat" : undefined,
+  );
+  if (!base) return shape;
+  return shape ? `${base}\n\n${shape}` : base;
+}
+
+/** Map the agent's Channel onto the formatter's presentation channel. */
+function formatChannelFor(channel?: Channel): "chat" | "discord" | "slack" | "plain" {
+  if (channel === "discord") return "discord";
+  if (channel === "slack") return "slack";
+  if (channel === "text") return "chat";
+  return "plain";
+}
+
+/**
+ * Real execution facts for the formatter, read from the turn's own message
+ * window — never from the model's prose. A tool call counts as executed when it
+ * appears as an assistant `tool_calls` entry; a tool result starting with
+ * `Error:` (or the refusal placeholders) marks the turn as failed so a failed
+ * turn can never be formatted as an all-clear report.
+ */
+function formatFactsFromMessages(messages?: ChatMessage[]): { executedTools: string[]; toolError: boolean } {
+  const executedTools: string[] = [];
+  let toolError = false;
+  for (const m of messages ?? []) {
+    if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
+      for (const call of m.tool_calls) {
+        const name = call?.function?.name;
+        if (typeof name === "string" && name) executedTools.push(name);
+      }
+      continue;
+    }
+    if (m.role === "tool") {
+      const body = messageText(m.content).trim();
+      if (/^(Error:|Not selected|Not executed|Auto-declined|The user declined)/i.test(body)) toolError = true;
+    }
+  }
+  return { executedTools, toolError };
 }
 
 function workspaceInfo(): string | null {
@@ -1901,6 +1955,12 @@ export type TurnResult = {
   messages?: ChatMessage[];
   /** Which provider actually answered (after auto-failover), for `provider_status`. */
   providerUsed?: string;
+  /**
+   * What the task-aware output formatter decided about this turn (task type,
+   * template, integrity issues, whether the channel renderer changed anything).
+   * Optional + additive so existing callers and tests are unaffected.
+   */
+  format?: FormatterOutcome;
 };
 
 /**
@@ -3040,6 +3100,14 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
   // into one run-on paragraph — exactly what made a pentest summary unreadable
   // on Discord/Telegram.
   if (looksLikeMarkdownList(text)) return text;
+  // A report-shaped answer must never be reflowed. Measured live 2026-10-13:
+  // Agnes produced a clean 9-line report whose labels were "Ringkasan:" and
+  // "Waktu:" (no bullets, no numbers), so `looksLikeMarkdownList` did not match,
+  // `isStructuredReply` counted the two colon labels as "rigid listy" prose, and
+  // `reflowStructuredReply` joined everything with ". " and stripped every
+  // newline. The label vocabulary lives in lib/outputFormat so there is ONE
+  // definition of a section label, not a second private list here.
+  if (countSectionLabels(text) >= 2) return text;
   // Pure greeting MUST never be answered with a reminder list — 9router called
   // reminders_list on "halo mia" (because the DM's recent turns were reminder
   // asks), producing a stale "Daftar reminder" instead of a warm hello.
@@ -6628,7 +6696,35 @@ export async function runAssistantTurn(opts: {
         /* bus best-effort */
       }
     }
-    return { ...result, text: collapseHtmlDumps(stripToolCallProse(fixAddressComma(result.text))) };
+    // Final cleanup, then the task-aware output formatter: classify the turn,
+    // validate the answer against its template, and render it for the channel.
+    // The formatter can only (a) re-dialect markdown and (b) report integrity
+    // issues — it never rewrites content, so the honesty guards appended above
+    // (receipt, provenance, delivery notes) always survive.
+    const cleaned = collapseHtmlDumps(stripToolCallProse(fixAddressComma(result.text)));
+    try {
+      const turnFacts = formatFactsFromMessages(result.messages);
+      const shaped = applyOutputFormat({
+        text: cleaned,
+        askText,
+        agent: opts.agent,
+        channel: formatChannelFor(opts.channel),
+        executedTools: turnFacts.executedTools,
+        toolError: turnFacts.toolError,
+      });
+      if (shaped.outcome.rendered || shaped.outcome.issues.length > 0) {
+        const issues = shaped.outcome.issues.length > 0 ? ` issues=${shaped.outcome.issues.map((i) => i.code).join(",")}` : "";
+        auditLog(
+          opts.user,
+          "turn_formatted",
+          `${shaped.outcome.taskType}/${shaped.outcome.template} ${shaped.outcome.note}${issues}`.slice(0, 200),
+        );
+      }
+      return { ...result, text: shaped.text, format: shaped.outcome };
+    } catch {
+      // Formatting must never be able to lose a good answer.
+      return { ...result, text: cleaned };
+    }
   } catch (err) {
     ok = false;
     kind = err instanceof Error ? err.name : "UnknownError";
