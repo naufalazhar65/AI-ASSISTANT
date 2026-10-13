@@ -10,6 +10,7 @@
  *   - apps/office-dashboard/data/tasks.jsonl   (ledger, append-only)
  *   - apps/office-dashboard/data/queue.jsonl   (quick-task queue, append-only)
  *   - apps/office-dashboard/data/dispatch.json (paused flag)
+ *   - apps/office-dashboard/data/schedules-state.json (scheduler exactly-once slots)
  *   - apps/web/.data/audit/AUDIT-*.log        (real agent activity from Mia)
  *   - OS / process facts from node builtins
  * Anything that cannot be read is reported as unavailable — never invented.
@@ -850,18 +851,32 @@ function minuteFromAt(value) {
   return parseClock(value).m;
 }
 
-function buildSchedules() {
+const SCHED_STATE_FILE = path.join(DATA_DIR, 'schedules-state.json');
+
+/* Schedule frontmatter contract (additive — files without the new keys keep
+ * working exactly as before):
+ *   id:, title:, owner:, enabled:, schedule: { kind, at/hour/minute/... } (lama)
+ *   agent:   trio member id (mia/agnes/michelle, default mia)
+ *   prompt:  single-line task text (default title:). The parser only reads
+ *            single-line values, so multi-line prompts are NOT supported.
+ *   deliver: discord | none | auto (default auto — same sniffing as /api/queue)
+ * Execution means appending to the normal quick-task queue; the existing
+ * dispatchLoop does the running, so pause/delivery/pushed-honesty all apply
+ * unchanged. A schedule that is misconfigured never enqueues — exec_reason in
+ * the API says why.
+ */
+function readScheduleEntries() {
   const { dirs, existing, notes } = scheduleDirs();
-  const out = [];
+  const entries = [];
   let skipped = 0;
   for (const dir of existing) {
-    let entries = [];
+    let dirEntries = [];
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      dirEntries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
       continue;
     }
-    for (const ent of entries) {
+    for (const ent of dirEntries) {
       if (!ent.isFile() || !ent.name.endsWith('.md')) continue;
       const full = path.join(dir, ent.name);
       let text = '';
@@ -882,7 +897,7 @@ function buildSchedules() {
       }
       const sch = fm.schedule && typeof fm.schedule === 'object' ? fm.schedule : {};
       const kind = sch.kind || 'unknown';
-      const s = {
+      entries.push({
         id: fmId,
         title: String(fm.title || ent.name),
         enabled: fm.enabled === undefined ? null : !!fm.enabled,
@@ -899,14 +914,184 @@ function buildSchedules() {
         day: sch.day != null ? Number(sch.day) : null,
         every_minutes: sch.every_minutes != null ? Number(sch.every_minutes) : null,
         at: sch.at || null,
+        agent: typeof fm.agent === 'string' ? fm.agent.trim() : null,
+        prompt: typeof fm.prompt === 'string' ? fm.prompt : null,
+        deliver: typeof fm.deliver === 'string' ? fm.deliver.trim() : null,
         // is_system only when ownership is provable from metadata (owner:system* / goal:system*)
         is_system: typeof fm.owner === 'string' && /^system/i.test(fm.owner),
         file: path.relative(ROOT, full),
-      };
-      const { label, next_iso } = scheduleLabel(s);
-      out.push({ ...s, label, next_iso });
+      });
     }
   }
+  return { dirs, existing, notes, skipped, entries };
+}
+
+function readSchedState() {
+  const st = readJson(SCHED_STATE_FILE, {});
+  return st && typeof st === 'object' ? st : {};
+}
+
+/** Most recent scheduled instant at or before `now` (daily/weekly/monthly).
+ *  Returns a Date, or null when the time spec itself is invalid. Mirrors the
+ *  same tz helpers scheduleLabel uses so display and execution agree. */
+function scheduleSlot(s, now) {
+  const tz = s.timezone || 'Asia/Jakarta';
+  const offset = tzOffsetMs(now, tz);
+  const local = new Date(now.getTime() + offset);
+  const h = Number(s.hour);
+  const mi = Number(s.minute);
+  if (!Number.isFinite(h) || !Number.isFinite(mi) || h < 0 || h > 23 || mi < 0 || mi > 59) return null;
+  const Y = local.getFullYear();
+  const MO = local.getMonth() + 1;
+  const D = local.getDate();
+  const at = (y, mo, d) => zonedToUtc(y, mo, d, h, mi, tz);
+  const valid = (d) => d instanceof Date && !Number.isNaN(d.getTime());
+  if (s.kind === 'daily') {
+    let slot = at(Y, MO, D);
+    if (!valid(slot)) return null;
+    if (slot.getTime() > now.getTime()) slot = new Date(slot.getTime() - 24 * 3600 * 1000);
+    return slot;
+  }
+  if (s.kind === 'weekly') {
+    const dow = Number(s.day_of_week);
+    if (!Number.isFinite(dow) || dow < 0 || dow > 6) return null;
+    let slot = at(Y, MO, D);
+    if (!valid(slot)) return null;
+    const delta = (slot.getDay() - dow + 7) % 7;
+    slot = new Date(slot.getTime() - delta * 24 * 3600 * 1000);
+    if (slot.getTime() > now.getTime()) slot = new Date(slot.getTime() - 7 * 24 * 3600 * 1000);
+    return slot;
+  }
+  if (s.kind === 'monthly') {
+    const day = Number(s.day);
+    if (!Number.isFinite(day) || day < 1) return null;
+    const dim = new Date(Y, MO, 0).getDate();
+    let slot = at(Y, MO, Math.min(day, dim));
+    if (!valid(slot)) return null;
+    if (slot.getTime() > now.getTime()) {
+      const pm = MO === 1 ? 12 : MO - 1;
+      const py = MO === 1 ? Y - 1 : Y;
+      const pdim = new Date(py, pm, 0).getDate();
+      slot = at(py, pm, Math.min(day, pdim));
+      if (!valid(slot)) return null;
+    }
+    return slot;
+  }
+  return null;
+}
+
+/** Single source of truth for "can this schedule run, and is it due?".
+ *  Used by BOTH the display (exec_ok/exec_reason) and the executor, so the
+ *  dashboard can never promise what the runner refuses. */
+function schedStatus(s, st, now) {
+  if (s.enabled === false) return { ok: false, reason: 'disabled (enabled: false)', due: false, slotIso: null };
+  const agent = s.agent || 'mia';
+  if (!AGENT_IDS.includes(agent)) return { ok: false, reason: 'agen tak dikenal: ' + agent, due: false, slotIso: null };
+  const prompt = (s.prompt != null ? s.prompt : s.title);
+  const text = String(prompt == null ? '' : prompt).trim();
+  if (!text) return { ok: false, reason: 'prompt kosong (isi prompt: atau title:)', due: false, slotIso: null };
+  if (text.length > MAX_PROMPT_CHARS) return { ok: false, reason: 'prompt ' + text.length + ' chars > maks ' + MAX_PROMPT_CHARS, due: false, slotIso: null };
+  if (s.kind === 'runonce') {
+    if (!s.at) return { ok: false, reason: 'waktu runonce tidak valid (at:)', due: false, slotIso: null };
+    const d = new Date(s.at);
+    if (Number.isNaN(d.getTime())) return { ok: false, reason: 'waktu runonce tidak valid (at:)', due: false, slotIso: null };
+    if (st.firedOnce) return { ok: true, reason: 'sudah dijalankan sekali', due: false, slotIso: d.toISOString() };
+    if (d.getTime() > now.getTime()) return { ok: true, reason: 'menunggu jadwal', due: false, slotIso: d.toISOString() };
+    return { ok: true, reason: 'jatuh tempo', due: true, slotIso: d.toISOString() };
+  }
+  if (s.kind === 'interval') {
+    const mins = Number(s.every_minutes);
+    if (!Number.isFinite(mins) || mins <= 0) return { ok: false, reason: 'interval tidak valid (every_minutes:)', due: false, slotIso: null };
+    if (!st.lastFiredAt) return { ok: true, reason: 'baseline dicatat, jalan pertama ' + mins + ' mnt lagi', due: false, slotIso: null, baseline: true };
+    const last = new Date(st.lastFiredAt).getTime();
+    if (Number.isNaN(last)) return { ok: true, reason: 'baseline dicatat ulang, jalan pertama ' + mins + ' mnt lagi', due: false, slotIso: null, baseline: true };
+    if (now.getTime() - last >= mins * 60000) return { ok: true, reason: 'jatuh tempo', due: true, slotIso: now.toISOString() };
+    return { ok: true, reason: 'menunggu interval', due: false, slotIso: null };
+  }
+  if (s.kind === 'daily' || s.kind === 'weekly' || s.kind === 'monthly') {
+    const slot = scheduleSlot(s, now);
+    if (!slot) return { ok: false, reason: 'waktu tidak valid untuk jenis ' + s.kind, due: false, slotIso: null };
+    const slotIso = slot.toISOString();
+    if (st.lastSlot === slotIso) return { ok: true, reason: 'slot ini sudah dijalankan', due: false, slotIso };
+    if (slot.getTime() > now.getTime()) return { ok: true, reason: 'menunggu jadwal', due: false, slotIso };
+    return { ok: true, reason: 'jatuh tempo', due: true, slotIso };
+  }
+  return { ok: false, reason: 'jenis tidak dikenal: ' + s.kind, due: false, slotIso: null };
+}
+
+/** Scheduler executor: enqueue due schedules into the normal quick-task
+ *  queue. No new execution path — dispatchLoop does the running, so pause,
+ *  delivery, and pushed-honesty all apply unchanged. Exactly-once per slot:
+ *  calendar kinds record lastSlot, interval/runonce record lastFiredAt /
+ *  firedOnce, and the queue id is deterministic (sched-<id>-<slot>) so a
+ *  re-enqueue while paused merges instead of duplicating. Late start fires
+ *  ONCE for the current slot only — old slots are never backfilled. */
+let checkingSchedules = false;
+async function checkSchedules() {
+  if (checkingSchedules) return;
+  checkingSchedules = true;
+  try {
+    const { entries } = readScheduleEntries();
+    if (!entries.length) return;
+    const now = new Date();
+    const state = readSchedState();
+    const ids = new Set(entries.map((e) => e.id));
+    let changed = false;
+    for (const k of Object.keys(state)) {
+      if (!ids.has(k)) {
+        delete state[k];
+        changed = true;
+      }
+    }
+    let enqueued = 0;
+    for (const s of entries) {
+      const cur = state[s.id] && typeof state[s.id] === 'object' ? state[s.id] : {};
+      const r = schedStatus(s, cur, now);
+      if (r.baseline) {
+        state[s.id] = { ...cur, lastFiredAt: now.toISOString() };
+        changed = true;
+        continue;
+      }
+      if (!r.due) continue;
+      const agent = s.agent || 'mia';
+      const prompt = String(s.prompt != null ? s.prompt : s.title).trim();
+      const deliver = ['discord', 'none', 'auto'].includes(s.deliver) ? s.deliver : 'auto';
+      appendJsonl(QUEUE_FILE, {
+        id: 'sched-' + s.id + '-' + r.slotIso,
+        ts: now.toISOString(),
+        prompt: redact(truncate(prompt, 300)),
+        agent,
+        deliver,
+        status: 'queued',
+        task_id: null,
+        detail: 'jadwal ' + s.id,
+      });
+      const next = { ...cur, lastFiredAt: now.toISOString() };
+      if (s.kind === 'runonce') next.firedOnce = true;
+      else next.lastSlot = r.slotIso;
+      state[s.id] = next;
+      changed = true;
+      enqueued++;
+    }
+    if (changed) writeJson(SCHED_STATE_FILE, state);
+    if (enqueued > 0) dispatchLoop().catch(() => {});
+  } catch (err) {
+    process.stdout.write('[schedules] check failed: ' + redact(String(err && err.message)) + '\n');
+  } finally {
+    checkingSchedules = false;
+  }
+}
+
+function buildSchedules() {
+  const { dirs, existing, notes, skipped, entries } = readScheduleEntries();
+  const now = new Date();
+  const state = readSchedState();
+  const out = entries.map((s) => {
+    const { label, next_iso } = scheduleLabel(s);
+    const cur = state[s.id] && typeof state[s.id] === 'object' ? state[s.id] : {};
+    const st = schedStatus(s, cur, now);
+    return { ...s, label, next_iso, exec_ok: st.ok, exec_reason: st.reason, last_fired_at: cur.lastFiredAt || null };
+  });
   return {
     configured: existing.length > 0,
     dirs,
@@ -1209,3 +1394,6 @@ server.listen(PORT, HOST, () => {
 });
 
 setInterval(() => { dispatchLoop().catch(() => {}); }, 3000).unref();
+// Scheduler executor: due .md schedules enqueue into the normal queue above
+// (30s cadence is plenty for minute-level schedules; overlap-guarded inside).
+setInterval(() => { checkSchedules().catch(() => {}); }, 30000).unref();

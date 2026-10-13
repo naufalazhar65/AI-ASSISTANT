@@ -522,11 +522,12 @@ function vSched() {
   var sys = sc.items.filter(function (s) { return s.is_system; });
   function tbl(rows) {
     if (!rows.length) return '<div class="empty">Tidak ada entri.</div>';
-    return '<table><thead><tr><th>Judul</th><th>Jenis</th><th>Jadwal</th><th>Berikutnya</th><th>Pemilik</th></tr></thead><tbody>' +
+    return '<table><thead><tr><th>Judul</th><th>Jenis</th><th>Jadwal</th><th>Berikutnya</th><th>Eksekusi</th><th>Pemilik</th></tr></thead><tbody>' +
       rows.map(function (s) {
         return '<tr><td>' + esc(s.title) + '<br><span class="note">' + esc(s.id) + ' · ' + esc(s.enabled === null ? 'enabled tidak dinyatakan' : (s.enabled ? 'enabled' : 'disabled')) + '</span></td>' +
           '<td>' + esc(s.kind) + '</td><td>' + esc(s.label) + '</td>' +
           '<td>' + (s.next_iso ? esc(hhmmss(s.next_iso)) : na('', 'tidak bisa dihitung')) + '</td>' +
+          '<td>' + (s.exec_ok ? 'ya' : 'tidak') + '<br><span class="note">' + esc(s.exec_reason || '') + (s.last_fired_at ? '<br>terakhir: ' + esc(hhmmss(s.last_fired_at)) : '') + '</span></td>' +
           '<td>' + esc(s.owner || '—') + '</td></tr>';
       }).join('') + '</tbody></table>';
   }
