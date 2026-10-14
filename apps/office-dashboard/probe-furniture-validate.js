@@ -33,6 +33,18 @@ const consoleStub = {
   error: (...a) => pageLog('error', a),
   info: (...a) => pageLog('info', a),
   debug: (...a) => pageLog('debug', a),
+  // three.js and the page's own diagnostics call the grouping/table helpers;
+  // without them init3D() throws and the probe reports a phantom 3D failure.
+  group: (...a) => pageLog('group', a),
+  groupCollapsed: (...a) => pageLog('groupCollapsed', a),
+  groupEnd() {},
+  table: (...a) => pageLog('table', a),
+  time: () => 0,
+  timeEnd() {},
+  trace: (...a) => pageLog('trace', a),
+  assert() {},
+  count: () => 0,
+  dir: (...a) => pageLog('dir', a),
 };
 
 // ---- 2d canvas context stub (label textures draw here) ----
@@ -82,6 +94,10 @@ function makeEl(tag) {
     getBoundingClientRect() { return { left: 0, top: 0, width: 800, height: 600 }; },
     focus() {},
     click() {},
+    // nav is walked with querySelectorAll in show(); the stub has no children,
+    // so an empty array is the honest answer.
+    querySelectorAll() { return []; },
+    querySelector() { return null; },
   };
   return el;
 }
@@ -92,6 +108,12 @@ function cachedEl(key, tag) {
   return elCache[key];
 }
 const documentStub = {
+  // applyTheme() writes the light/dark choice onto the root element, so the stub
+  // needs one that swallows the attribute. Without it the probe died on boot
+  // with "Cannot read properties of undefined (reading 'setAttribute')" and
+  // stopped validating anything at all.
+  documentElement: { setAttribute() {}, getAttribute() { return 'dark'; }, dataset: {} },
+  get body() { return cachedEl('body', 'body'); },
   querySelector(sel) { return cachedEl('q:' + sel, 'div'); },
   querySelectorAll() { return []; },
   createElement(tag) { return makeEl(tag); },
@@ -165,6 +187,11 @@ async function main() {
     setTimeout,
     clearTimeout,
     THREE,
+    // hashView() reads location.hash during boot; the probe always boots on the
+    // default view, so an empty hash is the honest value.
+    location: { hash: '', pathname: '/', search: '', reload() {} },
+    history: { pushState() {}, replaceState() {} },
+    localStorage: (() => { const m = {}; return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, removeItem: (k) => { delete m[k]; } }; })(),
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
