@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   addReminder,
+  attachVariants,
   readFiredReceipts,
   subscribeReminders,
   takeDueReminders,
@@ -96,6 +97,28 @@ describe("fired-receipts — a delivered one-shot leaves a trace", () => {
       expect(out).toContain("udah bunyi");
       expect(out).toContain("makan malam");
       expect(out).not.toContain("Belum ada reminder beb");
+    } finally {
+      unsub();
+    }
+  });
+
+  it("receipt quotes the text that was PUSHED, not the stored text (live 2026-10-13)", () => {
+    // The pool is model-authored, and push time rotates it — so the stored
+    // `text` and the delivered wording differ. The receipt (and the office
+    // dashboard, which renders it) must name what the user actually received.
+    const u = track(freshUser("variant"));
+    const unsub = subscribeReminders(() => true);
+    try {
+      const stored = "Waktunya makan! 🍽️";
+      addReminder(stored, Date.now() - 1000, u);
+      expect(attachVariants(u, stored, ["Hei, waktunya makan dulu ya", "Udah makan belum kak?"])).toBe(true);
+      const due = takeDueReminders(u);
+      expect(due.length).toBe(1);
+      expect(due[0].text).toBe("Hei, waktunya makan dulu ya"); // what the listener saw
+      const receipts = readFiredReceipts(u);
+      expect(receipts.length).toBe(1);
+      expect(receipts[0].text).toBe("Hei, waktunya makan dulu ya");
+      expect(receipts[0].text).not.toBe(stored);
     } finally {
       unsub();
     }

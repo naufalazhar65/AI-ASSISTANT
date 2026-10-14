@@ -1,7 +1,9 @@
 # AI Office Dashboard (Mia / Agnes / Michelle)
 
-Dashboard operasional untuk trio Mia. Menampilkan **aktivitas nyata** (bukan simulasi),
-ruang kerja 3D, antrean task, metrik sistem, status VPS, jadwal, token, dan log real-time.
+Dashboard operasional (mission control) untuk trio Mia. Menampilkan **aktivitas nyata**
+(bukan simulasi): ruang kerja 3D, status agent, task board, kalender jadwal, usage dari audit
+log, sesi agent, memory per agent, browser file read-only, log real-time, dan kesehatan
+semua sumber data.
 
 Backend: **Node.js tanpa dependensi eksternal** (hanya module bawaan).
 Frontend: **satu file** `index.html` (HTML + CSS + JS inline, tanpa framework).
@@ -38,9 +40,13 @@ Token tidak pernah ditampilkan di response, UI, maupun log.
 | Method | Path | Auth | Keterangan |
 |---|---|---|---|
 | GET | `/api/health` | tidak | liveness check (dipakai watchdog) |
-| GET | `/api/state` | ya | seluruh data dashboard |
-| POST | `/api/queue` | ya | `{prompt, agent}` → 201, agent wajib `mia|agnes|michelle` |
-| POST | `/api/dispatch` | ya | `{paused: true|false}` → menulis `data/dispatch.json` |
+| GET | `/api/state` | ya | seluruh data dashboard + `version`, `activity[]`, `sources[]` |
+| GET | `/api/usage?period=24h\|7d\|30d` | ya | event/turn/tool-call dari audit log (lihat `definitions`) |
+| GET | `/api/memory?agent=mia\|agnes\|michelle` | ya | file persona + memory harian agent, read-only |
+| GET | `/api/files?root=web\|dashboard&path=…` | ya | browser file read-only dengan deny-list |
+| GET | `/api/bus/stream?since=` | ya | proxy SSE Event Bus Mia |
+| POST | `/api/queue` | ya | `{prompt, agent}` → 201, agent wajib `mia\|agnes\|michelle` |
+| POST | `/api/dispatch` | ya | `{paused: true\|false}` → menulis `data/dispatch.json` |
 
 Semuanya di-validasi: prompt non-kosong & ≤4000 karakter, agent harus dikenal,
 `paused` harus boolean, body dibatasi 64 KB, tidak ada shell yang dijalankan dari input HTTP.
@@ -57,9 +63,74 @@ Semuanya di-validasi: prompt non-kosong & ≤4000 karakter, agent harus dikenal,
 | `vps.tunnel` | `PUBLIC_URL.txt` + **HTTP check langsung** dengan timeout 5 s (bukan "proses hidup") |
 | `vps.watchdog` | baris terakhir `watchdog-history.jsonl` |
 | `schedules` | `OFFICE_SCHEDULE_DIRS` (default `~/workspace/cron.d`) — file `.md` ber-frontmatter |
-| `tokens` | hanya jika `OFFICE_TOKEN_STATUS_URL` diset, selain itu `Not configured` |
 
 Nilai yang tidak bisa dibaca dikembalikan sebagai `available:false` + catatan, bukan nol/tebakan.
+
+## Browser file & memory — batas aman
+
+`/api/files` hanya membaca, dan hanya dari dua root yang diizinkan: `apps/web` dan
+`apps/office-dashboard`. Guard berlapis:
+
+- path absolut, `..`, dan symlink keluar root ditolak (`realpath` kedua sisi dibandingkan).
+- deny-list per segmen path **dan** per entri: `.git`, `node_modules`, `.next`, `dist`,
+  `build`, `coverage`, venv/cache, **`graphify-out`**, dan **`.data`** (berisi
+  `gmail.json` / `spotify.json` / `http-sessions.json` / `policy.json` yang menyimpan token).
+- nama file yang memuat `token|secret|password|passwd|credential|auth` ditolak;
+  ekstensi `.env*`, `.pem`, `.key`, `.crt`, `.p12`, `.pfx`, `.db`, `.sqlite*`, `.log` ditolak;
+  dotfile ditolak.
+- isi file di-`redact()` sebelum dikirim dan dipotong 256 KB.
+- `/api/memory` hanya membaca `apps/web/.data/users/<user>/` milik agent yang diminta
+  (`persona/*.md`, 14 memory harian terbaru, `corrections.md`, `.self-improving/`), read-only.
+
+### Reminder Mia (store yang sama dengan yang dia pakai di chat)
+
+`/api/state` juga membawa `reminders`, dibaca **langsung** dari
+`apps/web/.data/users/<user>/reminders.json` untuk ketiga agent
+(`naufalazhar652952`, `.agnes`, `.michelle`) — store yang sama dengan yang
+ditulis `remind_me` dari Discord/Telegram/web, plus `reminders-fired.json`
+untuk bukti pengiriman terakhir (beserta keterlambatan). Semua teks di-redact.
+
+Bentuknya:
+
+```jsonc
+{
+  "available": true,          // ada store di disk?
+  "stores": [{ "agent": "mia", "name": "Mia", "user": "naufalazhar652952" }],
+  "pending": 2,               // reminder belum fired
+  "next": { "at_iso": "...", "text": "...", "agent_name": "Mia" },
+  "items": [{ "agent", "agent_name", "user", "text", "notes", "at", "at_iso", "in_s", "repeat", "variants" }],
+  "fired": [{ "text", "at_iso", "delivered_at", "late_s" }]
+}
+```
+
+Catatan jujur: reminder yang sudah **fired** dihapus oleh Mia sendiri dari
+store (satu-shot) atau dijadwal ulang +24 jam (`daily`), jadi yang tampil di
+dashboard hanya yang benar-benar masih terjadwal + 8 pengiriman terakhir.
+
+## Antarmuka (10 view, hash routing)
+
+`office` (3D + HUD Crew) · `agents` · `board` · `calendar` · `usage` ·
+`activity` · `logs` · `memory` · `files` · `settings`. URL memakai hash (`#/usage`), tombol
+refresh memuat ulang sumber yang sedang aktif, dan tema terang/gelap tersimpan di
+`localStorage`. Everything yang tidak terbaca ditampilkan `Not available`.
+
+Layout: header tipis (breadcrumb, dot sinkronisasi, status Event Bus, tema, refresh,
+pause dispatch), **rail kiri kolapsibel** (tombol `☰`; state tersimpan, default
+tertutup agar panggung 3D full-bleed), dan **dock panel kanan** di view Office
+(ringkasan crew, tombol `Panel`, state tersimpan). Strip status di
+panggung menampilkan crew/antre/berjalan/gagal dan jadwal berikutnya, semuanya dari
+`/api/state`. Kontrol `#camReset`/`#hudToggle` otomatis menyingkir saat dock terbuka
+(`body.hudopen`). Konten view non-3D dibatasi lebar 1120 px dan dipusatkan; panggung 3D
+dan dock tetap memenuhi lebar penuh.
+
+## Setiap angka punya satu rumah
+
+Audit 2026-10-14 menghapus salinan yang tumpang tindih: tab HUD `Stats` (load/memori/
+disk/RSS) dan tab HUD `Activity` (daftar sesi) adalah salinan dari view `Activity`,
+metrik mesin kini hanya di **Pengaturan**, `Activity` hanya berisi sesi audit, dan
+kartu Token/Estimasi biaya dihapus karena tidak ada sumber billing yang mengukurnya
+(dashboard lebih baik kosong daripada mengarang angka). Kalau menambah metrik baru,
+taruh di satu view saja.
 
 ## Ledger
 

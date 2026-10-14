@@ -164,38 +164,145 @@
     nav button{white-space:nowrap}
     section.view{padding:12px}
   }
-  /* ── avatar editor ────────────────────────────────────────── */
-  /* top:148px, not the 14px it started at: .ovl's toolbar has TWO rows (the
-     room selector, then the theme/edit/reset buttons) and this panel shares the
-     overlay with it, so at 14px its header sat on top of the room buttons and
-     left them half-visible. 148px clears both rows. The panel is shorter as a
-     result, which is fine — .aeBody is the scrolling part (flex:1; min-height:0;
-     overflow-y:auto), so the option grids scroll instead of being clipped. */
-  #avatarEd{position:absolute;top:148px;right:14px;width:318px;max-height:calc(100% - 166px);
-    background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
-    box-shadow:0 18px 44px rgba(0,0,0,.55);display:none;flex-direction:column;overflow:hidden;z-index:40}
-  #avatarEd.on{display:flex}
-  .aeHead{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--line)}
-  .aeHead b{flex:1;font-size:12.5px;font-weight:600}
-  .aeIco{width:24px;height:24px;border-radius:7px;background:var(--panel-2);border:1px solid var(--line);
-    color:var(--muted);font-size:11px;line-height:1;cursor:pointer;padding:0;flex:none}
-  .aeIco:hover{border-color:var(--blue);color:var(--text)}
-  .aeBody{padding:2px 12px 12px;overflow-y:auto;flex:1;min-height:0}
-  .aeLbl{font-size:9.5px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase;margin:12px 0 6px}
-  .aeTabs{display:flex;gap:4px;margin-top:10px}
-  .aeTab{flex:1;font:inherit;font-size:9.5px;color:var(--faint);background:var(--panel-2);
-    border:1px solid var(--line);border-radius:999px;padding:4px 2px;cursor:pointer}
-  .aeTab:hover{color:var(--text)}
-  .aeTab.on{background:rgba(139,157,195,.20);color:var(--text);border-color:var(--blue)}
-  .aeGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
-  .aeCell{border:1px solid var(--line);border-radius:9px;background:var(--panel-2);padding:3px;cursor:pointer}
-  .aeCell:hover{border-color:var(--blue)}
-  .aeCell.on{border-color:var(--blue);box-shadow:0 0 0 1px rgba(139,157,195,.45)}
-  .aeCell canvas{width:100%;height:auto;display:block;border-radius:6px}
-  .aeSw{width:22px;height:22px;border-radius:999px;border:1px solid var(--line);cursor:pointer;padding:0}
-  .aeSw.on{border-color:var(--blue);box-shadow:0 0 0 2px rgba(139,157,195,.4)}
-  .aeFoot{display:flex;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
-  .aeFoot .sp{flex:1}
+
+  /* ══ mission-control chrome (2026-10-13; refreshed for the collapsible rail,
+     the right-docked panel and airier type). The 3D rules above are untouched. ══ */
+  :root{--dim:#8b93a3;--accent:#8b9dc3;--bg2:#0b0d11;--shadow:0 18px 40px rgba(0,0,0,.35);
+    --sbw:0px;--hudbg:rgba(16,19,25,.84)}
+  body.sbopen{--sbw:252px}
+  html[data-theme="light"]{--bg:#f3f5f9;--panel:#ffffff;--panel-2:#eef1f6;--line:#d7dce6;--text:#191d25;--muted:#57616f;--faint:#8a93a3;--dim:#57616f;--accent:#40689f;--blue:#40689f;--sage:#2f8a6e;--lav:#7050a4;--ok:#2f8a6e;--warn:#a9721a;--bad:#bf4444;--bg2:#e9edf4;--shadow:0 18px 40px rgba(20,30,50,.14);--hudbg:rgba(255,255,255,.9)}
+  html[data-theme="light"] body{background:var(--bg)}
+
+  /* collapsible rail — closed by default, opens on demand */
+  aside{flex:0 0 var(--sbw);width:var(--sbw);overflow-y:auto;overflow-x:hidden;
+    transition:flex-basis .2s ease,width .2s ease}
+  body:not(.sbopen) aside{flex-basis:0;width:0;padding-left:0;padding-right:0;
+    border-right-color:transparent;overflow:hidden}
+
+  /* nav */
+  .nvgroup{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);padding:14px 10px 6px}
+  nav button{padding:8px 10px;border-radius:9px}
+  nav button .sub{display:block;font-size:10px;color:var(--faint);letter-spacing:.03em;text-transform:none;margin-top:1px}
+
+  /* header — one slim row: breadcrumb left, sync + actions right */
+  header{padding:0 16px;gap:10px}
+  header h1{font-size:11px;letter-spacing:.17em;font-weight:600;color:var(--text)}
+  .crumbA{font-size:11px;letter-spacing:.17em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+  header .grp{display:flex;align-items:center;gap:6px}
+  header .vb{font:inherit;font-size:11px;padding:5px 9px;border-radius:8px}
+  #burger{display:inline-flex}
+  #dispatchBtn{font-size:11px;padding:5px 11px;white-space:nowrap}
+  #busPill{font-size:10px;letter-spacing:.11em;text-transform:uppercase;padding:3px 9px}
+  .sync{display:inline-flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--faint)}
+  #lastPill{font-variant-numeric:tabular-nums}
+  #apiPill{display:inline-block;width:7px;height:7px;border-radius:50%;flex:0 0 7px;
+    background:var(--faint);overflow:hidden;text-indent:-9999px}
+  #apiPill.ok{background:var(--ok)}
+  #apiPill.bad{background:var(--bad)}
+
+  /* generic view furniture — generous spacing, centred measure */
+  section.view:not(.hide){padding:28px 30px 44px}
+  section.view:not(.hide)>*{max-width:1120px;margin-left:auto;margin-right:auto}
+  /* The 3D stage and the panel must keep stretching across the whole section —
+     auto side-margins would centre them at their content width instead. */
+  section.view:not(.hide)>#office,
+  section.view:not(.hide)>.hud{max-width:none;margin-left:0;margin-right:0}
+  .vbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;height:auto;overflow:visible;
+    margin:0 0 22px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+  .vbar .lab{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+  .seg button{font:inherit;font-size:12px;padding:5px 12px;background:transparent;border:0;color:var(--muted);cursor:pointer}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button.on{background:var(--panel-2);color:var(--text)}
+  .inp{font:inherit;font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:999px;color:var(--text);padding:6px 12px;min-width:200px}
+  .stats{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:24px}
+  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .stat .k{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  .stat .v{font-size:27px;font-weight:600;margin-top:6px;line-height:1.05}
+  .stat .s{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .bars{display:flex;align-items:flex-end;gap:2px;height:82px;padding-top:6px}
+  .bars i{flex:1 1 0;min-width:2px;min-height:1px;background:var(--accent);opacity:.4;border-radius:2px 2px 0 0}
+  .bars i.hi{opacity:1}
+  .bars i.zero{opacity:.1}
+  .split{display:grid;gap:16px;grid-template-columns:1.15fr .85fr;align-items:start}
+  .rank{display:grid;gap:8px}
+  .rank .r{display:grid;grid-template-columns:1fr 74px 46px;gap:10px;align-items:center;font-size:12.5px}
+  .rank .r .t{height:7px;border-radius:4px;background:var(--panel-2);overflow:hidden}
+  .rank .r .t i{display:block;height:100%;background:var(--accent);border-radius:4px}
+  .rank .r .n{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  .card{padding:18px 20px}
+  .kv{padding:9px 0;font-size:13.5px}
+  table{font-size:13px}
+  th{padding:9px 10px}
+  td{padding:10px}
+  .empty{padding:28px 0;font-size:13px}
+
+  /* board */
+  .board{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(245px,1fr))}
+  .lane{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:12px;min-height:140px}
+  .lane h4{margin:0 0 10px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);display:flex;justify-content:space-between}
+  .tk{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 11px;margin-bottom:9px;font-size:12.5px}
+  .tk .ttl{font-weight:600;margin-bottom:4px}
+  .tk .meta{color:var(--muted);font-size:11px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+  /* explorer */
+  .ex{display:grid;grid-template-columns:minmax(200px,300px) 1fr;gap:16px;align-items:start}
+  .tree{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:8px;max-height:calc(100dvh - 230px);overflow:auto}
+  .tree .r{display:flex;gap:9px;align-items:center;padding:7px 9px;border-radius:8px;font-size:12.5px;color:var(--text);cursor:pointer}
+  .tree .r:hover{background:var(--panel)}
+  .tree .r.on{background:var(--panel);box-shadow:inset 2px 0 0 var(--accent)}
+  .tree .r.denied{opacity:.4;cursor:not-allowed}
+  .tree .r .sz{margin-left:auto;color:var(--faint);font-size:11px}
+  .doc{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:16px 18px;max-height:calc(100dvh - 230px);overflow:auto;white-space:pre-wrap;word-break:break-word;font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}
+  .dochead{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:11px}
+
+  /* sources / health */
+  .src{display:flex;gap:12px;align-items:baseline;padding:11px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .src:last-child{border-bottom:0}
+  .src .dotm{width:8px;height:8px;border-radius:50%;background:var(--bad);flex:0 0 auto;transform:translateY(1px)}
+  .src.ok .dotm{background:var(--ok)}
+  .src .lb{min-width:190px;font-weight:600}
+  .src .nt{color:var(--muted)}
+
+  /* right-docked panel — floats over the 3D stage, stage keeps flex:1 */
+  #view-office{position:relative}
+  .hud{position:absolute;z-index:20;top:10px;right:12px;bottom:12px;width:392px;
+    max-width:calc(100% - 24px);display:flex;flex-direction:column;background:var(--hudbg);
+    border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .hud[hidden]{display:none}
+  .hudRow{display:flex;align-items:center;gap:6px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line)}
+  .hudTab{font:inherit;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:999px;padding:5px 11px;cursor:pointer}
+  .hudTab.on{color:var(--text);border-color:var(--accent);background:var(--panel-2)}
+  .hudPane{display:grid;gap:10px;grid-template-columns:1fr 1fr;align-content:start;padding:12px;overflow:auto;flex:1;min-height:0}
+  .hudCard{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
+  .hudCard .k{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+  .hudCard .v{font-size:15px;font-weight:600;margin-top:4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .hudCard .s{font-size:11px;color:var(--muted);margin-top:3px}
+  .hudFoot{padding:9px 12px;border-top:1px solid var(--line);font-size:10.5px;letter-spacing:.04em;color:var(--faint)}
+  #hudClose{font-size:13px;line-height:1;padding:4px 8px;border-radius:8px}
+
+  /* slim status strip + control row over the 3D stage */
+  .ovlTop{flex-wrap:wrap;row-gap:8px;gap:8px}
+  /* keep the stage controls clear of the docked panel (panel floats, 392px + 12px inset) */
+  body.hudopen .ovlTop{padding-right:408px}
+  #ovlStatus{display:flex;gap:7px;flex-wrap:wrap;align-items:center;min-width:0}
+  #ovlStatus .pill{font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:3px 9px;
+    background:rgba(9,11,15,.55);border-color:rgba(255,255,255,.08)}
+  html[data-theme="light"] #ovlStatus .pill{background:rgba(255,255,255,.74);border-color:rgba(0,0,0,.08)}
+  .ovlBottom{gap:8px}
+  #officeHint{font-size:10.5px;opacity:.72;background:rgba(9,11,15,.5);border-color:rgba(255,255,255,.07)}
+  html[data-theme="light"] #officeHint{background:rgba(255,255,255,.72);border-color:rgba(0,0,0,.08)}
+
+  @media (max-width:820px){
+    aside{position:fixed;z-index:70;inset:0 auto 0 0;box-shadow:var(--shadow)}
+    body.sbopen aside{transform:none}
+    .ex,.split{grid-template-columns:1fr}
+    .tree,.doc{max-height:280px}
+    .hudPane{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+    body.hudopen .ovlTop{padding-right:0}
+  }
 </style>
 </head>
 <body>
@@ -206,18 +313,25 @@
     <nav id="nav"></nav>
     <div class="spacer"></div>
     <div class="side-foot">
-      Sumber data: audit log Mia + ledger JSONL di <code>apps/office-dashboard/data/</code>.<br>
-      Tidak ada angka atau aktivitas yang dikarang.
+      Sumber data nyata: audit log Mia (<code>apps/web/.data/audit/</code>) + ledger JSONL di
+      <code>apps/office-dashboard/data/</code>.<br>
+      Nilai yang tidak bisa dibaca ditampilkan <b>Not available</b>, bukan dikarang.
     </div>
   </aside>
 
   <main>
     <header>
-      <h1 id="viewTitle">Virtual Office</h1>
+      <button class="btn vb" id="burger" aria-label="Buka / tutup menu" aria-expanded="false" title="Menu">☰</button>
+      <span class="crumbA">AI Office</span>
+      <span class="crumbA" aria-hidden="true">/</span>
+      <h1 id="viewTitle">Office</h1>
       <span class="sp"></span>
-      <span class="pill" id="apiPill">API …</span>
+      <span class="sync"><i id="apiPill" title="Koneksi API"></i><span>Synced</span><span id="lastPill">—</span></span>
       <span class="pill" id="busPill" title="Live Event Bus dari Mia — sumber kebenaran status agent">BUS …</span>
-      <span class="pill" id="lastPill">—</span>
+      <div class="grp">
+        <button class="btn vb" id="modeBtn" title="Tema terang / gelap">◐</button>
+        <button class="btn vb" id="refreshBtn" title="Muat ulang sekarang">⟳</button>
+      </div>
       <button class="btn warn" id="dispatchBtn">…</button>
     </header>
 
@@ -226,7 +340,9 @@
         <div id="officeWrap"><canvas id="c3d"></canvas></div>
         <div class="ovl">
           <div class="ovlTop">
-            <span class="pill" id="officeHint">Seret untuk memutar · scroll/trackpad untuk geser · Shift+scroll atau pinch untuk zoom · klik avatar untuk detail</span>
+            <!-- Live crew / queue / next-cron strip. Every value below comes from
+                 /api/state; nothing here is estimated. -->
+            <span id="ovlStatus"></span>
             <span class="sp"></span>
             <!-- Room selector. Buttons only set a camera destination; they never
                  touch agent state, so switching rooms never interrupts work. -->
@@ -234,8 +350,11 @@
             <button class="btn" id="themeBtn">Tema: Malam</button>
             <button class="btn" id="avatarBtn">Edit avatar</button>
             <button class="btn" id="camReset">Reset kamera</button>
+            <button class="btn" id="hudToggle" aria-expanded="true" title="Panel status">Panel</button>
           </div>
           <div class="ovlBottom">
+            <span class="pill" id="officeHint">Seret untuk memutar · scroll/trackpad untuk geser · Shift+scroll atau pinch untuk zoom · klik avatar untuk detail</span>
+            <span class="sp"></span>
             <span class="pill" id="activityPill">—</span>
           </div>
         </div>
@@ -246,16 +365,28 @@
           </div>
         </div>
       </div>
+      <!-- Status panel: docks to the right of the stage, so the 3D view keeps the
+           full width when it is closed. -->
+      <div class="hud" id="hud">
+        <div class="hudRow">
+          <span class="hudTab on">Crew</span>
+          <span style="flex:1"></span>
+          <button class="btn vb" id="hudClose" aria-label="Tutup panel" title="Tutup panel">×</button>
+        </div>
+        <div class="hudPane" id="hudPane"></div>
+        <div class="hudFoot"><span id="hudHint">—</span></div>
+      </div>
     </section>
 
     <section class="view hide" id="view-agents"></section>
-    <section class="view hide" id="view-queue"></section>
-    <section class="view hide" id="view-system"></section>
-    <section class="view hide" id="view-vps"></section>
-    <section class="view hide" id="view-sched"></section>
-    <section class="view hide" id="view-tokens"></section>
-    <section class="view hide" id="view-fleet"></section>
-    <section class="view hide" id="view-log"></section>
+    <section class="view hide" id="view-usage"></section>
+    <section class="view hide" id="view-board"></section>
+    <section class="view hide" id="view-calendar"></section>
+    <section class="view hide" id="view-activity"></section>
+    <section class="view hide" id="view-memory"></section>
+    <section class="view hide" id="view-files"></section>
+    <section class="view hide" id="view-logs"></section>
+    <section class="view hide" id="view-settings"></section>
   </main>
 </div>
 
@@ -289,10 +420,22 @@ var ROSTER = {
   michelle: { name:'Michelle', role:'Coder',                        duties:['Baca / tulis kode dan perubahan file','Jalankan test, debug, cek log','Kerja teknis lewat tool backend Mia'], accent:'#a08fc0' }
 };
 var MENU = [
-  ['office','Virtual Office','▣'], ['agents','Agent Overview','◉'], ['queue','Task Queue','≡'],
-  ['system','System Metrics','◔'], ['vps','VPS Status','▤'], ['sched','Tugas Terjadwal','⏱'],
-  ['tokens','Token Status','⬡'], ['fleet','Agent Fleet','⛬'], ['log','Real-Time Log','⌸']
+  { group: 'Office',   items: [ ['office','Virtual Office','▣','Ruang 3D + HUD'] ] },
+  { group: 'Operasi',  items: [
+      ['agents','Agent','◉','Status, peran, dispatch'],
+      ['board','Task Board','≡','Antre · berjalan · selesai'],
+      ['calendar','Kalender','⏱','Jadwal terjadwal'] ] },
+  { group: 'Inspeksi', items: [
+      ['usage','Usage','⬡','Event, turn, tool call'],
+      ['activity','Activity','◔','Sesi audit + sistem'],
+      ['logs','Logs','⌸','Baris audit mentah'] ] },
+  { group: 'Data',     items: [
+      ['memory','Memory','❖','Persona & catatan harian'],
+      ['files','Files','▤','Browser read-only'] ] },
+  { group: 'Sistem',   items: [
+      ['settings','Pengaturan','⚙','Sumber data & build'] ] }
 ];
+var MENU_FLAT = MENU.reduce(function (acc, g) { return acc.concat(g.items); }, []);
 var QUICK = [
   ['General / Assistant','mia'], ['Research','agnes'], ['Coding & Testing','michelle']
 ];
@@ -390,206 +533,553 @@ function poll() {
   })
     .then(function (s) {
       STATE = s; lastOk = new Date();
-      $('#apiPill').className = 'pill ok';
-      $('#apiPill').textContent = 'API OK';
+      $('#apiPill').className = 'ok';
+      $('#apiPill').title = 'API terhubung';
       $('#connDot').style.background = 'var(--ok)';
       render();
     })
     .catch(function (e) {
       // keep the last good data, mark it stale — never substitute dummy data
-      $('#apiPill').className = 'pill bad';
-      $('#apiPill').textContent = 'API ' + (e.message || 'error');
+      $('#apiPill').className = 'bad';
+      $('#apiPill').title = 'API: ' + (e.message || 'error');
       $('#connDot').style.background = 'var(--bad)';
     })
     .finally(function () { inflight = false; });
 }
 
+/* ── mission-control sources ───────────────────────────
+   Each new view pulls its own endpoint lazily (cached by cachedSource) so a
+   slow or unavailable source can never stall /api/state. */
+var USAGE_PERIODS = { '24h': '24 jam', '7d': '7 hari', '30d': '30 hari' };
+var USAGE = { period: '24h', data: null, loading: false, err: '' };
+var MEM = { agent: 'mia', agents: [], data: null, file: null, loading: false };
+var FILES = { root: 'dashboard', roots: [{ id: 'dashboard', label: 'apps/office-dashboard' }, { id: 'web', label: 'apps/web' }],
+              path: '', data: null, file: null, loading: false };
+var LOGS = { filter: '' };
+
+function json(url) { return fetch(url).then(function (r) { return r.json(); }); }
+
+function loadUsage(force) {
+  if (USAGE.loading) return;
+  if (!force && USAGE.data && USAGE.data.period === USAGE.period) return;
+  USAGE.loading = true;
+  cachedSource('usage:' + USAGE.period, 4000, function () {
+    return json('/api/usage?period=' + encodeURIComponent(USAGE.period));
+  }).then(function (d) { USAGE.data = d; USAGE.err = ''; })
+    .catch(function (e) { USAGE.err = 'Usage gagal dimuat: ' + e.message; })
+    .finally(function () { USAGE.loading = false; if (currentView === 'usage') render(); });
+}
+
+function loadMemory(agent, force) {
+  var id = agent || MEM.agent;
+  if (MEM.loading && id === MEM.agent) return;
+  if (!force && MEM.data && id === MEM.agent) return;
+  MEM.loading = true;
+  cachedSource('memory:' + id, 6000, function () { return json('/api/memory?agent=' + encodeURIComponent(id)); })
+    .then(function (d) {
+      MEM.agent = id; MEM.data = d;
+      MEM.agents = (d && d.agents && d.agents.length) ? d.agents.map(function (a) { return { id: a.id, name: a.name }; })
+        : Object.keys(ROSTER).map(function (k) { return { id: k, name: ROSTER[k].name }; });
+      var files = (d && d.files) || [];
+      MEM.file = files.some(function (f) { return f.path === MEM.file; }) ? MEM.file : null;
+    })
+    .catch(function (e) { MEM.data = { available: false, note: 'Gagal memuat: ' + e.message, files: [] }; })
+    .finally(function () { MEM.loading = false; if (currentView === 'memory') render(); });
+}
+
+function filesUrl(p) {
+  return '/api/files?root=' + encodeURIComponent(FILES.root) + '&path=' + encodeURIComponent(p || '');
+}
+function openDir(p) {
+  FILES.loading = true;
+  cachedSource('files:' + FILES.root + ':' + p, 1500, function () { return json(filesUrl(p)); })
+    .then(function (d) {
+      FILES.data = d;
+      if (d && d.kind === 'dir') {
+        FILES.path = d.path || '';
+        FILES.file = null;
+        if (d.roots && d.roots.length) FILES.roots = d.roots;
+      }
+    })
+    .catch(function (e) { FILES.data = { error: 'unreadable', reason: e.message }; })
+    .finally(function () { FILES.loading = false; if (currentView === 'files') render(); });
+}
+function openFile(name) {
+  var p = (FILES.path ? FILES.path.replace(/\/+$/, '') + '/' : '') + name;
+  FILES.loading = true;
+  cachedSource('files:' + FILES.root + ':' + p, 1500, function () { return json(filesUrl(p)); })
+    .then(function (d) { if (d && !d.error) FILES.file = d; else FILES.data = d; })
+    .catch(function (e) { FILES.file = { path: p, binary: true, text: 'Gagal memuat: ' + e.message }; })
+    .finally(function () { FILES.loading = false; if (currentView === 'files') render(); });
+}
+
+/* The dock used to carry Stats/Activity tabs too, but every number on them was a
+   second copy of a number already rendered elsewhere: system metrics lived in both
+   the Stats tab and the Activity view, and the session list lived in both the
+   Activity tab and the Activity view. Those views are the single home now, so the
+   dock keeps only the crew glance you cannot get from any table. */
+function renderHud() {
+  var pane = $('#hudPane'), hint = $('#hudHint');
+  if (!pane) return;
+  if (!STATE) {
+    pane.innerHTML = '<div class="hudCard"><div class="k">Status</div><div class="v">Memuat…</div></div>';
+    if (hint) hint.textContent = '—';
+    return;
+  }
+  var cards = STATE.agents.map(function (a) {
+    var b = a.basis || {};
+    return '<div class="hudCard"><div class="k">' + esc(a.name) + '</div><div class="v">' +
+      stBadge(a.status) + '<span>' + esc((a.role || '').split('/')[0].trim()) + '</span></div><div class="s">' +
+      (b.turns != null
+        ? esc(count(b.turns) + ' turn \u00b7 ' + count(b.tool_calls) + ' tool \u00b7 ' + ago(a.last_update))
+        : esc(b.note || 'belum ada data')) + '</div></div>';
+  });
+  pane.innerHTML = cards.join('');
+  if (hint) hint.textContent = 'klik avatar untuk detail \u00b7 metrik mesin di Pengaturan \u00b7 sesi audit di Activity';
+}
+
+function wireLogFilter(el) {
+  var i = el.querySelector('#logFilter');
+  if (!i || i.dataset.wired) return;
+  i.dataset.wired = '1';
+  i.addEventListener('input', function () {
+    LOGS.filter = i.value;
+    var pos = i.selectionStart;
+    el.innerHTML = vLogs();
+    var n = el.querySelector('#logFilter');
+    if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} }
+  });
+}
+
 /* ── views ─────────────────────────── */
+/* Shared building blocks for the mission-control views. Every number below comes
+   from a real payload; whatever the backend could not read stays Not available. */
+function count(v) { return (v == null || !isFinite(v)) ? na('', 'Tidak tersedia') : String(v); }
+function emptyBox(m) { return '<div class="empty">' + esc(m) + '</div>'; }
+function statCard(k, v, s) {
+  return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + v + '</div>' +
+    (s ? '<div class="s">' + s + '</div>' : '') + '</div>';
+}
+function statGrid(list) { return '<div class="stats">' + list.join('') + '</div>'; }
+function barsOf(series, key) {
+  var max = 0, i;
+  for (i = 0; i < series.length; i++) max = Math.max(max, series[i][key] || 0);
+  if (!series.length) return emptyBox('Tidak ada bucket waktu pada jendela ini.');
+  return '<div class="bars">' + series.map(function (x) {
+    var v = x[key] || 0;
+    var h = max > 0 ? Math.max(1, Math.round(v / max * 78)) : 1;
+    var cls = v > 0 ? (v >= max * 0.75 ? 'hi' : '') : 'zero';
+    return '<i class="' + cls + '" style="height:' + h + 'px" title="' + esc(hhmmss(x.startIso)) + ' · ' + v + ' ' + esc(key) + '"></i>';
+  }).join('') + '</div>';
+}
+function rankOf(list, unit) {
+  if (!list || !list.length) return emptyBox('Tidak ada data pada periode ini.');
+  var max = 0;
+  list.forEach(function (x) { max = Math.max(max, x.count || 0); });
+  return '<div class="rank">' + list.map(function (x) {
+    var pct = max > 0 ? Math.round((x.count || 0) / max * 100) : 0;
+    return '<div class="r"><span>' + esc(x.key) + '</span><span class="t"><i style="width:' + pct + '%"></i></span>' +
+      '<span class="n">' + (x.count || 0) + '</span></div>';
+  }).join('') + '</div><div class="note" style="margin-top:8px">Unit: ' + esc(unit || 'event') + '</div>';
+}
+
 function vAgents() {
   if (!STATE) return '<div class="empty">Memuat…</div>';
-  return '<div class="grid g3">' + STATE.agents.map(function (a) {
-    var b = a.basis || {};
-    return '<div class="card">' +
-      '<h3>' + esc(a.name) + ' · ' + esc(a.id) + '</h3>' +
-      '<div style="margin:8px 0 10px">' + stBadge(a.status) + '</div>' +
-      '<div class="kv"><span>Peran</span><span>' + esc(a.role) + '</span></div>' +
-      '<div class="kv"><span>Task aktif</span><span>' + (a.active_task ? esc(a.active_task) : '<span class="unavail">tidak ada</span>') + '</span></div>' +
-      '<div class="kv"><span>Terakhir update</span><span>' + esc(hhmmss(a.last_update)) + ' · ' + esc(ago(a.last_update)) + '</span></div>' +
-      '<div class="kv"><span>Aktivitas terukur</span><span>' + (b.turns != null ? b.turns + ' turn · ' + b.tool_calls + ' tool call' + (b.turn_errors ? ' · ' + b.turn_errors + ' error' : '') : na('', b.note)) + '</span></div>' +
-      '<div class="kv"><span>Sumber status</span><span>' + esc(b.kind || 'unknown') + '</span></div>' +
-      '<div class="note">Status dihitung dari event audit log nyata dalam jendela ' + (b.window_ms != null ? (b.window_ms / 1000) + ' detik' : '—') + '. Umur event terakhir: ' + (b.last_age_ms != null ? b.last_age_ms + ' ms' : '—') + '.</div>' +
+  return '<div class="vbar"><span class="lab">Antrekan tugas</span>' +
+      QUICK.map(function (q) {
+        return '<button class="btn" data-quick="' + esc(q[1]) + '" data-label="' + esc(q[0]) + '">' + esc(q[0]) + '</button>';
+      }).join('') +
+      '<button class="btn" data-quick="mia" data-label="Prompt bebas untuk Mia">+ Prompt bebas</button></div>' +
+    '<div class="grid g3">' + STATE.agents.map(function (a) {
+      var b = a.basis || {}, r = ROSTER[a.id] || {};
+      return '<div class="card">' +
+        '<h3 style="color:' + esc(a.accent) + '">' + esc(a.name) + '</h3>' +
+        '<div style="margin:8px 0 10px">' + stBadge(a.status) + '</div>' +
+        '<div class="kv"><span>Peran</span><span>' + esc(a.role) + '</span></div>' +
+        '<div class="kv"><span>Task aktif</span><span>' + (a.active_task ? esc(a.active_task) : '<span class="unavail">tidak ada</span>') + '</span></div>' +
+        '<div class="kv"><span>Terakhir update</span><span>' + esc(hhmmss(a.last_update)) + ' · ' + esc(ago(a.last_update)) + '</span></div>' +
+        '<div class="kv"><span>Event terakhir</span><span>' + (a.last_event ? esc(a.last_event.action) : na('', 'belum ada event')) + '</span></div>' +
+        '<div class="kv"><span>Aktivitas terukur</span><span>' + (b.turns != null
+          ? count(b.turns) + ' turn · ' + count(b.tool_calls) + ' tool call' + (b.turn_errors ? ' · ' + count(b.turn_errors) + ' error' : '')
+          : na('', b.note || 'tidak tersedia')) + '</span></div>' +
+        '<div class="kv"><span>Tanggung jawab</span><span>' + esc((r.duties || []).join(' · ') || a.role) + '</span></div>' +
+        '<div class="acts">' +
+          '<button class="btn" data-openagent="' + esc(a.id) + '">Detail</button>' +
+          '<button class="btn" data-quick="' + esc(a.id) + '" data-label="' + esc(a.name) + '">Minta tugas</button>' +
+          '<button class="btn" data-agentmem="' + esc(a.id) + '">Memory</button></div>' +
+        '<div class="note">Status dari event audit nyata · jendela ' +
+          (b.window_ms != null ? (b.window_ms / 60000 >= 1 ? Math.round(b.window_ms / 60000) + ' menit' : (b.window_ms / 1000) + ' detik') : '—') +
+          ' · terakhir ' + esc(ago(a.last_update)) + '.</div>' +
       '</div>';
-  }).join('') + '</div>';
+    }).join('') + '</div>';
 }
 
-function vQueue() {
-  var q = (STATE && STATE.queue) || [];
-  var open = q.filter(function (x) { return x.status === 'queued'; });
-  return '<div class="card" style="margin-bottom:14px"><h3>Quick task</h3>' +
-    '<div class="note" style="margin:2px 0 10px">Prompt diminta dulu — tidak ada task yang dibuat hanya karena tombol dibuka.</div>' +
-    '<div class="acts">' + QUICK.map(function (q2) {
-      return '<button class="btn" data-quick="' + q2[1] + '" data-label="' + esc(q2[0]) + '">' + esc(q2[0]) + '</button>';
-    }).join('') + ' <span class="pill">' + open.length + ' antre</span></div>' +
-    '<div class="err" id="qErr"></div></div>' +
-    '<div class="card"><h3>Antrean</h3>' +
-    (q.length ? '<table><thead><tr><th>Waktu</th><th>Agent</th><th>Prompt</th><th>Status</th></tr></thead><tbody>' +
-      q.map(function (x) {
-        return '<tr><td>' + esc(hhmmss(x.ts)) + '</td><td>' + esc(x.agent) + '</td><td>' + esc(x.prompt) + '</td><td>' + stBadge(x.status === 'done' ? 'idle' : x.status) + '</td></tr>';
-      }).join('') + '</tbody></table>'
-      : '<div class="empty">Antrean kosong — ledger <code>data/queue.jsonl</code> belum berisi item.</div>') +
-    '</div>' +
-    '<div class="card" style="margin-top:14px"><h3>Riwayat task</h3>' +
-    ((STATE.tasks || []).length ? '<table><thead><tr><th>Task</th><th>Agent</th><th>Status</th><th>Detail</th></tr></thead><tbody>' +
-      STATE.tasks.slice(0, 40).map(function (t) {
-        return '<tr><td>' + esc(t.title) + '<br><span class="note">' + esc(t.task_id) + ' · ' + esc(t.source) + '</span></td>' +
-          '<td>' + esc(t.agent) + '</td><td>' + esc(t.status) + deliveryTag(t) + '</td><td>' + esc((t.detail || '').slice(0, 160)) + '</td></tr>';
-      }).join('') + '</tbody></table>'
-      : '<div class="empty">Belum ada task. Riwayat terisi otomatis dari turn nyata Mia (audit log) dan dari antrean dashboard.</div>') +
-    '</div>';
-}
-
-function vSystem() {
-  var s = STATE && STATE.system;
-  if (!s) return '<div class="empty">Memuat…</div>';
-  return '<div class="grid g2">' +
-    card('Host', [
-      ['Hostname', esc(s.hostname || 'Unavailable')],
-      ['Platform', esc(s.platform || 'Unavailable')],
-      ['Arsitektur', esc(s.arch || 'Unavailable')],
-      ['CPU', esc(s.cpu_model || 'Unavailable')],
-      ['Core', s.cpu_cores != null ? s.cpu_cores : 'Unavailable'],
-      ['Load 1 / 5 / 15 m', s.loadavg_1m + ' / ' + s.loadavg_5m + ' / ' + s.loadavg_15m],
-      ['Dashboard uptime', fmtDur(s.dashboard_uptime_s)],
-      ['Node', esc(s.node_version || 'Unavailable')]
-    ]) +
-    card('Memory', [
-      ['Host total', fmtBytes(s.host_memory_total_bytes)],
-      ['Host free', fmtBytes(s.host_memory_free_bytes)],
-      ['Host terpakai', s.host_memory_used_pct + '%'],
-      ['MEMORY (CONTAINER)', na('', s.container_memory.note)],
-      ['Dashboard RSS', fmtBytes(s.dashboard_rss_bytes)]
-    ]) + '</div>' +
-    '<div class="note" style="margin-top:12px">' + esc(s.scope_note) + '</div>';
-}
-
-function vVps() {
-  var v = STATE && STATE.vps;
-  if (!v) return '<div class="empty">Memuat…</div>';
-  var d = v.disk || {};
-  var t = v.tunnel || {};
-  var w = v.watchdog || {};
-  var m = v.memory || {};
-  var cards = [
-    card('Disk', d.available ? [['Dipakai', fmtBytes(d.used_bytes) + ' / ' + fmtBytes(d.total_bytes)],
-      ['Bebas', fmtBytes(d.free_bytes)], ['Persentase', d.used_pct + '%'],
-      ['Bar', '<span class="bar"><i class="' + (d.warning ? 'danger' : '') + '" style="width:' + Math.min(100, d.used_pct) + '%"></i></span>' + (d.warning ? ' <span class="badge paused">≥90%</span>' : '')]]
-      : [['Status', na('', d.note)]]),
-    card('CPU', [['Model', esc((v.cpu && v.cpu.model) || 'Unavailable')],
-      ['Core', (v.cpu && v.cpu.cores) != null ? v.cpu.cores : 'Unavailable'],
-      ['Load', (v.cpu && v.cpu.loadavg ? v.cpu.loadavg.join(' / ') : 'Unavailable')]]),
-    card('MEMORY (CONTAINER)', m.available
-      ? [['Tersedia', '<span class="unavail">N/A — host macOS, bukan container</span>'],
-         ['Host total', fmtBytes(m.total_bytes)], ['Host terpakai', m.used_pct + '%'],
-         ['Catatan', '<span class="unavail">' + esc(m.container.note) + '</span>']]
-      : [['Status', na('', m.container.note)]]),
-    card('Server uptime', [['Uptime', fmtDur(v.uptime_s)]]),
-    card('Tunnel', t.available
-      ? [['URL', '<span style="word-break:break-all">' + esc(t.url) + '</span>'],
-         ['Status', t.online ? '<span class="badge working">ONLINE</span>' : '<span class="badge paused">OFFLINE</span>'],
-         ['HTTP', t.status != null ? t.status : '—']]
-      : [['Status', na('', t.note)]]),
-    card('OS', [['Info', esc(v.os || 'Unavailable')]]),
-    card('Watchdog terakhir', w.available
-      ? [['Waktu', esc(hhmmss(w.last_check)) + ' · ' + esc(ago(w.last_check))],
-         ['Hasil', w.ok ? '<span class="badge working">ok</span>' : '<span class="badge paused">gagal</span>'],
-         ['Aksi', esc(w.action || '—')]]
-      : [['Status', na('', w.note)]])
+function vBoard() {
+  if (!STATE) return '<div class="empty">Memuat…</div>';
+  if (STATE.dispatch_paused) {
+    return '<div class="card"><h3>Dispatch dijeda</h3><div class="note">Antrekan tidak dikirim ke agent sampai dispatch dilanjutkan dari tombol header.</div></div>';
+  }
+  var lanes = [
+    { k: 'queued', title: 'Antre', items: STATE.queue.filter(function (q) { return q.status === 'queued'; }) },
+    { k: 'working', title: 'Berjalan', items: STATE.tasks.filter(function (t) { return t.status === 'started' || t.status === 'progress'; }) },
+    { k: 'done', title: 'Selesai', items: STATE.tasks.filter(function (t) { return t.status === 'done'; }).slice(0, 12) },
+    { k: 'failed', title: 'Gagal', items: STATE.tasks.filter(function (t) { return t.status === 'failed'; }).slice(0, 12) }
   ];
-  return '<div class="grid g3">' + cards.join('') + '</div>';
-}
-
-function vSched() {
-  var sc = (STATE && STATE.schedules) || {};
-  if (!sc.configured) {
-    return '<div class="card"><h3>Jadwal</h3><div class="empty" style="margin-top:8px">' +
-      na('', 'Belum dikonfigurasi — tidak ada direktori jadwal yang bisa dibaca.') +
-      '</div><div class="note">Direktori yang diperiksa: <code>' +
-      esc((sc.dirs || []).join('</code>, <code>') || '—') + '</code><br>' +
-      'Set <code>OFFICE_SCHEDULE_DIRS</code> (dipisah koma) untuk menunjuk sumber jadwal lain. ' +
-      'File frontmatter rusak: <b>' + esc(sc.skipped_files || 0) + '</b> dilewati tanpa error.</div></div>';
-  }
-  var mine = sc.items.filter(function (s) { return !s.is_system; });
-  var sys = sc.items.filter(function (s) { return s.is_system; });
-  function tbl(rows) {
-    if (!rows.length) return '<div class="empty">Tidak ada entri.</div>';
-    return '<table><thead><tr><th>Judul</th><th>Jenis</th><th>Jadwal</th><th>Berikutnya</th><th>Eksekusi</th><th>Pemilik</th></tr></thead><tbody>' +
-      rows.map(function (s) {
-        return '<tr><td>' + esc(s.title) + '<br><span class="note">' + esc(s.id) + ' · ' + esc(s.enabled === null ? 'enabled tidak dinyatakan' : (s.enabled ? 'enabled' : 'disabled')) + '</span></td>' +
-          '<td>' + esc(s.kind) + '</td><td>' + esc(s.label) + '</td>' +
-          '<td>' + (s.next_iso ? esc(hhmmss(s.next_iso)) : na('', 'tidak bisa dihitung')) + '</td>' +
-          '<td>' + (s.exec_ok ? 'ya' : 'tidak') + '<br><span class="note">' + esc(s.exec_reason || '') + (s.last_fired_at ? '<br>terakhir: ' + esc(hhmmss(s.last_fired_at)) : '') + '</span></td>' +
-          '<td>' + esc(s.owner || '—') + '</td></tr>';
-      }).join('') + '</tbody></table>';
-  }
-  return '<div class="card"><h3>Jadwal Saya</h3>' + tbl(mine) + '</div>' +
-    '<details class="card" style="margin-top:14px"><summary>Jadwal Sistem (' + sys.length + ')</summary>' +
-    '<div style="margin-top:10px">' + tbl(sys) + '</div></details>';
-}
-
-function vTokens() {
-  var t = (STATE && STATE.tokens) || {};
-  if (!t.available) {
-    return '<div class="card"><h3>Token Status</h3><div class="empty" style="margin-top:8px"><span class="badge">' + esc(t.label || 'Not configured') + '</span></div>' +
-      '<div class="note">' + esc(t.note || '') + '</div></div>';
-  }
-  return '<div class="card"><h3>Token Status</h3><div class="note" style="margin-bottom:10px">Sumber: ' + esc(t.source) + '</div>' +
-    '<table><thead><tr><th>Kunci</th><th>Nilai</th></tr></thead><tbody>' +
-    t.items.map(function (i) { return '<tr><td>' + esc(i.key || '-') + '</td><td>' + esc(String(i.value != null ? i.value : JSON.stringify(i))) + '</td></tr>'; }).join('') +
-    '</tbody></table></div>';
-}
-
-function vFleet() {
-  var live = window.__fleet || null;
-  var id = ['mia','agnes','michelle'].map(function (k) {
-    var r = ROSTER[k];
-    return '<div class="card"><h3>' + esc(r.name) + ' · ' + esc(r.role) + '</h3>' +
-      '<div style="margin:8px 0"><ul style="margin:0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.7">' +
-      r.duties.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul></div>' +
-      '<div class="kv"><span>Kemampuan saat ini</span><span>' + esc(live && live[k] ? live[k] : 'Tidak dikonfigurasi di dashboard') + '</span></div></div>';
-  }).join('');
-  return '<div class="grid g3">' + id + '</div>' +
-    '<div class="note" style="margin-top:12px">Kemampuan di atas adalah tanggung jawab peran, bukan klaim tool. ' +
-    'Tool yang benar-benar tersedia bagi agent di channel Discord/Slack ada di backend Mia, bukan di dashboard ini — ' +
-    'dashboard tidak menebak-nebak inventaris tool.</div>';
-}
-
-function vLog() {
-  var l = (STATE && STATE.log) || [];
-  if (!l.length) return '<div class="empty">Belum ada baris log dari sumber nyata.</div>';
-  return '<div class="logbox">' + l.map(function (x) {
-    return '<div class="logline"><span class="t">' + esc(hhmmss(x.ts)) + '</span>' +
-      '<span class="a ' + esc(x.agent) + '">' + esc(x.agent) + '</span>' +
-      '<span class="m">' + esc(x.action) + ' · ' + esc(x.message) + '</span></div>';
+  return '<div class="board">' + lanes.map(function (L) {
+    return '<div class="lane"><h4><span>' + esc(L.title) + '</span><span>' + L.items.length + '</span></h4>' +
+      (L.items.length ? L.items.map(function (x) {
+        var title = x.title || x.prompt || x.task_id || x.id;
+        var detail = (x.detail || '') || '';
+        return '<div class="tk"><div class="ttl">' + esc(trunc(title, 90)) + '</div><div class="meta">' +
+          stBadge(x.status) + '<span>' + esc(x.agent || '—') + '</span>' +
+          '<span>' + esc(hhmmss(x.updated_at || x.ts || x.started_at)) + '</span>' +
+          (x.deliver ? '<span>' + esc(String(x.deliver)) + '</span>' : '') +
+          (x.task_id ? '<span title="' + esc(x.task_id) + '">' + esc(trunc(x.task_id, 22)) + '</span>' : '') +
+          '</div>' + (detail ? '<div class="meta" style="margin-top:4px">' + esc(trunc(detail, 130)) + '</div>' : '') + '</div>';
+      }).join('') : emptyBox('Kosong.')) + '</div>';
   }).join('') + '</div>';
 }
 
+function vCalendar() {
+  var sc = (STATE && STATE.schedules) || null;
+  if (!sc) return '<div class="empty">Memuat…</div>';
+  var head = statGrid([
+    statCard('Status jadwal', sc.configured ? 'Configured' : 'Not configured',
+      esc(sc.configured ? String((sc.items || []).length) + ' entri' : 'Tidak ada folder jadwal')),
+    statCard('Folder dipantau', count((sc.dirs || []).length), esc((sc.dirs || []).join('<br>') || '—')),
+    statCard('File dilewati', count(sc.skipped_files), 'Parser frontmatter tanpa eval')
+  ]);
+  if (!sc.configured) {
+    return head + '<div class="card"><h3>Belum ada sumber jadwal</h3><div class="note">' +
+      esc(sc.notes && sc.notes.length ? sc.notes.join(' · ') :
+        'Folder yang dipantau belum ada di mesin ini, jadi dashboard tidak menampilkan jadwal apa pun alih-alih menebak.') +
+      '</div></div>';
+  }
+  if (!(sc.items || []).length) return head + emptyBox('Folder ada tapi tidak berisi file jadwal.');
+  return head + '<table><thead><tr><th>Judul</th><th>Jenis</th><th>Pemilik</th><th>Aktif</th><th>Berikutnya</th><th>Terakhir dieksekusi</th><th>Hasil</th></tr></thead><tbody>' +
+    sc.items.map(function (it) {
+      return '<tr><td>' + esc(it.title || it.label || it.id) + '</td>' +
+        '<td>' + esc(it.kind || '—') + (it.is_system ? ' <span class="badge idle">system</span>' : '') + '</td>' +
+        '<td>' + esc(it.owner || '—') + '</td>' +
+        '<td>' + (it.enabled === false ? '<span class="badge paused">off</span>' : '<span class="badge working">on</span>') + '</td>' +
+        '<td>' + esc(hhmmss(it.next_iso)) + '</td>' +
+        '<td>' + esc(hhmmss(it.last_fired_at)) + '</td>' +
+        '<td>' + (it.exec_ok === true ? '<span class="badge working">ok</span>'
+          : it.exec_ok === false ? '<span class="badge error">gagal</span>' : na('', it.exec_reason || 'belum pernah')) + '</td></tr>';
+    }).join('') + '</tbody></table>';
+}
+
+function vRemindersBlock() {
+  var r = (STATE && STATE.reminders) || null;
+  if (!r) return emptyBox('Memuat reminder…');
+  if (r.available === false) {
+    return '<div class="card"><h3>Reminder Mia</h3><div class="note">' +
+      esc(r.note || 'Store reminder tidak ditemukan di .data/users.') + '</div></div>';
+  }
+  var stores = (r.stores || []).map(function (s) { return esc(s.user); }).join(' · ');
+  var items = r.items || [];
+  var body = items.length
+    ? '<table><thead><tr><th>Jam</th><th>Reminder</th><th>Agent</th><th>Pengulangan</th><th>Cukup dalam</th></tr></thead><tbody>' +
+      items.map(function (it) {
+        return '<tr><td>' + esc(hhmmss(it.at_iso)) + '</td>' +
+          '<td>' + esc(it.text) + (it.notes ? '<div class="note">' + esc(it.notes) + '</div>' : '') + '</td>' +
+          '<td>' + esc(it.agent_name) + '</td>' +
+          '<td>' + (it.repeat === 'daily' ? '<span class="badge working">harian</span>' : '—') + '</td>' +
+          '<td>' + esc(fmtDur(it.in_s)) + '</td></tr>';
+      }).join('') + '</tbody></table>'
+    : emptyBox('Tidak ada reminder terjadwal saat ini. Mia menulis ke store .data/users/<user>/reminders.json.');
+  var out = '<div class="card"><h3>Reminder Mia ' +
+    '<span class="badge idle">' + esc(count(r.pending)) + ' terjadwal</span></h3>' +
+    '<div class="note">Sumber: ' + esc(stores || '—') + ' — dibaca langsung dari store Mia, bukan dari jadwal .md dashboard.</div>' +
+    body;
+  var fired = r.fired || [];
+  if (fired.length) {
+    out += '<details><summary>Terakhir terkirim (' + esc(count(fired.length)) + ')</summary>' +
+      '<table><thead><tr><th>Terkirim</th><th>Reminder</th><th>Agent</th><th>Keterlambatan</th></tr></thead><tbody>' +
+      fired.map(function (f) {
+        return '<tr><td>' + esc(hhmmss(f.delivered_at || f.at_iso)) + '</td>' +
+          '<td>' + esc(f.text) + '</td>' +
+          '<td>' + esc(f.agent_name) + '</td>' +
+          '<td>' + (f.late_s === null ? '—' : (f.late_s <= 30 ? 'tepat waktu' : esc(fmtDur(f.late_s)) + ' telat')) + '</td></tr>';
+      }).join('') + '</tbody></table></details>';
+  }
+  return out + '</div>';
+}
+
+function vCalendarView() {
+  var r = (STATE && STATE.reminders) || {};
+  var nxt = r.next;
+  var head = statGrid([
+    statCard('Reminder terdekat', nxt ? esc(hhmmss(nxt.at_iso)) : '—',
+      nxt ? esc(trunc(nxt.text, 46)) + ' · ' + esc(nxt.agent_name) : 'Tidak ada yang terjadwal'),
+    statCard('Reminder terjadwal', esc(count(r.pending)), esc(count((r.stores || []).length) + ' store agent'))
+  ]);
+  return head + vRemindersBlock() + vCalendar();
+}
+
+function vUsage() {
+  if (USAGE.err) return '<div class="err">' + esc(USAGE.err) + '</div>';
+  if (USAGE.loading && !USAGE.data) return '<div class="empty">Memuat usage…</div>';
+  if (!USAGE.data) return '<div class="empty">Memuat usage…</div>';
+  var u = USAGE.data, t = u.totals || {};
+  if (u.available === false) return '<div class="card"><h3>Usage tidak tersedia</h3><div class="note">' + esc(u.note || '') + '</div></div>';
+  var stats = statGrid([
+    statCard('Event audit', count(t.events), esc((u.audit_files || 0) + ' file')),
+    statCard('Turn', count(t.turns), esc((u.definitions || {}).turns || '')),
+    statCard('Tool call', count(t.tool_calls), esc((u.definitions || {}).tool_calls || '')),
+    statCard('Turn error', count(t.turn_errors), esc((u.definitions || {}).turn_errors || ''))
+  ]);
+  return '<div class="vbar"><span class="lab">Periode</span><div class="seg">' +
+      Object.keys(USAGE_PERIODS).map(function (p) {
+        return '<button data-usage="' + esc(p) + '" class="' + (u.period === p ? 'on' : '') + '">' + esc(USAGE_PERIODS[p]) + '</button>';
+      }).join('') + '</div><span class="note">Bucket ' + esc(u.bucket || '') + ' · jendela ' +
+      esc(fmtDur((u.window_ms || 0) / 1000)) + ' · ' + count(u.window_events) + ' event dihitung</span></div>' +
+    stats +
+    '<div class="split"><div class="card"><h3>Event per bucket waktu</h3>' + barsOf(u.timeseries, 'events') + '</div>' +
+    '<div class="card"><h3>Per agent</h3>' + rankOf(u.per_agent) + '</div></div>' +
+    '<div class="split"><div class="card"><h3>Aksi paling sering</h3>' + rankOf((u.per_action || []).slice(0, 12)) + '</div>' +
+    '<div class="card"><h3>Sumber</h3>' + rankOf(u.per_source) + '</div></div>' +
+    '<div class="note">Dashboard tidak punya sumber billing token, jadi angka token dan biaya sengaja tidak ditampilkan — lebih baik kosong daripada dikarang.</div>';
+}
+
+/* Sessions only. The host/VPS cards used to sit here too, which made this view a
+   second copy of the machine metrics that now live in Pengaturan (Sistem). */
+function vActivity() {
+  if (!STATE) return '<div class="empty">Memuat…</div>';
+  var act = STATE.activity || [];
+  var sum = { events: 0, tool_calls: 0, turn_errors: 0 };
+  act.forEach(function (x) {
+    sum.events += x.events || 0;
+    sum.tool_calls += x.tool_calls || 0;
+    sum.turn_errors += x.turn_errors || 0;
+  });
+  var stats = statGrid([
+    statCard('Sesi diturunkan', count(act.length), 'kelompok 15 menit per agent'),
+    statCard('Event', count(sum.events), 'seluruh sesi di jendela log'),
+    statCard('Tool call', count(sum.tool_calls), 'dari event audit'),
+    statCard('Turn error', count(sum.turn_errors), 'turn yang berakhir error')
+  ]);
+  var sessions = act.length ? '<table><thead><tr><th>Agent</th><th>Mulai</th><th>Terakhir</th><th>Event</th><th>Tool</th><th>Error</th><th>Aksi terakhir</th><th>Sumber</th></tr></thead><tbody>' +
+    act.map(function (x) {
+      return '<tr><td>' + stBadgeByAgent(x.agent) + '</td><td>' + esc(hhmmss(x.started)) + '</td><td>' +
+        esc(hhmmss(x.last)) + ' \u00b7 ' + esc(ago(x.last)) + '</td><td>' + count(x.events) + '</td><td>' +
+        count(x.tool_calls) + '</td><td>' + (x.turn_errors ? count(x.turn_errors) : '0') + '</td><td>' +
+        esc(trunc(x.last_action, 60)) + '</td><td title="' + esc(x.source) + '">' + esc(trunc(x.source, 26)) + '</td></tr>';
+    }).join('') + '</tbody></table>' : emptyBox('Belum ada sesi yang bisa diturunkan dari audit log.');
+  return stats + '<div class="note" style="margin-bottom:12px">Sesi diturunkan dari audit log nyata: satu baris audit dikelompokkan per agent, per file, per bucket 15 menit. Dashboard tidak membuat sesi sendiri.</div>' + sessions;
+}
+
+function vLogs() {
+  var l = (STATE && STATE.log) || [];
+  var filter = (LOGS.filter || '').toLowerCase();
+  var rows = filter ? l.filter(function (x) {
+    return (x.agent + ' ' + x.action + ' ' + x.message).toLowerCase().indexOf(filter) >= 0;
+  }) : l;
+  return '<div class="vbar"><span class="lab">Saring</span>' +
+      '<input class="inp" id="logFilter" value="' + esc(LOGS.filter || '') + '" placeholder="agent, aksi, atau pesan…">' +
+      '<span class="note">' + rows.length + ' dari ' + l.length + ' baris (jendela log dibatasi server)</span></div>' +
+    (rows.length ? '<div class="logbox">' + rows.map(function (x) {
+      return '<div class="logline"><span class="t">' + esc(hhmmss(x.ts)) + '</span>' +
+        '<span class="a ' + esc(x.agent) + '">' + esc(x.agent) + '</span>' +
+        '<span class="m">' + esc(x.action) + ' · ' + esc(x.message) + '</span></div>';
+    }).join('') + '</div>' : emptyBox('Tidak ada baris yang cocok.'));
+}
+
+function vMemory() {
+  var d = MEM.data;
+  var head = '<div class="vbar"><span class="lab">Agent</span><div class="seg">' +
+    (MEM.agents.length ? MEM.agents.map(function (a) {
+      return '<button data-mem="' + esc(a.id) + '" class="' + (a.id === MEM.agent ? 'on' : '') + '">' + esc(a.name) + '</button>';
+    }).join('') : '<button class="on">—</button>') + '</div><span class="note">Direktori user: <code>' + esc((d && d.user) || '—') + '</code></span></div>';
+  if (!d) return head + '<div class="empty">Memuat memory…</div>';
+  if (d.available === false) return head + '<div class="card"><h3>Memory tidak tersedia</h3><div class="note">' + esc(d.note || '') + '</div></div>';
+  var files = d.files || [];
+  if (!files.length) return head + emptyBox('Tidak ada file memory untuk agent ini.');
+  var list = files.map(function (f) {
+    return '<div class="r' + (MEM.file === f.path ? ' on' : '') + '" data-memfile="' + esc(f.path) + '">' +
+      '<span>' + esc(f.path) + '</span><span class="sz">' + count(f.chars) + ' kar</span></div>';
+  }).join('');
+  return head + '<div class="ex"><div class="tree">' + list + '</div>' + memDoc(files) + '</div>';
+}
+function memDoc(files) {
+  var f = null, i;
+  for (i = 0; i < files.length; i++) if (files[i].path === MEM.file) f = files[i];
+  if (!f) return '<div class="doc"><div class="empty">Pilih file di kiri.</div></div>';
+  return '<div><div class="dochead"><span class="pill">' + esc(f.path) + '</span>' +
+    '<span class="note">' + count(f.size) + ' B · ' + count(f.chars) + ' karakter · ' + esc(hhmmss(f.mtime)) +
+    (f.truncated ? ' · <b>dipotong</b>' : '') + '</span></div>' +
+    '<div class="doc">' + esc(f.text) + '</div></div>';
+}
+
+function vFiles() {
+  var d = FILES.data;
+  var head = '<div class="vbar"><span class="lab">Root</span><div class="seg">' +
+    FILES.roots.map(function (r) {
+      return '<button data-root="' + esc(r.id) + '" class="' + (r.id === FILES.root ? 'on' : '') + '" title="' + esc(r.label) + '">' + esc(r.id) + '</button>';
+    }).join('') + '</div>' +
+    '<button class="btn" data-up="1">↑ Naik</button>' +
+    '<span class="note">' + esc((d && d.path) || '(root)') + '</span></div>';
+  if (!d) return head + '<div class="empty">Memuat file…</div>';
+  if (d.error) {
+    var why = d.reason ? ' (' + esc(d.reason) + ')' : '';
+    return head + '<div class="card"><h3>' + esc(d.error) + '</h3><div class="note">Permintaan ditolak oleh guard read-only' + why + '.</div></div>';
+  }
+  if (d.kind === 'file') {
+    return head + '<div class="dochead"><span class="pill">' + esc(d.path) + '</span><span class="note">' +
+      count(d.size) + ' B · ' + esc(hhmmss(d.mtime)) + (d.truncated ? ' · <b> dipotong 256 KB</b>' : '') + '</span></div>' +
+      (d.binary ? '<div class="doc">File biner — tidak ditampilkan.</div>'
+        : '<div class="doc">' + esc(d.text) + '</div>');
+  }
+  var rows = d.entries.map(function (e) {
+    return '<div class="r' + (e.denied ? ' denied' : '') + '"' + (e.denied ? ' title="' + esc(e.reason || 'ditolak') + '"'
+      : ' data-openfile="' + esc(e.name) + '"' + (e.type === 'dir' ? ' data-isdir="1"' : '')) + '>' +
+      '<span>' + (e.type === 'dir' ? '▸ ' : '') + esc(e.name) + '</span>' +
+      '<span class="sz">' + (e.type === 'dir' ? (e.denied ? esc(e.reason || 'blocked') : 'dir') : fmtBytes(e.size)) + '</span></div>';
+  }).join('');
+  return head + '<div class="ex"><div class="tree">' +
+    (d.path ? '<div class="r" data-openfile=".."><span>↑ ..</span></div>' : '') + rows + '</div>' +
+    (FILES.file ? vFilesDoc(FILES.file) : '<div class="doc"><div class="empty">Pilih file di kiri untuk membaca isinya.</div></div>') + '</div>';
+}
+function vFilesDoc(f) {
+  return '<div><div class="dochead"><span class="pill">' + esc(f.path) + '</span><span class="note">' + count(f.size) +
+    ' B · ' + esc(hhmmss(f.mtime)) + (f.truncated ? ' · <b> dipotong</b>' : '') + '</span></div>' +
+    (f.binary ? '<div class="doc">File biner — tidak ditampilkan.</div>' : '<div class="doc">' + esc(f.text) + '</div>') + '</div>';
+}
+
+function vSettings() {
+  if (!STATE) return '<div class="empty">Memuat…</div>';
+  var v = STATE.version || {}, src = STATE.sources || [], ig = STATE.integrity || {};
+  var sy = STATE.system || {}, vp = STATE.vps || {}, dk = vp.disk || {};
+  /* Machine health lives here and only here: the old Stats HUD tab and the old
+     Activity view each carried their own copy of load/memory/disk/RSS. */
+  var machine = statGrid([
+    statCard('Load 1m', count(sy.loadavg_1m), '5m ' + count(sy.loadavg_5m) + ' \u00b7 15m ' + count(sy.loadavg_15m)),
+    statCard('Memori host', sy.host_memory_used_pct != null ? count(sy.host_memory_used_pct) + '%' : na('', 'tidak tersedia'),
+      sy.host_memory_method ? esc(sy.host_memory_method) : ''),
+    statCard('RSS dashboard', fmtBytes(sy.dashboard_rss_bytes), 'uptime ' + esc(fmtDur(sy.dashboard_uptime_s))),
+    statCard('Disk', dk && dk.available ? count(dk.used_pct) + '%' : na('', (dk && dk.note) || 'tidak tersedia'),
+      dk && dk.available ? esc(fmtBytes(dk.free_bytes) + ' bebas / ' + fmtBytes(dk.total_bytes)) : '')
+  ]);
+  /* Node + uptime already ride on the stats above, so this card lists only what
+     they do not show. */
+  var hostCard = card('Host', [
+    ['Hostname', esc(sy.hostname || '—')], ['Platform', esc(sy.platform || '—') + ' ' + esc(sy.arch || '')],
+    ['CPU', esc(sy.cpu_model || '—') + ' \u00b7 ' + count(sy.cpu_cores) + ' core']
+  ]);
+  var netCard = card('Jaringan & watchdog', [
+    ['Tunnel', vp.tunnel && vp.tunnel.available ? (vp.tunnel.online ? 'online' : 'offline') : na('', (vp.tunnel && vp.tunnel.note) || '—')],
+    ['Watchdog', vp.watchdog && vp.watchdog.available ? (vp.watchdog.ok ? 'ok' : 'perhatian') : na('', (vp.watchdog && vp.watchdog.note) || '—')],
+    ['OS', esc(vp.os || '—')]
+  ]);
+  var sources = src.map(function (s) {
+    return '<div class="src' + (s.available ? ' ok' : '') + '"><span class="dotm"></span><span class="lb">' + esc(s.label) + '</span>' +
+      '<span class="nt">' + (s.available ? 'Tersedia' + (s.files ? ' · ' + count(s.files) + ' file' : '') + (s.broken_lines ? ' · ' + count(s.broken_lines) + ' baris rusak (dilewati)' : '') : na('', s.note || 'tidak tersedia')) + '</span></div>';
+  }).join('');
+  /* only the fields the version stat card does not already show */
+  var about = card('Build', [
+    ['Aplikasi', esc(v.app || '—')], ['Server start', esc(hhmmss(v.started_iso))],
+    ['Port', count(v.port)], ['Auth', v.auth === 'token' ? 'token aktif' : 'terbuka (lokal, tanpa token)']
+  ]);
+  var integ = card('Integritas ledger', [
+    ['Tasks ledger', ig.tasks_ledger_missing ? 'hilang' : 'ada'],
+    ['Tasks baris rusak', count(ig.tasks_broken_lines)],
+    ['Queue ledger', ig.queue_ledger_missing ? 'hilang' : 'ada'],
+    ['Queue baris rusak', count(ig.queue_broken_lines)],
+    ['Audit', ig.audit_available ? 'tersedia' : na('', ig.audit_note || '—')],
+    ['Audit baris rusak', count(ig.audit_broken_lines)]
+  ]);
+  var guards = card('Aturan tampilan', [
+    ['Asal data', 'audit log Mia + ledger JSONL lokal'],
+    ['Nilai kosong', 'Not available, bukan nol'],
+    ['File browser', 'read-only, deny-list, symlink-safe'],
+    ['Redaksi', 'token / secret / password dimasking sebelum dikirim']
+  ]);
+  return '<h3 style="margin:4px 0 12px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Mesin</h3>' +
+    machine +
+    '<div class="split" style="margin:14px 0">' + hostCard + netCard + '</div>' +
+    '<h3 style="margin:22px 0 12px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Build &amp; integritas</h3>' +
+    statGrid([
+      statCard('Versi', esc(v.app || '—'), 'Node ' + esc(v.node || '—')),
+      statCard('Sources hidup', count(src.filter(function (s) { return s.available; }).length) + ' / ' + count(src.length), 'dari health check nyata'),
+      statCard('Baris audit rusak', count(ig.audit_broken_lines), 'dilewati, tidak mematikan API')
+    ]) +
+    '<div class="card" style="margin-bottom:12px"><h3>Kesehatan sumber data</h3>' + (sources || emptyBox('—')) + '</div>' +
+    '<div class="grid g3">' + about + integ + guards + '</div>';
+}
+
+function typingIn(el) {
+  var a = document.activeElement;
+  return !!(a && el && el.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+}
+
+function trunc(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n) + '…' : s; }
+function stBadgeByAgent(id) { return '<span class="badge ' + esc(id || 'idle') + '">' + esc(id || '—') + '</span>'; }
 function card(title, rows) {
   return '<div class="card"><h3>' + esc(title) + '</h3>' + rows.map(function (r) {
     return '<div class="kv"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>';
   }).join('') + '</div>';
 }
 
+/* Slim strip over the 3D stage. Reads /api/state only — no invented numbers. */
+function renderOvlStatus() {
+  var el = $('#ovlStatus');
+  if (!el) return;
+  if (!STATE) { el.innerHTML = '<span class="pill">Memuat…</span>'; return; }
+  var ag = STATE.agents || [];
+  var working = ag.filter(function (a) { return a.status === 'working'; }).length;
+  var queued = (STATE.queue || []).filter(function (q) { return q.status === 'queued'; }).length;
+  var running = 0, failed = 0;
+  (STATE.tasks || []).forEach(function (t) {
+    if (t.status === 'started' || t.status === 'progress') running++;
+    else if (t.status === 'failed') failed++;
+  });
+  var next = null;
+  (((STATE.schedules || {}).items) || []).forEach(function (s) {
+    if (!s.enabled || !s.next_iso) return;
+    var at = Date.parse(s.next_iso);
+    if (!isFinite(at)) return;
+    if (!next || at < next.at) next = { at: at, label: s.label || s.title || s.id, kind: 'cron' };
+  });
+  // A reminder Mia set from Discord/Telegram is the same class of event as a
+  // cron slot — whichever fires first is what the owner cares about next.
+  var rnext = ((STATE.reminders || {}).next) || null;
+  if (rnext && rnext.at_iso) {
+    var rat = Date.parse(rnext.at_iso);
+    if (isFinite(rat) && (!next || rat < next.at)) {
+      next = { at: rat, label: rnext.text || rnext.agent_name || 'reminder', kind: 'reminder' };
+    }
+  }
+  var out = [
+    '<span class="pill">Crew ' + working + '/' + ag.length + '</span>',
+    '<span class="pill">Antre ' + queued + '</span>',
+    '<span class="pill">Berjalan ' + running + (failed ? ' · gagal ' + failed : '') + '</span>',
+    '<span class="pill">' + (next && next.kind === 'reminder' ? 'Next reminder ' : 'Next cron ') + (next
+      ? esc(trunc(next.label, 26)) + ' · ' + esc(hhmmss(new Date(next.at).toISOString()))
+      : '—') + '</span>'
+  ];
+  el.innerHTML = out.join('');
+}
+
 function render() {
-  $('#lastPill').textContent = 'Update ' + hhmmss(lastOk && lastOk.toISOString());
+  $('#lastPill').textContent = lastOk ? hhmmss(lastOk.toISOString()) : '—';
   var p = STATE && STATE.dispatch_paused;
-  $('#dispatchBtn').textContent = p ? 'Resume dispatch' : 'Pause dispatch';
+  $('#dispatchBtn').textContent = p ? '▶ Resume dispatch' : '⏸ Pause dispatch';
   $('#dispatchBtn').className = p ? 'btn ok' : 'btn warn';
 
-  if (currentView !== 'office') {
-    var m = { agents: vAgents, queue: vQueue, system: vSystem, vps: vVps, sched: vSched, tokens: vTokens, fleet: vFleet, log: vLog };
+  if (currentView === 'office') {
+    renderOvlStatus();
+    renderHud();
+  } else {
+    var m = { agents: vAgents, usage: vUsage, board: vBoard, calendar: vCalendarView,
+              activity: vActivity, logs: vLogs, memory: vMemory, files: vFiles, settings: vSettings };
     var fn = m[currentView];
     var el = document.getElementById('view-' + currentView);
-    if (fn && el) el.innerHTML = fn();
+    /* Never repaint under the caret: the 3 s poll would otherwise yank a
+       half-typed filter (or a scroll position) out from under the user. */
+    if (fn && el && !typingIn(el)) {
+      el.innerHTML = fn();
+      if (currentView === 'logs') wireLogFilter(el);
+    }
   }
   syncOffice();
 }
@@ -3952,28 +4442,110 @@ $('#modalBg').addEventListener('click', function (e) { if (e.target === $('#moda
 
 /* ── nav ─────────────────────────── */
 var nav = $('#nav');
-MENU.forEach(function (m, idx) {
-  var b = document.createElement('button');
-  b.innerHTML = '<span class="ic">' + m[2] + '</span>' + m[1];
-  b.dataset.view = m[0];
-  if (idx === 0) b.className = 'on';
-  b.addEventListener('click', function () { show(m[0]); });
-  nav.appendChild(b);
+MENU.forEach(function (g) {
+  var lbl = document.createElement('div');
+  lbl.className = 'nvgroup';
+  lbl.textContent = g.group;
+  nav.appendChild(lbl);
+  g.items.forEach(function (m) {
+    var b = document.createElement('button');
+    b.innerHTML = '<span class="ic">' + m[2] + '</span>' + esc(m[1]) + '<span class="sub">' + esc(m[3]) + '</span>';
+    b.dataset.view = m[0];
+    if (m[0] === 'office') b.className = 'on';
+    b.addEventListener('click', function () { show(m[0]); });
+    nav.appendChild(b);
+  });
 });
 
+function hashView() { return (location.hash || '').replace(/^#\/?/, ''); }
+
 function show(v) {
+  if (!MENU_FLAT.some(function (m) { return m[0] === v; })) v = 'office';
   currentView = v;
-  MENU.forEach(function (m) {
-    document.getElementById('view-' + m[0]).classList.toggle('hide', m[0] !== v);
+  MENU_FLAT.forEach(function (m) {
+    var el = document.getElementById('view-' + m[0]);
+    if (el) el.classList.toggle('hide', m[0] !== v);
   });
-  Array.prototype.forEach.call(nav.children, function (b) { b.classList.toggle('on', b.dataset.view === v); });
-  $('#viewTitle').textContent = (MENU.filter(function (m) { return m[0] === v; })[0] || ['', '—'])[1];
+  Array.prototype.forEach.call(nav.querySelectorAll('button'), function (b) {
+    b.classList.toggle('on', b.dataset.view === v);
+  });
+  var item = MENU_FLAT.filter(function (m) { return m[0] === v; })[0];
+  $('#viewTitle').textContent = item ? item[1] : '—';
+  /* On a phone the rail is an overlay, so it must get out of the way again. */
+  if (window.innerWidth <= 820) setNav(false);
+  /* Each view owns its own source and pulls it lazily — a slow source never
+     stalls /api/state, and an unavailable one renders as Not available. */
+  if (v === 'usage') loadUsage();
+  if (v === 'memory') loadMemory();
+  if (v === 'files' && !FILES.data) openDir('');
+  if (hashView() !== v) history.pushState(null, '', '#' + v);
   render();
 }
+window.addEventListener('popstate', function () {
+  var h = hashView();
+  if (h && h !== currentView) show(h);
+});
 
 document.addEventListener('click', function (e) {
-  var t = e.target.closest && e.target.closest('[data-quick]');
-  if (t) modal(t.getAttribute('data-label'), '', t.getAttribute('data-quick'));
+  var t;
+  function hit(sel) { return e.target.closest ? e.target.closest(sel) : null; }
+  if ((t = hit('[data-quick]'))) { modal(t.getAttribute('data-label'), '', t.getAttribute('data-quick')); return; }
+  if ((t = hit('[data-openagent]'))) { openAgent(t.getAttribute('data-openagent')); return; }
+  if ((t = hit('[data-agentmem]'))) { show('memory'); loadMemory(t.getAttribute('data-agentmem'), true); return; }
+  if ((t = hit('[data-memfile]'))) { MEM.file = t.getAttribute('data-memfile'); render(); return; }
+  if ((t = hit('[data-mem]'))) { loadMemory(t.getAttribute('data-mem'), true); return; }
+  if ((t = hit('[data-root]'))) { FILES.root = t.getAttribute('data-root'); openDir(''); return; }
+  if ((t = hit('[data-up]'))) { openDir(parentPath(FILES.path)); return; }
+  if ((t = hit('[data-openfile]'))) {
+    var n = t.getAttribute('data-openfile');
+    if (n === '..') openDir(parentPath(FILES.path));
+    else if (t.hasAttribute('data-isdir')) openDir((FILES.path ? FILES.path.replace(/\/+$/, '') + '/' : '') + n);
+    else openFile(n);
+    return;
+  }
+  if ((t = hit('[data-usage]'))) { USAGE.period = t.getAttribute('data-usage'); USAGE.data = null; loadUsage(true); return; }
+});
+function parentPath(p) { return String(p || '').replace(/\/+$/, '').split('/').slice(0, -1).join('/'); }
+
+/* ── chrome: collapsible rail, right panel, light/dark, refresh ─────────── */
+var MODE_KEY = 'office-dashboard.theme';
+var NAV_KEY = 'office-dashboard.nav';
+var HUD_KEY = 'office-dashboard.hud';
+function lsGet(k, fb) { try { var v = localStorage.getItem(k); return v == null ? fb : v; } catch (e) { return fb; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+function setNav(open) {
+  document.body.classList.toggle('sbopen', !!open);
+  lsSet(NAV_KEY, open ? '1' : '0');
+  var b = $('#burger');
+  if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function setHud(open) {
+  var h = $('#hud');
+  if (!h) return;
+  h.hidden = !open;
+  document.body.classList.toggle('hudopen', !!open);
+  lsSet(HUD_KEY, open ? '1' : '0');
+  var b = $('#hudToggle');
+  if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function applyTheme(mode) {
+  document.documentElement.setAttribute('data-theme', mode);
+  lsSet(MODE_KEY, mode);
+  var b = $('#modeBtn');
+  if (b) b.textContent = mode === 'light' ? '◑' : '◐';
+}
+$('#modeBtn').addEventListener('click', function () {
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+});
+$('#burger').addEventListener('click', function () { setNav(!document.body.classList.contains('sbopen')); });
+$('#hudToggle').addEventListener('click', function () { setHud($('#hud').hidden); });
+$('#hudClose').addEventListener('click', function () { setHud(false); });
+$('#refreshBtn').addEventListener('click', function () {
+  poll();
+  if (currentView === 'usage') loadUsage(true);
+  if (currentView === 'memory') loadMemory(null, true);
+  if (currentView === 'files') openDir(FILES.path);
 });
 
 $('#dispatchBtn').addEventListener('click', function () {
@@ -3988,8 +4560,11 @@ $('#dispatchBtn').addEventListener('click', function () {
 });
 
 /* ── boot ─────────────────────────── */
+applyTheme(lsGet(MODE_KEY, 'dark'));
+setNav(lsGet(NAV_KEY, '0') === '1');            /* rail closed unless asked for */
+setHud(lsGet(HUD_KEY, window.innerWidth > 1180 ? '1' : '0') === '1');
 try { init3D(); } catch (e) { fail3D('Three.js gagal berjalan: ' + e.message); }
-show('office');
+show(hashView() || 'office');
 poll();
 setInterval(poll, 3000);
 // Tag positions are now projected inside the render loop (see loop()), so this

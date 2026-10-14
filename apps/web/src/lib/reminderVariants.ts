@@ -11,13 +11,43 @@
 
 import { attachVariants } from "./reminders";
 import { providerHeaders } from "./providers";
+import { clockLabel, wibDay, wibParts } from "./time";
 
 const VARIANT_PROMPT = [
   "Kamu Mia, asisten pribadi perempuan yang hangat dan playful. Tulis 5 variasi pesan ",
   "reminder pendek dalam bahasa Indonesia santai (gaya DM ke teman dekat), masing-masing ",
   "maksimal sekitar 12 kata, boleh satu emoji (🌸/😄/⏰/💧/☀️). ",
+  "WAJIB sesuai jam pengingat yang diberikan: jangan menebak periode waktu. Kalau pengingat ",
+  "berbunyi malam, jangan tulis 'makan siang' — begitulah sebaliknya. Kalau teks reminder ",
+  "sendiri menyebut periode (mis. 'sarapan'), pertahankan. ",
   "Balas HANYA 5 baris pesan itu — tanpa nomor, tanpa tanda kutip, tanpa penjelasan.",
 ].join("");
+
+/** Coarse daypart for a WIB hour — the word the writer is allowed to use. */
+export function periodForHour(hour: number): string {
+  if (hour < 5) return "larut malam";
+  if (hour < 11) return "pagi";
+  if (hour < 15) return "siang";
+  if (hour < 18) return "sore";
+  return "malam";
+}
+
+/**
+ * The clock the variant writer never used to get (live 2026-10-13): an 18:59
+ * "waktunya makan" reminder came out as "makan siang dulu ya" because the pool
+ * was written from the bare text with no idea what time it was. Reminder wording
+ * is authored ONCE at creation and pushed later, so the writer must be told the
+ * moment it fires in WIB — the same clock the chat prompts carry.
+ */
+export function variantClockContext(at: number = Date.now()): string {
+  const { h } = wibParts(at);
+  const clock = clockLabel(at);
+  return (
+    `Pengingat ini berbunyi pada ${wibDay(at)} pukul ${clock} WIB — periode ${periodForHour(h)}. ` +
+    `Tulis variasi yang cocok dengan jam itu (jangan sebut periode yang berbeda), ` +
+    `dan jangan tulis jam/tanggal di dalam pesannya — label jam ditambahkan sistem saat push.`
+  );
+}
 
 export interface ReminderProvider {
   url: string;
@@ -61,7 +91,10 @@ export async function enrichReminderVariants(
         model: provider.defaultModel,
         messages: [
           { role: "system", content: VARIANT_PROMPT },
-          { role: "user", content: `Reminder untuk di variasikan: "${reminderText.trim()}"` },
+          {
+            role: "user",
+            content: `Reminder untuk di variasikan: "${reminderText.trim()}"\n${variantClockContext()}`,
+          },
         ],
         stream: false,
         temperature: 0.9,

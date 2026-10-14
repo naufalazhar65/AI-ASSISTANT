@@ -1102,31 +1102,6 @@ function buildSchedules() {
   };
 }
 
-/* ─────────────────────────── token status ─────────────────────────── */
-
-async function tokenStatus() {
-  const url = process.env.OFFICE_TOKEN_STATUS_URL;
-  if (!url) {
-    return {
-      available: false,
-      label: 'Not configured',
-      note: 'OFFICE_TOKEN_STATUS_URL belum di-set. Dashboard tidak pernah mengambil API key/secret untuk mengambil statistik.',
-      items: [],
-    };
-  }
-  try {
-    const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(), 6000);
-    const res = await fetch(url, { signal: ac.signal });
-    clearTimeout(t);
-    if (!res.ok) return { available: false, label: 'Unavailable', note: `Sumber token status menjawab HTTP ${res.status}`, items: [] };
-    const body = await res.json();
-    return { available: true, label: 'Live', source: url, items: Array.isArray(body.items) ? body.items : [body] };
-  } catch (err) {
-    return { available: false, label: 'Unavailable', note: redact(err.message), items: [] };
-  }
-}
-
 /* ─────────────────────────── logs ─────────────────────────── */
 
 function buildLog(audit, limit = 120) {
@@ -1155,6 +1130,9 @@ async function buildState() {
   const { queue, broken_lines: queueBroken, ledger_missing: queueMissing } = buildQueue();
   const tunnel = await tunnelStatus();
   const mem = hostMemory();
+  const schedulesState = buildSchedules();
+  const watchdog = watchdogStatus();
+  const remindersState = buildReminders();
   return {
     now: new Date().toISOString(),
     agents: deriveAgents(audit, paused),
@@ -1168,12 +1146,27 @@ async function buildState() {
       uptime_s: Math.round(os.uptime()),
       tunnel,
       os: `${os.type()} ${os.release()} (${os.arch()})`,
-      watchdog: watchdogStatus(),
+      watchdog,
     },
-    schedules: buildSchedules(),
-    tokens: await tokenStatus(),
+    schedules: schedulesState,
+    reminders: remindersState,
     dispatch_paused: paused,
     log: buildLog(audit),
+    version: { app: 'office-dashboard', started_iso: STARTED_ISO, node: process.version, port: PORT, auth: AUTH_ENABLED ? 'token' : 'open' },
+    activity: buildActivity(audit),
+    sources: buildSources(
+      {
+        tasks_ledger_missing: tasksMissing,
+        tasks_broken_lines: taskBroken,
+        queue_ledger_missing: queueMissing,
+        queue_broken_lines: queueBroken,
+      },
+      schedulesState,
+      tunnel,
+      watchdog,
+      audit,
+      remindersState,
+    ),
     integrity: {
       tasks_ledger_missing: tasksMissing,
       tasks_broken_lines: taskBroken,
@@ -1182,6 +1175,517 @@ async function buildState() {
       audit_available: audit.available,
       audit_note: audit.note,
       audit_broken_lines: audit.broken,
+    },
+  };
+}
+
+/**
+ * Sessions are derived, not stored: an audit file has no turn id, so a session
+ * is "one agent's events inside one 15-minute bucket of one audit file". The
+ * definition is exported to the UI so nobody reads it as a provider-reported
+ * session count.
+ */
+const SESSION_BUCKET_MS = 15 * 60 * 1000;
+
+function buildActivity(audit, limit = 20) {
+  const map = new Map();
+  for (const e of audit.events) {
+    if (e.at == null) continue;
+    const bucket = Math.floor(e.at / SESSION_BUCKET_MS);
+    const key = `${e.agent}|${e.file}|${bucket}`;
+    let s = map.get(key);
+    if (!s) {
+      s = { key, agent: e.agent, source: e.file, started: e.ts, last: e.ts, events: 0, tool_calls: 0, turn_errors: 0, last_action: null };
+      map.set(key, s);
+    }
+    s.events += 1;
+    if (e.action.indexOf('tool:') === 0) s.tool_calls += 1;
+    if (e.action === 'turn_error') s.turn_errors += 1;
+    if (e.at >= 0) {
+      s.last = e.ts;
+      s.last_action = summarizeTool(e.action, e.detail);
+    }
+    if (!s.started || String(e.ts) < String(s.started)) s.started = e.ts;
+  }
+  return Array.from(map.values())
+    .sort((a, b) => String(b.last).localeCompare(String(a.last)))
+    .slice(0, limit);
+}
+
+/* ─────────────────────────── reminders (Mia's own store) ─────────────────────────── */
+/* Mia keeps scheduled reminders in apps/web/.data/users/<user>/reminders.json —
+ * one store per agent persona (owner, owner.agnes, owner.michelle). The dashboard
+ * rendered schedules from OFFICE_SCHEDULE_DIRS .md files ONLY, which is a totally
+ * different scheduler, so a reminder set from Discord or Telegram never appeared
+ * here. Read the real store instead of guessing. */
+const REMINDERS_DIR = path.join(MIA_WEB_DIR, '.data', 'users');
+const REMINDERS_FILE = 'reminders.json';
+const FIRED_RECEIPTS_FILE = 'reminders-fired.json';
+const REMINDERS_CAP = 60;
+
+function readRemindersStore(dir, name) {
+  const rows = readJson(path.join(dir, name), []);
+  return Array.isArray(rows) ? rows : [];
+}
+
+function buildReminders() {
+  const now = Date.now();
+  const items = [];
+  const fired = [];
+  const stores = [];
+  for (const agent of AGENTS) {
+    if (!/^[A-Za-z0-9._-]+$/.test(agent.user)) continue;
+    const dir = path.join(REMINDERS_DIR, agent.user);
+    let exists = false;
+    try { exists = fs.existsSync(dir); } catch { exists = false; }
+    if (!exists) continue;
+    stores.push({ agent: agent.id, name: agent.name, user: agent.user });
+    for (const r of readRemindersStore(dir, REMINDERS_FILE)) {
+      if (!r || typeof r.text !== 'string' || typeof r.at !== 'number') continue;
+      if (r.fired) continue; // Mia prunes fired one-shots herself; nothing to show
+      items.push({
+        agent: agent.id,
+        agent_name: agent.name,
+        user: agent.user,
+        id: String(r.id || ''),
+        text: redact(truncate(r.text, 160)),
+        notes: r.notes ? redact(truncate(r.notes, 160)) : null,
+        at: r.at,
+        at_iso: new Date(r.at).toISOString(),
+        in_s: Math.max(0, Math.round((r.at - now) / 1000)),
+        repeat: r.repeat === 'daily' ? 'daily' : null,
+        variants: Array.isArray(r.variants) ? r.variants.length : 0,
+        variant_idx: typeof r.variantIdx === 'number' ? r.variantIdx : null,
+      });
+    }
+    for (const f of readRemindersStore(dir, FIRED_RECEIPTS_FILE)) {
+      if (!f || typeof f.at !== 'number') continue;
+      const delivered = typeof f.deliveredAt === 'number' ? f.deliveredAt : null;
+      fired.push({
+        agent: agent.id,
+        agent_name: agent.name,
+        text: redact(truncate(String(f.text || ''), 160)),
+        at: f.at,
+        at_iso: new Date(f.at).toISOString(),
+        delivered_at: delivered ? new Date(delivered).toISOString() : null,
+        late_s: delivered ? Math.round((delivered - f.at) / 1000) : null,
+      });
+    }
+  }
+  items.sort((a, b) => a.at - b.at);
+  fired.sort((a, b) => (b.delivered_at || b.at_iso).localeCompare(a.delivered_at || a.at_iso));
+  const sliced = items.slice(0, REMINDERS_CAP);
+  return {
+    available: stores.length > 0,
+    note: stores.length ? null : 'Store reminders Mia tidak ditemukan di .data/users.',
+    now: new Date(now).toISOString(),
+    stores,
+    pending: items.length,
+    truncated: items.length > sliced.length,
+    next: sliced[0] || null,
+    items: sliced,
+    fired: fired.slice(0, 8),
+  };
+}
+
+function buildSources(integrity, schedules, tunnel, watchdog, audit, reminders) {
+  const items = [];
+  const push = (id, label, available, note, extra) => items.push({ id, label, available, note: note || null, ...(extra || {}) });
+  push('audit', 'Audit log Mia', audit.available, audit.note, { broken_lines: audit.broken, files: audit.files });
+  push('reminders', 'Reminder Mia', !!reminders.available, reminders.available ? null : reminders.note, { stores: (reminders.stores || []).map((s) => s.user), pending: reminders.pending });
+  push('tasks_ledger', 'data/tasks.jsonl', !integrity.tasks_ledger_missing, integrity.tasks_ledger_missing ? 'Ledger tidak ada / belum pernah ditulis.' : null, { broken_lines: integrity.tasks_broken_lines });
+  push('queue_ledger', 'data/queue.jsonl', !integrity.queue_ledger_missing, integrity.queue_ledger_missing ? 'Ledger tidak ada / belum pernah ditulis.' : null, { broken_lines: integrity.queue_broken_lines });
+  push('schedules', 'Jadwal (.md)', !!schedules.configured, schedules.configured ? null : 'OFFICE_SCHEDULE_DIRS belum di-set / folder tidak ada.', { dirs: schedules.dirs || [] });
+  push('tunnel', 'Tunnel publik', !!tunnel.available, tunnel.available ? null : tunnel.note);
+  push('watchdog', 'Watchdog', !!watchdog.available, watchdog.available ? null : watchdog.note);
+  return items;
+}
+
+/* ─────────────────────── mission-control read-only sources ───────────────────────
+ * Everything below serves the dashboard's Files / Memory / Usage tabs. It is
+ * READ-ONLY by construction: there is no write path, no delete, and every
+ * response body goes through redact() so a credential that happens to sit in
+ * a browsable file never reaches the browser.
+ * --------------------------------------------------------------------------- */
+
+const STARTED_ISO = new Date().toISOString();
+
+// Roots the Files tab may browse. apps/web/.data is deliberately absent (it is
+// also in DENY_SEGMENTS): it holds gmail.json / spotify.json / http-sessions.json /
+// policy.json, i.e. live refresh tokens and cookies.
+const FILE_ROOTS = [
+  { id: 'web', label: 'apps/web', dir: MIA_WEB_DIR },
+  { id: 'dashboard', label: 'apps/office-dashboard', dir: ROOT },
+];
+
+// Never listed, never readable — noise or secret-bearing.
+const DENY_SEGMENTS = new Set([
+  '.git', 'node_modules', '.next', 'dist', 'build', 'coverage', '.venv', 'venv',
+  '__pycache__', '.cache', '.turbo', '.data', 'graphify-out', 'vendor',
+]);
+const DENY_NAME_RE = /(token|secret|password|passwd|credential|auth)/i;
+const DENY_EXT_RE = /\.(pem|key|crt|cer|p12|pfx|jks|keystore|db|sqlite|sqlite3|log|p7b|der)$/i;
+const BINARY_EXT_RE = /\.(png|jpe?g|gif|webp|ico|zip|gz|tgz|tar|bz2|xz|7z|mp3|mp4|wav|mov|webm|pdf|woff2?|ttf|otf|eot|so|dylib|dll|exe|node|wasm|bin|lock)$/i;
+
+/** Deny the whole requested path, not just one listing entry: `apps/web/.data`
+ *  must be unreachable even though none of its CHILDREN look secret-named. */
+function denyPathReason(rel) {
+  const parts = String(rel == null ? '' : rel).split(/[\\/]+/).filter(Boolean);
+  for (let i = 0; i < parts.length; i += 1) {
+    if (parts[i] === '..') continue; // traversal is resolveInside()'s job — keep the reason honest
+    // the last segment may be a file: check it as a directory too, since a
+    // secret-bearing DIRECTORY name must be refused before we ever read it.
+    const reason = denyReason(parts[i], true);
+    if (reason) return reason;
+  }
+  return null;
+}
+
+function denyReason(name, isDir) {
+  const lower = String(name || '').toLowerCase();
+  if (!lower) return 'invalid_name';
+  if (DENY_SEGMENTS.has(lower)) return isDir ? 'directory_hidden' : 'file_hidden';
+  if (lower.startsWith('.env')) return 'secret_file';
+  if (lower.startsWith('.')) return 'dotfile';
+  if (DENY_NAME_RE.test(lower)) return 'credential_name';
+  if (DENY_EXT_RE.test(lower)) return 'secret_or_binary_ext';
+  if (!isDir && BINARY_EXT_RE.test(lower)) return 'binary';
+  return null;
+}
+
+/**
+ * Resolve `rel` inside `root` and prove the RESULT is still inside the root.
+ * realpath() on both sides means a symlink pointing outside the tree is caught
+ * even though every textual component looked harmless.
+ */
+function resolveInside(root, rel) {
+  const raw = String(rel == null ? '' : rel);
+  if (raw.indexOf('\0') !== -1) return { error: 'forbidden' };
+  const parts = raw.split(/[\\/]+/).filter(Boolean);
+  if (parts.some((seg) => seg === '..')) return { error: 'forbidden' };
+  let rootReal;
+  try {
+    rootReal = fs.realpathSync(root);
+  } catch {
+    return { error: 'not_found' };
+  }
+  let real;
+  try {
+    real = fs.realpathSync(path.resolve(rootReal, parts.join(path.sep)));
+  } catch {
+    return { error: 'not_found' };
+  }
+  if (real !== rootReal && real.indexOf(rootReal + path.sep) !== 0) return { error: 'forbidden' };
+  return { root: rootReal, real, rel: parts.join('/') };
+}
+
+function readTextCapped(file, capBytes) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(capBytes);
+    const read = fs.readSync(fd, buf, 0, capBytes, 0);
+    return { buf: buf.subarray(0, read), read };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+const FILE_LIST_CAP = 800;
+const FILE_TEXT_CAP = 256 * 1024;
+
+function buildFiles(query) {
+  const roots = FILE_ROOTS.map((r) => ({ id: r.id, label: r.label }));
+  const rootId = typeof query.root === 'string' && query.root ? query.root : FILE_ROOTS[0].id;
+  const spec = FILE_ROOTS.find((r) => r.id === rootId);
+  if (!spec) return { error: 'unknown_root', allowed: roots };
+
+  const pathReason = denyPathReason(query.path);
+  if (pathReason) return { error: 'forbidden', reason: pathReason, root: rootId, path: String(query.path || '') };
+
+  const target = resolveInside(spec.dir, query.path);
+  if (target.error) return { error: target.error, root: rootId, path: String(query.path || '') };
+
+  let st;
+  try {
+    st = fs.statSync(target.real);
+  } catch {
+    return { error: 'not_found', root: rootId, path: target.rel };
+  }
+
+  if (st.isDirectory()) {
+    let names;
+    try {
+      names = fs.readdirSync(target.real);
+    } catch (e) {
+      return { error: 'unreadable', root: rootId, path: target.rel, message: redact(String(e.message)) };
+    }
+    names.sort((a, b) => a.localeCompare(b));
+    const entries = [];
+    let truncated = false;
+    let hidden = 0;
+    for (const name of names) {
+      if (entries.length >= FILE_LIST_CAP) {
+        truncated = true;
+        break;
+      }
+      let type = 'file';
+      let size = 0;
+      let mtime = null;
+      try {
+        const lst = fs.lstatSync(path.join(target.real, name));
+        mtime = lst.mtime.toISOString();
+        if (lst.isSymbolicLink()) {
+          const link = resolveInside(spec.dir, target.rel ? `${target.rel}/${name}` : name);
+          if (link.error) {
+            entries.push({ name, type: 'link', denied: true, reason: link.error });
+            continue;
+          }
+          const lstTarget = fs.statSync(link.real);
+          type = lstTarget.isDirectory() ? 'dir' : 'file';
+          size = lstTarget.size;
+        } else {
+          type = lst.isDirectory() ? 'dir' : 'file';
+          size = lst.isDirectory() ? 0 : lst.size;
+        }
+      } catch {
+        entries.push({ name, type: 'file', denied: true, reason: 'unreadable' });
+        continue;
+      }
+      const reason = denyReason(name, type === 'dir');
+      if (reason) {
+        hidden += 1;
+        entries.push({ name, type, size, mtime, denied: true, reason });
+        continue;
+      }
+      entries.push({ name, type, size, mtime });
+    }
+    return { kind: 'dir', root: rootId, roots, path: target.rel, entries, hidden, truncated };
+  }
+
+  const base = path.basename(target.real);
+  const reason = denyReason(base, false);
+  if (reason) return { kind: 'file', root: rootId, roots, path: target.rel, name: base, denied: true, reason };
+  if (BINARY_EXT_RE.test(base)) {
+    return {
+      kind: 'file', root: rootId, roots, path: target.rel, name: base,
+      size: st.size, mtime: st.mtime.toISOString(), binary: true,
+      note: 'File biner — tidak ditampilkan sebagai teks.',
+    };
+  }
+  const cap = Math.min(st.size, FILE_TEXT_CAP);
+  const { buf, read } = readTextCapped(target.real, cap || 1);
+  return {
+    kind: 'file', root: rootId, roots, path: target.rel, name: base,
+    size: st.size, mtime: st.mtime.toISOString(), binary: false,
+    truncated: st.size > read, text: redact(buf.toString('utf8')),
+  };
+}
+
+const USERS_DIR = path.join(MIA_WEB_DIR, '.data', 'users');
+const MEMORY_FILE_CAP = 40;
+const MEMORY_TEXT_CAP = 64 * 1024;
+const MEMORY_DAILY_KEEP = 14;
+const MEMORY_TREE_CAP = 12;
+
+/** Real, owner-scoped data dir for one agent (null when absent or unsafe). */
+function agentUserDir(agentId) {
+  const spec = AGENTS.find((a) => a.id === agentId);
+  if (!spec) return null;
+  if (!/^[A-Za-z0-9._-]+$/.test(spec.user)) return null;
+  let base;
+  try {
+    base = fs.realpathSync(USERS_DIR);
+  } catch {
+    return null;
+  }
+  const dir = path.resolve(base, spec.user);
+  if (dir.indexOf(base + path.sep) !== 0) return null;
+  try {
+    if (!fs.statSync(dir).isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  return { dir, rel: path.relative(base, dir) };
+}
+
+function walkMarkdown(dir, depth, out, cap) {
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+  names.sort();
+  for (const name of names) {
+    if (out.length >= cap) return;
+    if (name.startsWith('.')) continue;
+    const full = path.join(dir, name);
+    let st;
+    try {
+      st = fs.lstatSync(full);
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink()) continue;
+    if (st.isDirectory()) {
+      if (depth > 0) walkMarkdown(full, depth - 1, out, cap);
+      continue;
+    }
+    if (!name.toLowerCase().endsWith('.md')) continue;
+    out.push(full);
+  }
+}
+
+function buildMemory(query) {
+  const agents = AGENTS.map((a) => ({ id: a.id, name: a.name, user: a.user }));
+  const agentId = typeof query.agent === 'string' && query.agent ? query.agent : 'mia';
+  if (!AGENTS.some((a) => a.id === agentId)) {
+    return { available: false, note: 'agent_unknown', allowed: agents, files: [] };
+  }
+  const base = agentUserDir(agentId);
+  if (!base) {
+    return {
+      available: false, note: `Tidak ada folder data untuk agent ini di ${USERS_DIR}.`, agents, files: [],
+    };
+  }
+
+  const wanted = [];
+  const personaDir = path.join(base.dir, 'persona');
+  try {
+    for (const name of fs.readdirSync(personaDir).sort()) {
+      if (name.toLowerCase().endsWith('.md')) wanted.push(path.join(personaDir, name));
+    }
+  } catch { /* persona optional */ }
+
+  const memoryDir = path.join(base.dir, 'memory');
+  try {
+    const daily = fs.readdirSync(memoryDir)
+      .filter((n) => n.toLowerCase().endsWith('.md'))
+      .sort()
+      .reverse()
+      .slice(0, MEMORY_DAILY_KEEP);
+    for (const name of daily) wanted.push(path.join(memoryDir, name));
+  } catch { /* memory optional */ }
+
+  const corrections = path.join(base.dir, 'corrections.md');
+  if (fs.existsSync(corrections)) wanted.push(corrections);
+
+  const learning = [];
+  walkMarkdown(path.join(base.dir, '.self-improving'), 2, learning, MEMORY_TREE_CAP);
+  wanted.push(...learning);
+
+  const files = [];
+  for (const full of wanted.slice(0, MEMORY_FILE_CAP)) {
+    let st;
+    try {
+      st = fs.statSync(full);
+    } catch {
+      continue;
+    }
+    let text = '';
+    let truncated = false;
+    try {
+      const cap = Math.min(st.size, MEMORY_TEXT_CAP) || 1;
+      const { buf, read } = readTextCapped(full, cap);
+      truncated = st.size > read;
+      text = redact(buf.toString('utf8'));
+    } catch (e) {
+      files.push({
+        path: path.relative(base.dir, full), size: st.size, mtime: st.mtime.toISOString(),
+        truncated: true, text: '', note: `Gagal dibaca: ${redact(String(e.message))}`,
+      });
+      continue;
+    }
+    files.push({
+      path: path.relative(base.dir, full),
+      size: st.size,
+      mtime: st.mtime.toISOString(),
+      chars: text.length,
+      truncated,
+      text,
+    });
+  }
+
+  return {
+    available: true,
+    note: files.length ? null : 'Folder ada tapi belum ada file memory/persona untuk agent ini.',
+    agent: agentId,
+    user: AGENTS.find((a) => a.id === agentId).user,
+    root: base.rel,
+    agents,
+    files,
+    truncated: wanted.length > MEMORY_FILE_CAP,
+  };
+}
+
+const USAGE_PERIODS = { '24h': 24 * 3600 * 1000, '7d': 7 * 24 * 3600 * 1000, '30d': 30 * 24 * 3600 * 1000 };
+
+function buildUsage(query) {
+  const period = Object.prototype.hasOwnProperty.call(USAGE_PERIODS, String(query.period)) ? String(query.period) : '7d';
+  const spanMs = USAGE_PERIODS[period];
+  const since = Date.now() - spanMs;
+  const hourly = period === '24h';
+  const bucketMs = hourly ? 3600 * 1000 : 24 * 3600 * 1000;
+  const bucketCount = Math.ceil(spanMs / bucketMs);
+
+  const audit = readAudit();
+  const perAgent = {};
+  const perAction = {};
+  const perSource = {};
+  const buckets = [];
+  for (let i = 0; i < bucketCount; i += 1) buckets.push({ start: since + i * bucketMs, events: 0, tool_calls: 0, turns: 0, errors: 0 });
+  let events = 0;
+  let toolCalls = 0;
+  let turns = 0;
+  let errors = 0;
+  let inWindow = 0;
+
+  for (const e of audit.events) {
+    if (e.at == null || e.at < since) continue;
+    inWindow += 1;
+    events += 1;
+    perAgent[e.agent] = (perAgent[e.agent] || 0) + 1;
+    perSource[e.file] = (perSource[e.file] || 0) + 1;
+    const isTool = e.action.indexOf('tool:') === 0;
+    const isTurn = e.action === 'turn_provider';
+    const isError = e.action === 'turn_error';
+    if (isTool) toolCalls += 1;
+    if (isTurn) turns += 1;
+    if (isError) errors += 1;
+    const key = isTool ? e.action.slice(5) : e.action;
+    perAction[key] = (perAction[key] || 0) + 1;
+    const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((e.at - since) / bucketMs)));
+    if (idx >= 0) {
+      buckets[idx].events += 1;
+      if (isTool) buckets[idx].tool_calls += 1;
+      if (isTurn) buckets[idx].turns += 1;
+      if (isError) buckets[idx].errors += 1;
+    }
+  }
+
+  const top = (obj, limit) => Object.keys(obj)
+    .map((k) => ({ key: k, count: obj[k] }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key))
+    .slice(0, limit);
+
+  return {
+    period,
+    window_ms: spanMs,
+    bucket: hourly ? 'hour' : 'day',
+    available: audit.available,
+    note: audit.available ? null : audit.note,
+    window_events: inWindow,
+    audit_files: audit.files || 0,
+    audit_broken_lines: audit.broken || 0,
+    totals: { events, turns, tool_calls: toolCalls, turn_errors: errors },
+    per_agent: top(perAgent, AGENT_IDS.length),
+    per_action: top(perAction, 25),
+    per_source: top(perSource, 14),
+    timeseries: buckets.map((b) => ({ start: new Date(b.start).toISOString(), ...b })),
+    definitions: {
+      turns: 'Jumlah event audit action=turn_provider (satu giliran assistant).',
+      tool_calls: 'Jumlah event audit action=tool:<nama>.',
+      turn_errors: 'Jumlah event audit action=turn_error. Kegagalan tool tidak dilog terpisah oleh sumber audit.',
     },
   };
 }
@@ -1339,6 +1843,23 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/state' && req.method === 'GET') {
       sendJson(res, 200, await buildState());
+      return;
+    }
+    if (p === '/api/files' && req.method === 'GET') {
+      const out = buildFiles(Object.fromEntries(url.searchParams.entries()));
+      if (out.error === 'unknown_root' || out.error === 'forbidden' || out.error === 'not_found') {
+        sendJson(res, out.error === 'unknown_root' ? 400 : 403, out);
+        return;
+      }
+      sendJson(res, 200, out);
+      return;
+    }
+    if (p === '/api/memory' && req.method === 'GET') {
+      sendJson(res, 200, buildMemory(Object.fromEntries(url.searchParams.entries())));
+      return;
+    }
+    if (p === '/api/usage' && req.method === 'GET') {
+      sendJson(res, 200, buildUsage(Object.fromEntries(url.searchParams.entries())));
       return;
     }
     if (p === '/api/queue' && req.method === 'POST') {

@@ -411,6 +411,14 @@ export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[
     acked.set(r.id, ok);
   }
   const dueIds = new Set(due.map((r) => r.id));
+  // The text a listener actually received, per reminder id. The receipt below
+  // must quote THAT, not the stored `text`: push time rotates the model-authored
+  // variants pool, so the stored text and the delivered one differ (live
+  // 2026-10-13: stored "Waktunya makan! 🍽️", pushed "Hei, waktunya makan siang
+  // dulu ya" — the receipt named the wrong line, and the office dashboard
+  // rendered the receipt).
+  const deliveredText = new Map<string, string>();
+  for (const r of deliverable) deliveredText.set(r.id, r.text);
   const next: Reminder[] = [];
   for (const r of reminders) {
     if (!dueIds.has(r.id)) {
@@ -430,7 +438,7 @@ export function takeDueReminders(rawUser?: unknown, now = Date.now()): Reminder[
       // is answered from a fact, not from the pruned (empty) list (2026-09-30:
       // the 20:10 dinner reminder fired, was pruned, and Mia confessed a miss
       // she never made).
-      appendFiredReceipt(userKey, { text: r.text, at: r.at, deliveredAt: now });
+      appendFiredReceipt(userKey, { text: deliveredText.get(r.id) ?? r.text, at: r.at, deliveredAt: now });
       continue; // delivered one-shot → dropped, never accumulates
     } else {
       next.push({ ...r, missedAt: r.at, delivered: false });
