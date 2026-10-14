@@ -199,9 +199,13 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
-/** Same contract as authGuard.isAuthorized: cookie OR bearer. */
+/** Same contract as authGuard.isAuthorized: cookie OR bearer OR ?token= (local UI). */
 function isAuthorized(req) {
   if (!AUTH_ENABLED) return true;
+  try {
+    var q = new URL(req.url || '/', 'http://127.0.0.1').searchParams.get('token');
+    if (q && timingSafeEqual(q, AUTH_TOKEN)) return true;
+  } catch (e) {}
   const cookies = parseCookies(req.headers.cookie);
   if (cookies[AUTH_COOKIE] && timingSafeEqual(cookies[AUTH_COOKIE], AUTH_TOKEN)) return true;
   const auth = req.headers.authorization || '';

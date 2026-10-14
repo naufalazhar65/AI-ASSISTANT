@@ -524,7 +524,7 @@ function poll() {
   if (inflight) return;
   inflight = true;
   cachedSource('state', STATE_TTL_MS, function () {
-    return fetch('/api/state', { headers: { accept: 'application/json' } })
+    return fetch(api('/api/state'), { headers: { accept: 'application/json' } })
       .then(function (r) {
         if (r.status === 401) throw new Error('401 unauthorized');
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -539,6 +539,7 @@ function poll() {
       render();
     })
     .catch(function (e) {
+      if (e && e.message && e.message.indexOf('401') >= 0) needToken();
       // keep the last good data, mark it stale — never substitute dummy data
       $('#apiPill').className = 'bad';
       $('#apiPill').title = 'API: ' + (e.message || 'error');
@@ -557,7 +558,7 @@ var FILES = { root: 'dashboard', roots: [{ id: 'dashboard', label: 'apps/office-
               path: '', data: null, file: null, loading: false };
 var LOGS = { filter: '' };
 
-function json(url) { return fetch(url).then(function (r) { return r.json(); }); }
+function json(url) { return fetch(api(url)).then(function (r) { if (r.status === 401) { needToken(); throw new Error('401 unauthorized'); } return r.json(); }); }
 
 function loadUsage(force) {
   if (USAGE.loading) return;
@@ -3728,7 +3729,7 @@ function connectBus() {
   if (BUS.es || typeof EventSource === 'undefined') return;
   var url = '/api/bus/stream' + (BUS.cursor ? '?since=' + BUS.cursor : '');
   var es;
-  try { es = new EventSource(url); } catch (e) { BUS.error = 'blocked'; busPill(); return; }
+  try { es = new EventSource(api(url)); } catch (e) { BUS.error = 'blocked'; busPill(); return; }
   BUS.es = es;
   es.onopen = function () { BUS.lastSeen = Date.now(); BUS.error = null; busPill(); };
   es.onerror = function () { busPill(); };
@@ -4484,7 +4485,7 @@ function submitTask() {
   var err = $('#mErr');
   if (!txt) { err.textContent = 'Prompt wajib diisi.'; return; }
   err.textContent = '';
-  fetch('/api/queue', {
+  fetch(api('/api/queue'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ prompt: txt, agent: modalTask, deliver: $('#mDeliver').checked ? 'discord' : 'auto' })
@@ -4573,6 +4574,22 @@ var HUD_KEY = 'office-dashboard.hud';
 function lsGet(k, fb) { try { var v = localStorage.getItem(k); return v == null ? fb : v; } catch (e) { return fb; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
+/* ── auth: token disimpan sekali, ditempel ke semua /api/ (query, bukan header,
+   karena EventSource tidak bisa kirim header) ── */
+var _tokenAsked = false;
+function apiTok() { return lsGet('mia_token', ''); }
+function api(url) {
+  var t = apiTok();
+  if (!t) return url;
+  return url + (url.indexOf('?') < 0 ? '?' : '&') + 'token=' + encodeURIComponent(t);
+}
+function needToken() {
+  if (_tokenAsked) return;
+  _tokenAsked = true;
+  var t = prompt('Dashboard terkunci (401). Tempel AUTH_TOKEN dari apps/web/.env.local:');
+  if (t && t.trim()) { lsSet('mia_token', t.trim()); location.reload(); }
+}
+
 function setNav(open) {
   document.body.classList.toggle('sbopen', !!open);
   lsSet(NAV_KEY, open ? '1' : '0');
@@ -4609,7 +4626,7 @@ $('#refreshBtn').addEventListener('click', function () {
 
 $('#dispatchBtn').addEventListener('click', function () {
   var next = !(STATE && STATE.dispatch_paused);
-  fetch('/api/dispatch', {
+  fetch(api('/api/dispatch'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ paused: next })
