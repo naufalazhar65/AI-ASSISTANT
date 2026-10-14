@@ -77,7 +77,11 @@ fi
 echo "[watchdog] membuka tunnel baru via bore (log: $TUNNEL_LOG)"
 nohup bore local "$PORT" --to bore.pub > "$TUNNEL_LOG" 2>&1 &
 sleep 5
-NEW_URL="$(grep -oE 'https://[a-z0-9.-]+\.bore\.pub' "$TUNNEL_LOG" 2>/dev/null | head -1 || true)"
+NEW_URL="$(grep -oE 'https://[a-z0-9.-]+\.bore\.pub(:[0-9]+)?' "$TUNNEL_LOG" 2>/dev/null | head -1 || true)"
+if [ -z "$NEW_URL" ]; then
+  PORTNUM="$(grep -oE 'listening at bore\.pub:[0-9]+' "$TUNNEL_LOG" 2>/dev/null | grep -oE '[0-9]+$' | head -1 || true)"
+  [ -n "$PORTNUM" ] && NEW_URL="https://bore.pub:$PORTNUM"
+fi
 if [ -z "$NEW_URL" ]; then
   history false "tunnel_start_failed" null "URL tidak ditemukan di $TUNNEL_LOG"
   echo "[watchdog] tunnel gagal start."
