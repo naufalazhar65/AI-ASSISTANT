@@ -463,12 +463,34 @@ async function main() {
       if (got !== want) throw new Error(`resolveOwnerScopedKey(${String(input)}) = ${String(got)}, want ${String(want)}`);
     }
     // And the proof that mattered: Michelle must SEE the owner's open findings.
+    // Hermetic on ANY machine (live CI red 2026-10-15: a fresh clone has no
+    // .data, so reading the real owner store made the proof vacuous there
+    // while green locally). Seed 2 fixture rows on a byte-exact
+    // snapshot/restore — try/finally, so a failure here can never pollute the
+    // owner's real findings. Path via appRoot (verify.ts:500 pattern) — a bare
+    // userDataRoot() call collides with esbuild's renamed dynamic-import
+    // bindings later in this file (TDZ "userDataRoot2").
     const { readFindings } = await import("./src/lib/security");
-    const ownerOpen = readFindings("naufalazhar652952").filter((f) => f.status !== "resolved");
-    const michelleOpen = readFindings("naufalazhar652952.michelle").filter((f) => f.status !== "resolved");
-    if (ownerOpen.length === 0) throw new Error("owner has no open findings — the shared-store proof is vacuous");
-    if (michelleOpen.length !== ownerOpen.length) {
-      throw new Error(`Michelle sees ${michelleOpen.length} open findings, owner has ${ownerOpen.length}`);
+    const ownerFindingsPath = join(appRoot(), ".data", "users", "naufalazhar652952", "findings.json");
+    const ownerSnapshot = existsSync(ownerFindingsPath) ? readFileSync(ownerFindingsPath) : null;
+    try {
+      mkdirSync(join(appRoot(), ".data", "users", "naufalazhar652952"), { recursive: true });
+      writeFileSync(
+        ownerFindingsPath,
+        JSON.stringify([
+          { id: "F-verify1", title: "Verify fixture one", severity: "high", cvss: 7.5, target: "https://verify.example/a", status: "open", createdAt: "2026-10-15T00:00:00.000Z" },
+          { id: "F-verify2", title: "Verify fixture two", severity: "low", cvss: 3.7, target: "https://verify.example/b", status: "open", createdAt: "2026-10-15T00:00:00.000Z" },
+        ])
+      );
+      const ownerOpen = readFindings("naufalazhar652952").filter((f) => f.status !== "resolved");
+      const michelleOpen = readFindings("naufalazhar652952.michelle").filter((f) => f.status !== "resolved");
+      if (ownerOpen.length !== 2) throw new Error("fixture seed failed — expected exactly 2 open findings");
+      if (michelleOpen.length !== ownerOpen.length) {
+        throw new Error(`Michelle sees ${michelleOpen.length} open findings, owner has ${ownerOpen.length}`);
+      }
+    } finally {
+      if (ownerSnapshot === null) rmSync(ownerFindingsPath, { force: true });
+      else writeFileSync(ownerFindingsPath, ownerSnapshot);
     }
   }
   console.log("owner-scoped pentest state (agent keys fold, strangers do not): OK");
