@@ -5,10 +5,10 @@
 // chunks) that the model then claimed was "sudah siap dan tercatat di atas" —
 // nothing was above, so the artifact never reached the user.
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DELIVERY_DENIAL_RE, claimedReportNames, deliveredReportName, emptyReportClaimNote, inlineDeliveryClaimNote, pdfDeliverableSuffix, pdfExistenceClaim, reportProvenanceNote, retryEmptyReportDelivery, stripAbsentReportFiles, stripToolCallProse } from "./agent";
-import { addFinding, reportPdf, reportSave } from "./security";
+import { DELIVERY_DENIAL_RE, claimedReportNames, deliveredReportName, emptyReportClaimNote, inlineDeliveryClaimNote, isReportLocationAsk, pdfDeliverableSuffix, pdfExistenceClaim, reportLocationNote, reportProvenanceNote, retryEmptyReportDelivery, stripAbsentReportFiles, stripPersistenceDenial, stripToolCallProse } from "./agent";
+import { addFinding, listRecentReports, reportPdf, reportSave } from "./security";
 import { userDataRoot } from "./users";
 
 const LIVE_REPLY =
@@ -700,5 +700,85 @@ describe("a DENIAL of a report that EXISTS, beside its own receipt (live 2026-09
     expect(DELIVERY_DENIAL_RE.test("sistem menolak membuat laporan")).toBe(true);
     expect(DELIVERY_DENIAL_RE.test("sistem gagal menyimpan laporan")).toBe(true);
     expect(DELIVERY_DENIAL_RE.test("aku tidak bisa membuat PDF")).toBe(true);
+  });
+});
+
+describe("reportLocationNote — follow-up turn must not deny a real on-disk file", () => {
+  // Live 2026-10-15 12:23 verbatim (Discord): the file it denies WAS on disk
+  // (report-2026-10-15T05-21-07-557Z.pdf, 293.859 bytes, 12:21:08).
+  const LIVE_DENIAL =
+    "Sebenarnya laporan PDF tersebut otomatis dibuat oleh sistem saat pengujian dijalankan, tapi karena di environment disk saat ini file PDF-nya tidak tersimpan secara permanen ke direktori lokal workspace, file fisiknya gak ada di folder.";
+  const FILES = [{ name: "report-2026-10-15T05-21-07-557Z.pdf", mtimeMs: 1760490068000 }];
+
+  it("isReportLocationAsk fires on the live ask, silent on creation asks", () => {
+    expect(isReportLocationAsk("dimana file reportnya?")).toBe(true);
+    expect(isReportLocationAsk("mana pdfnya?")).toBe(true);
+    expect(isReportLocationAsk("buatkan report pdf nya")).toBe(false);
+    expect(isReportLocationAsk("halo")).toBe(false);
+  });
+
+  it("fires a correction + real filename on the live denial", () => {
+    const note = reportLocationNote(LIVE_DENIAL, FILES);
+    expect(note).toMatch(/TERSIMPAN/);
+    expect(note).toContain("report-2026-10-15T05-21-07-557Z.pdf");
+  });
+
+  it("fires a correction on the live 12:33 reword ('gak menyimpan file fisik' / 'gak nongol di folder')", () => {
+    const live1233 =
+      "File PDF-nya otomatis dibuat di folder laporan sistem Mas Naufal, tapi karena environment kita gak menyimpan file fisik secara permanen di direktori lokal, filenya gak nongol di folder workspace.";
+    const note = reportLocationNote(live1233, FILES);
+    expect(note).toMatch(/TERSIMPAN/);
+    expect(note).toContain("report-2026-10-15T05-21-07-557Z.pdf");
+  });
+
+  it("lists real files (no correction) when the reply never denied anything", () => {
+    const note = reportLocationNote("Sebentar ya, aku cek dulu.", FILES);
+    expect(note).toContain("report-2026-10-15T05-21-07-557Z.pdf");
+    expect(note).not.toMatch(/TERSIMPAN/);
+  });
+
+  it("stays silent with no files, or when the reply already names the real file", () => {
+    expect(reportLocationNote(LIVE_DENIAL, [])).toBe("");
+    expect(reportLocationNote("PDF-nya: `report-2026-10-15T05-21-07-557Z.pdf` ya.", FILES)).toBe("");
+    // ...but a denial next to a real name is still a contradiction worth correcting.
+    expect(reportLocationNote("`report-2026-10-15T05-21-07-557Z.pdf` tapi file fisiknya gak ada di folder.", FILES)).toMatch(/TERSIMPAN/);
+  });
+
+  it("listRecentReports reads the owner-scoped dir newest-first (throwaway user)", () => {
+    const user = `verify_replist_${Date.now()}`;
+    const dir = join(userDataRoot(), user, "reports");
+    try {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "report-2026-01-01T00-00-00-000Z.pdf"), "old");
+      writeFileSync(join(dir, "report-2026-10-15T05-21-07-557Z.pdf"), "new");
+      writeFileSync(join(dir, "notes.txt"), "not a report");
+      const rows = listRecentReports(user, 5);
+      expect(rows.map((r) => r.name)).toEqual([
+        "report-2026-10-15T05-21-07-557Z.pdf",
+        "report-2026-01-01T00-00-00-000Z.pdf",
+      ]);
+      expect(listRecentReports("..\\evil", 5)).toEqual([]);
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  });
+});
+
+describe("stripPersistenceDenial — the denial sentence must not stand next to its own correction", () => {
+  const LIVE1236 =
+    "File laporan PDF-nya otomatis dibuat oleh sistem di folder laporan setiap kali ringkasan disusun Mas Naufal, tapi karena environment kita gak menyimpan file fisik secara permanen di direktori lokal, filenya gak nongol di folder workspace. 🌸 Mau kubantu buatkan ringkasan temuannya langsung di chat ini aja?";
+
+  it("drops the denial sentence but keeps the honest offer (live 12:36)", () => {
+    const out = stripPersistenceDenial(LIVE1236, true);
+    expect(out).not.toMatch(/gak menyimpan file fisik|gak nongol/);
+    expect(out).toMatch(/Mau kubantu buatkan ringkasan/);
+  });
+
+  it("leaves everything untouched without files, or without denial", () => {
+    expect(stripPersistenceDenial(LIVE1236, false)).toBe(LIVE1236);
+    expect(stripPersistenceDenial("PDF-nya sudah kubuat ya.", true)).toBe("PDF-nya sudah kubuat ya.");
+    expect(stripPersistenceDenial("Laporannya belum kubuat — belum ada temuan.", true)).toBe(
+      "Laporannya belum kubuat — belum ada temuan."
+    );
   });
 });

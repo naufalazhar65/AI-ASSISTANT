@@ -15,6 +15,9 @@ import {
   unverifiedFindingClaimNote,
   numericClaimSuffix,
   composeBuildClaimSuffix,
+  isReportLocationAsk,
+  reportLocationNote,
+  stripPersistenceDenial,
 } from "./src/lib/agent";
 import { metaProseNote } from "./src/lib/metaProse";
 import { readFileSync } from "node:fs";
@@ -319,6 +322,33 @@ fire("BUILD: exploit_build 'tidak dibuat' tapi dinarasi jadi → FIRE",
 fire("BUILD: pengakuan jujur 'belum dibuat' → diam",
   composeBuildClaimSuffix([] as never, "Artefaknya belum dibuat — temuan belum proven."), false);
 
+// ── reportLocationNote: follow-up "dimana file reportnya?" (live 2026-10-15) ──
+const LIVE_LOC_FILE = { name: "report-2026-10-15T05-21-07-557Z.pdf", mtimeMs: 1760490068000 };
+fire("LOCATION: live denial 'tidak tersimpan permanen / gak ada di folder' → FIRE + nama nyata",
+  reportLocationNote(
+    "Sebenarnya laporan PDF tersebut otomatis dibuat oleh sistem saat pengujian dijalankan, tapi karena di environment disk saat ini file PDF-nya tidak tersimpan secara permanen ke direktori lokal workspace, file fisiknya gak ada di folder.",
+    [LIVE_LOC_FILE]
+  ).includes("report-2026-10-15T05-21-07-557Z.pdf") ? "FIRE" : "", true);
+fire("LOCATION: reply biasa tanpa denial → tetap daftar file (bukan diam)",
+  reportLocationNote("Sebentar ya, aku cek dulu.", [LIVE_LOC_FILE]), true);
+fire("LOCATION: dir kosong → diam (tidak ada yang bisa dikoreksi)",
+  reportLocationNote("File PDF-nya tidak tersimpan secara permanen.", []), false);
+fire("LOCATION: nama nyata sudah disebut, tanpa denial → diam",
+  reportLocationNote("PDF-nya: `report-2026-10-15T05-21-07-557Z.pdf` ya.", [LIVE_LOC_FILE]), false);
+fire("LOCATION-ASK: 'dimana file reportnya?' → ask; 'buatkan report pdf' → bukan ask",
+  isReportLocationAsk("dimana file reportnya?") && !isReportLocationAsk("buatkan report pdf nya") ? "FIRE" : "", true);
+fire("LOCATION-STRIP: live 12:36 denial sentence dropped, offer kept",
+  (() => {
+    const out = stripPersistenceDenial(
+      "File laporan PDF-nya otomatis dibuat di folder laporan, tapi karena environment kita gak menyimpan file fisik secara permanen, filenya gak nongol di folder workspace. Mau kubantu buatkan ringkasan?",
+      true
+    );
+    return !/gak menyimpan|gak nongol/.test(out) && /Mau kubantu/.test(out) ? "FIRE" : "";
+  })(), true);
+fire("LOCATION-STRIP: no files → untouched; honest 'belum kubuat' → untouched",
+  stripPersistenceDenial("Laporannya belum kubuat.", false) === "Laporannya belum kubuat." &&
+  stripPersistenceDenial("Laporannya belum kubuat.", true) === "Laporannya belum kubuat." ? "FIRE" : "", true);
+
 // ── endpointTriageNote: regressi dari drill numeric (path-palsu + UX 11:55) ──
 fire("TRIAGE: slash-group di ask TIDAK digali jadi path (drill run 1) → diam",
   endpointTriageNote([{ role: "user", content: "berapa endpoint / request / temuan yang sudah kamu kerjakan? jawab dengan angka" }] as never, "ada 3 endpoint yang sudah diuji, 12 request dikirim"), false);
@@ -355,11 +385,20 @@ for (const w of [
   "pentestDirectionQuestionNote(messages, text",
   "unrecordedFindingClaimNote(messages, text",
   "refusalWithoutScopeCheckNote(messages, text",
+  "reportLocationNote(text, ",
+  "stripPersistenceDenial(text, ",
 ]) {
   const wired = agentFlat.includes(w);
   console.log(`${wired ? "✓" : "✗"} WIRING: ${w})${wired ? "" : " — TIDAK TERPASANG di runAgent!"}`);
   if (!wired) fail++;
 }
+// The location-ask must GATE the resolver: a name-only check passes even when
+// the condition is short-circuited (`false && isReportLocationAsk(ask)` — the
+// same class as the 2026-10-08 `if (false && !gate.allow)` miss), so assert the
+// intact condition chain instead.
+const locChain = agentFlat.includes('!turnRanTool(messages, "report_save") && isReportLocationAsk(ask)');
+console.log(`${locChain ? "✓" : "✗"} WIRING: location-ask gates the resolver (condition intact, not short-circuited)${locChain ? "" : " — KONDISI DIPUTUS!"}`);
+if (!locChain) fail++;
 // The ledger must be FED to every truncation-sensitive guard, or the guards go
 // blind again on long turns (live 2026-09-25 10:49 false accusation).
 for (const w of [

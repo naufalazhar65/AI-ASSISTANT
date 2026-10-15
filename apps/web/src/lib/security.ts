@@ -1143,6 +1143,42 @@ export function reportSave(rawUser: unknown, opts: { target?: string } = {}): st
   );
 }
 
+export interface RecentReportFile {
+  name: string;
+  mtimeMs: number;
+  size: number;
+}
+
+/**
+ * Newest-first listing of the owner-scoped reports dir (read-only).
+ *
+ * Live 2026-10-15 12:23: asked "dimana file reportnya?", the follow-up turn
+ * could not see the PDF the previous turn had delivered (reportFileFromTurn
+ * only reads the CURRENT turn window, and no report_list tool exists), so the
+ * model invented "tidak tersimpan permanen" for a file that IS on disk. This
+ * lets the deterministic follow-up resolver name real files instead.
+ * Fail-open: [] on any error (an unreadable dir must not cost the reply).
+ */
+export function listRecentReports(rawUser: unknown, limit = 5): RecentReportFile[] {
+  try {
+    const userKey = resolveOwnerScopedKey(rawUser);
+    if (!userKey) return [];
+    const dir = join(userDataRoot(), userKey, "reports");
+    const names = readdirSync(dir).filter((n) => /^report-.*\.(pdf|md)$/i.test(n));
+    const rows: RecentReportFile[] = [];
+    for (const n of names) {
+      try {
+        const st = statSync(join(dir, n));
+        if (st.isFile()) rows.push({ name: n, mtimeMs: st.mtimeMs, size: st.size });
+      } catch { /* skip unreadable entries */ }
+    }
+    rows.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return rows.slice(0, Math.max(1, Math.min(10, limit || 5)));
+  } catch {
+    return [];
+  }
+}
+
 // ── SQLi testing with sqlmap (authorized lab only) ──────────────────────────
 export function sqlmapScan(url: string, opts?: { level?: number; risk?: number }): Promise<string> {
   const u = (url || "").trim();
