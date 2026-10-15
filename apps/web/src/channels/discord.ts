@@ -42,7 +42,7 @@ import { COMMAND_EMPTY_FALLBACK, DISCORD_MAX, EMPTY_REPLY_FALLBACK, chunkText, c
  * existing persona untouched).
  */
 
-import { Client, Events, GatewayIntentBits, Message, MessageFlags, Partials, REST, Routes, SlashCommandBuilder} from "discord.js";
+import { Client, Events, GatewayIntentBits, Message, MessageFlags, Partials, REST, Routes, SlashCommandBuilder, type ButtonInteraction} from "discord.js";
 import { runAssistantTurn, ChatMessage } from "../lib/agent";
 import { ToolCall } from "../lib/tools";
 import { subscribeReminders, Reminder } from "../lib/reminders";
@@ -65,6 +65,18 @@ import {
   shouldRespondToAgent,
   type AgentLabel,
 } from "../lib/agentRouting";
+import {
+  approvalCustomId,
+  approvalMessage,
+  approvalStatusEmbed,
+  createApprovalRequest,
+  decideApproval,
+  disabledApprovalRow,
+  getApproval,
+  isApprovalAuthorized,
+  markApproval,
+  parseApprovalCustomId,
+} from "./discordApproval";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { appRoot, userDataRoot } from "../lib/users";
@@ -100,7 +112,7 @@ type ChatState = {
   /** Persistent text-only conversation (user/assistant) used as LLM context. */
   history: ChatMessage[];
   /** Waiting for a yes/no confirmation of risky tool(s) (FR-014). */
-  pending: { messages: ChatMessage[]; calls: ToolCall[]; peerAgent?: string | null } | null;
+  pending: { messages: ChatMessage[]; calls: ToolCall[]; peerAgent?: string | null; approvalId?: string } | null;
 };
 
 const PROVIDER_DEFAULT = process.env.DISCORD_PROVIDER || defaultProviderId();
@@ -655,9 +667,154 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
   });
   // Handle slash-command interactions — now that we register them, handle
   // directly instead of guiding to prefix. Keep prefix "/" messages working too.
+  async function disableApprovalOnMessage(
+    interaction: ButtonInteraction,
+    req: { id: string },
+    kind: "approved" | "rejected" | "expired" | "completed" | "failed"
+  ): Promise<void> {
+    try {
+      const full = getApproval(req.id);
+      if (!full) return;
+      const row = disabledApprovalRow({
+        approve: approvalCustomId("ap", req.id),
+        reject: approvalCustomId("rj", req.id),
+      });
+      const target = interaction.message as unknown as { edit(o: unknown): Promise<unknown> };
+      if (target && typeof target.edit === "function") {
+        await target.edit({ embeds: [approvalStatusEmbed(full, kind).toJSON()], components: [row] });
+      }
+    } catch (e) {
+      console.warn("[discord] approval message edit failed:", e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function sendApprovalFollowUp(interaction: ButtonInteraction, text: string): Promise<void> {
+    for (const chunk of chunkText(text || EMPTY_REPLY_FALLBACK, DISCORD_MAX)) {
+      try {
+        await interaction.followUp({ content: chunk });
+      } catch {
+        try {
+          await (interaction.channel as unknown as SendableChannel).send(`> ${chunk}`);
+        } catch { /* best-effort */ }
+      }
+    }
+  }
+
+  /**
+   * Native-button decision path. Mirrors handleConfirmation's execution but
+   * resolves everything from the server-side request: the click carries only
+   * an opaque id, so a forged customId or a second click can never change or
+   * re-run the action. Non-owning trio clients stay silent (the owner acks).
+   */
+  async function handleApprovalButton(
+    interaction: ButtonInteraction,
+    cfg: AgentBotConfig,
+    parsed: { action: "ap" | "rj"; id: string }
+  ): Promise<void> {
+    const req = getApproval(parsed.id);
+    if (!req || req.agentLabel !== cfg.label) return;
+    if (!isApprovalAuthorized(cfg.allowedUsers, interaction.user.id)) {
+      await interaction.reply({ content: "Tombol ini bukan untukmu — hanya owner yang boleh menyetujui.", ephemeral: true }).catch(() => {});
+      return;
+    }
+    const acked = await interaction.deferUpdate().catch(() => false as const);
+    if (acked === false) return;
+    const decision = decideApproval(parsed.id, interaction.user.id, parsed.action === "ap");
+    console.log(`[discord] button ${parsed.action} req=${parsed.id} by=${interaction.user.id} ok=${decision.ok}${decision.ok ? "" : ` reason=${decision.reason}`}`);
+    const state = getState(interaction.channelId ?? "dm");
+    if (!decision.ok) {
+      if (decision.reason === "missing") {
+        await interaction.followUp({ content: "Permintaan tidak ditemukan (mungkin bot restart) — kirim perintahnya lagi ya.", ephemeral: true }).catch(() => {});
+        return;
+      }
+      await disableApprovalOnMessage(interaction, { id: parsed.id }, decision.reason === "expired" ? "expired" : "completed");
+      await interaction
+        .followUp({
+          content:
+            decision.reason === "expired"
+              ? "⌛ Sudah kedaluwarsa — minta lagi bila masih perlu."
+              : `Sudah diproses sebelumnya (${decision.request?.status ?? "decided"}) — tidak dijalankan ulang.`,
+          ephemeral: true,
+        })
+        .catch(() => {});
+      return;
+    }
+    const allow = parsed.action === "ap";
+    // Stand the text path down when it points at the same calls (same ref).
+    if (state.pending && state.pending.calls === req.calls) state.pending = null;
+    if (!allow) {
+      await disableApprovalOnMessage(interaction, req, "rejected");
+      state.history.push({ role: "assistant", content: `Permintaan ${req.id} ditolak owner — tidak dijalankan.` });
+      return;
+    }
+    markApproval(req.id, "EXECUTING");
+    await disableApprovalOnMessage(interaction, req, "approved");
+    const decisions = req.calls.map((call) => ({ call, allow: true }));
+    let result: Awaited<ReturnType<typeof runAssistantTurn>>;
+    try {
+      const channel = interaction.channel as unknown as SendableChannel;
+      result = await withTyping(channel, () =>
+        runAssistantTurn({
+          messages: req.messages,
+          provider: req.provider,
+          model: req.model,
+          user: req.userKey,
+          channel: "discord",
+          agent: (req.agent as AgentLabel) ?? "mia",
+          peerAgent: req.peerAgent ?? undefined,
+          confirm_calls: decisions,
+        })
+      );
+    } catch (err) {
+      markApproval(req.id, "FAILED");
+      await disableApprovalOnMessage(interaction, req, "failed");
+      console.error("[discord] button-approve failed:", err instanceof Error ? err.message : String(err));
+      await sendApprovalFollowUp(interaction, classifyAssistantError(err).userMessage);
+      return;
+    }
+    if (result.needsConfirmation?.length) {
+      // Chain: the follow-up wants another risky tool — new request + buttons,
+      // same as the text path (which re-prompts instead of dropping it).
+      const req2 = createApprovalRequest({
+        agentLabel: req.agentLabel,
+        agentDisplay: req.agentDisplay,
+        userKey: req.userKey,
+        provider: req.provider,
+        model: req.model,
+        agent: req.agent,
+        peerAgent: req.peerAgent,
+        messages: result.messages ?? req.messages,
+        calls: result.needsConfirmation,
+      });
+      state.pending = { messages: result.messages ?? req.messages, calls: result.needsConfirmation, peerAgent: req.peerAgent, approvalId: req2.id };
+      markApproval(req.id, "COMPLETED");
+      await disableApprovalOnMessage(interaction, req, "completed");
+      const payload = approvalMessage(req2);
+      try {
+        await interaction.followUp({ content: "Masih ada aksi lanjutan yang butuh persetujuan:", embeds: payload.embeds, components: payload.components });
+      } catch {
+        /* best-effort */
+      }
+      return;
+    }
+    markApproval(req.id, "COMPLETED");
+    await disableApprovalOnMessage(interaction, req, "completed");
+    state.history.push({ role: "assistant", content: result.text });
+    await sendApprovalFollowUp(interaction, result.text || EMPTY_REPLY_FALLBACK);
+  }
+
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
       if (alreadyProcessed(`discord-interaction-${cfg.label}`, interaction.id)) return;
+      // Button approval path (native components, no "ya" text needed). Unknown
+      // buttons fall through to the existing branches below.
+      if (interaction.isButton()) {
+        const parsed = parseApprovalCustomId(interaction.customId);
+        if (parsed) {
+          await handleApprovalButton(interaction, cfg, parsed);
+          return;
+        }
+      }
       console.log(`[discord] interaction type=${interaction.type} id=${interaction.id} ${interaction.isChatInputCommand() ? `cmd=${interaction.commandName}` : interaction.isAutocomplete() ? "autocomplete" : "other"}`);
       if (interaction.isChatInputCommand()) {
         const cmd = interaction.commandName;
@@ -1061,15 +1218,15 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
       }
 
       if (state.pending) {
-        await handleConfirmation(msg, state, user, text, cfg.label);
+        await handleConfirmation(msg, state, user, text, cfg.label, cfg);
         return;
       }
 
       if (hasVision) {
         const visionContent = [{ type: "text" as const, text: text || "Tolong jelaskan gambar ini dengan rapi" }, ...visionParts];
-        await runTurnWithVision(msg, state, user, visionContent, isVoice, cfg.label === "mia" ? "" : ` (${cfg.label})`, cfg.label, peerAgent);
+        await runTurnWithVision(msg, state, user, visionContent, isVoice, cfg.label === "mia" ? "" : ` (${cfg.label})`, cfg.label, peerAgent, cfg);
       } else {
-        await runTurn(msg, state, user, undefined, text, isVoice, cfg.label === "mia" ? "" : ` (${cfg.label})`, cfg.label, peerAgent);
+        await runTurn(msg, state, user, undefined, text, isVoice, cfg.label === "mia" ? "" : ` (${cfg.label})`, cfg.label, peerAgent, cfg);
       }
     } catch (err) {
       console.error("[discord] handler error:", err instanceof Error ? (err.stack || err.message) : String(err));
@@ -1193,6 +1350,49 @@ async function sendWithRetry(msg: Message, chunk: string, attempts = 3): Promise
   throw lastErr;
 }
 
+/**
+ * Button approval prompt: ONE message carrying the embed + action row, plus a
+ * short text-compat line so "ya/tidak" keeps working from the same prompt.
+ * Registers the server-side request and links it to `state.pending` (by
+ * request id) so whichever path decides first wins and the other stands down.
+ */
+async function sendApprovalPrompt(
+  msg: Message,
+  cfg: AgentBotConfig,
+  state: ChatState,
+  user: string,
+  calls: ToolCall[],
+  messages: ChatMessage[],
+  agent: AgentLabel,
+  peerAgent?: string | null
+): Promise<void> {
+  const req = createApprovalRequest({
+    agentLabel: cfg.label,
+    agentDisplay: cfg.displayName,
+    userKey: user,
+    provider: state.provider,
+    model: state.model,
+    agent,
+    peerAgent: peerAgent ?? null,
+    messages,
+    calls,
+  });
+  state.pending = { messages, calls, peerAgent: peerAgent ?? null, approvalId: req.id };
+  const { embeds, components } = approvalMessage(req);
+  const content =
+    calls.length > 1
+      ? "Balas `ya` untuk semua, `ya 1,3` untuk sebagian, atau `tidak` — atau klik tombol di bawah."
+      : "Balas `ya` untuk lanjut, `tidak` untuk batal — atau klik tombol di bawah.";
+  const payload = { content, embeds, components };
+  let sent: Message;
+  try {
+    sent = await msg.reply(payload);
+  } catch {
+    sent = (await (msg.channel as unknown as { send(o: unknown): Promise<Message> }).send(payload)) as Message;
+  }
+  req.messageId = sent.id;
+}
+
 // Optionally reply with a spoken WAV (Groq Orpheus) — used ONLY for voice-note
 // turns. For text turns we send text alone (no audio). On a voice turn the
 // reply is audio-only (no duplicate text, matches the user's preference).
@@ -1261,7 +1461,8 @@ async function handleConfirmation(
   state: ChatState,
   user: string,
   text: string,
-  agent: AgentLabel = "mia"
+  agent: AgentLabel = "mia",
+  cfg?: AgentBotConfig
 ): Promise<void> {
   const pending = state.pending!;
   const selection = parseConfirmReply(text, pending.calls.length);
@@ -1269,9 +1470,29 @@ async function handleConfirmation(
     await replyMia(msg, pendingConfirmPrompt(pending.calls));
     return;
   }
+  // Button interplay: a decided request must never execute twice. If the
+  // buttons already settled this request (approved/rejected/expired), the
+  // text reply stands down instead of running the calls again.
+  if (pending.approvalId) {
+    const req = getApproval(pending.approvalId);
+    if (req && req.status !== "PENDING") {
+      state.pending = null;
+      await replyMia(msg, `Permintaan ini sudah diputuskan (${req.status}) — tidak dijalankan ulang.`);
+      return;
+    }
+  }
   state.pending = null;
   const channel = msg.channel as unknown as SendableChannel;
   const decisions = pending.calls.map((call, i) => ({ call, allow: selection[i] }));
+  // Consume the button request (if any) so a late click cannot re-run calls
+  // the text path just executed — partial selections consume it as COMPLETED.
+  if (pending.approvalId) {
+    const allAllow = selection.every(Boolean);
+    const allDeny = selection.every((s) => !s);
+    if (allAllow) decideApproval(pending.approvalId, msg.author.id, true);
+    else if (allDeny) decideApproval(pending.approvalId, msg.author.id, false);
+    else markApproval(pending.approvalId, "COMPLETED");
+  }
   // Use typing indicator only; the old interimWaitText left a permanent
   // "Bentar, lagi kuproses…" bubble that looked like a real reply.
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
@@ -1293,6 +1514,7 @@ async function handleConfirmation(
     );
   } catch (err) {
     console.error("[discord] confirm failed:", err instanceof Error ? err.message : String(err));
+    if (pending.approvalId) markApproval(pending.approvalId, "FAILED");
     await reportTurnFailure(msg, err, pending.peerAgent);
     return;
   }
@@ -1301,9 +1523,14 @@ async function handleConfirmation(
     // going (the agent's own context already has the tool results) instead
     // of silently dropping it and replying a bare "Selesai.".
     state.pending = { messages: result.messages ?? pending.messages, calls: result.needsConfirmation, peerAgent: pending.peerAgent ?? null };
-    await replyMia(msg, pendingConfirmPrompt(result.needsConfirmation));
+    if (cfg) {
+      await sendApprovalPrompt(msg, cfg, state, user, result.needsConfirmation, result.messages ?? pending.messages, agent, pending.peerAgent ?? null);
+    } else {
+      await replyMia(msg, pendingConfirmPrompt(result.needsConfirmation));
+    }
     return;
   }
+  if (pending.approvalId) markApproval(pending.approvalId, "COMPLETED");
   state.history.push({ role: "assistant", content: result.text });
   let fallback = EMPTY_REPLY_FALLBACK;
   if (!result.text && pending.calls[0]?.name.startsWith("plan_")) {
@@ -1323,7 +1550,8 @@ async function runTurn(
   voiceTurn = false,
   botTag = "",
   agent: AgentLabel = "mia",
-  peerAgent?: string | null
+  peerAgent?: string | null,
+  cfg?: AgentBotConfig
 ): Promise<void> {
   const turnMessages = [...state.history];
   if (userText) {
@@ -1363,7 +1591,11 @@ async function runTurn(
     // tool_calls message) so the "ya" continuation is a valid pair, not an
     // orphan tool result. All risky calls queue together for batch approval.
     state.pending = { messages: result.messages ?? turnMessages, calls: result.needsConfirmation, peerAgent: peerAgent ?? null };
-    await replyMia(msg, pendingConfirmPrompt(result.needsConfirmation));
+    if (cfg) {
+      await sendApprovalPrompt(msg, cfg, state, user, result.needsConfirmation, result.messages ?? turnMessages, agent, peerAgent ?? null);
+    } else {
+      await replyMia(msg, pendingConfirmPrompt(result.needsConfirmation));
+    }
     return;
   }
 
@@ -1383,7 +1615,8 @@ async function runTurnWithVision(
   voiceTurn = false,
   botTag = "",
   agent: AgentLabel = "mia",
-  peerAgent?: string | null
+  peerAgent?: string | null,
+  cfg?: AgentBotConfig
 ): Promise<void> {
   const textPart = visionContent.find((p) => p.type === "text")?.text || "";
   const turnMessages = [...state.history, { role: "user", content: visionContent as unknown as string }];
@@ -1403,7 +1636,11 @@ async function runTurnWithVision(
   }
   if (result.needsConfirmation?.length) {
     state.pending = { messages: (result.messages ?? turnMessages) as never, calls: result.needsConfirmation, peerAgent: peerAgent ?? null };
-    await replyMia(msg, pendingConfirmPrompt(result.needsConfirmation));
+    if (cfg) {
+      await sendApprovalPrompt(msg, cfg, state, user, result.needsConfirmation, (result.messages ?? turnMessages) as never, agent, peerAgent ?? null);
+    } else {
+      await replyMia(msg, pendingConfirmPrompt(result.needsConfirmation));
+    }
     return;
   }
   state.history.push({ role: "assistant", content: result.text });

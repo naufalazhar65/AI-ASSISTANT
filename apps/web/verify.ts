@@ -7933,6 +7933,49 @@ async function main() {
       console.log("discord bot-to-bot delegation (sibling routing + shared loop guard + peer turn): OK");
     }
 
+    // ── Discord button approval (2026-10-15) ─────────────────────────────
+    // Same house rule: the module is unit-tested, but only a wiring assertion
+    // proves discord.ts actually routes button clicks through it (helper
+    // correct + wire cut = production dead, e.g. discordRestTokenHeal).
+    {
+      const dSrc = readFileSync(join(import.meta.dirname, "src", "channels", "discord.ts"), "utf8");
+      if (!/if \(interaction\.isButton\(\)\) \{\s*\n\s*const parsed = parseApprovalCustomId\(interaction\.customId\)/.test(dSrc)) {
+        throw new Error("discord.ts must branch button interactions before the slash-command path");
+      }
+      if (!/parseApprovalCustomId\(interaction\.customId\)/.test(dSrc)) {
+        throw new Error("discord.ts must resolve button clicks from the opaque customId, never from client args");
+      }
+      if (!/req\.agentLabel !== cfg\.label/.test(dSrc)) {
+        throw new Error("discord.ts must ignore other trio bots' approval buttons (else all three clients execute)");
+      }
+      if (!/isApprovalAuthorized\(cfg\.allowedUsers, interaction\.user\.id\)/.test(dSrc)) {
+        throw new Error("discord.ts must authorize the CLICKING user server-side on every button press");
+      }
+      if (!/confirm_calls: decisions/.test(dSrc)) {
+        throw new Error("discord.ts button-approve must execute through the same confirm_calls pipeline as the text path");
+      }
+      if (!/getApproval\(pending\.approvalId\)/.test(dSrc)) {
+        throw new Error("discord.ts text path must stand down when the request was already decided via buttons (no double execution)");
+      }
+      if (!/sendApprovalPrompt\(msg, cfg, state, user,/.test(dSrc)) {
+        throw new Error("discord.ts must send the embed+buttons prompt on new pendings (all three sites)");
+      }
+      // Behavioural: one-shot, opaque, expiring — through the real module.
+      const appr = await import("./src/channels/discordApproval");
+      const store = new Map();
+      const r = appr.createApprovalRequest({
+        agentLabel: "mia", agentDisplay: "Mia", userKey: "u", provider: "p",
+        messages: [], calls: [{ id: "t1", name: "pentest_scan", arguments: "{}" }],
+        store,
+      });
+      if (!/^mia-(ap|rj):ap_[A-Za-z0-9]+$/.test(appr.approvalCustomId("ap", r.id))) {
+        throw new Error("approval customId must be opaque (id only, no args/targets)");
+      }
+      if (!appr.decideApproval(r.id, "owner", true, store).ok) throw new Error("first approve must win");
+      if (appr.decideApproval(r.id, "owner", true, store).ok) throw new Error("second click must not re-execute");
+      console.log("discord button approval (embed+buttons, one-shot, authorized, expiring, text-compatible): OK");
+    }
+
     // ── Task-aware output formatter (2026-10-13) ───────────────────────────
     // Same house rule as the blocks above: a correct helper whose call site was
     // removed passes every unit test and fails in production (discordRestTokenHeal,
