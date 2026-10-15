@@ -275,4 +275,22 @@ describe("collapsePdfResult (tidiness 2026-09-26: absolute PDF path twice — na
     expect(out).toContain("⚙️ report_pdf: report-2026-09-26T03-10-16-897Z.pdf");
     expect(out).not.toContain("/home/u");
   });
+
+  it("FIRE (live 2026-10-15 13:18): the MARKDOWN twin collapses too — no cut-off absolute path", () => {
+    expect(
+      collapsePdfResult(
+        "📄 Laporan MARKDOWN disimpan: /Users/naufalazhar/Documents/PROJECT/ai-assistant/apps/web/.data/users/naufalazhar652952/reports/report-2026-10-15T06-18-11-381Z.md",
+      ),
+    ).toBe("report-2026-10-15T06-18-11-381Z.md");
+    const out = actionReceipt([
+      {
+        name: "report_save",
+        args: "{}",
+        result:
+          "📄 Laporan MARKDOWN disimpan: /Users/naufalazhar/Documents/PROJECT/ai-assistant/apps/web/.data/users/naufalazhar652952/reports/report-2026-10-15T06-18-11-381Z.md",
+      },
+    ]);
+    expect(out).toContain("⚙️ report_save: report-2026-10-15T06-18-11-381Z.md");
+    expect(out).not.toContain(".data/users");
+  });
 });

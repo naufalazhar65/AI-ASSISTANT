@@ -18,12 +18,15 @@ export const TASK_TYPES = [
   "debugging_report",
   "code_review",
   "security_audit",
+  "pentest_report",
   "test_report",
   "comparison",
   "step_by_step_guide",
   "task_execution_report",
   "discord_message",
   "status_update",
+  "progress_update",
+  "system_status",
   "error_report",
 ] as const;
 

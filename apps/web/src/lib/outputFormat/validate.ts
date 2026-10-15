@@ -11,6 +11,7 @@
  */
 
 import { formatterFor, orderedSections, SECTION_LABELS, type FormatterSpec } from "./registry";
+import { scanTextSecrets } from "../security";
 import type { FormatChannel, TaskType } from "./taskTypes";
 
 export type ValidationIssueCode =
@@ -21,6 +22,7 @@ export type ValidationIssueCode =
   | "unsupported-completion-claim"
   | "unsupported-test-claim"
   | "success-claimed-on-failure"
+  | "sensitive-data-exposure"
   | "repeated-lines";
 
 export interface ValidationIssue {
@@ -157,6 +159,27 @@ export function countSectionLabels(text: string): number {
   return n;
 }
 
+/** Strip the deterministic inbox digest before validation. The digest is
+ *  SYSTEM-authored from tool results (subjects/senders/dates), not model
+ *  claims — scoring its snippet prose for "claims without sources" produces
+ *  false accusations (live 2026-10-15: "menemukan" inside a LinkedIn snippet
+ *  fired missing-evidence on an inbox list). The model's own prose is still
+ *  fully validated. Pure. */
+export function withoutGmailDigest(text: string): string {
+  const lines = String(text || "").split("\n");
+  const out: string[] = [];
+  let skipping = false;
+  for (const line of lines) {
+    if (/^\*\*📧 Email terbaru \(\d+\)\*\*/.test(line.trim())) {
+      skipping = true;
+      continue;
+    }
+    if (skipping && (/^\*\*/.test(line.trim()) || /^⚙️/.test(line.trim()))) skipping = false;
+    if (!skipping) out.push(line);
+  }
+  return out.join("\n");
+}
+
 /** Count distinct source links / code paths — our evidence proxy. */
 export function countEvidence(text: string): number {
   const urls = new Set(text.match(URL_RE) ?? []);
@@ -184,7 +207,7 @@ function repeatedLinePenalty(text: string): number {
  */
 export function validateOutput(input: ValidationInput): ValidationIssue[] {
   const spec: FormatterSpec = formatterFor(input.taskType);
-  const text = (input.text ?? "").trim();
+  const text = withoutGmailDigest(input.text ?? "").trim();
   const issues: ValidationIssue[] = [];
 
   if (!text) {
@@ -252,6 +275,22 @@ export function validateOutput(input: ValidationInput): ValidationIssue[] {
     });
   }
 
+  // Secrets in a user-facing answer. scanTextSecrets only matches real key
+  // formats (AWS/GCP/Slack/OpenAI/GitHub/JWT/private-key/secret assignment),
+  // never ordinary prose — and only the TYPE is recorded, never the value. A
+  // 16-digit run is only a NIK next to an identity word, so bare CVSS vectors
+  // ("CVSS:4.0/...") and timestamps can never trip it.
+  if (input.taskType === "pentest_report" || input.taskType === "security_audit") {
+    const secretHits = scanTextSecrets(text);
+    const nikHit = /\b\d{16}\b/.test(text) && /\b(nik|ktp|kependudukan|no\.?\s*ktp)\b/i.test(text);
+    if (secretHits.length > 0 || nikHit) {
+      issues.push({
+        code: "sensitive-data-exposure",
+        detail: `possible secret value in answer (${secretHits.map((h) => h.type).join(",") || "NIK-like number"}) — mask or omit it`,
+      });
+    }
+  }
+
   if (repeatedLinePenalty(text) >= 3) {
     issues.push({ code: "repeated-lines", detail: "the same line is repeated 3+ times" });
   }
@@ -295,7 +334,9 @@ export function hasEvidentiaryClaims(text: string): boolean {
 
 export function integrityNote(issues: readonly ValidationIssue[], taskType: TaskType, text: string): string {
   // No assertion -> no note. An honest "nothing to report" must stay clean.
-  if (!hasEvidentiaryClaims(text)) return "";
+  // The deterministic inbox digest is stripped first: its snippet prose is
+  // system-quoted, not model claims (live 2026-10-15 false "sumber" note).
+  if (!hasEvidentiaryClaims(withoutGmailDigest(text))) return "";
   const parts: string[] = [];
   if (issues.some((i) => i.code === "missing-evidence")) {
     parts.push("laporan ini tidak memuat tautan sumber, jadi klaim di dalamnya belum bisa diverifikasi dari pesan ini");
@@ -307,6 +348,9 @@ export function integrityNote(issues: readonly ValidationIssue[], taskType: Task
   const missingFailed = issues.some((i) => i.code === "missing-section" && i.sectionId === "failed_tests");
   if (missingFailed) {
     parts.push("bagian Test Gagal belum tertulis, jadi kasus gagalnya belum dirinci");
+  }
+  if (issues.some((i) => i.code === "sensitive-data-exposure")) {
+    parts.push("pesan ini kelihatannya memuat nilai rahasia (kunci/token/NIK) — samarkan sebelum diteruskan");
   }
   if (parts.length === 0) return "";
   return `(Catatan: ${parts.join("; ")})`;

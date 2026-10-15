@@ -56,6 +56,15 @@ const FAMILIES: Array<{ types: string; sections: string; shape: string }> = [
     ].join("\n"),
   },
   {
+    types: "pentest_report",
+    sections:
+      "Summary · Verified Findings (proof + severity) · Unverified Leads (candidates only) · Validation · Attachment. Mask secrets.",
+    shape: [
+      "**Summary** — 8 temuan: 5 terverifikasi, 3 kandidat",
+      "1. **CRITICAL 9.8** SQLi `GET /api/x` — poc_verify 3/3",
+    ].join("\n"),
+  },
+  {
     types: "coding_result, test_report",
     sections:
       "Summary · Files Changed (path + why) · Implementation Details · Validation (tests you ACTUALLY ran + real results) · Remaining Issues. Never claim code changed, tests passed or a publish succeeded without evidence from this turn. Fence code blocks with a language id.",

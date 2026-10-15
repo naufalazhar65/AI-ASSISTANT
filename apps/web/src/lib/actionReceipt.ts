@@ -137,7 +137,7 @@ export function compactReceiptUrl(url: string): string {
  */
 export function collapsePdfResult(result: string): string {
   const t = (result || "").trim();
-  const m = t.match(/^📄\s*PDF disimpan:\s*/i);
+  const m = t.match(/^📄\s*[^:\n]*disimpan:\s*/i);
   if (!m) return t;
   const path = t.slice(m[0].length);
   // Tail after the LAST separator (the filename) — firstIndex would cut at the

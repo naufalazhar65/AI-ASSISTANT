@@ -7,8 +7,9 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DELIVERY_DENIAL_RE, claimedReportNames, deliveredReportName, emptyReportClaimNote, inlineDeliveryClaimNote, isReportLocationAsk, pdfDeliverableSuffix, pdfExistenceClaim, reportLocationNote, reportProvenanceNote, retryEmptyReportDelivery, stripAbsentReportFiles, stripPersistenceDenial, stripToolCallProse } from "./agent";
-import { addFinding, listRecentReports, reportPdf, reportSave } from "./security";
+import { DELIVERY_DENIAL_RE, claimedReportNames, deliveredReportName, emptyReportClaimNote, inlineDeliveryClaimNote, isReportLocationAsk, pdfDeliverableSuffix, pdfExistenceClaim, reportLocationNote, reportProvenanceNote, retryEmptyReportDelivery, compactUrlsInLine, findingPath, gmailDigest, pentestDetailLevel, pentestSummary, stripGmailIds, stripAbsentReportFiles, stripDanglingPrep, stripPersistenceDenial, stripToolCallProse } from "./agent";
+import { gmailGateNudge, isEmailCheckAsk } from "./email";
+import { addFinding, listRecentReports, reportFindingsDigest, reportPdf, reportSave } from "./security";
 import { userDataRoot } from "./users";
 
 const LIVE_REPLY =
@@ -721,6 +722,7 @@ describe("reportLocationNote — follow-up turn must not deny a real on-disk fil
     const note = reportLocationNote(LIVE_DENIAL, FILES);
     expect(note).toMatch(/TERSIMPAN/);
     expect(note).toContain("report-2026-10-15T05-21-07-557Z.pdf");
+    expect(note).toContain("\n1. `report-2026-10-15T05-21-07-557Z.pdf`");
   });
 
   it("fires a correction on the live 12:33 reword ('gak menyimpan file fisik' / 'gak nongol di folder')", () => {
@@ -780,5 +782,282 @@ describe("stripPersistenceDenial — the denial sentence must not stand next to 
     expect(stripPersistenceDenial("Laporannya belum kubuat — belum ada temuan.", true)).toBe(
       "Laporannya belum kubuat — belum ada temuan."
     );
+  });
+});
+
+describe("reportFindingsDigest + stripDanglingPrep — report turns name real findings", () => {
+  const F = (o: object) => ({
+    id: `F-t${Math.random().toString(36).slice(2)}`, status: "open", owasp: "", cwe: "",
+    evidence: "", steps: "", impact: "", rootCause: "", remediation: "", references: "",
+    createdAt: "2026-10-15T00:00:00.000Z", ...o,
+  });
+  const setup = (user: string) => {
+    const dir = join(userDataRoot(), user);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "findings.json"),
+      JSON.stringify([
+        F({ title: "SQL injection di /api/cari-berita", severity: "critical", cvss: 9.8, target: "https://cozy-kangaroo-42f2e0.netlify.app/api/cari-berita" }),
+        F({ title: "IDOR di /api/cek-nik", severity: "high", cvss: 7.5, target: "https://cozy-kangaroo-42f2e0.netlify.app/api/cek-nik" }),
+        F({ title: "Missing header di /", severity: "low", cvss: 3.1, target: "https://cozy-kangaroo-42f2e0.netlify.app/" }),
+        F({ title: "Temuan target lain", severity: "critical", cvss: 10, target: "https://example.com/x" }),
+        F({ title: "Sudah resolved", severity: "critical", cvss: 9.1, target: "https://cozy-kangaroo-42f2e0.netlify.app/old", status: "resolved" }),
+      ])
+    );
+  };
+
+  it("lists scoped open findings, critical first, foreign + resolved excluded", () => {
+    const user = `verify_digest_${Date.now()}`;
+    try {
+      setup(user);
+      const d = reportFindingsDigest(user, "https://cozy-kangaroo-42f2e0.netlify.app/cek-nik", 5);
+      expect(d).toMatch(/Isi laporan \(3 temuan\)/);
+      const iCrit = d.indexOf("SQL injection");
+      const iHigh = d.indexOf("IDOR");
+      const iLow = d.indexOf("Missing header");
+      expect(iCrit).toBeGreaterThan(-1);
+      expect(iCrit).toBeLessThan(iHigh);
+      expect(iHigh).toBeLessThan(iLow);
+      expect(d).not.toContain("target lain");
+      expect(d).not.toContain("Sudah resolved");
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  });
+
+  it("caps the list with a remainder line, silent when nothing recorded", () => {
+    const user = `verify_digest2_${Date.now()}`;
+    try {
+      setup(user);
+      const d = reportFindingsDigest(user, "https://cozy-kangaroo-42f2e0.netlify.app/", 2);
+      expect(d).toContain("+1 temuan lain di PDF");
+      expect(reportFindingsDigest(`verify_digestnone_${Date.now()}`, "https://cozy-kangaroo-42f2e0.netlify.app/", 5)).toBe("");
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  });
+
+  it("stripDanglingPrep removes only the dangling preposition (live 12:21 shape)", () => {
+    const live = "berisi 8 temuan (termasuk SQLi di dan, unauthenticated leak di, serta XSS tersimpan di ).";
+    const out = stripDanglingPrep(live);
+    expect(out).not.toMatch(/di dan|di,|di \)/);
+    expect(out).toContain("SQLi dan");
+    expect(stripDanglingPrep("Login di /api/login gagal.")).toBe("Login di /api/login gagal.");
+    expect(stripDanglingPrep("Payload ' or 1=1-- dikirim ke id.")).toBe("Payload ' or 1=1-- dikirim ke id.");
+  });
+});
+
+describe("pentestSummary — structured deterministic pentest block", () => {
+  const F = (o: object) => ({
+    id: `F-t${Math.random().toString(36).slice(2)}`, status: "open", owasp: "", cwe: "",
+    steps: "", impact: "", rootCause: "", remediation: "", references: "",
+    createdAt: "2026-10-01T00:00:00.000Z", ...o,
+  });
+  const HOST = "https://cozy-kangaroo-42f2e0.netlify.app";
+  const setup = (user: string) => {
+    const dir = join(userDataRoot(), user);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "findings.json"),
+      JSON.stringify([
+        F({ title: "SQL injection di /api/cari-berita", severity: "critical", cvss: 9.8, target: `${HOST}/api/cari-berita`, evidence: "poc_verify 3/3 PASS, baseline differs" }),
+        F({ title: "IDOR di /api/cek-nik", severity: "high", cvss: 7.5, target: `${HOST}/api/cek-nik`, evidence: "manual review, needs poc" }),
+        F({ title: "Temuan target lain", severity: "critical", cvss: 10, target: "https://example.com/x", evidence: "poc_verify 3/3 PASS" }),
+        F({ title: "Sudah resolved", severity: "low", cvss: 2, target: `${HOST}/old`, evidence: "poc_verify 3/3 PASS", status: "resolved" }),
+      ])
+    );
+  };
+  const MSGS = (ask: string) =>
+    [
+      { role: "user", content: ask },
+      {
+        role: "assistant", content: null,
+        tool_calls: [
+          { id: "p1", type: "function", function: { name: "poc_verify", arguments: "{}" } },
+          { id: "h1", type: "function", function: { name: "http_request", arguments: "{}" } },
+          { id: "r1", type: "function", function: { name: "report_generate", arguments: JSON.stringify({ target: HOST }) } },
+        ],
+      },
+      { role: "tool", tool_call_id: "p1", content: "🧪 POC VERIFY GET /api/cari-berita?id=1 -- ✅ PoC STABIL 3/3 PASS" },
+      { role: "tool", tool_call_id: "h1", content: "🌐 HTTP GET /api/cari-berita -> 200 OK (application/json)" },
+      { role: "tool", tool_call_id: "r1", content: "report-2026-10-15T00-00-00-000Z.pdf tersimpan" },
+    ] as unknown as Parameters<typeof pentestSummary>[0];
+
+  it("splits history from this run with per-finding verification status", async () => {
+    const user = `verify_pentsum_${Date.now()}`;
+    try {
+      setup(user);
+      const out = await pentestSummary(MSGS(`full pentest di ${HOST} dan buatkan report pdf nya`), user);
+      expect(out).toContain(`🔐 Security Assessment — ${HOST.replace("https://", "")}`);
+      expect(out).toContain("Total: 2 temuan (1 terverifikasi PoC, 1 belum)");
+      expect(out).toContain("PoC terverifikasi.");
+      expect(out).toContain("belum diverifikasi.");
+      expect(out).not.toContain("target lain");
+      expect(out).not.toContain("Sudah resolved");
+      expect(out).toContain("PoC STABIL 3/3 PASS");
+      expect(out).toContain("HTTP requests: 1× (200)");
+      expect(out).toContain("report-2026-10-15T00-00-00-000Z.pdf");
+      // Domain shown once in the title, never repeated per finding line.
+      const hostCount = out.split("cozy-kangaroo-42f2e0.netlify.app").length - 1;
+      expect(hostCount).toBe(1);
+      // Renderer-clean: no bullet line gets wrapped as a bold label (live
+      // 2026-10-15: "**- Temuan tercatat ..." noise on Discord).
+      const { renderForChannel } = await import("./outputFormat/index");
+      const rendered = renderForChannel(out, "discord").text;
+      expect(rendered).not.toMatch(/^\*\*- /m);
+      expect(rendered).toContain("1. **CRITICAL");
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  });
+
+  it("concise drops the exec block; detailed adds redacted evidence", async () => {
+    const user = `verify_pentsum2_${Date.now()}`;
+    try {
+      setup(user);
+      const concise = await pentestSummary(MSGS(`ringkas saja hasil pentest ${HOST} pdf`), user);
+      expect(concise).toContain("Ringkasan");
+      expect(concise).not.toContain("Execution Summary");
+      const detailed = await pentestSummary(MSGS(`tampilkan detail lengkap pentest ${HOST} pdf`), user);
+      expect(detailed).toContain("Execution Summary");
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  });
+
+  it("returns empty without a target or without findings", async () => {
+    expect(await pentestSummary([{ role: "user", content: "halo" }] as never, "shared")).toBe("");
+    const user = `verify_pentsum3_${Date.now()}`;
+    try {
+      const dir = join(userDataRoot(), user);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "findings.json"), JSON.stringify([]));
+      expect(await pentestSummary(MSGS(`full pentest di ${HOST} pdf`), user)).toBe("");
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  });
+
+  it("pentestDetailLevel + findingPath + compactUrlsInLine are pure and narrow", () => {
+    expect(compactUrlsInLine("POC VERIFY GET https://h.example.com/api/a?q=1 -- PASS")).toBe(
+      "POC VERIFY GET /api/a?q=1 -- PASS"
+    );
+    expect(findingPath("https://h.example.com")).toBe("/");
+    expect(findingPath("https://h.example.com", "SQL injection di /api/cari-berita?q=x")).toBe("/api/cari-berita?q=x");
+    expect(findingPath("", "tanpa endpoint di judul")).toBe("/");
+    expect(findingPath("https://h.example.com/api/y")).toBe("/api/y");
+    expect(pentestDetailLevel("ringkas saja ya")).toBe("concise");
+    expect(pentestDetailLevel("tampilkan detail lengkap")).toBe("detailed");
+    expect(pentestDetailLevel("buatkan report pdf nya")).toBe("standard");
+    expect(findingPath("https://h.example.com/api/x?id=1")).toBe("/api/x?id=1");
+  });
+});
+
+describe("pentestSummary refinements (live 2026-10-15 13:43)", () => {
+  const F = (o: object) => ({
+    id: `F-t${Math.random().toString(36).slice(2)}`, status: "open", owasp: "", cwe: "",
+    steps: "", impact: "", rootCause: "", remediation: "", references: "",
+    createdAt: "2026-10-01T00:00:00.000Z", ...o,
+  });
+  const HOST = "https://cozy-kangaroo-42f2e0.netlify.app";
+  const setup = (user: string) => {
+    const dir = join(userDataRoot(), user);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "findings.json"),
+      JSON.stringify([
+        F({ title: "SQL injection di /api/a", severity: "critical", cvss: 9.8, target: `${HOST}/api/a`, evidence: "poc_verify 3/3 PASS" }),
+      ])
+    );
+  };
+  const MSGS = () =>
+    [
+      { role: "user", content: `full pentest di ${HOST} dan buatkan report pdf nya` },
+      {
+        role: "assistant", content: null,
+        tool_calls: [{ id: "p1", type: "function", function: { name: "poc_verify", arguments: "{}" } }],
+      },
+      { role: "tool", tool_call_id: "p1", content: "🧪 POC VERIFY GET https://cozy-kangaroo-42f2e0.netlify.app/api/a?q=1 -- ✅ PoC STABIL 3/3 PASS" },
+    ] as unknown as Parameters<typeof pentestSummary>[0];
+
+  it("compacts the PoC URL to path-only and prefers the delivered PDF over the tool .md", async () => {
+    const user = `verify_pentsum4_${Date.now()}`;
+    try {
+      setup(user);
+      const out = await pentestSummary(MSGS(), user, "report-2026-10-15T06-43-11-355Z.pdf");
+      expect(out).toContain("POC VERIFY GET /api/a?q=1");
+      expect(out).not.toContain("https://cozy-kangaroo-42f2e0.netlify.app/api/a?q=1");
+      expect(out).toContain("report-2026-10-15T06-43-11-355Z.pdf");
+      expect(out).toContain("(dibuat giliran ini)");
+    } finally {
+      rmSync(join(userDataRoot(), user), { recursive: true, force: true });
+    }
+  });
+});
+
+describe("stripGmailIds — inbox ids stay in tool context, never in the reply", () => {
+  it("removes bracketed hex ids, keeps subjects and senders", () => {
+    const out = stripGmailIds("1. [1a13e200f3f84b1a] Notifikasi lowongan\n   From: info@trabajo.org");
+    expect(out).not.toContain("1a13e200f3f84b1a");
+    expect(out).toContain("Notifikasi lowongan");
+    expect(out).toContain("info@trabajo.org");
+  });
+
+  it("leaves ordinary prose and short brackets alone", () => {
+    expect(stripGmailIds("halo, apa kabar?")).toBe("halo, apa kabar?");
+    expect(stripGmailIds("lihat [1] dan [a]")).toBe("lihat [1] dan [a]");
+    expect(stripGmailIds("")).toBe("");
+  });
+});
+
+describe("gmailDigest — inbox details survive regardless of model mood", () => {
+  const BODY =
+    "📧 2 email terbaru:\n1. [1a13e200f3f84b1a] Notifikasi lowongan QA\n   From: info@trabajo.org\n   Date: Thu, 15 Oct 2026\n   QA Tester gaji besar\n\n2. [9f8e7d6c5b4a3928] Run failed: ci - main\n   From: notifications@github.com\n   Date: Wed, 14 Oct 2026\n   Some jobs were not successful";
+  const MSGS = () =>
+    [
+      { role: "user", content: "cek email dong" },
+      {
+        role: "assistant", content: null,
+        tool_calls: [{ id: "g1", type: "function", function: { name: "gmail_list", arguments: "{}" } }],
+      },
+      { role: "tool", tool_call_id: "g1", content: BODY },
+    ] as unknown as Parameters<typeof gmailDigest>[0];
+
+  it("parses subjects/senders/dates and drops internal ids", () => {
+    const d = gmailDigest(MSGS(), 8);
+    expect(d).toContain("**📧 Email terbaru (2)**");
+    expect(d).toContain("1. Notifikasi lowongan QA");
+    expect(d).toContain("info@trabajo.org");
+    expect(d).not.toContain("1a13e200f3f84b1a");
+    expect(d).not.toContain("9f8e7d6c5b4a3928");
+  });
+
+  it("caps entries and stays silent without gmail results", () => {
+    expect(gmailDigest(MSGS(), 1)).toContain("Email terbaru (1)");
+    expect(gmailDigest([{ role: "user", content: "halo" }] as never, 8)).toBe("");
+  });
+});
+
+describe("gmailGateNudge — email turns must check, not recall", () => {
+  const BASE = { userText: "cek email dong", executedNames: [] as string[], hasRoundBudget: true };
+
+  it("fires on the live 14:32 shape, silent when gmail_list ran", () => {
+    expect(gmailGateNudge(BASE)).toMatch(/belum mengecek email/);
+    expect(gmailGateNudge({ ...BASE, executedNames: ["gmail_list"] })).toBe("");
+    expect(gmailGateNudge({ ...BASE, executedNames: ["gmail_read"] })).toBe("");
+  });
+
+  it("isEmailCheckAsk covers variants, excludes sends", () => {
+    expect(isEmailCheckAsk("cek email dong")).toBe(true);
+    expect(isEmailCheckAsk("ada email baru?")).toBe(true);
+    expect(isEmailCheckAsk("kirim email ke Andi")).toBe(false);
+    expect(isEmailCheckAsk("halo")).toBe(false);
+  });
+
+  it("respects once-per-turn, budget, confirmations, headless", () => {
+    expect(gmailGateNudge({ ...BASE, alreadyNudged: true })).toBe("");
+    expect(gmailGateNudge({ ...BASE, hasRoundBudget: false })).toBe("");
+    expect(gmailGateNudge({ ...BASE, isConfirmContinuation: true })).toBe("");
+    expect(gmailGateNudge({ ...BASE, headless: true })).toBe("");
   });
 });

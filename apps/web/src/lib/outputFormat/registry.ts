@@ -112,6 +112,28 @@ const TEST_RESULTS = S("results", "Results", "passed / failed / blocked / skippe
 const TEST_FAILED = S("failed_tests", "Failed Tests", "name, expected, actual, evidence, defect reference", "test gagal", "pengujian gagal", "kegagalan", "gagal");
 const TEST_CONCLUSION = S("conclusion_test", "Conclusion", "is it green, and on what evidence");
 
+const PENTEST_SUMMARY = S("summary", "Summary", "target + verified/unverified counts from this turn", "ringkasan", "ikhtisar", "ringkasan temuan");
+const VERIFIED_FINDINGS = S(
+  "verified_findings",
+  "Verified Findings",
+  "only findings with poc_verify/retest proof this turn or recorded earlier: title, severity, location, evidence",
+  "temuan terverifikasi", "temuan terbukti", "temuan valid", "verified",
+);
+const UNVERIFIED_LEADS = S(
+  "unverified_leads",
+  "Unverified Leads",
+  "candidate signals that are NOT findings yet — never given a severity as if confirmed",
+  "dugaan", "kandidat", "sinyal", "leads", "belum terverifikasi", "unverified",
+);
+const POC_VALIDATION = S("poc_validation", "Validation", "what poc_verify/retest proved, what is still open", "validasi", "pembuktian", "bukti poc", "status validasi");
+const PENTEST_ATTACHMENT = S("attachment", "Attachment", "the PDF/md path that really exists from this turn", "lampiran", "file laporan", "pdf");
+
+const PROGRESS_RESULT = S("result", "Result", "what is true right now", "hasil", "capaian");
+const PROGRESS_NEXT = S("next_steps", "Next Steps", "what happens next and who does it", "langkah berikut", "selanjutnya", "tindak lanjut");
+
+const SYS_STATUS = S("status", "Status", "each service: up/down/degraded with evidence", "keadaan", "kondisi");
+const SYS_NOTES = S("notes", "Notes", "incidents, restarts, quota states that explain the status", "catatan", "insiden");
+
 const DOC_OVERVIEW = S("overview", "Overview", "what the document is and its purpose", "ikhtisar", "gambaran umum", "tentang dokumen", "pengantar");
 const DOC_KEY_POINTS = S("key_points", "Key Points", "grouped by topic", "poin utama", "pokok bahasan", "hal penting");
 const DOC_DETAILS = S("important_details", "Important Details", "dates, numbers, requirements, decisions", "detail penting", "rincian penting", "angka dan tanggal");
@@ -259,6 +281,19 @@ export const FORMATTERS: Record<TaskType, FormatterSpec> = {
       "Structure as: Scope, Executive Summary, Findings (per finding: title, severity, component/file + location, description, impact, evidence/repro, remediation), Positive Observations, Limitations. Every finding needs a severity. Never fabricate a vulnerability, its evidence, or its severity; distinguish suspected from confirmed, and say when nothing was confirmed.",
     channelRules: { discord: { note: "One finding per line, severity bold at the start.", maxChars: 2000 } },
   },
+  pentest_report: {
+    taskType: "pentest_report",
+    template: "D",
+    label: "Laporan pentest",
+    requiredSections: [PENTEST_SUMMARY, POC_VALIDATION],
+    optionalSections: [VERIFIED_FINDINGS, UNVERIFIED_LEADS, PENTEST_ATTACHMENT],
+    conciseness: "report",
+    evidence: "required",
+    completionStatus: "required",
+    guidance:
+      "Structure as: Summary (target + verified/unverified counts from THIS turn), Verified Findings (only findings with poc_verify/retest proof or already recorded — each: title, severity, location, evidence), Unverified Leads (candidate signals labelled as candidates, NEVER given a confirmed severity), Validation (what was proven, what is still open), Attachment (the PDF/md path that really exists from this turn). Never print a password, token, session cookie, NIK, or other secret value — mask or omit it. Never claim a dump, bypass, or access succeeded without the evidence line that proves it.",
+    channelRules: { discord: { note: "One finding per line, severity bold at the start.", maxChars: 2000 } },
+  },
   test_report: {
     taskType: "test_report",
     template: "F",
@@ -328,6 +363,28 @@ export const FORMATTERS: Record<TaskType, FormatterSpec> = {
     evidence: "recommended",
     completionStatus: "required",
     guidance: "State what is true right now: the verified outcome and the delivery/execution status. No padding, no invented progress.",
+  },
+  progress_update: {
+    taskType: "progress_update",
+    template: "J",
+    label: "Update progres",
+    requiredSections: [PROGRESS_RESULT],
+    optionalSections: [PROGRESS_NEXT, TASK_ISSUES],
+    conciseness: "answer",
+    evidence: "recommended",
+    completionStatus: "required",
+    guidance: "State what is done, what is in progress, and what is next — each grounded in this turn's real execution. Never report a step as done when it only started.",
+  },
+  system_status: {
+    taskType: "system_status",
+    template: "H",
+    label: "Status sistem",
+    requiredSections: [SYS_STATUS],
+    optionalSections: [SYS_NOTES],
+    conciseness: "answer",
+    evidence: "recommended",
+    completionStatus: "none",
+    guidance: "State each service's state (up/down/degraded) with the evidence for it (health check, restart time, quota state). Distinguish measured state from assumption.",
   },
   error_report: {
     taskType: "error_report",

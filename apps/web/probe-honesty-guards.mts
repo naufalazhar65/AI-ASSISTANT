@@ -17,7 +17,10 @@ import {
   composeBuildClaimSuffix,
   isReportLocationAsk,
   reportLocationNote,
+  stripDanglingPrep,
   stripPersistenceDenial,
+  pentestDetailLevel,
+  findingPath,
 } from "./src/lib/agent";
 import { metaProseNote } from "./src/lib/metaProse";
 import { readFileSync } from "node:fs";
@@ -348,6 +351,14 @@ fire("LOCATION-STRIP: live 12:36 denial sentence dropped, offer kept",
 fire("LOCATION-STRIP: no files → untouched; honest 'belum kubuat' → untouched",
   stripPersistenceDenial("Laporannya belum kubuat.", false) === "Laporannya belum kubuat." &&
   stripPersistenceDenial("Laporannya belum kubuat.", true) === "Laporannya belum kubuat." ? "FIRE" : "", true);
+fire("DANGLING-PREP: live 'SQLi di dan ... di )' → prepositions dropped, real paths kept",
+  stripDanglingPrep("berisi 8 temuan (termasuk SQLi di dan, leak di, serta XSS di ).") === "berisi 8 temuan (termasuk SQLi dan, leak, serta XSS)." ? "FIRE" : "", true);
+fire("DANGLING-PREP: 'Login di /api/login' untouched (not dangling)",
+  stripDanglingPrep("Login di /api/login gagal.") === "Login di /api/login gagal." ? "FIRE" : "", true);
+fire("DETAIL-LEVEL: ringkas→concise, detail→detailed, biasa→standard",
+  pentestDetailLevel("ringkas saja ya") === "concise" &&
+  pentestDetailLevel("tampilkan detail lengkap") === "detailed" &&
+  pentestDetailLevel("buatkan report pdf nya") === "standard" ? "FIRE" : "", true);
 
 // ── endpointTriageNote: regressi dari drill numeric (path-palsu + UX 11:55) ──
 fire("TRIAGE: slash-group di ask TIDAK digali jadi path (drill run 1) → diam",
@@ -387,6 +398,11 @@ for (const w of [
   "refusalWithoutScopeCheckNote(messages, text",
   "reportLocationNote(text, ",
   "stripPersistenceDenial(text, ",
+  "stripDanglingPrep(text)",
+  "appended = await pentestSummary(messages, opts.user, deliveredPdf)",
+  "if (isPentestAsk(ask)) {",
+  "gmailGateNudge({",
+  "if (emailNudge) { collector.emailNudgedOnce = true;",
 ]) {
   const wired = agentFlat.includes(w);
   console.log(`${wired ? "✓" : "✗"} WIRING: ${w})${wired ? "" : " — TIDAK TERPASANG di runAgent!"}`);

@@ -71,6 +71,7 @@ import { metaProseNote } from "./metaProse";
 import { gmailRetryPromiseNote } from "./gmailRetryPromise";
 import { recallContext } from "./rag";
 import { scheduleLinkCapture, isPentestAsk } from "./library";
+import { gmailGateNudge } from "./email";
 import { argsMentionPath, pathsInArgs } from "./urlMatch";
 import { sweepReportGate, sweepGateRefusal, turnHasProbe, probeGateNudge } from "./sweepGate";
 import {
@@ -1442,6 +1443,13 @@ interface TurnCollector {
    */
   probeNudgedOnce?: boolean;
   /**
+   * Has this turn already spent its ONE email-gate nudge? Same bound as
+   * probeNudgedOnce: a "cek email" turn the model answers from memory (zero
+   * gmail_* tools) gets ONE retry round with an explicit instruction; the
+   * second time round the turn ends with whatever honest prose exists.
+   */
+  emailNudgedOnce?: boolean;
+  /**
    * This turn is the tail of a tool confirmation ("ya" / `confirm_calls`), not
    * a fresh ask. Set once by runAssistantTurnImpl so the probe gate can skip it
    * — same fact the sweep uses to skip its own injection (agent.ts:6648), read
@@ -1676,6 +1684,23 @@ async function runAgent(
       // bare user turn and silently disabled markdown/PDF detection.
       messages.push({ role: "user", content: `[probe-gate] ${probeNudge}` });
       console.error(`[agent] round ${round}: pentest turn with zero probes — nudging`);
+      return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky, agent);
+    }
+    // Email gate (live 2026-10-15 14:32): a "cek email" turn the model answered
+    // from memory with zero gmail_* tools. Same once-per-turn bound and same
+    // internal-turn prefix discipline as the probe gate above.
+    const emailNudge = gmailGateNudge({
+      userText: lastInstructionText(messages),
+      executedNames: (collector.executedCalls ?? []).map((c) => c.name),
+      hasRoundBudget: round < maxRounds,
+      alreadyNudged: collector.emailNudgedOnce,
+      isConfirmContinuation: collector.confirmContinuation,
+      headless: autoDenyRisky,
+    });
+    if (emailNudge) {
+      collector.emailNudgedOnce = true;
+      messages.push({ role: "user", content: `[email-gate] ${emailNudge}` });
+      console.error(`[agent] round ${round}: email turn with zero gmail tools — nudging`);
       return runAgent(messages, url, apiKey, defaultModel, systemPrompt, collector, round + 1, model, user, autoDenyRisky, agent);
     }
     // Final answer round: emit the text.
@@ -2814,6 +2839,88 @@ export function stripToolCallProse(text: string): string {
     out.push(line);
   }
   return out.join("\n").trim();
+}
+
+/**
+ * Strips internal Gmail message ids (`[1a13e200f3f84b1a]`) from user-facing
+ * text (live 2026-10-15: every inbox line led with one). The ids stay in the
+ * TOOL results in history — the model still needs them for `gmail_read` — so
+ * only the reply text is cleaned, never the context. Hex-only, 10+ chars, in
+ * brackets: ordinary prose can never match. Pure.
+ */
+export function stripGmailIds(text: string): string {
+  return String(text || "").replace(/\[\b[0-9a-f]{10,}\b\]/gi, "").replace(/[ \t]{2,}/g, " ");
+}
+
+/**
+ * Deterministic inbox digest (live 2026-10-15: "cek email" dijawab ringkasan
+ * 2 kalimat tanpa subjek/tanggal setelah output tool ditambahi header —
+ * model merespons bentuk inputnya, jadi detail hilang/ada tergantung mood).
+ * Di-parse dari hasil tool `gmail_list`/`gmail_search` di window giliran ini
+ * (subjek/pengirim/tanggal/snippet; id internal TIDAK ikut), dilewati bila
+ * prosa model sudah memuat daftarnya (anti-duplikasi). Fail-open "". Pure.
+ */
+export interface GmailDigestEntry {
+  subject: string;
+  from: string;
+  date: string;
+  snippet: string;
+}
+
+export function parseGmailListResult(body: string): GmailDigestEntry[] {
+  const out: GmailDigestEntry[] = [];
+  let cur: GmailDigestEntry | null = null;
+  const flush = (): void => {
+    if (cur && cur.subject) out.push(cur);
+    cur = null;
+  };
+  for (const raw of String(body || "").split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = /^(\d+)\.\s+(?:\[[0-9a-f]+\]\s*)?(.*)$/i.exec(line);
+    if (m && m[2]) {
+      flush();
+      cur = { subject: m[2].slice(0, 120), from: "", date: "", snippet: "" };
+      continue;
+    }
+    if (!cur) continue;
+    const f = /^From:\s*(.*)$/i.exec(line);
+    if (f) { cur.from = f[1].slice(0, 80); continue; }
+    const d = /^Date:\s*(.*)$/i.exec(line);
+    if (d) { cur.date = d[1].slice(0, 40); continue; }
+    if (!cur.snippet) cur.snippet = line.slice(0, 120);
+  }
+  flush();
+  return out;
+}
+
+export function gmailDigest(messages: ChatMessage[], cap = 8): string {
+  const bodies: string[] = [];
+  for (const m of turnWindow(messages)) {
+    if (m.role !== "assistant" || !m.tool_calls) continue;
+    for (const tc of m.tool_calls) {
+      if (!/^(gmail_list|gmail_search)$/.test(tc.function?.name || "")) continue;
+      const res = turnWindow(messages).find((x) => x.role === "tool" && (x as { tool_call_id?: string }).tool_call_id === tc.id);
+      const body = res ? messageText(res.content) : "";
+      if (body && !PENTEST_REFUSAL_RE.test(body.trim())) bodies.push(body);
+    }
+  }
+  const entries = bodies.flatMap(parseGmailListResult).slice(0, Math.max(1, Math.min(12, cap || 8)));
+  if (!entries.length) return "";
+  const lines = entries.map((e, i) => {
+    const head = `${i + 1}. ${e.subject}`;
+    const meta = [e.from && `Dari: ${e.from}`, e.date && `Tanggal: ${e.date}`].filter(Boolean).join(" · ");
+    return meta ? `${head}\n   ${meta}${e.snippet ? `\n   ${e.snippet}` : ""}` : head;
+  });
+  return `**📧 Email terbaru (${entries.length})**\n${lines.join("\n")}`;
+}
+
+/** Subject lines of a digest, for the anti-duplication check. Pure. */
+export function gmailDigestSubjects(digest: string): string[] {
+  return String(digest || "")
+    .split("\n")
+    .map((l) => /^(\d+)\.\s+(.*)$/.exec(l.trim())?.[2] ?? "")
+    .filter((s) => s.length > 12);
 }
 
 /**
@@ -4138,10 +4245,10 @@ export function reportLocationNote(
   const denied = REPORT_PERSISTENCE_DENIAL_RE.test(t);
   const lower = t.toLowerCase();
   if (!denied && files.some((f) => lower.includes(f.name.toLowerCase()))) return "";
-  const list = files.map((f) => `\`${f.name}\` (${fmtReportMtime(f.mtimeMs)})`).join(" · ");
+  const list = files.map((f, i) => `${i + 1}. \`${f.name}\` (${fmtReportMtime(f.mtimeMs)})`).join("\n");
   return denied
-    ? ` (Koreksi: file laporannya TERSIMPAN di folder laporan — yang terbaru: ${list}.)`
-    : ` (File laporanmu yang tersimpan — yang terbaru: ${list}.)`;
+    ? ` (Koreksi: file laporannya TERSIMPAN di folder laporan. Yang terbaru:\n${list})`
+    : ` (File laporanmu yang tersimpan. Yang terbaru:\n${list})`;
 }
 
 /**
@@ -4165,6 +4272,207 @@ export function stripPersistenceDenial(text: string, filesExist: boolean): strin
     out += sent + delim;
   }
   return out.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+([.!?…])/g, "$1").trim();
+}
+
+/**
+ * Drops dangling prepositions the model leaves before a conjunction or
+ * punctuation (live 2026-10-15 12:21: "SQLi di dan, unauthenticated leak di,
+ * serta XSS tersimpan di )"). Scoped to report turns by its callers — general
+ * prose (evidence quotes, payloads) must never pass through this. Pure.
+ */
+export function stripDanglingPrep(text: string): string {
+  const t = String(text || "");
+  if (!/\b(di|ke|dari|daripada|pada|untuk|dengan|oleh|tentang|sebagai)\s*(?=(dan|atau|serta|tapi|namun|melainkan|,|;|\.|\)|$))/i.test(t)) return t;
+  return t
+    .replace(/\b(di|ke|dari|daripada|pada|untuk|dengan|oleh|tentang|sebagai)\s*(?=(dan|atau|serta|tapi|namun|melainkan|,|;|\.|\)|$))/gi, "")
+    .replace(/[ \t]+([,;).])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
+export type PentestDetailLevel = "concise" | "standard" | "detailed";
+
+/** Presentation level from the ask: short asks stay short, "detail" asks earn evidence. Pure. */
+export function pentestDetailLevel(ask: string): PentestDetailLevel {
+  const t = String(ask || "");
+  if (/\b(ringkas|singkat|cepat|tldr|intinya|singkatnya)\b/i.test(t)) return "concise";
+  if (/\b(detail|lengkap|rincian|evidence|bukti|reproduksi|langkah)\b/i.test(t)) return "detailed";
+  return "standard";
+}
+
+const PENTEST_REFUSAL_RE = /^(?:Not selected|Not executed|Auto-declined|The user declined)|not available on this provider|refused to execute/i;
+
+function firstResultLine(body: string, max = 160): string {
+  const line = String(body || "").split("\n").map((l) => l.trim()).find(Boolean) || "";
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
+/** Strip scheme+host from URLs inside a line (path-only form). Pure. */
+export function compactUrlsInLine(text: string): string {
+  return String(text || "").replace(/https?:\/\/[^\s/?#]+/gi, "");
+}
+
+/** Path-only form: the host is already in the block title, never repeated per line. Pure. */
+export function findingPath(target: string, title = ""): string {
+  const t = String(target || "").replace(/^https?:\/\//i, "");
+  const slash = t.indexOf("/");
+  let path = slash === -1 ? "/" : t.slice(slash);
+  if ((path === "/" || !path) && title) {
+    const m = /(\/[A-Za-z0-9_~.%-]+(?:\/[A-Za-z0-9_~.%-]+)*(?:\?[^`\s]*)?)/.exec(String(title));
+    if (m) path = m[1];
+  }
+  return path.length > 60 ? `${path.slice(0, 59)}…` : path;
+}
+
+/**
+ * Deterministic pentest summary block (live 2026-10-15: the reply was one long
+ * intro paragraph + verbose titles + raw tool traces + repeated domains, with
+ * no split between this run, history, and unverified leads).
+ *
+ * Everything here comes from STORES and THIS turn's tool results — never from
+ * the model's prose: open findings scoped to the report target (verified set
+ * from the PoC ledger via liveReaders), the latest poc_verify/retest result in
+ * the turn window, and one line per executed tool. Unknown states render as
+ * "belum diverifikasi", never as guessed. Fail-open "" (callers fall back to
+ * the findings digest).
+ */
+export async function pentestSummary(messages: ChatMessage[], rawUser: unknown, deliveredFile = ""): Promise<string> {
+  try {
+    const target = reportTargetFromMessages(messages) || "";
+    if (!target) return "";
+    const host = target.toLowerCase().replace(/^[a-z]+:\/\//, "").split(/[/?#]/)[0].replace(/\.$/, "");
+    if (!host) return "";
+    const { readFindings, redactEvidenceForReport } = await import("./security");
+    const { normalizeHost } = await import("./engagement");
+    const { liveReaders } = await import("./claimAuditReaders");
+    const { wibDay } = await import("./time");
+    const wantHost = normalizeHost(target);
+    if (!wantHost) return "";
+    const sameHost = (t: string): boolean => {
+      const h = normalizeHost(t || "");
+      return !!h && (h === wantHost || h.endsWith(`.${wantHost}`) || wantHost.endsWith(`.${h}`));
+    };
+    const rows = readFindings(rawUser)
+      .filter((r) => r.status !== "resolved")
+      .filter((r) => sameHost(r.target || ""));
+    if (!rows.length) return "";
+    const readers = liveReaders(rawUser, host);
+    const verified = new Set(readers.verifiedFindingIds?.(host) ?? []);
+    const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+    const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0) || (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
+    const withProof = sorted.filter((f) => verified.has(f.id)).length;
+
+    const turnMsgs = turnWindow(messages);
+    const results = new Map<string, string>();
+    const calls: { id: string; name: string }[] = [];
+    for (const m of turnMsgs) {
+      if (m.role === "assistant" && m.tool_calls) {
+        for (const tc of m.tool_calls) {
+          const nm = tc.function?.name || "";
+          if (nm) calls.push({ id: tc.id, name: nm });
+        }
+      }
+      if (m.role === "tool" && (m as { tool_call_id?: string }).tool_call_id) {
+        results.set((m as { tool_call_id: string }).tool_call_id, messageText(m.content));
+      }
+    }
+    const real = (name: string): string[] =>
+      calls
+        .filter((c) => c.name === name)
+        .map((c) => results.get(c.id) ?? "")
+        .filter((b) => b.trim() && !PENTEST_REFUSAL_RE.test(b.trim()));
+    const pocBodies = [...real("poc_verify"), ...real("retest_run")];
+    const latestPoc = pocBodies.length ? firstResultLine(compactUrlsInLine(pocBodies[pocBodies.length - 1])) : "";
+
+    const ask = lastInstructionText(messages);
+    const level = pentestDetailLevel(ask);
+    const listCap = level === "concise" ? 3 : level === "detailed" ? 8 : 6;
+    const today = wibDay();
+    const recordedThisTurn = real("finding_add").length > 0;
+    const shortTitle = (t: string): string => {
+      const s = String(t || "").trim();
+      return s.length > 90 ? `${s.slice(0, 89)}…` : s;
+    };
+    const statusOf = (f: { id: string; createdAt?: string }): string => {
+      let created = "";
+      try {
+        created = f.createdAt ? wibDay(new Date(f.createdAt)) : "";
+      } catch { /* unknown date — no "baru" mark */ }
+      const fresh = recordedThisTurn && created && created === today ? ", baru giliran ini" : "";
+      return verified.has(f.id) ? `PoC terverifikasi${fresh}.` : `belum diverifikasi${fresh}.`;
+    };
+    const shown = sorted.slice(0, listCap);
+    const rest = sorted.length - shown.length;
+    const findingLines = shown
+      .map((f, i) => {
+        const base = `${i + 1}. **${String(f.severity || "?").toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}** ${shortTitle(f.title)} — \`${findingPath(f.target || "", f.title)}\`\n   Status: ${statusOf(f)}`;
+        if (level !== "detailed") return base;
+        const ev = redactEvidenceForReport(String((f as { evidence?: string }).evidence || "")).trim().split("\n")[0] || "";
+        return ev ? `${base}\n   Evidence: ${ev.slice(0, 160)}` : base;
+      })
+      .join("\n");
+
+    const statusLine =
+      withProof === sorted.length
+        ? "tuntas tervalidasi"
+        : withProof === 0
+          ? "belum ada yang tervalidasi PoC"
+          : `verifikasi parsial — ${sorted.length - withProof} dari ${sorted.length} belum punya bukti PoC`;
+
+    const file = String(deliveredFile || "").trim()
+      || reportFileFromTurn(messages, "\\.pdf")
+      || reportFileFromTurn(messages, "\\.md");
+    const mdFile = reportFileFromTurn(messages, "\\.md");
+    const madeThisTurn = turnRanTool(messages, "report_pdf") || turnRanTool(messages, "report_save") || !!String(deliveredFile || "").trim();
+
+    const execLabels: Record<string, string> = {
+      poc_verify: "PoC verification",
+      retest_run: "Retest",
+      http_request: "HTTP requests",
+      web_audit: "Web audit",
+      js_mine: "JavaScript analysis",
+      js_deobfuscate: "JS deobfuscation",
+      content_discover: "Content discovery",
+      crawl: "Crawl",
+      fetch_url: "Fetch",
+    };
+    const execLines: string[] = [];
+    if (level !== "concise") {
+      const httpBodies = real("http_request");
+      if (httpBodies.length) {
+        const codes = [...new Set(httpBodies.flatMap((b) => [...b.matchAll(/-> (\d{3})\b/g)].map((m) => m[1])))].sort();
+        execLines.push(`- HTTP requests: ${httpBodies.length}×${codes.length ? ` (${codes.join("/")})` : ""}`);
+      }
+      for (const tool of ["poc_verify", "retest_run", "web_audit", "js_mine", "content_discover", "fetch_url"] as const) {
+        const bodies = real(tool);
+        if (!bodies.length) continue;
+        if (tool === "poc_verify" || tool === "retest_run") {
+          execLines.push(`- PoC verification: ${firstResultLine(compactUrlsInLine(bodies[bodies.length - 1]), 180)}`);
+        } else {
+          execLines.push(`- ${execLabels[tool]}: ${firstResultLine(bodies[0], 140)}`);
+        }
+      }
+      if (file) execLines.push(`- Report generation: \`${file}\``);
+    }
+
+    const parts = [
+      `**🔐 Security Assessment — ${host}**`,
+      `**Ringkasan**\n- Total: ${sorted.length} temuan (${withProof} terverifikasi PoC, ${sorted.length - withProof} belum)\n- PoC terakhir: ${latestPoc || "tidak ada PoC giliran ini"}\n- Penilaian: ${statusLine}.`,
+      `**Temuan yang Tercatat**\n${findingLines}${rest > 0 ? `\n… +${rest} temuan lain di PDF.` : ""}`,
+    ];
+    if (file) {
+      const lines = [`- \`${file}\`${madeThisTurn ? " (dibuat giliran ini)" : " (dari giliran sebelumnya)"}`];
+      if (mdFile && mdFile.toLowerCase() !== file.toLowerCase()) {
+        const mdMade = turnRanTool(messages, "report_save");
+        lines.push(`- \`${mdFile}\`${mdMade ? " (dibuat giliran ini)" : " (dari giliran sebelumnya)"}`);
+      }
+      parts.push(`**📎 Report**\n${lines.join("\n")}`);
+    }
+    if (execLines.length) parts.push(`**⚙️ Execution Summary**\n${execLines.join("\n")}`);
+    const out = parts.join("\n\n");
+    return out.length > 2400 ? "" : out;
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -6775,7 +7083,7 @@ export async function runAssistantTurn(opts: {
     // The formatter can only (a) re-dialect markdown and (b) report integrity
     // issues — it never rewrites content, so the honesty guards appended above
     // (receipt, provenance, delivery notes) always survive.
-    const cleaned = collapseHtmlDumps(stripToolCallProse(fixAddressComma(result.text)));
+    const cleaned = collapseHtmlDumps(stripGmailIds(stripToolCallProse(fixAddressComma(result.text))));
     try {
       const turnFacts = formatFactsFromMessages(result.messages);
       const shaped = applyOutputFormat({
@@ -7837,6 +8145,31 @@ async function runAssistantTurnImpl(opts: {
       const pdfNote = pdfDeliverableSuffix(messages, text);
       if (pdfNote) text = `${text}${pdfNote}`;
     }
+    // Deterministic findings digest (live 2026-10-15 12:21: prose cited
+    // "SQLi di dan ... di )" — empty slots where endpoint names belong. The
+    // report knows the real titles, so print them instead of letting the model
+    // improvise examples. Runs on turns that actually delivered a file.
+    if (delivered || pdfToolFile || mdToolFile) {
+      text = stripDanglingPrep(text);
+      try {
+        let appended = "";
+        // Structured pentest block first (verified/unverified split, latest PoC,
+        // exec summary from THIS turn's results). Falls back to the findings
+        // digest when the turn is not pentest work or the block has no data.
+        if (isPentestAsk(ask)) {
+          const deliveredPdf = (/`([^`]*\.pdf)`/i.exec(delivered || "") || [])[1] || "";
+          appended = await pentestSummary(messages, opts.user, deliveredPdf);
+        }
+        if (!appended) {
+          const { reportFindingsDigest } = await import("./security");
+          const digest = reportFindingsDigest(opts.user, reportTargetFromMessages(messages) || "", 5);
+          if (digest) appended = digest;
+        }
+        if (appended) text = `${text}\n\n${appended}`;
+      } catch {
+        /* fail-open: a missing block must not cost the reply */
+      }
+    }
     // Follow-up file-location resolver (live 2026-10-15 12:23: "dimana file
     // reportnya?" — the follow-up turn has no report tool in its window, so
     // none of the delivery branches above can see the previous turn's file.
@@ -7856,6 +8189,17 @@ async function runAssistantTurnImpl(opts: {
         if (note) text = `${text}${note}`;
       } catch {
         /* fail-open: an unreadable reports dir must not cost the reply */
+      }
+    }
+    // Deterministic inbox digest (live 2026-10-15 14:22: "cek email" dijawab
+    // ringkasan 2 kalimat tanpa subjek/tanggal — detail hilang/ada tergantung
+    // mood model). Parsed from this turn's gmail_list/search results; skipped
+    // when the prose already carries the list (no duplication).
+    if (!needsConfirmation?.length && (turnRanTool(messages, "gmail_list") || turnRanTool(messages, "gmail_search"))) {
+      const digest = gmailDigest(messages, 6);
+      if (digest) {
+        const covered = gmailDigestSubjects(digest).filter((s) => text.includes(s)).length;
+        if (covered < 2) text = `${text}\n\n${digest}`;
       }
     }
   }

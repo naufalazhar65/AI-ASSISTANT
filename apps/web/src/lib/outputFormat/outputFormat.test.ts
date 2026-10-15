@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import { chunkText, DISCORD_MAX } from "../../channels/replyChunk";
-import { applyOutputFormat, classifyTask, hasEvidentiaryClaims, outputFormatGuidance, renderForChannel, validateOutput } from "./index";
+import { applyOutputFormat, classifyTask, hasEvidentiaryClaims, integrityNote, outputFormatGuidance, renderForChannel, validateOutput, withoutGmailDigest } from "./index";
 import { FORMATTERS } from "./registry";
 import { TASK_TYPES, type TaskType } from "./taskTypes";
 
@@ -594,5 +594,111 @@ describe("end-to-end shape [S2] [S3]", () => {
     });
     expect(out.outcome.taskType).toBe("news_and_trends");
     expect(out.outcome.issues.map((i) => i.code)).not.toContain("unsupported-completion-claim");
+  });
+});
+describe("pentest_report / progress_update / system_status (2026-10-15)", () => {
+  it("a pentest ask with a PDF deliverable gets the verified/unverified split", () => {
+    const c = classifyTask({
+      askText: "coba lakukan full pentest secara menyeluruh di https://lab.example.netlify.app/ dan buatkan report pdf nya",
+      executedTools: ["http_request", "poc_verify", "finding_add", "report_generate"],
+    });
+    expect(c.taskType).toBe("pentest_report");
+    expect(c.basis).toBe("workflow");
+    expect(FORMATTERS.pentest_report.requiredSections.map((s) => s.id)).toContain("poc_validation");
+    expect(FORMATTERS.pentest_report.optionalSections.map((s) => s.id)).toContain("verified_findings");
+    expect(FORMATTERS.pentest_report.optionalSections.map((s) => s.id)).toContain("unverified_leads");
+  });
+
+  it("a probe-only pentest turn stays security_audit (no deliverable signal)", () => {
+    const c = classifyTask({
+      askText: "audit SQLi di https://lab.example.netlify.app/api/x",
+      executedTools: ["http_request", "poc_verify"],
+    });
+    expect(c.taskType).toBe("security_audit");
+  });
+
+  it("progress and system-health asks split from generic status", () => {
+    expect(classifyTask({ askText: "progres pentest sudah sampai mana?", executedTools: ["http_request"] }).taskType).toBe(
+      "progress_update",
+    );
+    expect(classifyTask({ askText: "bagaimana status bot dan server?", executedTools: [] }).taskType).toBe("system_status");
+    // ...while an ordinary point-in-time status is unchanged.
+    expect(classifyTask({ askText: "gimana kabar tugasnya?", executedTools: ["add_task"] }).taskType).toBe("status_update");
+  });
+
+  it("guidance covers the new family without touching old ones", () => {
+    const g = outputFormatGuidance("discord") ?? "";
+    expect(g).toMatch(/pentest_report/);
+    expect(g).toMatch(/Unverified Leads/);
+    expect(g).toMatch(/Mask secrets/);
+  });
+
+  it("a JWT blob in a pentest answer is flagged; masked prose stays silent", () => {
+    const leaked = validateOutput({
+      text: "## Summary\nTemuan A terbukti.\n## Validation\nTokennya eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c terbukti.",
+      taskType: "pentest_report",
+    });
+    expect(leaked.map((i) => i.code)).toContain("sensitive-data-exposure");
+    const clean = validateOutput({
+      text: "## Summary\nTemuan A.\n## Validation\nToken dimask [redacted],_owner.",
+      taskType: "pentest_report",
+    });
+    expect(clean.map((i) => i.code)).not.toContain("sensitive-data-exposure");
+  });
+
+  it("a 16-digit run is only a NIK next to an identity word", () => {
+    const flagged = validateOutput({
+      text: "## Summary\nNIK korban 3571011234567890 bocor.",
+      taskType: "security_audit",
+    });
+    expect(flagged.map((i) => i.code)).toContain("sensitive-data-exposure");
+    const plain = validateOutput({
+      text: "## Summary\nSebanyak 1234567890123456 request per detik.",
+      taskType: "security_audit",
+    });
+    expect(plain.map((i) => i.code)).not.toContain("sensitive-data-exposure");
+  });
+
+  it("the sensitive note names the problem without echoing the value", () => {
+    const body =
+      "## Summary\nTemuan SQLi terbukti dengan bukti kuat.\n## Validation\nKredensialnya password=\"hunter2aman\" dipakai login dan berhasil masuk dashboard admin kemarin.";
+    const issues = validateOutput({ text: body, taskType: "pentest_report" });
+    expect(issues.map((i) => i.code)).toContain("sensitive-data-exposure");
+    const note = integrityNote(issues, "pentest_report", body);
+    expect(note).toMatch(/rahasia/);
+    expect(note).not.toContain("hunter2aman");
+  });
+});
+
+describe("withoutGmailDigest — system-quoted snippets are not model claims", () => {
+  it("strips the digest block but keeps model prose for validation", () => {
+    const text = [
+      "Ada email baru masuk.",
+      "",
+      "**📧 Email terbaru (2)**",
+      "1. Profil populer",
+      "   Orang dari PT X menemukan profil Anda",
+      "2. Lowongan QA",
+      "   Dari: info@trabajo.org",
+      "",
+      "**⚙️ Execution Summary**",
+    ].join("\n");
+    const stripped = withoutGmailDigest(text);
+    expect(stripped).toContain("Ada email baru masuk.");
+    expect(stripped).toContain("**⚙️ Execution Summary**");
+    expect(stripped).not.toContain("menemukan profil");
+    expect(stripped).not.toContain("📧 Email terbaru");
+  });
+
+  it("no integrity note on a digest-only inbox turn (snippet words are not claims)", () => {
+    const text = "Ada email baru.\n\n**📧 Email terbaru (1)**\n1. Profil populer\n   Orang dari PT X menemukan profil Anda";
+    const issues = validateOutput({ text, taskType: "task_execution_report", executedTools: ["gmail_list"] });
+    expect(integrityNote(issues, "task_execution_report", text)).toBe("");
+  });
+
+  it("a real unsourced claim outside the digest still fires", () => {
+    const text = "Riset membuktikan pasar naik 200% tahun ini dan itu sudah terverifikasi oleh semua analis terkemuka di dunia.";
+    const issues = validateOutput({ text, taskType: "research_report" });
+    expect(issues.map((i) => i.code)).toContain("missing-evidence");
   });
 });

@@ -293,7 +293,7 @@ export async function gmailList(rawUser: unknown, maxResults = 10, query = ""): 
   const data = await gmailRequest<{ messages?: Array<{ id: string; threadId: string }>; resultSizeEstimate?: number }>(rawUser, "GET", `/users/me/messages${q}`);
   const msgs = data.messages || [];
   if (!msgs.length) return "Inbox kosong atau tidak ada hasil.";
-  const lines: string[] = [];
+  const lines: string[] = [`📧 ${Math.min(msgs.length, maxResults)} email terbaru:\n`];
   for (let i = 0; i < Math.min(msgs.length, maxResults); i++) {
     try {
       const full = await gmailRequest<Record<string, unknown>>(rawUser, "GET", `/users/me/messages/${msgs[i].id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`);
@@ -327,4 +327,47 @@ export async function gmailRead(rawUser: unknown, id: string): Promise<string> {
 export async function gmailSearch(rawUser: unknown, query: string, maxResults = 10): Promise<string> {
   if (!query.trim()) throw new Error("query required");
   return gmailList(rawUser, maxResults, query);
+}
+
+/**
+ * True when the ask wants to LOOK at the inbox (not send mail). Pure.
+ * "kirim email" is deliberately excluded — that is a send task, and nudging
+ * a read there would misfire the turn.
+ */
+export function isEmailCheckAsk(text: string): boolean {
+  const t = String(text || "");
+  if (!t || /\bkirim\b/i.test(t)) return false;
+  return /\b(cek|lihat|buka|baca|tampilkan|tunjukin|cari)\b.{0,24}\bemail\b/i.test(t) || /\bemail\b.{0,24}\b(masuk|baru|terbaru|ada|nggak|belum)\b/i.test(t) || /\binbox\b/i.test(t);
+}
+
+export interface GmailGateInput {
+  userText: string;
+  executedNames: readonly string[];
+  hasRoundBudget: boolean;
+  alreadyNudged?: boolean;
+  isConfirmContinuation?: boolean;
+  headless?: boolean;
+}
+
+/**
+ * One retry round when a "cek email" turn is about to end with zero gmail_*
+ * tools (live 2026-10-15 14:32: the model answered from memory — "ada email
+ * baru dari Trabajo.org ..." — with no fresh check, so dates/subjects were
+ * stale-or-absent). Mirrors probeGateNudge: bounded once per turn, skipped on
+ * confirm continuations and headless turns. The caller posts the return as a
+ * `[email-gate]` user message (internal-turn, never shadows the real ask).
+ */
+export function gmailGateNudge(input: GmailGateInput): string {
+  if (!isEmailCheckAsk(input.userText)) return "";
+  if (input.isConfirmContinuation) return "";
+  if (input.headless) return "";
+  if (!input.hasRoundBudget) return "";
+  if (input.alreadyNudged) return "";
+  if (input.executedNames.some((n) => /^gmail_(list|search|read)$/.test(n))) return "";
+  return [
+    `Error: giliran ini belum mengecek email — belum ada SATU pun pemanggilan gmail_list/search/read yang berjalan.`,
+    `Yang kamu tulis baru ingatan dari percakapan sebelumnya, BUKAN hasil cek baru, dan tanggal/subjeknya bisa basi.`,
+    `Lakukan sekarang juga: panggil gmail_list dulu (tanpa query bila user tidak menyebut filter), baca hasilnya, baru jawab dari situ.`,
+    `Kalau inbox memang kosong atau tool-nya error, bilang terus terang dari hasil tool itu — jangan mengarang isi email.`,
+  ].join(" ");
 }

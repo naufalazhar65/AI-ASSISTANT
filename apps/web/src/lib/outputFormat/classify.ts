@@ -80,6 +80,13 @@ const SECURITY_RE =
   /\b(pentest|penetrasi|penetration|kerentanan|vulnerab\w*|exploit|nmap|sqlmap|metasploit|burp|cve|payload|bypass|xss|sqli|csrf|idor|ssrf|rce|traversal|injection|hacking|nuclei|ffuf|dirb|nikto|hydra|owasp|fuzz|scanner|audit|keamanan|security|red.?team)\b/i;
 /** A finding-shaped security ask implies the audit template. */
 const FINDINGS_RE = /\b(temuan|findings?|kerentanan|vuln|severity|critical|high|medium|low)\b/i;
+/** Deliverable signal: the ask wants a report FILE, not just findings prose. */
+const PDF_RE = /\b(pdf|lampiran|attachment|deliverable)\b/i;
+const REPORT_TOOL_RE = /^(report_generate|report_save|report_pdf)$/;
+/** Progress-of-work asks (distinct from a point-in-time status). */
+const PROGRESS_RE = /\b(progress|progres|kemajuan|perkembangan|sejauh\s+mana|sudah\s+sampai\s+mana)\b/i;
+/** System-health asks (distinct from task status). */
+const SYSSTATUS_RE = /\b(sistem|system|server|layanan|service|bot|instance)\b/i;
 
 /* ------------------------------------------------------- explicit formats */
 
@@ -161,13 +168,25 @@ export function classifyTask(input: ClassifyInput): Classification {
     return finish("comparison", "explicit", "explicit-table-compare");
   }
 
-  // 3. Security testing outranks everything: it has mandatory finding/severity
+  // 3. Pentest report: a security ask that wants a DELIVERABLE (PDF/laporan file)
+  //    or whose turn actually recorded/proved findings. Sits above the generic
+  //    security_audit so "full pentest ... dan buatkan report pdf nya" gets the
+  //    verified-vs-unverified split instead of the flat findings list. A probe
+  //    turn with no deliverable signal stays an audit.
+  if (
+    SECURITY_RE.test(ask) &&
+    (PDF_RE.test(ask) || (input.executedTools ?? []).some((t) => REPORT_TOOL_RE.test(t)))
+  ) {
+    return finish("pentest_report", "workflow", "pentest-deliverable");
+  }
+
+  // 4. Security testing outranks everything: it has mandatory finding/severity
   //    requirements, so a misclassification would strip them.
   if (SECURITY_RE.test(ask) && (FINDINGS_RE.test(ask) || REVIEW_RE.test(ask) || REPORT_RE.test(ask))) {
     return finish("security_audit", "workflow", "security-vocab");
   }
 
-  // 4. Delegation tells us WHO is answering; the vocabulary tells us the shape.
+  // 5. Delegation tells us WHO is answering; the vocabulary tells us the shape.
   //    Michelle = code, Agnes = research. We never route research to the code
   //    template or vice versa — the two error cases the brief names.
   const delegated = detectDelegation(input.askText ?? "");
@@ -220,7 +239,11 @@ export function classifyTask(input: ClassifyInput): Classification {
     return finish("coding_result", "workflow", "coding-vocab");
   }
 
-  // 12. Status updates.
+  // 12. Progress-of-work vs point-in-time status vs system health. Progress asks
+  //     ("sudah sampai mana") need done/doing/next, not a status snapshot; a
+  //     system-health ask needs per-service state, not task status.
+  if (PROGRESS_RE.test(ask) && executed > 0) return finish("progress_update", "workflow", "progress-vocab");
+  if (SYSSTATUS_RE.test(ask) && /\bstatus\b/i.test(ask)) return finish("system_status", "workflow", "system-status-vocab");
   if (STATUS_RE.test(ask) && executed > 0) return finish("status_update", "workflow", "status-vocab");
 
   // 13. Explanation questions stay SHORT — no report headings.

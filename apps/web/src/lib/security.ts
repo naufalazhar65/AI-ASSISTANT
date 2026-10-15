@@ -1143,6 +1143,35 @@ export function reportSave(rawUser: unknown, opts: { target?: string } = {}): st
   );
 }
 
+/**
+ * Compact deterministic findings list for a delivered report (live 2026-10-15
+ * 12:21: prose cited "SQLi di dan, unauthenticated leak di, serta XSS
+ * tersimpan di )" — empty slots where endpoint names should be, because the
+ * model improvises examples it was never given. The report already knows the
+ * real titles, so print them: same scope/filter/sort as generateReport,
+ * open findings only. "" when nothing is recorded (callers then stay silent).
+ */
+export function reportFindingsDigest(rawUser: unknown, target: string, limit = 5): string {
+  try {
+    const wantHost = target ? normalizeHost(target) : "";
+    const rows = readFindings(rawUser)
+      .filter((r) => r.status !== "resolved")
+      .filter((r) => !wantHost || matchesHost(r.target, wantHost));
+    if (!rows.length) return "";
+    const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+    const sorted = [...rows].sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0) || (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
+    const top = sorted.slice(0, Math.max(1, Math.min(10, limit || 5)));
+    const lines = top.map(
+      (f, i) =>
+        `${i + 1}. [${String(f.severity || "?").toUpperCase()}${f.cvss != null ? ` · CVSS ${f.cvss}` : ""}] ${f.title} — ${String(f.target || "-").replace(/^https?:\/\//i, "").slice(0, 60)}`
+    );
+    const rest = rows.length - top.length;
+    return `Isi laporan (${rows.length} temuan):\n${lines.join("\n")}${rest > 0 ? `\n… +${rest} temuan lain di PDF.` : ""}`;
+  } catch {
+    return "";
+  }
+}
+
 export interface RecentReportFile {
   name: string;
   mtimeMs: number;

@@ -39,6 +39,10 @@ describe("isInternalTurn", () => {
       ),
     ).toBe(true);
   });
+
+  it("treats the email gate's synthetic turn as internal too", () => {
+    expect(isInternalTurn("[email-gate] Error: giliran ini belum mengecek email.")).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
