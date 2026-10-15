@@ -61,3 +61,4 @@ bug-bounty-report-improvement-checklist.md
 # hand-rolled three.js scene can be recovered by hand if the ruang port has to be
 # rolled back — it is a snapshot of a deleted revision, not part of the project.
 apps/.office-backup/
+.playwright-mcp

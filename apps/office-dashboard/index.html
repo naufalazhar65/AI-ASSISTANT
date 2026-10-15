@@ -79,7 +79,7 @@
 
   table{width:100%;border-collapse:collapse;font-size:12.5px}
   th{text-align:left;color:var(--faint);font-weight:600;text-transform:uppercase;
-    letter-spacing:.07em;font-size:10.5px;padding:6px 8px;border-bottom:1px solid var(--line)}
+    letter-spacing:.07em;font-size:11px;padding:6px 8px;border-bottom:1px solid var(--line)}
   td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
   tr:last-child td{border-bottom:0}
 
@@ -101,12 +101,12 @@
   /* Room selector: small ghost buttons, same language as the rest of the UI. */
   .rooms{display:inline-flex;gap:4px;padding:3px;border:1px solid var(--line);
     border-radius:999px;background:rgba(17,20,26,.72)}
-  .rooms button{font:inherit;font-size:11px;color:var(--faint);background:none;
+  .rooms button{font:inherit;font-size:12px;color:var(--faint);background:none;
     border:0;border-radius:999px;padding:4px 11px;cursor:pointer;white-space:nowrap}
   .rooms button:hover{color:var(--text)}
   .rooms button.on{background:rgba(139,157,195,.20);color:var(--text)}
   .rooms button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  @media (max-width:560px){.rooms button{padding:4px 8px;font-size:10px}}
+  @media (max-width:560px){.rooms button{padding:4px 8px;font-size:11px}}
   /* Agent label card: two stacked rows — name + room on top, a status pill
      below. The pill carries the colour so status is readable without reading
      the text, which is the part that matters when three cards overlap. */
@@ -118,7 +118,7 @@
   .tagLbl b{font-weight:600}
   .tagLbl .tRow{display:flex;align-items:center;gap:5px}
   .tagLbl .tRoom{color:var(--faint);font-size:10px}
-  .tagLbl .tProv{color:var(--faint);font-size:9px;opacity:.75;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tagLbl .tProv{color:var(--faint);font-size:10px;opacity:.8;max-width:230px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal}
   .tagLbl .tDot{width:5px;height:5px;border-radius:50%;flex:0 0 auto;background:var(--faint)}
   .tagLbl .tDot.working{background:var(--ok);box-shadow:0 0 6px var(--ok)}
   .tagLbl .tDot.idle{background:var(--faint)}
@@ -192,7 +192,7 @@
   header .vb{font:inherit;font-size:11px;padding:5px 9px;border-radius:8px}
   #burger{display:inline-flex}
   #dispatchBtn{font-size:11px;padding:5px 11px;white-space:nowrap}
-  #busPill{font-size:10px;letter-spacing:.11em;text-transform:uppercase;padding:3px 9px}
+  #busPill{font-size:11px;letter-spacing:.11em;text-transform:uppercase;padding:3px 9px}
   .sync{display:inline-flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.14em;
     text-transform:uppercase;color:var(--faint)}
   #lastPill{font-variant-numeric:tabular-nums}
@@ -241,7 +241,7 @@
   /* board */
   .board{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(245px,1fr))}
   .lane{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:12px;min-height:140px}
-  .lane h4{margin:0 0 10px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);display:flex;justify-content:space-between}
+  .lane h4{margin:0 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);display:flex;justify-content:space-between}
   .tk{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 11px;margin-bottom:9px;font-size:12.5px}
   .tk .ttl{font-weight:600;margin-bottom:4px}
   .tk .meta{color:var(--muted);font-size:11px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -277,10 +277,10 @@
   .hudTab.on{color:var(--text);border-color:var(--accent);background:var(--panel-2)}
   .hudPane{display:grid;gap:10px;grid-template-columns:1fr 1fr;align-content:start;padding:12px;overflow:auto;flex:1;min-height:0}
   .hudCard{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
-  .hudCard .k{font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+  .hudCard .k{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
   .hudCard .v{font-size:15px;font-weight:600;margin-top:4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
   .hudCard .s{font-size:11px;color:var(--muted);margin-top:3px}
-  .hudFoot{padding:9px 12px;border-top:1px solid var(--line);font-size:10.5px;letter-spacing:.04em;color:var(--faint)}
+  .hudFoot{padding:9px 12px;border-top:1px solid var(--line);font-size:11.5px;letter-spacing:.04em;color:var(--faint)}
   #hudClose{font-size:13px;line-height:1;padding:4px 8px;border-radius:8px}
 
   /* slim status strip + control row over the 3D stage */
@@ -288,20 +288,33 @@
   /* keep the stage controls clear of the docked panel (panel floats, 392px + 12px inset) */
   body.hudopen .ovlTop{padding-right:408px}
   #ovlStatus{display:flex;gap:7px;flex-wrap:wrap;align-items:center;min-width:0}
-  #ovlStatus .pill{font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:3px 9px;
+  #ovlStatus .pill{font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:3px 9px;
     background:rgba(9,11,15,.55);border-color:rgba(255,255,255,.08)}
   html[data-theme="light"] #ovlStatus .pill{background:rgba(255,255,255,.74);border-color:rgba(0,0,0,.08)}
   .ovlBottom{gap:8px}
-  #officeHint{font-size:10.5px;opacity:.72;background:rgba(9,11,15,.5);border-color:rgba(255,255,255,.07)}
+  #officeHint{font-size:11.5px;opacity:.72;background:rgba(9,11,15,.5);border-color:rgba(255,255,255,.07)}
   html[data-theme="light"] #officeHint{background:rgba(255,255,255,.72);border-color:rgba(0,0,0,.08)}
 
   @media (max-width:820px){
     aside{position:fixed;z-index:70;inset:0 auto 0 0;box-shadow:var(--shadow)}
     body.sbopen aside{transform:none}
+    body:not(.sbopen) aside{transform:translateX(-105%);visibility:hidden}
+    header{flex-wrap:wrap;height:auto;min-height:56px;padding:8px 12px;row-gap:8px}
+    header h1{font-size:12px}
+    #officeHint{display:none}
+    .card{overflow-x:auto}
+    .card table{min-width:540px}
     .ex,.split{grid-template-columns:1fr}
     .tree,.doc{max-height:280px}
     .hudPane{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
     body.hudopen .ovlTop{padding-right:0}
+    .ovlTop,#roomBar{flex-wrap:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:none}
+    .ovlTop{flex-wrap:nowrap;max-width:100%}
+    #ovlStatus{flex:0 0 auto;overflow-x:visible}
+    #roomBar{flex:0 0 auto;overflow-x:auto}
+    .ovlTop::-webkit-scrollbar,#roomBar::-webkit-scrollbar{display:none}
+    #ovlStatus{flex-wrap:nowrap}
+    #ovlStatus .pill,.ovlTop .btn,#roomBar .rBtn{flex:0 0 auto}
   }
 </style>
 </head>
@@ -310,12 +323,12 @@
   <aside>
     <div class="brand"><span class="dot" id="connDot"></span>
       <span><b>AI Office</b><small>Mia · Agnes · Michelle</small></span></div>
-    <nav id="nav"></nav>
+    <nav id="nav" aria-label="Navigasi utama"></nav>
     <div class="spacer"></div>
     <div class="side-foot">
       Sumber data nyata: audit log Mia (<code>apps/web/.data/audit/</code>) + ledger JSONL di
       <code>apps/office-dashboard/data/</code>.<br>
-      Nilai yang tidak bisa dibaca ditampilkan <b>Not available</b>, bukan dikarang.
+      Nilai yang tidak bisa dibaca ditampilkan <b>Tidak tersedia</b>, bukan dikarang.
     </div>
   </aside>
 
@@ -326,13 +339,13 @@
       <span class="crumbA" aria-hidden="true">/</span>
       <h1 id="viewTitle">Office</h1>
       <span class="sp"></span>
-      <span class="sync"><i id="apiPill" title="Koneksi API"></i><span>Synced</span><span id="lastPill">—</span></span>
-      <span class="pill" id="busPill" title="Live Event Bus dari Mia — sumber kebenaran status agent">BUS …</span>
+      <span class="sync"><i id="apiPill" title="Koneksi API"></i><span>Tersinkron</span><span id="lastPill">—</span></span>
+      <span class="pill" id="busPill" aria-live="polite" title="Live Event Bus dari Mia — sumber kebenaran status agent">BUS …</span>
       <div class="grp">
-        <button class="btn vb" id="modeBtn" title="Tema terang / gelap">◐</button>
-        <button class="btn vb" id="refreshBtn" title="Muat ulang sekarang">⟳</button>
+        <button class="btn vb" id="modeBtn" title="Tema terang / gelap (UI)" aria-label="Ganti tema terang atau gelap">◐</button>
+        <button class="btn vb" id="refreshBtn" title="Muat ulang sekarang" aria-label="Muat ulang data sekarang">⟳</button>
       </div>
-      <button class="btn warn" id="dispatchBtn">…</button>
+      <button class="btn warn" id="dispatchBtn" aria-label="Jeda atau lanjutkan dispatch">…</button>
     </header>
 
     <section class="view" id="view-office">
@@ -347,7 +360,7 @@
             <!-- Room selector. Buttons only set a camera destination; they never
                  touch agent state, so switching rooms never interrupts work. -->
             <span class="rooms" id="roomBar" role="group" aria-label="Pilih ruangan"></span>
-            <button class="btn" id="themeBtn">Tema: Malam</button>
+            <button class="btn" id="themeBtn" title="Siang / malam untuk 3D saja (bukan tema UI)">3D: Malam</button>
             <button class="btn" id="avatarBtn">Edit avatar</button>
             <button class="btn" id="camReset">Reset kamera</button>
             <button class="btn" id="hudToggle" aria-expanded="true" title="Panel status">Panel</button>
@@ -407,6 +420,19 @@
   </div>
 </div>
 
+<div class="modalBg" id="tokBg">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tokTitle">
+    <h3 style="margin:0 0 10px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)" id="tokTitle">Token dashboard</h3>
+    <p class="note" style="margin-top:0">Dashboard terkunci (401). Tempel AUTH_TOKEN dari <code>apps/web/.env.local</code> — disimpan di browser ini saja.</p>
+    <input id="tokInput" type="password" autocomplete="off" placeholder="Tempel token…" style="width:100%;background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;font-size:13px">
+    <div class="err" id="tokErr"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+      <button class="btn" id="tokCancel">Batal</button>
+      <button class="btn ok" id="tokSave">Simpan</button>
+    </div>
+  </div>
+</div>
+
 <script src="/vendor/three.min.js"></script>
 <script>
 (function () {
@@ -444,17 +470,17 @@ var STATE = null, lastOk = null, inflight = false, currentView = 'office';
 
 /* ── helpers ─────────────────────────── */
 function fmtBytes(n) {
-  if (n == null || !isFinite(n)) return 'Unavailable';
+  if (n == null || !isFinite(n)) return 'Tidak tersedia';
   var u = ['B','KB','MB','GB','TB'], i = 0, v = n;
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return v.toFixed(v < 10 && i > 0 ? 1 : 0) + ' ' + u[i];
 }
 function fmtDur(s) {
-  if (s == null) return 'Unavailable';
+  if (s == null) return 'Tidak tersedia';
   var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  if (d) return d + 'h ' + h + 'j ' + m + 'm';
-  if (h) return h + 'j ' + m + 'm';
-  return m + 'm ' + Math.floor(s % 60) + 'd';
+  if (d) return d + ' hari ' + h + ' jam ' + m + ' mnt';
+  if (h) return h + ' jam ' + m + ' mnt';
+  return m + ' mnt ' + Math.floor(s % 60) + ' dtk';
 }
 function hhmmss(iso) {
   if (!iso) return '—';
@@ -478,7 +504,7 @@ function esc(s) {
     return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[c];
   });
 }
-function na(v, note) { return '<span class="unavail">' + esc(note || 'Unavailable') + '</span>'; }
+function na(v, note) { return '<span class="unavail">' + esc(note || 'Tidak tersedia') + '</span>'; }
 function stBadge(s) { return '<span class="badge ' + esc(s) + '">' + esc(s) + '</span>'; }
 
 /* Delivery truth: a task that asked for Discord delivery must never read as a
@@ -689,8 +715,7 @@ function vAgents() {
   return '<div class="vbar"><span class="lab">Antrekan tugas</span>' +
       QUICK.map(function (q) {
         return '<button class="btn" data-quick="' + esc(q[1]) + '" data-label="' + esc(q[0]) + '">' + esc(q[0]) + '</button>';
-      }).join('') +
-      '<button class="btn" data-quick="mia" data-label="Prompt bebas untuk Mia">+ Prompt bebas</button></div>' +
+      }).join('') + '</div>' +
     '<div class="grid g3">' + STATE.agents.map(function (a) {
       var b = a.basis || {}, r = ROSTER[a.id] || {};
       return '<div class="card">' +
@@ -737,7 +762,7 @@ function vBoard() {
           (x.deliver ? '<span>' + esc(String(x.deliver)) + '</span>' : '') +
           (x.task_id ? '<span title="' + esc(x.task_id) + '">' + esc(trunc(x.task_id, 22)) + '</span>' : '') +
           '</div>' + (detail ? '<div class="meta" style="margin-top:4px">' + esc(trunc(detail, 130)) + '</div>' : '') + '</div>';
-      }).join('') : emptyBox('Kosong.')) + '</div>';
+      }).join('') : emptyBox('Kosong — antrekan tugas lewat tombol + di Task Board.')) + '</div>';
   }).join('') + '</div>';
 }
 
@@ -788,7 +813,7 @@ function vRemindersBlock() {
           '<td>' + (it.repeat === 'daily' ? '<span class="badge working">harian</span>' : '—') + '</td>' +
           '<td>' + esc(fmtDur(it.in_s)) + '</td></tr>';
       }).join('') + '</tbody></table>'
-    : emptyBox('Tidak ada reminder terjadwal saat ini. Mia menulis ke store .data/users/<user>/reminders.json.');
+    : emptyBox('Tidak ada reminder terjadwal saat ini. Minta ke Mia: "ingatkan aku …" lewat chat.');
   var out = '<div class="card"><h3>Reminder Mia ' +
     '<span class="badge idle">' + esc(count(r.pending)) + ' terjadwal</span></h3>' +
     '<div class="note">Sumber: ' + esc(stores || '—') + ' — dibaca langsung dari store Mia, bukan dari jadwal .md dashboard.</div>' +
@@ -895,7 +920,7 @@ function vMemory() {
   if (!d) return head + '<div class="empty">Memuat memory…</div>';
   if (d.available === false) return head + '<div class="card"><h3>Memory tidak tersedia</h3><div class="note">' + esc(d.note || '') + '</div></div>';
   var files = d.files || [];
-  if (!files.length) return head + emptyBox('Tidak ada file memory untuk agent ini.');
+  if (!files.length) return head + emptyBox('Tidak ada file memory untuk agent ini. Memory terisi saat Mia mencatat persona atau rekap harian.');
   var list = files.map(function (f) {
     return '<div class="r' + (MEM.file === f.path ? ' on' : '') + '" data-memfile="' + esc(f.path) + '">' +
       '<span>' + esc(f.path) + '</span><span class="sz">' + count(f.chars) + ' kar</span></div>';
@@ -1352,7 +1377,7 @@ function setTheme(night, instant) {
     themeAnim.k = 0;
   }
   var btn = $('#themeBtn');
-  if (btn) btn.textContent = 'Tema: ' + (night ? 'Malam' : 'Siang');
+  if (btn) btn.textContent = '3D: ' + (night ? 'Malam' : 'Siang');
 }
 
 function stepTheme(dt) {
@@ -3707,15 +3732,19 @@ function busPill() {
     BUS.lastSeen > 0 && (Date.now() - BUS.lastSeen) < BUS_LIVE_MS;
   var p = $('#busPill');
   if (!p) return;
+  var dot = $('#connDot');
   if (BUS.connected) {
     p.className = 'pill ok';
     p.textContent = 'BUS LIVE ' + BUS.seen;
+    if (dot) dot.title = 'API + BUS live';
   } else if (BUS.error) {
     p.className = 'pill bad';
     p.textContent = 'BUS ' + BUS.error;
+    if (dot) dot.title = 'API ok, BUS: ' + BUS.error;
   } else if (BUS.lastSeen && Date.now() - BUS.lastSeen >= BUS_LIVE_MS) {
     p.className = 'pill bad';
     p.textContent = 'BUS diam ' + Math.round((Date.now() - BUS.lastSeen) / 1000) + 's';
+    if (dot) dot.title = 'API ok, BUS diam';
   } else {
     p.className = 'pill';
     p.textContent = 'BUS ...';
@@ -3988,7 +4017,9 @@ function fitOffset() {
   var aspect = camera.aspect;
   if (aspect >= 1) return;
   var off = camera.position.clone().sub(cam.target);
-  off.setLength(off.length() * Math.max(1, 1.2 / aspect));
+  if (!off.length()) return;
+  /* idempotent: scale from cam.dist each frame, never compound the live offset */
+  off.setLength(cam.dist * Math.max(1, 1.2 / aspect));
   camera.position.copy(cam.target).add(off);
   camera.lookAt(cam.target.x - 1.4, cam.target.y, cam.target.z + 0.8);
 }
@@ -4372,8 +4403,15 @@ function tagText(id, name, status, activeTask, provenance) {
      the dashboard asserts state it cannot explain, which is how a UI starts
      inventing things. Shown small, and as the tooltip for quick reading. */
   if (provenance) {
-    html += '<small class="tProv" title="' + esc(provenance) + '">'
-      + esc(String(provenance).slice(0, 64)) + '</small>';
+    var provFull = String(provenance), provShort = provFull;
+    /* Cut at a word boundary so the label never ends mid-word ("stro...").
+       Full text stays in title for hover. */
+    if (provFull.length > 80) {
+      var cut = provFull.slice(0, 80), sp = cut.lastIndexOf(' ');
+      provShort = (sp > 40 ? cut.slice(0, sp) : cut) + '…';
+    }
+    html += '<small class="tProv" title="' + esc(provFull) + '">'
+      + esc(provShort) + '</small>';
   }
   return html;
 }
@@ -4434,7 +4472,11 @@ function projectTags() {
     var v = new T.Vector3(a.group.position.x, a.tagY || 2.05, a.group.position.z).project(office.cam);
     if (v.z > 1) { tag.style.display = 'none'; return; }
     tag.style.display = '';
-    tag.style.left = ((v.x + 1) / 2 * w) + 'px';
+    // Clamp inside the canvas so edge avatars never push the label out of view.
+    // Margin adapts to the tag's own half-width (fixed 80px still clips wide tags).
+    var tw = (tag.offsetWidth || 0) * scale;
+    var lx = Math.max(tw/2 + 6, Math.min(w - tw/2 - 6, ((v.x + 1) / 2 * w)));
+    tag.style.left = lx + 'px';
     tag.style.top = ((-v.y + 1) / 2 * h) + 'px';
     // translate(-50%,-100%) centres and bottom-anchors the label; the extra
     // scale is appended in the same transform so it composes with the anchor.
@@ -4586,8 +4628,25 @@ function api(url) {
 function needToken() {
   if (_tokenAsked) return;
   _tokenAsked = true;
-  var t = prompt('Dashboard terkunci (401). Tempel AUTH_TOKEN dari apps/web/.env.local:');
-  if (t && t.trim()) { lsSet('mia_token', t.trim()); location.reload(); }
+  var bg = $('#tokBg');
+  if (!bg) return;
+  bg.classList.add('on');
+  var inp = $('#tokInput'), err = $('#tokErr');
+  if (err) err.textContent = '';
+  function close() { bg.classList.remove('on'); _tokenAsked = false; }
+  function save() {
+    var t = inp ? inp.value.trim() : '';
+    if (!t) { if (err) err.textContent = 'Token kosong — tempel AUTH_TOKEN dulu.'; return; }
+    lsSet('mia_token', t);
+    location.reload();
+  }
+  if (inp) {
+    inp.value = '';
+    setTimeout(function () { inp.focus(); }, 50);
+    inp.onkeydown = function (e) { if (e.key === 'Enter') save(); if (e.key === 'Escape') close(); };
+  }
+  $('#tokSave').onclick = save;
+  $('#tokCancel').onclick = close;
 }
 
 function setNav(open) {
@@ -4637,8 +4696,8 @@ $('#dispatchBtn').addEventListener('click', function () {
 
 /* ── boot ─────────────────────────── */
 applyTheme(lsGet(MODE_KEY, 'dark'));
-setNav(lsGet(NAV_KEY, '0') === '1');            /* rail closed unless asked for */
-setHud(lsGet(HUD_KEY, window.innerWidth > 1180 ? '1' : '0') === '1');
+setNav(lsGet(NAV_KEY, window.innerWidth > 820 ? '1' : '0') === '1');   /* rail open on desktop, overlay on phone */
+setHud(lsGet(HUD_KEY, window.innerWidth > 1180 ? '1' : '0') === '1' && window.innerWidth > 820);
 try { init3D(); } catch (e) { fail3D('Three.js gagal berjalan: ' + e.message); }
 show(hashView() || 'office');
 poll();
