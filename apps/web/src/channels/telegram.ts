@@ -40,6 +40,23 @@ import { defaultProviderId } from "../lib/providers";
 import { buildStatusReport } from "../lib/status";
 import { handleUnifiedCommand, ChatSessionState } from "../lib/channelMessage";
 import { alreadyProcessed, alreadyStarted } from "../lib/once";
+import {
+  ackEmoji,
+  claimReactionSlot,
+  getReactionRecord,
+  lightFallbackDue,
+  looksLikeTaskAsk,
+  noteLightFallback,
+  reactionConfig,
+  selectConversationalReaction,
+  selectFinalReaction,
+  sendTelegramReaction,
+  setReactionEmoji,
+  setReactionTimer,
+  takeReactionTimer,
+  turnOutcomeFromMessages,
+  type TelegramCtxLike,
+} from "../lib/messageReactions";
 
 /**
  * Escape helper for Telegram legacy Markdown (parse_mode="Markdown"), which only
@@ -235,6 +252,7 @@ export async function startTelegramBot(): Promise<void> {
         return;
       }
 
+      void reactTelegramStart(ctx, text);
       await runTurn(ctx, state, user, undefined, text);
     } catch (err) {
       console.error("[telegram] handler error:", err instanceof Error ? (err.stack || err.message) : String(err));
@@ -446,6 +464,54 @@ async function withTyping<T>(ctx: Context, fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Native reactions for the single Mia bot (fire-and-forget, never the turn). */
+async function reactTelegramStart(ctx: Context, text: string): Promise<void> {
+  const c = reactionConfig();
+  if (!c.enabled || !c.telegram || !c.agents.includes("mia")) return;
+  const task = looksLikeTaskAsk(text);
+  const chatId = String(ctx.chat?.id ?? "");
+  const allowLight = !task && lightFallbackDue("telegram", chatId, "mia");
+  const decision = selectConversationalReaction(text, "mia", { allowLightFallback: allowLight });
+  const emoji = task ? ackEmoji("mia") : decision.emoji;
+  if (!emoji) return;
+  const messageId = String((ctx as { message?: { message_id?: number } }).message?.message_id ?? "");
+  if (!chatId || !messageId) return;
+  if (!claimReactionSlot("telegram", chatId, messageId, "mia", task ? "ack" : "chat")) return;
+  if (!task && decision.reason === "light-fallback") noteLightFallback("telegram", chatId, "mia");
+  setReactionTimer(
+    "telegram",
+    chatId,
+    messageId,
+    "mia",
+    setTimeout(() => {
+      void (async () => {
+        const ok = await sendTelegramReaction(ctx as unknown as TelegramCtxLike, "mia", messageId, emoji);
+        setReactionEmoji("telegram", chatId, messageId, "mia", ok ? emoji : "", false);
+      })();
+    }, c.delayMs)
+  );
+}
+
+async function reactTelegramFinish(ctx: Context, messages: ChatMessage[]): Promise<void> {
+  const c = reactionConfig();
+  if (!c.enabled || !c.telegram || !c.agents.includes("mia")) return;
+  const chatId = String(ctx.chat?.id ?? "");
+  const messageId = String((ctx as { message?: { message_id?: number } }).message?.message_id ?? "");
+  if (!chatId || !messageId) return;
+  const facts = turnOutcomeFromMessages(messages);
+  const current = getReactionRecord("telegram", chatId, messageId, "mia")?.emoji ?? "";
+  const decision = selectFinalReaction(facts, current);
+  if (!decision.emoji || decision.emoji === current) {
+    if (decision.emoji) setReactionEmoji("telegram", chatId, messageId, "mia", decision.emoji, true);
+    return;
+  }
+  takeReactionTimer("telegram", chatId, messageId, "mia");
+  if (!claimReactionSlot("telegram", chatId, messageId, "mia", "final")) return;
+  // setMessageReaction REPLACES the bot's reaction — one call updates.
+  const ok = await sendTelegramReaction(ctx as unknown as TelegramCtxLike, "mia", messageId, decision.emoji);
+  setReactionEmoji("telegram", chatId, messageId, "mia", ok ? decision.emoji : current, true);
+}
+
 async function handleConfirmation(ctx: Context, state: ChatState, user: string, text: string): Promise<void> {
   const pending = state.pending!;
   const selection = parseConfirmReply(text, pending.calls.length);
@@ -490,6 +556,7 @@ async function handleConfirmation(ctx: Context, state: ChatState, user: string, 
     }
     await replyMia(ctx, result.text || fallback);
   }
+  void reactTelegramFinish(ctx, result.messages ?? pending.messages);
 }
 
 async function runTurn(
@@ -547,6 +614,7 @@ async function runTurn(
   } else {
     await replyMia(ctx, result.text || EMPTY_REPLY_FALLBACK);
   }
+  void reactTelegramFinish(ctx, result.messages ?? turnMessages);
 }
 
 async function runTurnWithVision(

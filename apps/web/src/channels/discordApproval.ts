@@ -52,6 +52,9 @@ export interface ApprovalRequest {
   decidedBy?: string;
   decidedAt?: number;
   messageId?: string;
+  /** Original user message (what the reaction attaches to) + its channel. */
+  channelId?: string;
+  userMessageId?: string;
 }
 
 /** Approvals live 10 minutes; expiry is validated on every click (no timers). */
@@ -79,6 +82,8 @@ export interface CreateApprovalInput {
   peerAgent?: string | null;
   messages: ChatMessage[];
   calls: ToolCall[];
+  channelId?: string;
+  userMessageId?: string;
   store?: ApprovalStore;
   ttlMs?: number;
 }
@@ -99,6 +104,8 @@ export function createApprovalRequest(input: CreateApprovalInput): ApprovalReque
     createdAt: now,
     expiresAt: now + (input.ttlMs ?? APPROVAL_TTL_MS),
     status: "PENDING",
+    channelId: input.channelId,
+    userMessageId: input.userMessageId,
   };
   (input.store ?? globalStore()).set(req.id, req);
   return req;

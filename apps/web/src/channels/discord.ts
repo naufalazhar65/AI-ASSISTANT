@@ -66,6 +66,23 @@ import {
   type AgentLabel,
 } from "../lib/agentRouting";
 import {
+  ackEmoji,
+  claimReactionSlot,
+  getReactionRecord,
+  lightFallbackDue,
+  looksLikeTaskAsk,
+  noteLightFallback,
+  reactionConfig,
+  replaceDiscordReaction,
+  selectConversationalReaction,
+  selectFinalReaction,
+  sendDiscordReaction,
+  setReactionEmoji,
+  setReactionTimer,
+  takeReactionTimer,
+  turnOutcomeFromMessages,
+} from "../lib/messageReactions";
+import {
   approvalCustomId,
   approvalMessage,
   approvalStatusEmbed,
@@ -404,6 +421,67 @@ export function getDiscordClient(label: AgentLabel): Client | null {
 export function discordAuthorLabel(id: string | undefined | null): AgentLabel | null {
   if (!id) return null;
   return trioBotLabels.get(id) ?? null;
+}
+
+/** This process's user id for one trio label (for removing our own reaction). */
+function discordSelfId(label: string): string {
+  for (const [id, l] of trioBotLabels) if (l === label) return id;
+  return "";
+}
+
+/**
+ * Native message reactions (routed agent only — each client reacts only when
+ * IT answers the turn). Fire-and-forget by design: a reaction failure must
+ * never touch the turn, so callers never await these.
+ */
+async function reactStart(msg: Message, agent: string, text: string): Promise<void> {
+  const c = reactionConfig();
+  if (!c.enabled || !c.discord || !c.agents.includes(agent)) return;
+  const task = looksLikeTaskAsk(text);
+  const chatId = msg.channelId;
+  const allowLight = !task && lightFallbackDue("discord", chatId, agent);
+  const decision = selectConversationalReaction(text, agent, { allowLightFallback: allowLight });
+  const emoji = task ? ackEmoji(agent) : decision.emoji;
+  if (!emoji) return;
+  if (!claimReactionSlot("discord", msg.channelId, msg.id, agent, task ? "ack" : "chat")) return;
+  if (!task && decision.reason === "light-fallback") noteLightFallback("discord", chatId, agent);
+  // Human-like pause: reacting the same millisecond the message arrives reads
+  // as robotic (live 2026-10-15). The finisher preempts this timer, so a fast
+  // turn never lands a stale ack after its own final reaction.
+  setReactionTimer(
+    "discord",
+    msg.channelId,
+    msg.id,
+    agent,
+    setTimeout(() => {
+      void (async () => {
+        const ok = await sendDiscordReaction(msg, agent, msg.id, emoji);
+        setReactionEmoji("discord", msg.channelId, msg.id, agent, ok ? emoji : "", false);
+      })();
+    }, c.delayMs)
+  );
+}
+
+async function reactFinish(msg: Message, agent: string, messages: ChatMessage[]): Promise<void> {
+  const c = reactionConfig();
+  if (!c.enabled || !c.discord || !c.agents.includes(agent)) return;
+  const facts = turnOutcomeFromMessages(messages);
+  const current = getReactionRecord("discord", msg.channelId, msg.id, agent)?.emoji ?? "";
+  const decision = selectFinalReaction(facts, current);
+  if (!decision.emoji || decision.emoji === current) {
+    // No final state to report: leave a pending first reaction alone (it
+    // still lands on its timer) and lock whatever is already showing.
+    if (decision.emoji) setReactionEmoji("discord", msg.channelId, msg.id, agent, decision.emoji, true);
+    return;
+  }
+  // A real final state preempts the pending first reaction: cancel it so a
+  // stale ack can never land after its own replacement.
+  takeReactionTimer("discord", msg.channelId, msg.id, agent);
+  if (!claimReactionSlot("discord", msg.channelId, msg.id, agent, "final")) return;
+  const ok = current
+    ? await replaceDiscordReaction(msg, discordSelfId(agent), agent, msg.id, current, decision.emoji)
+    : await sendDiscordReaction(msg, agent, msg.id, decision.emoji);
+  setReactionEmoji("discord", msg.channelId, msg.id, agent, ok ? decision.emoji : current, true);
 }
 
 /**
@@ -799,6 +877,13 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
     }
     markApproval(req.id, "COMPLETED");
     await disableApprovalOnMessage(interaction, req, "completed");
+    // Final reaction lands on the USER's message (fetched — the interaction
+    // only carries the approval message). Best-effort; never touches the turn.
+    try {
+      const ch = interaction.channel as unknown as { messages?: { fetch(id: string): Promise<Message> } };
+      const userMsg = req.userMessageId ? await ch.messages?.fetch(req.userMessageId).catch(() => undefined) : undefined;
+      if (userMsg) await reactFinish(userMsg, req.agentLabel, result.messages ?? req.messages);
+    } catch { /* reactions never touch the turn */ }
     state.history.push({ role: "assistant", content: result.text });
     await sendApprovalFollowUp(interaction, result.text || EMPTY_REPLY_FALLBACK);
   }
@@ -1376,6 +1461,8 @@ async function sendApprovalPrompt(
     peerAgent: peerAgent ?? null,
     messages,
     calls,
+    channelId: msg.channelId,
+    userMessageId: msg.id,
   });
   state.pending = { messages, calls, peerAgent: peerAgent ?? null, approvalId: req.id };
   const { embeds, components } = approvalMessage(req);
@@ -1532,6 +1619,7 @@ async function handleConfirmation(
   }
   if (pending.approvalId) markApproval(pending.approvalId, "COMPLETED");
   state.history.push({ role: "assistant", content: result.text });
+  void reactFinish(msg, agent, result.messages ?? pending.messages);
   let fallback = EMPTY_REPLY_FALLBACK;
   if (!result.text && pending.calls[0]?.name.startsWith("plan_")) {
     fallback = pending.calls[0].name === "plan_create"
@@ -1557,6 +1645,7 @@ async function runTurn(
   if (userText) {
     turnMessages.push({ role: "user", content: userText });
     state.history.push({ role: "user", content: userText });
+    void reactStart(msg, agent, userText);
   }
   // No interim text bubble — withTyping shows the typing indicator instead
   // (the old interimWaitText left a permanent extra message before the real reply).
@@ -1600,6 +1689,7 @@ async function runTurn(
   }
 
   state.history.push({ role: "assistant", content: result.text });
+  void reactFinish(msg, agent, result.messages ?? turnMessages);
   await replyMiaVoice(
     msg,
     result.text || EMPTY_REPLY_FALLBACK,
@@ -1621,6 +1711,7 @@ async function runTurnWithVision(
   const textPart = visionContent.find((p) => p.type === "text")?.text || "";
   const turnMessages = [...state.history, { role: "user", content: visionContent as unknown as string }];
   state.history.push({ role: "user", content: textPart || "[gambar]" });
+  if (textPart) void reactStart(msg, agent, textPart);
   let result: Awaited<ReturnType<typeof runAssistantTurn>>;
   try {
     broadcastMiaState("PROCESSING"); console.log(`[discord] vision turn start${botTag} (provider=${state.provider})`);
@@ -1644,5 +1735,6 @@ async function runTurnWithVision(
     return;
   }
   state.history.push({ role: "assistant", content: result.text });
+  void reactFinish(msg, agent, result.messages ?? turnMessages);
   await replyMiaVoice(msg, result.text || EMPTY_REPLY_FALLBACK, voiceTurn);
 }
