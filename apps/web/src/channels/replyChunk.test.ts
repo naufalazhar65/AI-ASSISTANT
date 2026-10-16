@@ -107,3 +107,42 @@ describe("chunkText — a multi-finding report survives the Discord limit", () =
     expect(chunkText("Jawaban singkat, dua kalimat.", DISCORD_MAX)).toHaveLength(1);
   });
 });
+
+/**
+ * Live 2026-10-16: asked whether Michelle could ship an HTML snippet to
+ * Discord. The fence survived, but `scrubToolMarkup` collapsed indentation
+ * INSIDE it (`[ \t]{2,}` → one space) — silently corrupting any language whose
+ * whitespace is payload (YAML/Python/HTML nesting).
+ */
+describe("scrubToolMarkup leaves fenced code alone (live 2026-10-16)", () => {
+  const fenced = ["Contoh HTML:", "", "```html", "<div>", "    <h1>Helo world</h1>", "    <p>x</p>", "</div>", "```", "", "Lalu  dua spasi  di prosa."].join("\n");
+
+  it("keeps indentation inside the fence byte-for-byte", () => {
+    expect(scrubToolMarkup(fenced)).toContain('    <h1>Helo world</h1>');
+    expect(scrubToolMarkup(fenced)).toContain("    <p>x</p>");
+  });
+
+  it("still collapses runs of spaces in the surrounding prose", () => {
+    expect(scrubToolMarkup(fenced)).toContain("Lalu dua spasi di prosa.");
+  });
+
+  it("keeps the blank lines that separate prose from the fence", () => {
+    const out = scrubToolMarkup(fenced);
+    expect(out).toContain("Contoh HTML:\n\n```html");
+    expect(out).toContain("</div>\n```\n\nLalu");
+  });
+
+  it("leaves nested YAML untouched", () => {
+    const yaml = "```yaml\nserver:\n    port: 3000\n    host: localhost\n```";
+    expect(scrubToolMarkup(yaml)).toBe(yaml);
+  });
+
+  it("handles an unclosed fence to end of message", () => {
+    const cut = "lihat ini:\n```js\nconst a = 1;\n    const b = 2;";
+    expect(scrubToolMarkup(cut)).toContain("    const b = 2;");
+  });
+
+  it("no sentinel leaks into the reply", () => {
+    expect(scrubToolMarkup(fenced)).not.toMatch(/FENCE\d/);
+  });
+});
