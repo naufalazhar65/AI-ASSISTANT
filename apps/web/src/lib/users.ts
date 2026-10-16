@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { canonicalUserKey } from "./identity";
 
@@ -97,6 +98,27 @@ export function allowedWorkspaces(): string[] {
 /** All read/exec sandbox roots: the repo root plus any allowed workspaces. */
 export function sandboxRoots(): string[] {
   return [repoRoot(), ...allowedWorkspaces()];
+}
+
+/**
+ * `WRITE_ANYWHERE=1` lets write_file/file_edit land anywhere on this machine
+ * (owner decision 2026-10-16: registering every folder in ALLOWED_WORKSPACES
+ * was too much friction). READS and `exec` stay sandboxed — only writes move.
+ * Off by default; flip the env back to 0 to restore the old behavior.
+ */
+export function writesAnywhere(): boolean {
+  return /^(1|true|yes|on)$/i.test((process.env.WRITE_ANYWHERE || "").trim());
+}
+
+/** Resolve a path for a WRITE. Same as resolveInSandbox unless writes are free. */
+export function resolveWritePath(rawPath: string): string | null {
+  const p = (rawPath || "").trim();
+  if (!p) return null;
+  if (!writesAnywhere()) return resolveInSandbox(p);
+  if (p === "~") return homedir();
+  if (p.startsWith("~/")) return resolve(homedir(), p.slice(2));
+  if (isAbsolute(p)) return resolve(p);
+  return resolveInSandbox(p); // relative stays anchored to the repo root
 }
 
 /**

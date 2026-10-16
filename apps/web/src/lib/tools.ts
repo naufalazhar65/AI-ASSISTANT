@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 import { detectMoodIntent } from "./moodIntent";
 import { roleGateRefusal } from "./roleGate";
-import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox } from "./users";
+import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox, resolveWritePath } from "./users";
 import { asBodyString, asNumber, asStringArray, redactArgsForDisplay } from "./args";
 import { addReminder, readFiredReceipts, readReminders, type Reminder } from "./reminders";
 import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
@@ -6253,9 +6253,8 @@ function atomicWrite(abs: string, content: string): void {
 function fileWrite(rawPath: string, content: string): string {
   const p = (rawPath || "").trim();
   if (!p) throw new Error("empty path");
-  if (p.includes("~")) throw new Error("tilde paths are not allowed");
   if (Buffer.byteLength(content, "utf8") > FILE_WRITE_MAX_BYTES) throw new Error("content too large");
-  const abs = resolveInSandbox(p);
+  const abs = resolveWritePath(p);
   if (!abs) throw new Error("path escapes every allowed sandbox root");
   const rel = abs.split(sep);
   for (const seg of rel) {
@@ -6278,7 +6277,7 @@ function fileEdit(rawPath: string, oldStr: string, newStr: string): string {
   const p = (rawPath || "").trim();
   if (!p) throw new Error("empty path");
   if (!oldStr) throw new Error("old_string is required");
-  const abs = resolveInSandbox(p);
+  const abs = resolveWritePath(p);
   if (!abs) throw new Error("path escapes every allowed sandbox root");
   const rel = abs.split(sep);
   for (const seg of rel) {
