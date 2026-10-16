@@ -233,7 +233,20 @@ export function turnOutcomeFromMessages(messages: TurnMessageLike[]): TurnOutcom
     }
     if (/^Error:/.test(t)) toolError = true;
   }
-  const executed = [...new Set([...idToName.entries()].filter(([id]) => !refusedIds.has(id)).map(([, n]) => n))];
+  // A call only counts as executed when its OWN tool result exists. Found by
+  // the eval dataset (`exec-toolcall-without-result-is-not-success`): the model
+  // can emit tool_calls and then the turn ends (pending approval, provider
+  // error, crash). Counting those as executions marked a task ✅ that never ran
+  // — the exact "task appears complete" failure the whole honesty stack exists
+  // to prevent. Verified ids = every call that produced a non-refusal result.
+  const answeredIds = new Set<string>();
+  for (const m of messages ?? []) {
+    if (m.role === "tool" && typeof m.content === "string" && m.tool_call_id) {
+      const id = String(m.tool_call_id);
+      if (!refusedIds.has(id)) answeredIds.add(id);
+    }
+  }
+  const executed = [...new Set([...idToName.entries()].filter(([id]) => answeredIds.has(id)).map(([, n]) => n))];
   return { executedTools: executed, toolError };
 }
 

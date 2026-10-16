@@ -269,3 +269,25 @@ Private personal project.
 *Built with 🌸 — Mia is a woman, she/her, always.*
 
 **Orkestrasi multi-agent (Mia koordinator):** permintaan kompleks dipecah jadi subtugas dan didelegasikan ke agent terdaftar (Agnes = riset, Michelle = kode/keamanan) lewat `apps/web/src/lib/orchestrator*.ts` + `agentRegistry.ts`; status task otoritatif di `.data/users/<user>/orchestration.json`, dibaca dashboard & `/api/orchestration`. Detail di `MIA_FEATURES.md` §21.19.
+
+## Evaluasi agent (deterministik + baseline regresi)
+
+Satu runner menilai Mia/Agnes/Michelle dan lapisan pendukungnya terhadap
+kasus yang di-versioning, tanpa angka tunggal yang menyembunyikan detail:
+
+```bash
+npm run eval:list        # daftar kasus (area, agent, metode)
+npm run eval             # suite deterministik penuh → report JSON + Markdown
+npm run eval:regression  # sama, dibandingkan dengan baseline terekam
+npm run eval:baseline    # rekam run ini sebagai baseline baru
+npm run eval:agents      # model layer (butuh EVAL_MODEL_GRADE=1, memakai token)
+```
+
+- dataset: `apps/web/src/lib/eval/dataset.ts` (44 kasus, 12 area, versi bertanggal);
+- laporan: `apps/web/.data/eval/runs/<run_id>/report.{json,md}`;
+- metrik terpisah (correctness, routing, execution integrity, evidence integrity,
+  orchestration, output quality, safety, efficiency) — `blocked` tidak pernah dihitung
+  sebagai lulus, metrik yang tidak terukur ditulis "tidak diukur";
+- kegagalan `critical` (safety/authorization/evidence/execution) tetap terlihat
+  apa pun skornya, dan `npm run eval` keluar non-nol saat gate gagal;
+- CI menjalankan `npm run eval` di job `eval` (tanpa kredensial, tanpa panggilan model).

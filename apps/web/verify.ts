@@ -9067,6 +9067,119 @@ async function main() {
     console.log("orchestration (registry + DAG engine + runtime + coordinator wiring + approval containment): OK");
   }
 
+  // ------------------------------------------------ agent evaluation framework
+  {
+    const evalFiles = [
+      "src/lib/eval/types.ts",
+      "src/lib/eval/dataset.ts",
+      "src/lib/eval/checkers.ts",
+      "src/lib/eval/scoring.ts",
+      "src/lib/eval/baseline.ts",
+      "src/lib/eval/modelGrade.ts",
+      "src/lib/eval/runner.ts",
+      "src/lib/eval/report.ts",
+      "eval.ts",
+    ];
+    for (const rel of evalFiles) {
+      if (!existsSync(join(import.meta.dirname, rel))) throw new Error(`eval: berkas hilang ${rel}`);
+    }
+
+    const datasetSrc = readFileSync(join(import.meta.dirname, "src", "lib", "eval", "dataset.ts"), "utf8");
+    const checkersSrc = readFileSync(join(import.meta.dirname, "src", "lib", "eval", "checkers.ts"), "utf8");
+    const scoringSrc = readFileSync(join(import.meta.dirname, "src", "lib", "eval", "scoring.ts"), "utf8");
+    const runnerSrc = readFileSync(join(import.meta.dirname, "src", "lib", "eval", "runner.ts"), "utf8");
+    const cliSrc = readFileSync(join(import.meta.dirname, "eval.ts"), "utf8");
+    const evalRootSrc = join(import.meta.dirname, "src", "lib", "eval", "eval.test.ts");
+    if (!existsSync(evalRootSrc)) throw new Error("eval: framework test harness hilang (src/lib/eval/eval.test.ts)");
+
+    // The dataset is the contract: >=30 cases, every one versioned and bound
+    // to a checker that really exists in the registry.
+    const { EVAL_DATASET } = await import("./src/lib/eval/dataset");
+    const { CHECKERS } = await import("./src/lib/eval/checkers");
+    const { validateDataset } = await import("./src/lib/eval/scoring");
+    const problems = validateDataset(EVAL_DATASET);
+    if (problems.length) throw new Error(`eval: dataset tidak valid -> ${problems.slice(0, 3).join(" | ")}`);
+    if (EVAL_DATASET.length < 30) throw new Error(`eval: dataset hanya ${EVAL_DATASET.length} kasus (butuh >= 30)`);
+    const unbound = EVAL_DATASET.filter((c) => c.evaluation_method === "deterministic" && !CHECKERS[c.checker ?? ""]);
+    if (unbound.length) throw new Error(`eval: ${unbound.length} kasus tanpa checker terdaftar`);
+    for (const agent of ["mia", "agnes", "michelle"]) {
+      if (!EVAL_DATASET.some((c) => c.target_agent === agent)) throw new Error(`eval: agent ${agent} tidak pernah dievaluasi`);
+    }
+    for (const area of ["routing", "orchestration", "tool_execution", "evidence", "research", "coding", "output_format", "channel", "file_generation", "error_handling", "approval", "prompt_injection"]) {
+      if (!EVAL_DATASET.some((c) => c.category === area)) throw new Error(`eval: area ${area} tidak punya kasus`);
+    }
+    // Dataset version must be stamped so a later comparison can see it drift.
+    if (!/DATASET_VERSION = "\d{4}-\d{2}-\d{2}/.test(readFileSync(join(import.meta.dirname, "src", "lib", "eval", "types.ts"), "utf8"))) {
+      throw new Error("eval: DATASET_VERSION harus berstempel tanggal");
+    }
+
+    // Scoring rules that a naive harness silently breaks.
+    if (!/blocked/.test(scoringSrc) || !/percent: denominator === 0 \? null/.test(scoringSrc)) {
+      throw new Error("eval: metrik yang tidak terukur harus null, bukan 0");
+    }
+    if (!/criticalFailures\(report\.cases\)/.test(scoringSrc)) {
+      throw new Error("eval: gate kegagalan kritis harus diturunkan dari kasus, bukan dari field laporan");
+    }
+
+    // The runner must be able to keep the model layer off, and the model layer
+    // must never be reachable from an ordinary run.
+    if (!/deterministicOnly/.test(runnerSrc) || !/modelGradeEnabled\(\)/.test(runnerSrc)) {
+      throw new Error("eval: model layer harus opt-in (deterministicOnly + modelGradeEnabled)");
+    }
+    if (!/if \(c\.evaluation_method !== "model_rubric"\) continue/.test(runnerSrc)) {
+      throw new Error("eval: rubric hanya boleh dipakai pada kasus model_rubric");
+    }
+    // The CLI must exit non-zero when a gate fails.
+    if (!/exitCodeFor/.test(cliSrc) || !/process\.exit\(code\)/.test(cliSrc)) {
+      throw new Error("eval: CLI harus mengembalikan exit code bermakna");
+    }
+    if (!/loadLocalEnv\(\)/.test(cliSrc)) {
+      throw new Error("eval: CLI harus memuat .env.local (tsx tidak melakukannya sendiri)");
+    }
+    // The runner must never fabricate a checker pass for a missing case.
+    if (!/checker tidak terdaftar/.test(runnerSrc)) {
+      throw new Error("eval: kasus tanpa checker harus BLOCKED, bukan lulus");
+    }
+    // Audit 2026-10-16: an unmeasured CRITICAL area used to gate as ok:true.
+    if (!/ok: !critical/.test(scoringSrc) || !/area kritis wajib diukur/.test(scoringSrc)) {
+      throw new Error("eval: area kritis yang TIDAK diukur harus gagal gate, bukan hijau");
+    }
+    if (!/unmeasuredCriticalMetrics/.test(scoringSrc)) {
+      throw new Error("eval: aggregate tidak boleh memakai metrik kritis yang tidak terukur");
+    }
+    // A checker that asserts nothing, and two graders that disagree, are both
+    // "needs review" — never a pass.
+    if (!/checker tidak mengembalikan kriteria/.test(runnerSrc)) {
+      throw new Error("eval: checker tanpa kriteria harus BLOCKED");
+    }
+    if (!/disputed \|\| missing\.length \? "blocked"/.test(runnerSrc)) {
+      throw new Error("eval: perbedaan antar grader harus BLOCKED, bukan dirata-ratakan jadi lulus");
+    }
+    // The CLI must not launder a failing run into the baseline, must not call a
+    // missing baseline a clean regression check, and must not exit 0 without
+    // readable artifacts.
+    if (!/Baseline TIDAK direkam/.test(cliSrc) || !/if \(exit !== 0\)/.test(cliSrc)) {
+      throw new Error("eval: baseline hanya boleh terekam dari run yang hijau");
+    }
+    if (!/Baseline tidak ada/.test(cliSrc)) {
+      throw new Error("eval: regresi tanpa baseline harus gagal, bukan diam-diam lolos");
+    }
+    if (!/artifacts\.some\(\(a\) => !a\.verified\)/.test(cliSrc)) {
+      throw new Error("eval: artifact gagal ditulis tidak boleh_exit 0");
+    }
+    // Evaluation must not append to the audit log used as forensics ground truth.
+    const orchSrc = readFileSync(join(import.meta.dirname, "src", "lib", "orchestrator.ts"), "utf8");
+    if (!/isTestUserKey\(plan\.user\)/.test(orchSrc)) {
+      throw new Error("eval: plan evaluasi tidak boleh menulis ke audit log produksi");
+    }
+    if (!/toolrounds_\|eval_\|drill_/.test(readFileSync(join(import.meta.dirname, "src", "lib", "users.ts"), "utf8"))) {
+      throw new Error("eval: user key evaluasi harus dikenali sebagai test key");
+    }
+    console.log(
+      `agent evaluation (dataset ${EVAL_DATASET.length} kasus · ${Object.keys(CHECKERS).length} checker · metrik terpisah · baseline & gate): OK`
+    );
+  }
+
 }
 
 main().catch((err) => {

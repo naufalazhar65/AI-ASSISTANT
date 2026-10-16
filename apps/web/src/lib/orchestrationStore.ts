@@ -67,7 +67,9 @@ export function savePlan(plan: OrchestrationPlan): OrchestrationPlan {
 export function cancelPlan(rawUser: unknown, planId: string): { ok: boolean; plan?: OrchestrationPlan; reason?: string } {
   const plan = getPlan(rawUser, planId);
   if (!plan) return { ok: false, reason: "plan tidak ditemukan" };
-  if (plan.status === "DONE" || plan.status === "CANCELLED") return { ok: false, reason: `plan sudah ${plan.status}`, plan };
+  if (plan.status === "DONE" || plan.status === "CANCELLED" || plan.status === "PARTIALLY_COMPLETED") {
+    return { ok: false, reason: `plan sudah ${plan.status}`, plan };
+  }
   const now = new Date().toISOString();
   plan.tasks = plan.tasks.map((t) =>
     t.status === "SUCCEEDED" || t.status === "FAILED" || t.status === "CANCELLED" || t.status === "PARTIALLY_COMPLETED"

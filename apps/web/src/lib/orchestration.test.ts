@@ -307,7 +307,11 @@ describe("runtime — runPlan", () => {
     const runner: SubtaskRunner = async (t) =>
       t.task_id === "a" ? result({ task_id: "a", status: "FAILED", summary: "opsional gagal" }) : result({ task_id: t.task_id });
     const out = await runPlan(plan([task({ task_id: "a", required: false }), task({ task_id: "b" })]), runner);
-    expect(out.plan.status).toBe("DONE");
+    // `plan.status` was "DONE" here until the eval case
+    // `orc-partial-failure-not-completed` caught a plan with a failed task
+    // reporting DONE. A partial run is its own status now — the headline the
+    // owner and the dashboard read must not round it up.
+    expect(out.plan.status).toBe("PARTIALLY_COMPLETED");
     expect(out.reconciliation.parentStatus).toBe("PARTIALLY_COMPLETED");
     expect(out.finalText).toContain("opsional");
   });

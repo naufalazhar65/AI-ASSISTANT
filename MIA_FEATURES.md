@@ -387,3 +387,33 @@ Mia jadi koordinator sungguhan: permintaan kompleks dipecah jadi subtugas, didel
 **Yang dijaga lewat verify.ts** (semua di-mutation-test): registry diturunkan dari `roleGate`, nama env token cocok dengan channel spec, `SUCCEEDED` wajib `result_reference`, `readyTasks(plan.tasks)` (kalau difilter subtask, dependensi yang gagal tak terlihat → dependent tetap jalan), `attempts` tak pernah di-rollback (loop tak结束的), budget memblokir taskYUPAYA maxTasks, gate koordinator, fallback ke jawaban Mia, dan `autoDenyRisky: true`.
 
 **Batas saat ini**: planner deterministik (bukan LLM) — dekomposisi hanya mengenali research/code/security/assistant; eksekusi subtugas real memakai `runAssistantTurn` per subtask (bukan proses paralel lintas-model); dashboard belum punya view plan khusus (tetap pakai audit + bus SSE); belum ada retry pasif untuk tugas non-idempotent demi keamanan (kebijakan, bukan kelemahan data).
+
+### 21.20 Agent Evaluation & Regression Testing (2026-10-16)
+
+Empat lapis evaluasi yang memakai arsitektur yang sudah ada, bukan runner kedua:
+deterministik (fungsi produksi dipanggil langsung), integrasi (alur nyata dengan
+double), model-rubric (opt-in, tidak pernah menimpa kegagalan deterministik), dan
+perbandingan baseline.
+
+| Artefak | Isi |
+|---|---|
+| `apps/web/src/lib/eval/types.ts` | skema hasil + versi dataset/rubric/harness |
+| `apps/web/src/lib/eval/dataset.ts` | 44 kasus, 12 area, versi `2026-10-16.1` |
+| `apps/web/src/lib/eval/checkers.ts` | 39 checker deterministik (produksi nyata) |
+| `apps/web/src/lib/eval/scoring.ts` | metrik terpisah, gate, validasi dataset |
+| `apps/web/src/lib/eval/baseline.ts` | baseline + deteksi regresi |
+| `apps/web/src/lib/eval/modelGrade.ts` | rubric 4 kriteria + deteksi disagreement |
+| `apps/web/src/lib/eval/runner.ts` | runner, opt-in model layer, exit code |
+| `apps/web/src/lib/eval/report.ts` | report JSON/Markdown + verifikasi artefak + redaksi |
+| `apps/web/eval.ts` | CLI (`deterministic`, `regression`, `baseline`, `list`, `agents`) |
+| `apps/web/src/lib/eval/eval.test.ts` | 29 tes framework (spec §19) |
+
+**Dua bug produksi ditemukan oleh dataset, bukan oleh pemeriksaan mata:**
+1. `turnOutcomeFromMessages` menghitung `tool_calls` tanpa hasil tool apa pun
+   sebagai eksekusi → reaksi ✅ untuk tugas yang tidak pernah jalan
+   (`exec-toolcall-without-result-is-not-success`).
+2. `runPlan`/`finish()` meratakan `PARTIALLY_COMPLETED` menjadi `DONE`, sehingga
+   plan dengan subtask wajib GAGAL dilaporkan selesai
+   (`orc-partial-failure-not-completed`). `PlanStatus` kini punya
+   `PARTIALLY_COMPLETED` sendiri; `cancelPlan` memperlakukannya sebagai selesai.
+

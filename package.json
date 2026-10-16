@@ -11,7 +11,12 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "cd apps/web && npx tsx eval.ts deterministic",
+    "eval:agents": "cd apps/web && npx tsx eval.ts agents",
+    "eval:regression": "cd apps/web && npx tsx eval.ts regression",
+    "eval:baseline": "cd apps/web && npx tsx eval.ts baseline",
+    "eval:list": "cd apps/web && npx tsx eval.ts list"
   },
   "devDependencies": {
     "vitest": "^4.1.11"

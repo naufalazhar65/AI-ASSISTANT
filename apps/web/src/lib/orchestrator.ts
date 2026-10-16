@@ -31,6 +31,7 @@ import { planFromRequest, shouldOrchestrate } from "./orchestrationPlanner";
 import { savePlan } from "./orchestrationStore";
 import { emitBusEvent } from "./bus";
 import { auditLog } from "./auditLog";
+import { isTestUserKey } from "./users";
 import { agentProfile } from "./agentRegistry";
 
 export type SubtaskRunner = (task: OrchestrationTask, plan: OrchestrationPlan) => Promise<AgentResult>;
@@ -117,7 +118,12 @@ export async function runPlan(plan: OrchestrationPlan, runSubtask: SubtaskRunner
   plan.status = "RUNNING";
   persist(plan, opts);
   emitBusEvent({ user: plan.user, type: "task_started", summary: `orkestrasi mulai: ${plan.tasks.length} tahap`, data: { plan: plan.id } });
-  auditLog(plan.user, "orchestration_start", `plan=${plan.id} tasks=${plan.tasks.length}`);
+  // Evaluation runs execute real plans under a throwaway key. They must not
+  // append to the audit log the repo uses as forensics ground truth (one run
+  // added 262 lines; audit 2026-10-16).
+  if (!isTestUserKey(plan.user)) {
+    auditLog(plan.user, "orchestration_start", `plan=${plan.id} tasks=${plan.tasks.length}`);
+  }
 
   let running = 0;
   while (true) {
@@ -257,15 +263,23 @@ function dedupe(xs: string[]): string[] {
 function finish(plan: OrchestrationPlan, opts: RunPlanOptions): OrchestrationOutcome {
   const reconciliation = reconcile(plan);
   if (plan.status !== "CANCELLED" && plan.status !== "FAILED") {
+    // PARTIALLY_COMPLETED is kept as its own plan status. Flattening it into
+    // DONE is the "task appears complete" failure this whole stack guards
+    // against: the eval case `orc-partial-failure-not-completed` caught a plan
+    // whose required task had FAILED being reported as DONE.
     plan.status =
-      reconciliation.parentStatus === "SUCCEEDED" || reconciliation.parentStatus === "PARTIALLY_COMPLETED"
+      reconciliation.parentStatus === "SUCCEEDED"
         ? "DONE"
         : reconciliation.parentStatus === "CANCELLED"
           ? "CANCELLED"
-          : "FAILED";
+          : reconciliation.parentStatus === "PARTIALLY_COMPLETED"
+            ? "PARTIALLY_COMPLETED"
+            : "FAILED";
   }
   persist(plan, opts);
-  auditLog(plan.user, "orchestration_end", `plan=${plan.id} status=${plan.status} ${JSON.stringify(reconciliation).slice(0, 400)}`);
+  if (!isTestUserKey(plan.user)) {
+    auditLog(plan.user, "orchestration_end", `plan=${plan.id} status=${plan.status} ${JSON.stringify(reconciliation).slice(0, 400)}`);
+  }
   emitBusEvent({ user: plan.user, type: plan.status === "DONE" ? "task_done" : "task_failed", summary: `orkestrasi ${plan.status}`, data: { plan: plan.id } });
   return { plan, reconciliation, finalText: renderFinal(plan, reconciliation), orchestrated: true };
 }

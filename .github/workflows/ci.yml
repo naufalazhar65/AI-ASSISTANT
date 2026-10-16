@@ -96,3 +96,28 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
       - run: npx tsx apps/web/verify.ts
+
+  # Stage B of the evaluation plan: the deterministic eval suite runs on every
+  # push/PR. No model calls, no credentials — cases that need a provider stay
+  # BLOCKED and are reported as such (never counted as passes).
+  eval:
+    name: eval (deterministic suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run eval
+      # After the run, and never with `ignore`: a green job that uploaded
+      # nothing hid every eval failure until someone read the log (audit 2026-10-16).
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: apps/web/.data/eval/runs/**/report.md
+          if-no-files-found: warn

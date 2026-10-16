@@ -103,7 +103,7 @@ export function orchestrationBudgetFromEnv(env: NodeJS.ProcessEnv = process.env)
   };
 }
 
-export type PlanStatus = "PLANNED" | "RUNNING" | "DONE" | "FAILED" | "CANCELLED";
+export type PlanStatus = "PLANNED" | "RUNNING" | "DONE" | "PARTIALLY_COMPLETED" | "FAILED" | "CANCELLED";
 
 export interface OrchestrationPlan {
   id: string;
