@@ -369,3 +369,21 @@ Enam guard diganti dari pencocokan kosakata ke **lookup fakta** (termasuk pada k
 - Audio: gapless chaining (`nextTime`), jitter buffer 0.5 dtk, transcript akumulasi per turn, mute beneran (bukan putus), WIB clock line, banner reminder.
 - Gmail relink fix; CORE rebalance (`gmail_list`/`gmail_link`/`mac_open` masuk jendela 9router-64).
 - Gates: typecheck/lint 0 · vitest 1555/1555 (92 file) · verify EXIT=0.
+
+### 21.19 Orkestrasi multi-agent (Mia koordinator, Agnes riset, Michelle koder) — 2026-10-16
+
+Mia jadi koordinator sungguhan: permintaan kompleks dipecah jadi subtugas, didelegasikan ke agent yang **terdaftar & punya token aktif**, lalu hasilnya direkonsiliasi jadi satu jawaban jujur.
+
+**Modul baru** (semua di `apps/web/src/lib/`):
+- `agentRegistry.ts` — sumber kebenaran capability: `AgentProfile {domains, categories, outputTypes, tokenEnv, maxConcurrent, restrictions}`. `domains` diambil dari `roleGate.agentDomains()` (gate yang真的 menolak tool di dispatch), `availableAgents()` hanya mengembalikan agent yang tokennya benar-benar ada. Agen tak terdaftar/Offline **tidak pernah dipilih**.
+- `orchestration.ts` — engine murni (tanpa I/O/LLM): 10 status + `ALLOWED_TRANSITIONS` (transisi ilegal ditolak), `transition()` **menolak SUCCEEDED tanpa `result_reference`**, `validatePlan()` (cycle / unknown-dep / unregistered / unavailable / duplicate-objective / budget / capability-gap), `readyTasks(plan.tasks)` (dependensi FAILED → BLOCKED), `budgetStops`, `canRetry` (hanya task idempotent), `reconcile` (required gagal → bukan SUCCEEDED; optional gagal → PARTIALLY_COMPLETED + disclosure), `findContradictions`, `progressLine`.
+- `orchestrationPlanner.ts` — dekomposisi deterministik tanpa panggilan LLM tambahan. `shouldOrchestrate()` hanya true untuk ask ≥25 char dengan ≥2 objektif kerja berbeda; chat pendek/satu domain/konfirmasi tetap jalur langsung (hemat token).
+- `orchestrationStore.ts` — status task otoritatif: `.data/users/<user>/orchestration.json` (atomic, cap 20). `cancelPlan()` hanya membatalkan task non-terminal; subtask yang sudah selesai **menjaga hasilnya**.
+- `orchestrator.ts` — runtime: gelombang konkurensi ≤ `maxConcurrent`, timeout per task, retry limited, propagasi CANCELLED, bus events + `auditLog orchestration_start/orchestration_end`, `renderFinal()` (1 teks final berisi status, tahap selesai, dan blok "yang tidak selesai").
+- `orchestratorAgents.ts` — pengikatan ke runtime asli: `buildTaskBrief()` (brief terstruktur + batas dari `restrictions`), `runSubtaskViaAgent()` menjalankan `runAssistantTurn` dengan `agent` label + **`autoDenyRisky: true`** → delegasi tidak pernah jadi jalan melewati approval. Hasil `needsConfirmation` → subtask FAILED dengan blocker, bukan "selesai".
+
+**Integrasi**: wiring di `runAssistantTurn` hanya untuk jalur koordinator (`!opts.agent && !skipDelegate && askText`, jadi subtugas tidak bisa rekursif) dan selalu jatuh ke `result.text` Mia bila orkestrasi gagal (`auditLog orchestration_error`). `GET/POST /api/orchestration` (status plan + `progress` + baris `tasks[]`, dan `action:"cancel"`) memakai `isAuthorized` yang sudah ada — **tanpa** memperluas `PUBLIC_PREFIXES`. Dashboard 3D sudah ikut status nyata karena orchestrator memancarkan event bus + audit yang dibaca `apps/office-dashboard/`.
+
+**Yang dijaga lewat verify.ts** (semua di-mutation-test): registry diturunkan dari `roleGate`, nama env token cocok dengan channel spec, `SUCCEEDED` wajib `result_reference`, `readyTasks(plan.tasks)` (kalau difilter subtask, dependensi yang gagal tak terlihat → dependent tetap jalan), `attempts` tak pernah di-rollback (loop tak结束的), budget memblokir taskYUPAYA maxTasks, gate koordinator, fallback ke jawaban Mia, dan `autoDenyRisky: true`.
+
+**Batas saat ini**: planner deterministik (bukan LLM) — dekomposisi hanya mengenali research/code/security/assistant; eksekusi subtugas real memakai `runAssistantTurn` per subtask (bukan proses paralel lintas-model); dashboard belum punya view plan khusus (tetap pakai audit + bus SSE); belum ada retry pasif untuk tugas non-idempotent demi keamanan (kebijakan, bukan kelemahan data).

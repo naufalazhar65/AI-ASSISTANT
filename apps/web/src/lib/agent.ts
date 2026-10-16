@@ -5593,6 +5593,46 @@ const CONDITIONAL_BEFORE_SEAL_RE =
  * testing word and a "concluded" word is asserting the testing work finished —
  * that is the entire rule.
  */
+/* ------------------------------- approval + reminder-delivery claims
+ * (audit 2026-10-15: the guard census showed these two fact classes had NO
+ * guard at all). Both are decided per clause — house pattern: a truthful
+ * sentence in the same message must not silence a false claim in another. */
+
+const APPROVAL_CLAIM_RE =
+  /(sudah|telah|udah)\s+(kamu\s+)?(setujui|setuju|izinkan|izin|approve|persetujuan|menyetuju)|kamu\s+(sudah|telah|udah)\s+(ya|benar|setuju|izin)|atas\s+persetujuan\s+(kamu|mu)|karena\s+kamu\s+(sudah|telah)\s+(menyetuju|memberi)/i;
+const CLAIM_NOT_YET_RE =
+  /\b(belum|belom|nanti|kalau|bila|boleh|bolehkah|silakan|akan|mau|ingin|jika|apakah|masih|tolong)\b/i;
+
+/** "Sudah kamu setujui" in a turn with NO approved call = invented consent. */
+export function approvalClaimNote(text: string, facts: { approvedThisTurn: boolean }): string {
+  if (facts.approvedThisTurn) return "";
+  for (const clause of claimSentences(text)) {
+    if (!APPROVAL_CLAIM_RE.test(clause.body)) continue;
+    if (clause.question || CLAIM_NOT_YET_RE.test(clause.body)) continue;
+    return "\n\n(Catatan jujur: giliran ini tidak punya persetujuanmu — belum ada yang kamu setujui di sini, jadi aku belum menjalankan apa pun atas nama itu. Kalau memang mau, balas `ya` atau tekan tombolnya.)";
+  }
+  return "";
+}
+
+const REMINDER_DELIVERY_CLAIM_RE =
+  /\b(sudah|telah|udah|barusan|baru)\s+(aku\s+)?(kirim|terkirim|kirimkan|terkirimkan|bunyi)\b/i;
+const REMINDER_SUBJECT_RE = /\b(reminder|reminders|pengingat|reminding|ingetin|ingatkan|solat|notifikasi)\b/i;
+
+/** Fresh acked receipt proving a real delivery happened. */
+export const REMINDER_DELIVERY_FRESH_MS = 15 * 60 * 1000;
+
+/** "Reminder jam 7 sudah terkirim" with no acked delivery on record. */
+export function reminderDeliveryClaimNote(text: string, facts: { freshDelivery: boolean }): string {
+  if (facts.freshDelivery) return "";
+  for (const clause of claimSentences(text)) {
+    if (!REMINDER_SUBJECT_RE.test(clause.body)) continue;
+    if (!REMINDER_DELIVERY_CLAIM_RE.test(clause.body)) continue;
+    if (clause.question || CLAIM_NOT_YET_RE.test(clause.body)) continue;
+    return "\n\n(Catatan jujur: tidak ada reminder yang benar-benar terkirim barusan — kalau perangkat atau channel-nya mati, pengirimannya belum terjadi. Kalau memang belum bunyi, bilang saja.)";
+  }
+  return "";
+}
+
 export function hasCompletionClaim(t: string): boolean {
   if (!String(t || "").trim()) return false;
   for (const { body, question } of claimSentences(t)) {
@@ -7083,7 +7123,31 @@ export async function runAssistantTurn(opts: {
     // The formatter can only (a) re-dialect markdown and (b) report integrity
     // issues — it never rewrites content, so the honesty guards appended above
     // (receipt, provenance, delivery notes) always survive.
-    const cleaned = collapseHtmlDumps(stripGmailIds(stripToolCallProse(fixAddressComma(result.text))));
+    // Multi-agent orchestration (Mia path only). A complex ask is decomposed
+    // into subtasks, delegated to REGISTERED specialists by real capability,
+    // executed under the existing approval policy, then reconciled into one
+    // honest answer. `shouldOrchestrate` is conservative: simple asks, chat and
+    // confirm continuations fall straight through to the direct path, so no
+    // extra model call is spent on trivial requests. A failure here must not
+    // cost the user the answer Mia already produced.
+    let orchestratedText: string | null = null;
+    if (!opts.agent && !skipDelegate && askText) {
+      try {
+        const { shouldOrchestrate } = await import("./orchestrationPlanner");
+        if (shouldOrchestrate(askText)) {
+          const [{ orchestrateRequest }, { runSubtaskViaAgent }] = await Promise.all([
+            import("./orchestrator"),
+            import("./orchestratorAgents"),
+          ]);
+          const outcome = await orchestrateRequest(askText, busCtx.userKey, runSubtaskViaAgent);
+          if (outcome.orchestrated && outcome.finalText) orchestratedText = outcome.finalText;
+        }
+      } catch (err) {
+        auditLog(opts.user, "orchestration_error", String(err).slice(0, 200));
+      }
+    }
+    const replyText = orchestratedText ?? result.text;
+    const cleaned = collapseHtmlDumps(stripGmailIds(stripToolCallProse(fixAddressComma(replyText))));
     try {
       const turnFacts = formatFactsFromMessages(result.messages);
       const shaped = applyOutputFormat({
@@ -8379,6 +8443,27 @@ async function runAssistantTurnImpl(opts: {
       if (scopeNote) text = `${text}${scopeNote}`;
     } catch (err) {
       guardTrace("refusal-scope", null, text, collector, String(err));
+    }
+  }
+
+  // APPROVAL + REMINDER-DELIVERY claims (audit 2026-10-15): the two fact
+  // classes with no guard — the assistant asserting the owner approved
+  // something, or that a reminder really got delivered.
+  if (text.trim() && !collector.verbatimHit && !needsConfirmation?.length) {
+    try {
+      const approvedThisTurn = confirmations.some((d) => d.allow);
+      const apprNote = approvalClaimNote(text, { approvedThisTurn });
+      if (apprNote) text = `${text}${apprNote}`;
+    } catch (err) {
+      guardTrace("approval", null, text, collector, String(err));
+    }
+    try {
+      const { recentFiredReceipts } = await import("./reminders");
+      const freshDelivery = recentFiredReceipts(opts.user, REMINDER_DELIVERY_FRESH_MS).length > 0;
+      const remNote = reminderDeliveryClaimNote(text, { freshDelivery });
+      if (remNote) text = `${text}${remNote}`;
+    } catch (err) {
+      guardTrace("reminder-delivery", null, text, collector, String(err));
     }
   }
 

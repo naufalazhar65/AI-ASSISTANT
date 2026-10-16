@@ -2904,6 +2904,27 @@ async function main() {
   }
   console.log("sandbox multi-root: OK");
 
+  // --- WRITE_ANYWHERE: writes free, reads still sandboxed (owner 2026-10-16) ---
+  const { resolveWritePath } = await import("./src/lib/users");
+  const prevFree = process.env.WRITE_ANYWHERE;
+  try {
+    delete process.env.WRITE_ANYWHERE;
+    if (resolveWritePath(join(tmpdir(), "mia-outside-probe.txt")) !== null) throw new Error("writes must stay sandboxed while WRITE_ANYWHERE is off");
+    process.env.WRITE_ANYWHERE = "1";
+    const outside = join(tmpdir(), "mia-outside-probe.txt");
+    if (resolveWritePath(outside) !== outside) throw new Error("WRITE_ANYWHERE must allow any absolute write path");
+    // Reads must NOT follow suit — that is the whole point of the split.
+    if (resolveInSandbox(outside) !== null) throw new Error("reads must stay sandboxed while WRITE_ANYWHERE is on");
+  } finally {
+    if (prevFree === undefined) delete process.env.WRITE_ANYWHERE;
+    else process.env.WRITE_ANYWHERE = prevFree;
+  }
+  const toolsSrcFree = readFileSync(join(import.meta.dirname, "src", "lib", "tools.ts"), "utf8");
+  if ((toolsSrcFree.match(/resolveWritePath\(/g) ?? []).length < 2) throw new Error("file_write and file_edit must both resolve through resolveWritePath");
+  const fileWriteSrc = toolsSrcFree.slice(toolsSrcFree.indexOf("function fileWrite("), toolsSrcFree.indexOf("function fileEdit("));
+  if (/tilde paths are not allowed/.test(fileWriteSrc)) throw new Error("write_file must expand ~ instead of rejecting it");
+  console.log("write-anywhere (writes free, reads sandboxed): OK");
+
   // --- Fase 5: config precedence (env > .data/config.json > default) ---
   const { resetConfigCache, rateLimitPerMin, cfgStr, toolsDeny } = await import("./src/lib/config");
   const prevRl = process.env.RATE_LIMIT_TURNS_PER_MIN;
@@ -8953,6 +8974,97 @@ async function main() {
       throw new Error("19:48 fix: the helpers are gone from agentRole");
     }
     console.log("19:48 fixes (clock-driven greeting pool + reduplicated work-claim verbs + self-intro strip, composed, trio-only): OK");
+  }
+
+  // Audit 2026-10-15: approval + reminder-delivery claim classes had no guard.
+  // Wiring assertion (mutation-tested): a helper that exists but is never called
+  // is the same failure class as discordRestTokenHeal / the Slack loop guard.
+  {
+    const agent = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+    if (!/export function approvalClaimNote/.test(agent) || !/export function reminderDeliveryClaimNote/.test(agent)) {
+      throw new Error("audit 2026-10-15: the approval / reminder-delivery claim guards are gone from agent.ts");
+    }
+    if (!/const approvedThisTurn = confirmations\.some\(\(d\) => d\.allow\)/.test(agent)) {
+      throw new Error("audit 2026-10-15: approval guard must read the REAL confirm decision (confirmations.some allow)");
+    }
+    if (!/approvalClaimNote\(text, \{ approvedThisTurn \}\)/.test(agent)) {
+      throw new Error("audit 2026-10-15: approvalClaimNote is not wired into runAgent");
+    }
+    if (!/recentFiredReceipts\(opts\.user, REMINDER_DELIVERY_FRESH_MS\)\.length > 0/.test(agent)) {
+      throw new Error("audit 2026-10-15: reminder-delivery guard must read REAL acked receipts via recentFiredReceipts");
+    }
+    if (!/reminderDeliveryClaimNote\(text, \{ freshDelivery \}\)/.test(agent)) {
+      throw new Error("audit 2026-10-15: reminderDeliveryClaimNote is not wired into runAgent");
+    }
+    console.log("audit 2026-10-15 (approval + reminder-delivery claims, fact-fed wiring): OK");
+  }
+
+  // --- multi-agent orchestration: registry, engine, runtime, wiring --------
+  {
+    const orch = join(import.meta.dirname, "src", "lib", "orchestration.ts");
+    const planner = join(import.meta.dirname, "src", "lib", "orchestrationPlanner.ts");
+    const store = join(import.meta.dirname, "src", "lib", "orchestrationStore.ts");
+    const registry = join(import.meta.dirname, "src", "lib", "agentRegistry.ts");
+    const runner = join(import.meta.dirname, "src", "lib", "orchestrator.ts");
+    const route = join(import.meta.dirname, "src", "app", "api", "orchestration", "route.ts");
+    for (const f of [orch, planner, store, registry, runner, route]) {
+      if (!existsSync(f)) throw new Error(`orchestration: file missing ${f}`);
+    }
+    const agentSrc = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+    const engineSrc = readFileSync(orch, "utf8");
+    const runtimeSrc = readFileSync(runner, "utf8");
+    const routeSrc = readFileSync(route, "utf8");
+
+    // Registry must be derived from the real roleGate domains, and the token
+    // env names must still match what the channel adapters boot from.
+    const regSrc = readFileSync(registry, "utf8");
+    for (const envName of ["DISCORD_BOT_TOKEN_AGNES", "DISCORD_BOT_TOKEN_MICHELLE", "SLACK_BOT_TOKEN_AGNES", "SLACK_BOT_TOKEN_MICHELLE"]) {
+      if (!regSrc.includes(envName)) throw new Error(`orchestration: agentRegistry missing token env ${envName}`);
+      const chan = [join(import.meta.dirname, "src", "channels", "discord.ts"), join(import.meta.dirname, "src", "channels", "slack.ts")]
+        .map((p) => readFileSync(p, "utf8"))
+        .join("\n");
+      if (!chan.includes(envName)) throw new Error(`orchestration: token env ${envName} drifted from channel specs`);
+    }
+    if (!/agentDomains\(/.test(regSrc)) throw new Error("orchestration: agentRegistry must derive domains from roleGate.agentDomains()");
+
+    // SUCCEEDED must carry evidence: a reply alone never marks work done.
+    if (!/to === "SUCCEEDED"[\s\S]{0,220}result_reference/.test(engineSrc)) {
+      throw new Error("orchestration: transition() must refuse SUCCEEDED without result_reference");
+    }
+    // Dependency gating must consider the WHOLE plan (a FAILED dependency is
+    // terminal, so filtering to open tasks once let dependents run anyway).
+    if (!/readyTasks\(plan\.tasks\)/.test(runtimeSrc)) {
+      throw new Error("orchestration: runPlan must call readyTasks(plan.tasks) so failed dependencies block dependents");
+    }
+    // Retry budget must actually be spent (rolling attempts back = infinite loop).
+    if (/attempts\s*-=\s*1/.test(runtimeSrc)) {
+      throw new Error("orchestration: retry must not decrement task.attempts (infinite wave loop)");
+    }
+    if (!/code === "budget-exceeded"/.test(runtimeSrc)) {
+      throw new Error("orchestration: budget-exceeded must block the tasks past maxTasks, not only report the issue");
+    }
+
+    // Wiring into the real turn: coordinator path only, no recursion, and a
+    // failure must never swallow Mia's own answer.
+    if (!/if \(!opts\.agent && !skipDelegate && askText\)/.test(agentSrc)) {
+      throw new Error("orchestration: agent.ts must gate orchestration to the coordinator path (!opts.agent && !skipDelegate && askText)");
+    }
+    if (!/orchestratedText \?\? result\.text/.test(agentSrc)) {
+      throw new Error("orchestration: agent.ts must fall back to Mia's own text when orchestration does not run");
+    }
+    if (!/orchestration_error/.test(agentSrc)) {
+      throw new Error("orchestration: agent.ts must audit orchestration_error so failures stay visible");
+    }
+    // Subtasks must be denied risky tools: delegation may never bypass approval.
+    const agentsSrc = readFileSync(join(import.meta.dirname, "src", "lib", "orchestratorAgents.ts"), "utf8");
+    if (!/autoDenyRisky:\s*true/.test(agentsSrc)) {
+      throw new Error("orchestration: delegated subtasks must run with autoDenyRisky:true (no approval bypass)");
+    }
+    // Route must stay behind the standard guard.
+    if (!/isAuthorized\(/.test(routeSrc)) {
+      throw new Error("orchestration: /api/orchestration must use isAuthorized");
+    }
+    console.log("orchestration (registry + DAG engine + runtime + coordinator wiring + approval containment): OK");
   }
 
 }
