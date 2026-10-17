@@ -351,6 +351,25 @@ export function addReminder(
  * the `remind_me` tool). Best-effort enrichment: returns false when no matching
  * reminder exists — the push-time template fallback keeps working.
  */
+/**
+ * Fire time of the most recent UNFIRED reminder with this exact text — the
+ * single owner for "when will this reminder actually ring?". The variant
+ * writer used to read the clock at CREATION time instead, so a 10:00 wake-up
+ * created at 20:29 was told "periode malam" and got sleep-themed wordings
+ * (live 2026-10-16).
+ */
+export function nextFireAtFor(rawUser: unknown, text: string): number | undefined {
+  const target = text.trim();
+  if (!target) return undefined;
+  const reminders = readReminders(rawUser);
+  for (let i = reminders.length - 1; i >= 0; i--) {
+    const r = reminders[i];
+    if (r.fired || r.text !== target) continue;
+    return r.at;
+  }
+  return undefined;
+}
+
 export function attachVariants(rawUser: unknown, text: string, variants: string[]): boolean {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) return false;

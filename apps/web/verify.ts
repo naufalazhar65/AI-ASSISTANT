@@ -330,7 +330,10 @@ async function main() {
 
   // --- provider tool cap: Groq rejects >128 tools per request ---
   const { toolsForUrl } = await import("./src/lib/agent");
-  const liveToolsBoth = ["hotel_search", "cinema_showtimes", "train_search", "bus_search", "spotify_play", "spotify_mode", "spotify_queue", "gmaps_route", "places_search"];
+  // hotel_search/train_search/bus_search demoted from CORE 2026-10-16 (0 executions
+  // in 14 days of audit) to pay for the six proactive-workflow tools; they are still
+  // registered and still ride the uncapped window, but not the capped one.
+  const liveToolsBoth = ["cinema_showtimes", "spotify_play", "spotify_mode", "spotify_queue", "places_search", "workflow_add", "workflow_list", "workflow_history", "workflow_run_now", "workflow_pause", "workflow_approve"];
   // spotify_sleep_timer demoted from CORE 2026-10-01 (0 executions; room for
   // gmaps_route in 9r64) — replaced here by gmaps_route, which rides both caps.
   // transcribe demoted from CORE 2026-09-24 (csv_inject balance): the voice
@@ -358,7 +361,10 @@ async function main() {
   // security_playbook + prompt_injection_hunt left CORE entirely on 2026-10-05
   // (0 audit executions each; the behaviour-changing packs are prompt rules, and
   // the LLM-app red-team surface is now wholly off the capped windows).
-  const pentestCore = ["cvss_score", "pentest_scan", "http_request", "finding_add", "report_generate", "poc_verify", "oast_create", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "cdp_proxy"];
+  // cvss_score/learning_query demoted from CORE 2026-10-16 (0 executions in 14 days
+  // of audit) to pay for the six proactive-workflow tools. Both stay registered and
+  // in HINT_UNDELIVERED; report severity is injected from the stored vector anyway.
+  const pentestCore = ["pentest_scan", "http_request", "finding_add", "report_generate", "poc_verify", "oast_create", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "cdp_proxy"];
   const groqNames = groqTools.map((t) => t.function.name);
   const pentestMissing = pentestCore.filter((n) => !groqNames.includes(n));
   if (pentestMissing.length) throw new Error(`groq cap dropped pentest tools: ${pentestMissing.join(", ")}`);
@@ -1063,8 +1069,36 @@ async function main() {
     if (!officeBlock || !/officeChannelTarget\(ctx\)/.test(officeBlock[0])) {
       throw new Error("the 'office' push target must CALL officeChannelTarget(ctx) inside its registration — an unused helper still routes to DM");
     }
-    // …and reminder/heartbeat routing must stay untouched by that addition.
-    if (!/return ctx\.lastSeen \?\? \(await ownerDmTarget\(ctx\)\)/.test(discSrc)) throw new Error("resolvePushTarget must keep lastSeen behaviour for reminders/heartbeat — the office target is additive");
+    // Owner decision 2026-10-17: owner-facing pushes go to the configured
+    // DISCORD_CHANNEL_ID_* channel (#general) FIRST. `lastSeen` is recorded from
+    // any owner message with no channel-type filter, so the DM used to win and
+    // every reminder landed there. lastSeen/DM remain as FALLBACKS, so assert the
+    // ORDER (all three, in sequence) rather than the presence of any one step.
+    const pushOrder = discSrc.match(/export async function resolvePushTarget[\s\S]{0,320}/);
+    if (!pushOrder) throw new Error("resolvePushTarget must stay exported and inline its own order");
+    const orderIdx = ["officeChannelTarget(ctx)", "ctx.lastSeen", "ownerDmTarget(ctx)"].map((s) => pushOrder[0].indexOf(s));
+    if (orderIdx.some((i) => i < 0) || !(orderIdx[0] < orderIdx[1] && orderIdx[1] < orderIdx[2])) {
+      throw new Error("resolvePushTarget order must be: configured #general channel, then lastSeen, then owner DM");
+    }
+    // Ack contract: the reminder listener must ACK synchronously once a real
+    // sendable channel is in hand. Live 2026-10-17: with #general routed through
+    // the async path, a DELIVERED daily slot was recorded `missedAt`/
+    // `delivered:false` for a tick. Assert the ack inside the ready branch, the
+    // cache it reads, and the warm-up that fills the cache before the first due
+    // slot — presence-only assertions here would pass on a dead branch.
+    const remBlock = discSrc.match(/subscribeReminders\(\(reminder: Reminder, slotOwner: string\): boolean => \{[\s\S]{0,1400}/);
+    if (!remBlock) throw new Error("discord reminder listener not found");
+    const readyBlock = remBlock[0].match(/const ready = ctx\.officeTarget \?\? ctx\.lastSeen;[\s\S]{0,200}/);
+    if (!readyBlock || !/return true;/.test(readyBlock[0])) {
+      throw new Error("reminder listener must return true once a real target is in hand (else delivered slots are recorded as missed)");
+    }
+    const readyBlockSrc = discSrc.match(/client\.on\(Events\.ClientReady[\s\S]{0,2200}/);
+    if (!readyBlockSrc || !/void officeChannelTarget\(ctx\)\.then/.test(readyBlockSrc[0])) {
+      throw new Error("the #general channel must be warmed inside ClientReady (before ready, channels.fetch fails -> first due reminder is recorded as missed)");
+    }
+    if (!/if \(ctx\.officeTarget\) return ctx\.officeTarget;/.test(discSrc)) {
+      throw new Error("officeChannelTarget must CACHE the resolved channel on the context (one fetch, sync ack later)");
+    }
     if (!chainMayFailover(3, 3) || chainMayFailover(3, 5)) throw new Error("chainMayFailover must allow a no-effect retry only");
     if (!isProbeAliveResponse(200, { choices: [{}] })) throw new Error("a 200 with choices is alive");
     if (isProbeAliveResponse(200, { error: { code: 503 } }) || isProbeAliveResponse(429, { choices: [{}] })) throw new Error("200+error / non-2xx must read as dead");
@@ -2073,7 +2107,7 @@ async function main() {
     if (unresolved.length) throw new Error(`CORE names not in registry: ${unresolved.join(",")}`);
     const groq = new Set(toolsForUrl("https://api.groq.com/openai/v1/chat/completions").map((t) => t.function.name));
     if (groq.size > 128) throw new Error(`groq tool cap exceeded (${groq.size})`);
-    for (const n of ["pentest_scan", "finding_add", "report_generate", "cvss_score", "engagement_create", "recon_httpx", "upload_fuzz", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "xss_hunt", "request_run", "cve_intel", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "race_attack", "graphql_hunt", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_fuzz", "exploit_chain", "bypass403", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "coverage", "threat_model", "submission_preflight"]) {
+    for (const n of ["pentest_scan", "finding_add", "report_generate", "engagement_create", "recon_httpx", "upload_fuzz", "oast_create", "oast_poll", "bola_diff", "http_session", "content_discover", "crawl", "js_mine", "js_deobfuscate", "xss_hunt", "request_run", "host_header_hunt", "mass_assignment", "security_hunt", "poc_verify", "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "cache_poison_prover", "xxe_chain",  "open_redirect_chain", "github_osint", "har_import", "workflow_add", "workflow_list", "workflow_history", "workflow_run_now", "workflow_pause", "workflow_approve", "exploit_chain", "bypass403", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "coverage", "threat_model", "submission_preflight"]) {
       if (!groq.has(n)) throw new Error(`capped provider missing ${n}`);
     }
     const r9 = toolsForUrl("http://127.0.0.1:20128/v1/chat/completions");
@@ -2088,21 +2122,22 @@ async function main() {
     // gmail_search entered it the same day — the trio audit found the Coder had no
     // write path and no code search, and the Researcher could open a page but not
     // see its elements or search mail.
-    for (const n of ["workflow_fuzz", "race_attack", "graphql_hunt", "http_request", "poc_verify", "finding_add", "google_news", "research", "content_discover", "crawl", "lab_add", "coverage", "threat_model", "report_generate", "report_save", "writeup", "submission_preflight", "gmail_list", "gmail_search", "gmail_link", "mac_open", "places_search", "exec_write", "write_file", "codebase_search", "browser_snapshot"]) {
+    // race_attack/graphql_hunt/workflow_fuzz/gmaps_route/pentest_resources/writeup left
+    // the 64-slot window on 2026-10-16 to make room for the six workflow tools, which
+    // the owner cannot use at all without them (the feature was dead on 9router).
+    for (const n of ["workflow_add", "workflow_list", "workflow_history", "workflow_run_now", "workflow_pause", "workflow_approve", "http_request", "poc_verify", "finding_add", "google_news", "research", "content_discover", "crawl", "lab_add", "coverage", "threat_model", "report_generate", "report_save", "submission_preflight", "gmail_list", "gmail_search", "gmail_link", "mac_open", "places_search", "exec_write", "write_file", "codebase_search", "browser_snapshot"]) {
       if (!r9.some((t) => t.function.name === n)) throw new Error(`9router 64-window missing ${n}`);
     }
     for (const n of ["waze_route", "spotify_next", "spotify_volume", "ato_prove"]) {
       if (r9.some((t) => t.function.name === n)) throw new Error(`${n} should be demoted out of the 9router window`);
       if (!HINT_UNDELIVERED.includes(n)) throw new Error(`${n} must be in HINT_UNDELIVERED`);
     }
-    // report_pdf sits at CORE position 64 (was 65 before the 2026-10-04
-    // research-depth rebalance), ONE slot past the cut — verified live
-    // 2026-09-25/26: the deterministic delivery path (tryDeliverReportPdf) is
-    // what actually answers "buatkan pdfnya", so the tool being undelivered is
-    // by design, not a gap. Asserted so nobody reshuffles the window to reach
-    // it and evicts a TIER-1 prover (race_attack/graphql_hunt at 57/58).
-    if (r9.some((t) => t.function.name === "report_pdf")) {
-      throw new Error("report_pdf unexpectedly in the 9router window — update the CORE comment + this assertion together");
+    // report_pdf moved INTO the 64-slot window on 2026-10-16: six inside-window
+    // slots were freed for the proactive-workflow tools, which pushed it past the
+    // cut and that is a GOOD move (report_pdf answers "buatkan pdfnya" directly).
+    // Asserted positively so a later reshuffle cannot quietly evict it again.
+    if (!r9.some((t) => t.function.name === "report_pdf")) {
+      throw new Error("report_pdf should ride the 9router window (it answers 'buatkan pdfnya')");
     }
     console.log("provider tool caps (groq keeps pentest suite): OK");
   }
@@ -3111,6 +3146,35 @@ async function main() {
   if (due[0]?.id !== r.id || due[0]?.text !== vParsed[0]) throw new Error(`variant delivery: ${due[0]?.text}`);
   rmSync(join(userDataRoot(), vUser), { recursive: true, force: true });
   console.log("reminder variants: OK (parse strips bullets, attach + delivery uses variant[0])");
+
+  // --- Variant wording must follow the FIRE time, not the creation time
+  // (live 2026-10-16: a 10:00 wake-up created at 20:29 was told "periode
+  // malam" and got sleep-themed wording for a morning reminder). ---
+  const { daypartMismatch: dpMismatch, variantClockContext: vClockCtx } = await import("./src/lib/reminderVariants");
+  const sleepV = "Waktunya siap-siap tidur dan istirahat ya 🌸";
+  if (!dpMismatch(sleepV, 10)) throw new Error("sleep wording must be dropped for a MORNING reminder");
+  if (!dpMismatch("Selamat pagi, ayo mulai", 22)) throw new Error("morning wording must be dropped for a NIGHT reminder");
+  if (dpMismatch("Yuk beresin aktivitasnya, besok pagi kita gas lagi", 10)) throw new Error("matching wording must be kept");
+  if (dpMismatch("Semangat menjalani hari ya", 10)) throw new Error("neutral wording must always be kept");
+  const fireCtx = vClockCtx(Date.parse("2026-10-17T10:00:00+07:00"));
+  if (!fireCtx.includes("pukul 10:00 WIB") || !fireCtx.includes("periode pagi")) {
+    throw new Error(`variant clock context must carry the fire clock: ${fireCtx}`);
+  }
+  const { nextFireAtFor } = await import("./src/lib/reminders");
+  const fUser = `verify_vclock_${Date.now()}`;
+  const fireAt = Date.parse("2026-10-17T10:00:00+07:00");
+  addReminderV("Bangun Pagi", fireAt, fUser);
+  if (nextFireAtFor(fUser, "Bangun Pagi") !== fireAt) throw new Error("nextFireAtFor must return the stored fire time");
+  if (nextFireAtFor(fUser, "tidak ada") !== undefined) throw new Error("nextFireAtFor must return undefined for an unknown text");
+  rmSync(join(userDataRoot(), fUser), { recursive: true, force: true });
+  // Wiring: both agent call sites must pass the fire time (prompt-only was not enough).
+  const rvSrc = readFileSync(join(import.meta.dirname, "src", "lib", "reminderVariants.ts"), "utf8");
+  if (!/variantClockContext\(at\)/.test(rvSrc)) throw new Error("reminderVariants must tell the writer the FIRE clock (variantClockContext(at))");
+  if (!/daypartMismatch\(v, fireHour\)/.test(rvSrc)) throw new Error("reminderVariants must drop daypart-mismatched variants");
+  const agSrc2 = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+  const atArgs = agSrc2.match(/\{ at: nextFireAtFor\([^)]*\) \}/g) ?? [];
+  if (atArgs.length < 2) throw new Error(`both enrichReminderVariants call sites must pass at: nextFireAtFor(...) (found ${atArgs.length})`);
+  console.log("reminder variant fire-clock (wrong-clock variants dropped + both call sites pass at): OK");
 
   // --- OpenCode Go provider: registered publicly (Settings UI) + resolves from
   // env or the opencode CLI auth.json fallback (server-side only). ---
@@ -9180,6 +9244,161 @@ async function main() {
     );
   }
 
+  await verifyProactiveWorkflows();
+}
+
+async function verifyProactiveWorkflows(): Promise<void> {
+  // ------------------------------------------------ proactive workflow engine
+  {
+    const wfDir = join(import.meta.dirname, "src", "lib", "workflow");
+    for (const f of ["types.ts", "schedule.ts", "store.ts", "engine.ts", "worker.ts"]) {
+      if (!existsSync(join(wfDir, f))) throw new Error(`workflow module missing: ${f}`);
+    }
+    const { validateSchedule, nextOccurrence, slotKey } = (await import(
+      "./src/lib/workflow/schedule"
+    )) as typeof import("./src/lib/workflow/schedule");
+    const { dueDecision, runWorkflowTick } = (await import("./src/lib/workflow/worker")) as typeof import("./src/lib/workflow/worker");
+
+    // Schedule validation must reject impossible input instead of coercing it.
+    for (const bad of [
+      { kind: "daily", hour: 24, minute: 0 },
+      { kind: "weekly", hour: 8, minute: 0, day_of_week: 7 },
+      { kind: "monthly", hour: 8, minute: 0, day: 31 },
+      { kind: "interval", every_minutes: 0 },
+    ]) {
+      if (validateSchedule(bad as never, "Asia/Jakarta").ok)
+        throw new Error(`workflow: schedule tidak valid terlewat: ${JSON.stringify(bad)}`);
+    }
+    if (validateSchedule({ kind: "daily", hour: 8, minute: 0 }, "Asia/Jakarta").ok !== true)
+      throw new Error("workflow: jadwal harian yang sah harus diterima");
+
+    // Local wall clock must not shift: 08:00 Asia/Jakarta is 01:00 UTC.
+    const dailyNext = nextOccurrence({ kind: "daily", hour: 8, minute: 0 }, "Asia/Jakarta", Date.parse("2026-03-02T00:00:00.000Z"));
+    if (new Date(dailyNext ?? 0).toISOString() !== "2026-03-02T01:00:00.000Z")
+      throw new Error(`workflow: timezone bergeser, got ${new Date(dailyNext ?? 0).toISOString()}`);
+    if (slotKey("wf-1", 1000) !== slotKey("wf-1", 1000)) throw new Error("workflow: slot key tidak stabil");
+
+    // Disabled / paused / event workflows must never be due.
+    const neverDue = dueDecision({ enabled: false } as never, 10, undefined);
+    if (neverDue.due) throw new Error("workflow NONAKTIF tidak boleh due");
+    if (dueDecision({ enabled: true, paused: true } as never, 10, undefined).due)
+      throw new Error("workflow dijeda tidak boleh due");
+    if (dueDecision({ enabled: true, trigger_type: "event" } as never, 10, undefined).due)
+      throw new Error("workflow event tidak boleh due tanpa event");
+
+    // Wiring: the scheduler must actually run, dedupe by slot, and roll forward.
+    const wfUser = `verify_wf_${Date.now()}`;
+    const { buildWorkflow, saveWorkflow, readExecutions, readWorkflows, purgeWorkflows } = (await import(
+      "./src/lib/workflow/store"
+    )) as typeof import("./src/lib/workflow/store");
+    try {
+      const base = buildWorkflow(wfUser, {
+        name: "VerifyDigest",
+        trigger_type: "recurring",
+        schedule: { kind: "daily", hour: 8, minute: 0 },
+        agent_id: "mia",
+        task_type: "assistant",
+        task_configuration: "ringkas hari ini",
+        now: Date.now(),
+      } as never);
+      const dueAt = Date.now() - 1000;
+      saveWorkflow(wfUser, { ...base, next_run_at: dueAt });
+      const turn = async () => ({ text: "selesai", needsConfirmation: null, messages: [] }) as never;
+      const opts = { now: () => Date.now(), runTurn: turn, notify: async () => true } as never;
+      const first = await runWorkflowTick(Date.now(), opts);
+      const second = await runWorkflowTick(Date.now() + 1000, opts);
+      if (first.dispatched !== 1) throw new Error(`workflow: tick pertama harus dispatch 1, got ${first.dispatched}`);
+      if (second.dispatched !== 0) throw new Error(`workflow: slot yang sama ter-dispatch ulang (${second.dispatched})`);
+      if (readExecutions(wfUser).length !== 1) throw new Error("workflow: duplikasi eksekusi tersimpan");
+      if (readWorkflows(wfUser)[0].next_run_at === dueAt)
+        throw new Error("workflow: next_run_at tidak digulirkan setelah run");
+      console.log("proactive workflow (registry · schedule+timezone · slot idempotensi · tick worker · wiring): OK");
+    } finally {
+      purgeWorkflows(wfUser);
+    }
+
+    // Source assertions: the risky paths must be present in the real files.
+    const engineSrc = readFileSync(join(wfDir, "engine.ts"), "utf8");
+    const storeSrc = readFileSync(join(wfDir, "store.ts"), "utf8");
+    const instrSrc = readFileSync(join(import.meta.dirname, "src", "instrumentation-node.ts"), "utf8");
+    const toolsSrc = readFileSync(join(import.meta.dirname, "src", "lib", "tools.ts"), "utf8");
+    const wfRoute = join(import.meta.dirname, "src", "app", "api", "workflows", "route.ts");
+    if (!existsSync(wfRoute)) throw new Error("workflow: /api/workflows route missing");
+    const routeSrc = readFileSync(wfRoute, "utf8");
+    if (!/AWAITING_APPROVAL/.test(engineSrc))
+      throw new Error("workflow: eksekusi yangPause di approval boundary harus jadi AWAITING_APPROVAL");
+    if (/allow_risky_tools:\s*true/.test(storeSrc))
+      throw new Error("workflow: scheduler tidak boleh pernah auto-approve tool berisiko");
+    if (!/confirm_calls/.test(engineSrc))
+      throw new Error("workflow: approval resume harus memakai confirm_calls yang sama");
+    if (!/startWorkflowWorker\(/.test(instrSrc))
+      throw new Error("instrumentation harus/startWorkflowWorker() agar workflow benar-benar jalan");
+    const WF_TOOLS = ["workflow_add", "workflow_list", "workflow_history", "workflow_run_now", "workflow_pause", "workflow_approve"];
+    for (const name of WF_TOOLS) {
+      if (!toolsSrc.includes(`name: "${name}"`)) throw new Error(`tool workflow hilang: ${name}`);
+    }
+    // Registered is not the same as DELIVERED. A grep passed while every capped
+    // provider ran without a single workflow tool (audit 2026-10-16, CRITICAL-3),
+    // so assert the real per-provider window instead.
+    const { toolsForUrl, CORE_TOOL_NAMES } = (await import("./src/lib/agent")) as typeof import("./src/lib/agent");
+    for (const url of ["https://api.groq.com/openai/v1", "http://127.0.0.1:20128/v1"]) {
+      const window = (toolsForUrl(url as never) as { function: { name: string } }[]).map((t) => t.function.name);
+      const missing = WF_TOOLS.filter((n) => !window.includes(n));
+      if (missing.length) throw new Error(`tool workflow tidak terkirim ke ${url}: ${missing.join(", ")}`);
+    }
+    const agentSrc = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+    for (const name of ["cve_intel", "learning_query", "cvss_score", "hotel_search", "train_search", "bus_search"]) {
+      if (CORE_TOOL_NAMES.has(name)) throw new Error(`${name} seharusnya sudah didemote untuk workflow tools`);
+      if (!new RegExp(`"${name}"`).test(agentSrc.split("HINT_UNDELIVERED")[1] ?? ""))
+        throw new Error(`${name} harus tetap disebut di HINT_UNDELIVERED`);
+    }
+    if (!/isAuthorized\(/.test(routeSrc))
+      throw new Error("/api/workflows wajib memakai isAuthorized()");
+    // Deny-by-omission: only an explicit `true` may approve. Assert the GUARD
+    // ITSELF (not a name-only grep that `false &&` can bypass): both call sites
+    // must reject anything that is not literal `true`.
+    if (!/if \(args\.allow !== true\)/.test(toolsSrc))
+      throw new Error("tools.ts wajib menolak approval yang bukan true eksplisit");
+    if (!/if \(body\.allow !== true\)/.test(routeSrc))
+      throw new Error("route /api/workflows wajib menolak approval yang bukan true eksplisit");
+
+    // Store guards (audit 2026-10-16): a bogus agent / event trigger must be
+    // refused at creation, and the cap must refuse rather than drop the oldest.
+    const storeMod = (await import("./src/lib/workflow/store")) as typeof import("./src/lib/workflow/store");
+    const guardUser = `verify_wf_guard_${Date.now()}`;
+    try {
+      const mk = (over: Record<string, unknown>) =>
+        storeMod.buildWorkflow(guardUser, {
+          name: "G",
+          trigger_type: "recurring",
+          schedule: { kind: "daily", hour: 8, minute: 0 },
+          agent_id: "mia",
+          task_type: "assistant",
+          task_configuration: "x",
+          ...over,
+        } as never);
+      for (const bad of [{ agent_id: "ghost" }, { trigger_type: "event", event_source: "ci_failure" }, { catch_up_policy: "LAJUTAN" as never }]) {
+        let threw = false;
+        try {
+          mk(bad as never);
+        } catch {
+          threw = true;
+        }
+        if (!threw) throw new Error(`workflow: definisi tidak valid harus ditolak: ${JSON.stringify(bad)}`);
+      }
+      for (let i = 0; i < 40; i += 1) storeMod.saveWorkflow(guardUser, { ...mk({}), workflow_id: `wf-cap-${i}` } as never);
+      let capThrew = false;
+      try {
+        storeMod.saveWorkflow(guardUser, { ...mk({}), workflow_id: "wf-cap-41" } as never);
+      } catch {
+        capThrew = true;
+      }
+      if (!capThrew) throw new Error("workflow: batas 40 workflow harus menolak, bukan diam-diam menghapus yang lama");
+    } finally {
+      storeMod.purgeWorkflows(guardUser);
+    }
+    console.log("proactive workflow (approval tak-bypass · policy · tools · route auth): OK");
+  }
 }
 
 main().catch((err) => {

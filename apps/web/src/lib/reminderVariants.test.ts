@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { parseVariantLines, periodForHour, variantClockContext } from "./reminderVariants";
+import { daypartMismatch, parseVariantLines, periodForHour, variantClockContext } from "./reminderVariants";
 
 describe("periodForHour — daypart boundaries", () => {
   it("maps every hour of the day to exactly one daypart", () => {
@@ -80,5 +80,27 @@ describe("parseVariantLines", () => {
 
   it("ignores duplicate lines (case-insensitive)", () => {
     expect(parseVariantLines("Sama\ne\nSAMA\nBeda").length).toBe(3);
+  });
+});
+describe("variant daypart must match the FIRE time (live 2026-10-16: sleep wording on a 10:00 wake-up)", () => {
+  it("a night word on a morning reminder is a mismatch", () => {
+    expect(daypartMismatch("Waktunya siap-siap tidur dan istirahat ya 🌸", 10)).toBe(true);
+    expect(daypartMismatch("Udah malam nih, ayo siapin diri buat besok ⏰", 10)).toBe(true);
+    expect(daypartMismatch("Malam makin larut, waktunya rebahan nyenyak 🌙", 10)).toBe(true);
+    expect(daypartMismatch("Yuk beresin aktivitasnya, besok pagi kita gas lagi 😄", 10)).toBe(false);
+  });
+  it("a morning word on a night reminder is a mismatch too", () => {
+    expect(daypartMismatch("Selamat pagi, ayo mulai aktivitas", 22)).toBe(true);
+    expect(daypartMismatch("Waktunya rebahan sebelum larut malam", 22)).toBe(false);
+    expect(daypartMismatch("Udah larut malam, waktunya tidur", 1)).toBe(false);
+  });
+  it("no daypart word at all is always kept", () => {
+    expect(daypartMismatch("Semangat menjalani hari ya ☕", 10)).toBe(false);
+    expect(daypartMismatch("Waktunya rehat sebentar", 23)).toBe(false);
+  });
+  it("the writer is told the fire clock, not the creation clock", () => {
+    const morning = variantClockContext(Date.parse("2026-10-17T10:00:00+07:00"));
+    expect(morning).toContain("pukul 10:00 WIB");
+    expect(morning).toContain("periode pagi");
   });
 });

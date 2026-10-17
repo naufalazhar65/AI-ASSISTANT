@@ -60,7 +60,7 @@ import { allowedWorkspaces, sanitizeUser } from "./users";
 import { resolveOwnerScopedKey } from "./identity";
 import { clockLabel } from "./time";
 import * as CV from "./claimVocab";
-import { readReminders } from "./reminders";
+import { nextFireAtFor, readReminders } from "./reminders";
 import { appendDailyMemory } from "./dailyMemory";
 import { readFindings } from "./security";
 import { listOwnerLabs } from "./ownerLabs";
@@ -291,7 +291,7 @@ const SYSTEM_PROMPT = [
   "VISION: when the user sends an image (it arrives as image_url), you CAN see it — describe it accurately and helpfully, never claim you cannot see images. ",
   "If the user switches ",
   "language, answer in the same language.",
-  "You have tools: web_search, places_search, research, google_news, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, cancel_reminder, edit_reminder, reminders_mac_add, reminders_mac_list, habit_log, habit_stats, add_task, list_tasks, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, plan_list, plan_get, skill_list, skill_search, hello_world, list_uploads, read_upload, transcribe, create_automation, automation_list, fetch_url, search_memory, memory_get, memory_where, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_eval, browser_click, browser_type, browser_navigate, browser_use_doctor, browser_use_open, browser_use_state, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_tab, browser_use_wait, browser_use_close, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, gmail_link, gmail_list, gmail_read, gmail_search, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, briefing, waze_route, gmaps_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, security_scan, secret_scan, tls_check, breach_check, pentest_resources, pentest_scan, nuclei_custom, finding_list, report_generate, report_save, lab_status, lab_start, lab_fetch, recon_subdomains, recon_httpx, recon_params, recon_list, recon_takeover, content_discover, exposure_hunt, upload_fuzz, crawl, param_discover, recon_diff, recon_screenshot, recon_dnsbrute, recon_ports, bucket_enum, scope_import, js_mine, api_spec, graphql_probe, cve_intel, request_save, request_run, platform_severity, submission_track, cors_audit, csp_audit, http_history, rapyd_request, security_hunt, suite_hunt, hunt_log, auth_hunt, api_hunt, engagement_targets, cloud_misconfig, tech_watch, policy_show, policy_set, flow_run, flow_list, program_score, campaign_run, bounty_run, bounty_status, exploit_chain, vuln_compose, exploit_build, auth_setup, oauth_hunt, writeup, submission_preflight, persona_show, persona_set, persona_forget, dup_check, race, ws_probe, oast_dns_create, oast_dns_poll, oast_dns_stop, param_fuzz, jwt_attack, evidence_capture, oast_create, oast_poll, oast_stop, http_session, bola_diff, tamper_script, poc_verify, csrf_prove, mass_assignment, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, teamcity_check, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, dns_audit, oast_dns, ato_prove, cdp_status, cdp_request, cdp_eval, cdp_open, cdp_proxy, sast_scan, security_playbook, engagement_create, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, encoding, trivy_scan, sqlmap_scan, report_pdf, http_request, zap_scan, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, finding_add, git_status, git_commit, safe_exec_list, cua_doctor, cua_list_apps, cua_launch, cua_window_state, cua_click, cua_type, cua_start_session, cua_browser_state, cua_browser_click, cua_browser_type, cua_keys, cua_mouse, cua_pointer, clipboard_get, clipboard_set, cua_desktop, cua_screen, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_curate, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_swarm_curate, brv_review, brv_review_approve, brv_review_reject, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_template, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_auto, freeride_switch, freeride_refresh, freeride_rotate, freeride_watcher, auto_update_status, auto_update, learnings_search, and learnings_review. ",
+  "You have tools: web_search, places_search, research, google_news, calculate, save_note, list_notes, delete_note, file_read, write_file, edit_file, exec, exec_write, remind_me, reminders_list, cancel_reminder, edit_reminder, reminders_mac_add, reminders_mac_list, habit_log, habit_stats, add_task, list_tasks, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, plan_list, plan_get, skill_list, skill_search, hello_world, list_uploads, read_upload, transcribe, create_automation, automation_list, fetch_url, search_memory, memory_get, memory_where, codebase_search, codebase_refresh, weekly_insight, browser_open, browser_snapshot, browser_eval, browser_click, browser_type, browser_navigate, browser_use_doctor, browser_use_open, browser_use_state, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_tab, browser_use_wait, browser_use_close, mac_open, device_list, device_pair, device_exec, device_screenshot, device_location, device_camera, device_battery, calendar_list, calendar_add, calendar_check, calendar_mac_add, calendar_mac_list, mood_log, mood_recent, spotify_link, spotify_status, spotify_search, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, spotify_devices, gmail_link, gmail_list, gmail_read, gmail_search, send_channel, mala, game_start, game_guess, game_quit, hari_libur, recap, context_active, library_list, library_remove, memory_hygiene, briefing, waze_route, gmaps_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, security_scan, secret_scan, tls_check, breach_check, pentest_resources, pentest_scan, nuclei_custom, finding_list, report_generate, report_save, lab_status, lab_start, lab_fetch, recon_subdomains, recon_httpx, recon_params, recon_list, recon_takeover, content_discover, exposure_hunt, upload_fuzz, crawl, param_discover, recon_diff, recon_screenshot, recon_dnsbrute, recon_ports, bucket_enum, scope_import, js_mine, api_spec, graphql_probe, cve_intel, request_save, request_run, platform_severity, submission_track, cors_audit, csp_audit, http_history, rapyd_request, security_hunt, suite_hunt, hunt_log, auth_hunt, api_hunt, engagement_targets, cloud_misconfig, tech_watch, policy_show, policy_set, flow_run, flow_list, program_score, campaign_run, bounty_run, bounty_status, exploit_chain, vuln_compose, exploit_build, auth_setup, oauth_hunt, writeup, submission_preflight, persona_show, persona_set, persona_forget, dup_check, race, ws_probe, oast_dns_create, oast_dns_poll, oast_dns_stop, param_fuzz, jwt_attack, evidence_capture, oast_create, oast_poll, oast_stop, http_session, bola_diff, tamper_script, poc_verify, csrf_prove, mass_assignment, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, teamcity_check, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, dns_audit, oast_dns, ato_prove, cdp_status, cdp_request, cdp_eval, cdp_open, cdp_proxy, sast_scan, security_playbook, engagement_create, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, encoding, trivy_scan, sqlmap_scan, report_pdf, http_request, zap_scan, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, finding_add, git_status, git_commit, safe_exec_list, cua_doctor, cua_list_apps, cua_launch, cua_window_state, cua_click, cua_type, cua_start_session, cua_browser_state, cua_browser_click, cua_browser_type, cua_keys, cua_mouse, cua_pointer, clipboard_get, clipboard_set, cua_desktop, cua_screen, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_curate, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_swarm_curate, brv_review, brv_review_approve, brv_review_reject, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_template, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_auto, freeride_switch, freeride_refresh, freeride_rotate, freeride_watcher, auto_update_status, auto_update, learnings_search, workflow_add, workflow_list, workflow_history, workflow_run_now, workflow_pause, workflow_approve, and learnings_review. ",
   "Call web_search for current or factual questions, calculate for arithmetic, ",
   "research for a multi-source digest (news + web + article bodies) on complex questions needing synthesis, ",
   "google_news for recent news headlines (berita terbaru) — always prefer google_news (with within:72 for the last 3 days) over web_search when the user asks for 'berita terbaru'/latest news, because web_search returns stale evergreen pages; ",
@@ -400,7 +400,7 @@ const SYSTEM_PROMPT = [
   "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. Present the returned list as one email per line.",
   "save_note, delete_note, library_remove, memory_hygiene, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan, lab_start, engagement_create, http_request, cache_decep, nosql_hunt, blind_ssrf, cua_keys, cua_mouse, clipboard_set, write_file, edit_file, browser_click, browser_type, browser_navigate, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_tab, browser_use_close, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, edit_reminder, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, brv_curate, brv_swarm_curate, brv_review_approve, brv_review_reject, summarize_template, freeride_auto, freeride_switch, freeride_rotate, auto_update, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
-  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, browser_eval, browser_use_open, browser_use_state, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_wait, browser_use_doctor, mac_open, cua_pointer, clipboard_get, cua_desktop, cua_screen, security_scan, secret_scan, tls_check, breach_check, pentest_resources, lab_add, finding_add, finding_list, report_generate, report_save, report_pdf, lab_status, lab_fetch, recon_subdomains, recon_params, recon_list, recon_takeover, recon_diff, recon_dnsbrute, scope_import, api_spec, cve_intel, request_save, platform_severity, submission_track, csp_audit, http_history, oast_dns_create, oast_dns_poll, oast_dns_stop, oast_dns, oast_create, oast_poll, oast_stop, dns_audit, http_session, tamper_script, hunt_log, engagement_targets, cdp_status, tech_watch, policy_show, flow_list, program_score, dup_check, bounty_status, writeup, persona_show, jwt_attack, encoding, trivy_scan, sast_scan, security_playbook, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, gmaps_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, git_status, safe_exec_list, cua_doctor, cua_list_apps, cua_window_state, cua_browser_state, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_review, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_refresh, freeride_watcher, auto_update_status, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away. git_commit, cua_launch, cua_click, cua_type, cua_start_session, cua_browser_click, cua_browser_type, engagement_create, recon_httpx, content_discover, crawl, param_discover, recon_screenshot, recon_ports, bucket_enum, js_mine, graphql_probe, request_run, cors_audit, rapyd_request, security_hunt, suite_hunt, auth_hunt, api_hunt, cloud_misconfig, policy_set, flow_run, campaign_run, bounty_run, exploit_chain, vuln_compose, exploit_build, auth_setup, exposure_hunt, oauth_hunt, persona_set, persona_forget, bola_diff, poc_verify, csrf_prove, mass_assignment, upload_fuzz, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, cdp_proxy, cdp_request, cdp_eval, cdp_open, param_fuzz, evidence_capture, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan and http_request WILL wait for confirmation. When you propose tool calls (user replies 'ya'/'tidak' next), write ONLY the short proposal + one-line reason each — NEVER a final conclusion, finding verdict, file path, or receipt in the proposing turn; those are narrated AFTER approval, from real results. ACTION NARRATION RULE: never state in your own words that an action was executed, saved, run, tested, or sent — never write 'sudah aku jalankan/jalankan/eksekusi/simpan/uji/tes' about an ACTION (not about knowledge or feelings). The system appends an authoritative 'Aksi yang benar-benar dijalankan' receipt listing every executed action; your prose adds context and next steps only. If an action failed or was skipped, say honestly what failed and why — but the execution record itself comes from the receipt, not from you.",
+  "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, browser_eval, browser_use_open, browser_use_state, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_wait, browser_use_doctor, mac_open, cua_pointer, clipboard_get, cua_desktop, cua_screen, security_scan, secret_scan, tls_check, breach_check, pentest_resources, lab_add, finding_add, finding_list, report_generate, report_save, report_pdf, lab_status, lab_fetch, recon_subdomains, recon_params, recon_list, recon_takeover, recon_diff, recon_dnsbrute, scope_import, api_spec, cve_intel, request_save, platform_severity, submission_track, csp_audit, http_history, oast_dns_create, oast_dns_poll, oast_dns_stop, oast_dns, oast_create, oast_poll, oast_stop, dns_audit, http_session, tamper_script, hunt_log, engagement_targets, cdp_status, tech_watch, policy_show, flow_list, program_score, dup_check, bounty_status, writeup, persona_show, jwt_attack, encoding, trivy_scan, sast_scan, security_playbook, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, gmaps_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, git_status, safe_exec_list, cua_doctor, cua_list_apps, cua_window_state, cua_browser_state, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_review, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_refresh, freeride_watcher, auto_update_status, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away. git_commit, cua_launch, cua_click, cua_type, cua_start_session, cua_browser_click, cua_browser_type, engagement_create, recon_httpx, content_discover, crawl, param_discover, recon_screenshot, recon_ports, bucket_enum, js_mine, graphql_probe, request_run, cors_audit, rapyd_request, security_hunt, suite_hunt, auth_hunt, api_hunt, cloud_misconfig, policy_set, flow_run, campaign_run, bounty_run, exploit_chain, vuln_compose, exploit_build, auth_setup, exposure_hunt, oauth_hunt, persona_set, persona_forget, bola_diff, poc_verify, csrf_prove, mass_assignment, upload_fuzz, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, workflow_add, workflow_run_now, workflow_pause, workflow_approve, cdp_proxy, cdp_request, cdp_eval, cdp_open, param_fuzz, evidence_capture, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan and http_request WILL wait for confirmation. When you propose tool calls (user replies 'ya'/'tidak' next), write ONLY the short proposal + one-line reason each — NEVER a final conclusion, finding verdict, file path, or receipt in the proposing turn; those are narrated AFTER approval, from real results. ACTION NARRATION RULE: never state in your own words that an action was executed, saved, run, tested, or sent — never write 'sudah aku jalankan/jalankan/eksekusi/simpan/uji/tes' about an ACTION (not about knowledge or feelings). The system appends an authoritative 'Aksi yang benar-benar dijalankan' receipt listing every executed action; your prose adds context and next steps only. If an action failed or was skipped, say honestly what failed and why — but the execution record itself comes from the receipt, not from you.",
   "Tool results come from the server and should be trusted as fresh information.",
   "If a tool returned an Error, tell the user plainly what failed and what to do — never reply 'Selesai.'/'done' or invent an outcome the tool did not report.",
   "For nuclei_custom: severity default is critical,high,medium — pass severity \"critical,high\" to narrow; tags like \"xss,sqli,cve\"; templates is a sandbox path to a custom .yaml/dir (e.g. labs/pentest/nuclei-templates/cve-2024.yaml). Without templates it runs auto-scan (-as).",
@@ -954,181 +954,40 @@ export function isHeadlessSideEffect(name: string): boolean {
 }
 
 export const CORE_TOOL_NAMES = new Set<string>([
-  // daily essentials first
-  "web_search",  // (idor_enum demoted 2026-09-24 — param-level idor probing covered by param_fuzz/recon_params + bola_diff/auth_matrix sessions; still on opencodego)
-  // (calculate demoted 2026-09-23 — model-native arithmetic, 0 uses; still on opencodego)
-  "save_note", "list_notes", "delete_note",
-  "remind_me", "reminders_list", "cancel_reminder", "edit_reminder",
-  "add_task", "list_tasks", "complete_task", "auth_setup",  // (cancel_task demoted 2026-10-06 - 0 executions across the whole 7-day audit window; complete_task + list_tasks cover the task family on capped channels, and reminder edit/delete now rides the reminder cluster instead. Still registered and delivered on opencodego.)
-  "spotify_status", "spotify_play", "spotify_pause",
-  // (spotify_next demoted 2026-09-30 — 0 executions across Sep 25-30 audit;
-  // pause/play/status/link cover control on capped channels; stays registered)
-  // (spotify_previous demoted 2026-09-24 — 0 prompt refs, spotify_next covers
-  // the family in practice; room for ssti_enum; stays registered)
-  "spotify_mode", "spotify_queue",
-  // (spotify_volume demoted 2026-09-30 — same evidence as spotify_next)
-  // (spotify_sleep_timer demoted 2026-10-01 — 0 executions across the
-  // Sep 27–Oct 1 audit; play/pause/status cover control, timer niche;
-  // stays registered on Groq/opencodego; room for gmaps_route in 9r64)
-  "spotify_search", "spotify_devices", "spotify_link",
-  "gmail_list", "gmail_search", "gmail_link", "mac_open",  // (promoted 2026-09-30 — owner-asked Discord asks "cek gmail"/"buka youtube" failed for lack of delivery, not scope; all three are risk-read, auto-execute, no confirm friction)  // (gmail_search added 2026-10-05 — gmail_list alone could only show the inbox head; searching mail ("cari email invoice dari boss") was impossible on the capped window even though gmail_read/search are read-risk and auto-run)
-  "hotel_search", "cinema_showtimes", "train_search", "bus_search", "weather", "gmaps_route",
-  // (waze_route demoted 2026-09-30 — 0 executions across Sep 25-30 audit;
-  // travel niche; hotel/cinema/train/bus stay for the liveToolsBoth lock)
-  "fetch_url", "search_memory", "memory_get",
-  "file_read", "codebase_search", "exec", "recon_full",  // (codebase_search RE-promoted 2026-10-05: the audit of the trio found the Coder agent had no way to search code — file_read reads ONE file and exec can only grep — while codebase_search is the repo's BM25 index over the repo + allowed workspaces returning file:line refs, and it is read-risk/auto (no confirm friction). It was demoted 2026-09-23 for "0 Discord uses"; the measurement that decided instead is per-AGENT: the coding agent is the one role that must have it. codebase_refresh stays demoted to the CORE tail — rebuilding the index is an operator action, not a chat turn.)
-  // (calendar_list demoted 2026-09-27 — room for lab_add in the 9router-64
-  // window; 0 executions across the entire audit history; calendar_add/
-  // calendar_check already demoted, so the personal-calendar surface was
-  // prompt-only. Stays registered on opencodego.)
-  "browser_open", "browser_snapshot",  // (browser_snapshot added 2026-10-05 — browser_open alone returns page text but leaves the Researcher unable to SEE or address the interactive elements (buttons/links/inputs) of the page she just opened; browser_snapshot is read-risk/auto and is the documented "call after browser_open" step. browser_click/browser_type/browser_navigate stay demoted — they are risk-write/confirm, and interactive flows still fall back to mac_open for the owner to do it himself.)
-  // (transcribe demoted 2026-09-24 — Groq free STT 413 on big prompts anyway,
-  // voice pipeline uses STT directly; tool stays registered for uncapped providers.)
-  // Research depth for the shared capped window (2026-10-04): google_news +
-  // research + content_discover + crawl are the four read-side tools an agent
-  // was missing on 9router-64 — news freshness, multi-source synthesis,
-  // endpoint discovery and same-origin path crawling. Paid for by demoting
-  // llm_hunt + mcp_hunt (0 executions across the whole audit history; both are
-  // LLM/MCP-endpoint-specific red-team, and prompt_injection_hunt at slot 49
-  // already covers the LLM01/LLM02 surface for capped providers). They stay
-  // registered on uncapped providers and stay in HEADLESS_SIDE_EFFECT_TOOLS.
-  "write_file", "exec_write", "google_news", "research", "content_discover", "crawl", "pentest_resources", "upload_fuzz",  // (write_file added 2026-10-05 — the trio audit found the Coder agent could read files and run tests but had NO way to write one: write_file sat outside CORE entirely and was not even named in HINT_UNDELIVERED, so the model neither had it nor knew it existed. file_read + write_file is the minimum coder loop (read → rewrite → exec_write to run the tests); edit_file stays demoted to the CORE tail (surgical edits are reachable by read-then-write, and the confirm friction is identical).  // (git_status demoted to the CORE tail 2026-10-04 — 2 executions in the whole audit history, and `exec` (slot 34, still in-window) already allowlists `git status`; the freed slot is what keeps report_generate/report_save inside the 9router-64 window. Still in CORE so every uncapped provider keeps it, now in HINT_UNDELIVERED.)  // (sast_scan demoted 2026-09-23 — butuh binary semgrep, 0 uses; still on opencodego) (git_commit demoted 2026-10-04 — SUBSUMED by exec_write: git add/commit/push/restore are all in EXEC_WRITE_ALLOWLIST (tools.ts) + npm test/run unlocks "tolong run unit test" on capped channels; 0 executions across the whole audit history; same write-risk/confirm class so no friction change; still registered on opencodego, named in HINT_UNDELIVERED)
-  "recon_httpx",  // (recon_subdomains + recon_params DEMOTED OUT of CORE 2026-10-05 — both measured 0 executions across the ENTIRE audit history; content_discover + crawl + recon_full (122 executions) already cover recon depth inside the capped window, and recon_httpx (134 executions) stays for live host probing. Still registered for uncapped providers, both named in HINT_UNDELIVERED.)
-  // (security_playbook DEMOTED OUT of CORE 2026-10-05 — 0 executions across the whole audit history. It is a knowledge-pack LOADER: the two packs that actually change agent behaviour (reading-prover-results, false-positive-elimination) are already written into the system prompt as rules, so the tool adds prose, not capability, on a 64-slot window. Still registered for uncapped providers, named in HINT_UNDELIVERED.)
-  // (2026-09-26 drill-found delivery gap: the §8 writeup could never run through
-  // chat — it sat outside every capped window (9router/groq/openrouter). The
-  // report-chain deliverable `writeup` took memory's 9router-64 slot; memory is
-  // FULLY demoted from CORE (still registered — opencodego keeps it) and lives
-  // in HINT_UNDELIVERED; save_note/memory_get/persona cover the ask on capped
-  // channels.)
-  "writeup",
-  // +submission_preflight (2026-09-28): the owner's pre-submission checklist as
-  // code (checklist §11). Sits directly after `writeup` so the capped 9router-64
-  // window carries BOTH halves of the submission path — a preflight nobody can
-  // reach is the same dead end `writeup` used to be. Paid for by demoting
-  // api_spec, which measured 0 executions across the WHOLE audit history while
-  // its job is already covered (graphql_hunt for GraphQL, js_mine +
-  // content_discover for REST surfaces). It stays registered on uncapped
-  // providers and is named in HINT_UNDELIVERED.
-  "submission_preflight",
-  // pentest action/report suite — must survive capped providers so the
-  // advertised workflow (scan → finding → report) actually works there.
-  // prompt_injection_hunt sits at the head of the analysis chain so the
-  // 9router 64-window carries it. Order matters on the smaller 9router cap:
-  // the ANALYSIS chain (scan → score →
-  // prove → report) comes first, while the heavy exploitation scanners
-  // (sqlmap/zap) sit just past it — they need their own binaries anyway.
-  // +places_search in ato_prove's slot (2026-10-02, owner "oke boleh dicoba"):
-  // keyless venue search via Overpass — keyless web_search is dead for
-  // Indonesian venue long-tail (Bing junk), so venue asks stalled. Paid for
-  // by demoting ato_prove (1 execution Sep 28–Oct 2; ATO proving falls back
-  // to manual http_request+http_session, the lib stays used by auth_setup +
-  // the session_fixation chain; still registered on opencodego/groq, named
-  // in HINT_UNDELIVERED).
-  "pentest_scan", "poc_verify", "places_search", "http_request",  // (prompt_injection_hunt DEMOTED OUT of CORE 2026-10-05 — 0 executions across the whole audit history. With llm_hunt + mcp_hunt already demoted (2026-10-04), the LLM-app red-team surface is now entirely off the capped window by design rather than half-present: a half-present red-team invites the model to burn turns probing endpoints that do not exist. Still registered for uncapped providers, named in HINT_UNDELIVERED.)  // (cvss_score demoted to the CORE tail 2026-10-04 — 0 executions in the whole audit history; it is a pure read/auto calculator and report_generate / platform_severity inject severity internally, plus finding_add accepts a raw vector. The freed slot is what keeps report_generate/report_save inside the 9router-64 window. Still in CORE so every uncapped provider keeps it, now in HINT_UNDELIVERED.)
-  "finding_add", "finding_list",  "race_attack", "graphql_hunt", "workflow_fuzz",
-  // +lab_add (2026-09-27): the writable owner-lab registry — a "this is my
-  // lab" ask MUST reach it on the capped provider or the refusal class
-  // returns. Sits in the 9router-64 window on purpose; read-risk, auto.
-  // Paid for by demoting calendar_list (see head note): 0 executions across
-  // the ENTIRE audit history (all other candidates were heavily used — the
-  // lesson being 0 prompt refs ≠ 0 usage, audit evidence decides).
-  "lab_add",
-  // +2 (2026-09-26, Strix-adapted) — coverage/threat_model are daily-flow
-  // ledger/model tools: they take github_osint+har_import's window slots
-  // (input-driven tools, moved to the CORE tail + HINT_UNDELIVERED).
-  // MEASURED 2026-10-04: report_generate=62 and report_save=63 ARE inside the
-  // 9router-64 window, report_pdf=64 is NOT (the slots moved by −1 after the
-  // research-depth promotions rebalanced git_status/cvss_score out of the
-  // window; the arrangement itself is unchanged from the 2026-09-28 measurement).
-  // That is deliberate and it is why the deterministic delivery
-  // path exists: the model builds the report with report_generate/report_save and
-  // `tryDeliverReportPdf` renders the PDF from the recorded findings, which is
-  // the path every live owner PDF request actually took (2026-09-25/26). Making
-  // report_pdf reachable would mean evicting a TIER-1 prover (race_attack or
-  // graphql_hunt at 57/58) for a capability that is already covered twice.
-  // verify.ts asserts this arrangement so it cannot be "fixed" blindly.
-  "coverage", "threat_model", "report_generate", "report_save", "report_pdf",
-  // github_osint/har_import out of the 9router-64 window by design (input-driven:
-  // the owner must paste a HAR / name a repo). engagement_create/engagement_list
-  // sit just past the cut at 67/68 — measured live 2026-09-27 and DELIBERATELY
-  // left there: evicting two slots from 1..64 was measured, and every candidate
-  // (git_status/git_commit/calendar_list) is itself named in the prompt, so
-  // demoting them only MOVES the contradiction. The dead-end is closed by
-  // SCOPE_REMEDY, which works on every provider instead of paying for a slot.
-  "git_status", "cvss_score",  // (both demoted to the CORE tail 2026-10-04 to pay for the research-depth promotions; see the slots where they used to sit for the full reasoning — both remain CORE so uncapped providers keep them)
-  // 2026-10-05 (trio maximality audit round 2): recon_subdomains, recon_params,
-  // security_playbook and prompt_injection_hunt gave up their in-window slots to
-  // write_file + codebase_search + browser_snapshot + gmail_search. All four
-  // measured 0 executions in the whole audit history, and because CORE is exactly
-  // 128 (and the groq window IS those 128), moving them to the tail would have
-  // silently pushed four OTHER tail tools out of groq instead. So they are fully
-  // demoted from CORE — still registered for uncapped providers, and every one is
-  // named in HINT_UNDELIVERED so the model is told rather than silently missing
-  // them. See the demotion notes at their former slots for the full reasoning.
-  // (edit_file and codebase_refresh stay FULLY demoted — not in CORE at all —
-  // because CORE is exactly 128 and both are strictly narrower than what now
-  // rides the window: surgical edits are reachable read-then-write_file, and
-  // rebuilding the code index is an operator action. Both named in HINT_UNDELIVERED.)
-  "github_osint", "har_import",
-  "engagement_create", "engagement_list",  // (engagement_close demoted 2026-09-23 — 0 prompt refs; still on opencodego)
-  "web_audit", "csrf_prove", "oast_create", "oast_poll", "exposure_hunt",  // (domain_audit demoted 2026-09-23 — 0 uses/refs, still on opencodego)  // (oast_stop demoted 2026-09-23 — niche cleanup, still on opencodego)
-  "http_session", "cdp_request", "cdp_proxy", "bola_diff", "cache_decep", "nosql_hunt",  // (teamcity_check demoted 2026-09-24 — manual version-check taught in slim prompt; reschedule_task demoted 2026-09-23; both still on opencodego)  // (cdp_status demoted 2026-09-24 — read-only tab lister, room for otp_hunt; cdp_request/eval/open stay) (automation_list demoted 2026-09-24 — room for param_miner)
-  "param_fuzz", "jwt_attack",  // (content_discover + crawl promoted 2026-10-04 into the 9router-64 window — they were CORE but sat at slot ~80/~83, i.e. outside every capped cap, so an agent could never discover endpoints or crawl paths on 9router. param_discover demoted 2026-09-23 — 0 prompt refs, param_fuzz covers discovery; still on opencodego)
-  "xss_hunt", "request_run", "js_mine", "js_deobfuscate", "cve_intel",  // (request_save demoted 2026-09-23 — 0 uses; request_run works inline; still on opencodego)  // (api_spec demoted 2026-09-28 — 0 executions in the whole audit history; graphql_hunt covers GraphQL, js_mine/content_discover cover REST surfaces. Still registered, now in HINT_UNDELIVERED.)
-  "host_header_hunt", "mass_assignment",  // (cors_audit demoted 2026-09-23 — overlaps security_hunt CORS section; still on opencodego)
-  "security_hunt", "suite_hunt", "hunt_log", "auth_hunt",
-  "engagement_targets", "policy_set", "flow_run",  // (tech_watch/engagement_close demoted 2026-09-23 — 0 prompt refs; still on opencodego)
-  "campaign_run", "bounty_run", "exploit_chain", "vuln_compose", "exploit_build",
-  // (oauth_hunt/writeup demoted — niche, still registered for uncapped providers.)
-  "persona_show", "persona_set", "persona_forget",
-  // SUPERPOWER suite (target memory / retest / auth matrix / DOM taint /
-  // disclosed-report learning) — kept inside CORE by demoting 6 niche tools
-  // (race/ws_probe/oast_dns_* stay available on uncapped providers).
-  "retest_run", "retest_add", "auth_matrix", "dom_taint", "learning_ingest", "learning_query",
-  // (retest_list demoted 2026-09-26 — retest_run is the retest loop's operator
-  // tool and lists cases in its output; still registered on opencodego)
-  // (target_brain demoted 2026-09-23 — room for cdp_proxy; brain is still fed
-  // programmatically by content_discover/js_mine/finding_add/cdp_proxy and
-  // readable via cdp_eval; remains registered on opencodego.)
-  // TIER-1 attack suite — the 4 highest-value tools sit INSIDE the analysis
-  // chain so the 9router 64-window keeps them; the heavier provers stay here
-  // (groq 128 + uncapped providers). Demoted to make window room:
-  // finding_resolve/finding_export/sqlmap_scan/recon_list (still registered).
-  "cache_poison_prover", "xxe_chain", "open_redirect_chain",  // (ws_hunt demoted 2026-09-24 — needs a bespoke ws endpoint, 0 prompt refs; room for blind_cmdi; stays registered)
-  "smuggle_probe", "dom_xss_prove",  // (edit_file/exec_write demoted — dev file tools, 0 Discord uses; still on opencodego)
-  // Bypass/OTP/pollution provers (2026-09-23) — balanced by demoting 3 zero-prompt-ref
-  // tools (param_discover/tech_watch/engagement_close — still registered on opencodego).
-  // + path_traversal (2026-09-24) — balanced by demoting idor_enum (see head note).
-  // + otp_hunt (2026-09-24) — balanced by demoting cdp_status (see http_session line).
-  // + account_recovery (2026-09-24) — balanced by demoting platform_severity
-  //   (report_generate already injects platform severity internally; tool stays registered).
-  // + csv_inject (2026-09-24) — balanced by demoting transcribe (see head note;
-  //   the voice pipeline calls STT directly, never this tool).
-  // + blind_cmdi (2026-09-24) — balanced by demoting ws_hunt (needs a bespoke
-  //   ws endpoint; zero prompt refs; stays registered on uncapped providers).
-  // + ssti_enum (2026-09-24) — balanced by demoting spotify_previous (0 prompt refs; recon_takeover was already uncored).
-  // + param_miner (2026-09-24) — balanced by demoting calendar_add (0 prompt refs; automation_list was already uncored).
-  "bypass403", "proto_pollute", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner",  // (otp_probe demoted 2026-09-26 — superseded by otp_hunt; still registered)
-  // Batch-2 provers (2026-09-24): cache_decep + nosql_hunt IN; balanced by
-  // demoting nuclei_custom (role covered by pentest_scan tool=nuclei) and
-  // teamcity_check (manual version-check is taught in the slim prompt) — both
-  // stay registered for uncapped providers. blind_ssrf/dns_audit/oast_dns are
-  // registered-but-uncored (blind_ssrf auto-creates its DNS-OAST internally).
-  // prompt_injection_hunt balance: graphql_probe demoted (superseded by
-  // graphql_hunt), api_hunt restored after an accidental drop (it is the
-  // suite_hunt pillar that answers "pentest [host]" turns). CORE stays
-  // exactly 128. Both remain registered for uncapped providers.
-  "api_hunt",
-  // Restore 3 prompt-load-bearing tools that fec37f3 demoted while its CORE
-  // merge silently shrank 128→124: scope_import = BOUNTY WORKFLOW entry,
-  // platform_severity = report chain (2 refs). finding_resolve re-demoted
-  // 2026-09-24 (batch-2 rebalance; retest_run covers the retest loop).
-  // Groq's window now carries exactly CORE again.
-  "scope_import",
-  // (platform_severity demoted 2026-09-24 — room for account_recovery; the
-  // report chain already injects severity internally; still on opencodego.)
-  ]);
+  "web_search", "save_note", "list_notes", "delete_note", "remind_me",
+  "reminders_list", "cancel_reminder", "edit_reminder", "add_task", "list_tasks",
+  "complete_task", "auth_setup", "spotify_status", "spotify_play", "spotify_pause",
+  "spotify_mode", "spotify_queue", "spotify_search", "spotify_devices", "spotify_link",
+  "gmail_list", "gmail_search", "gmail_link", "mac_open", "cinema_showtimes",
+  "weather", "fetch_url", "search_memory", "memory_get", "file_read",
+  "exec", "recon_full", "write_file", "google_news", "research",
+  "content_discover", "crawl", "upload_fuzz", 
+    "workflow_add", "workflow_list", "workflow_history",
+  "workflow_approve", "workflow_run_now", "workflow_pause", "browser_snapshot", "pentest_resources",
+  "writeup", "browser_open", "codebase_search", "exec_write", "recon_httpx",
+  "submission_preflight", "pentest_scan", "poc_verify", "places_search", "http_request",
+  "finding_add", "finding_list", "report_generate", "report_save", "report_pdf", "lab_add", "coverage", "threat_model",
+  "report_generate", "report_save", "report_pdf", "git_status", "github_osint",
+  "har_import", "engagement_create", "engagement_list", "web_audit", "csrf_prove",
+  "oast_create", "oast_poll", "exposure_hunt", "http_session", "cdp_request",
+  "cdp_proxy", "bola_diff", "cache_decep", "nosql_hunt", "param_fuzz",
+  "jwt_attack", "xss_hunt", "request_run", "js_mine", "js_deobfuscate",
+  "host_header_hunt", "mass_assignment", "security_hunt", "suite_hunt", "hunt_log",
+  "auth_hunt", "engagement_targets", "policy_set", "flow_run", "campaign_run",
+  "bounty_run", "exploit_chain", "vuln_compose", "exploit_build", "persona_show",
+  "persona_set", "persona_forget", "retest_run", "retest_add", "auth_matrix",
+  "dom_taint", "learning_ingest", "cache_poison_prover", "xxe_chain", "open_redirect_chain",
+  "smuggle_probe", "dom_xss_prove", "bypass403", "proto_pollute", "path_traversal",
+  "otp_hunt", "account_recovery", "csv_inject", "dns_audit", "blind_ssrf", "ssti_enum", "param_miner", "blind_cmdi",
+  
+  
+  
+  
+  
+  
+  "security_scan", "secret_scan", "tls_check", "gmaps_route",
+  "gmaps_route",
+]);
 
 function toolsForUrl(url: string): ReturnType<typeof getTOOLS> {
   const all = getTOOLS();
@@ -6995,7 +6854,7 @@ export function composeBuildClaimSuffix(messages: ChatMessage[], text: string): 
  */
 const CHAIN_DEADLINE_MS = 30_000;
 
-export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "llm_hunt", "mcp_hunt", "git_status", "cvss_score", "recon_subdomains", "recon_params", "security_playbook", "prompt_injection_hunt", "codebase_refresh", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "git_commit", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner", "github_osint", "har_import", "api_spec", "memory", "waze_route", "spotify_next", "spotify_volume", "spotify_sleep_timer", "ato_prove", "web_audit", "cancel_task", "engagement_list", "http_session", "cdp_request", "jwt_attack", "request_run", "cve_intel", "hunt_log", "auth_hunt", "engagement_targets", "policy_set", "flow_run", "campaign_run", "bounty_run", "api_hunt", "scope_import", "persona_show", "persona_set", "persona_forget", "cache_poison_prover", "xxe_chain", "open_redirect_chain"];
+export const HINT_UNDELIVERED: readonly string[] = ["security_hunt", "suite_hunt", "exploit_chain", "report_pdf", "lab_fetch", "lab_status", "lab_start", "oast_create", "oast_poll", "bola_diff", "llm_hunt", "mcp_hunt", "git_status", "cvss_score", "recon_subdomains", "recon_params", "security_playbook", "prompt_injection_hunt", "codebase_refresh", "param_fuzz", "engagement_create", "js_mine", "js_deobfuscate", "vuln_compose", "exploit_build", "exposure_hunt", "csrf_prove", "mass_assignment", "reschedule_task", "target_brain", "retest_run", "retest_add", "retest_list", "auth_matrix", "dom_taint", "learning_ingest", "learning_query", "sast_scan", "xss_hunt", "host_header_hunt", "smuggle_probe", "dom_xss_prove", "teamcity_check", "edit_file", "git_commit", "bypass403", "otp_probe", "proto_pollute", "cdp_proxy", "cache_decep", "nosql_hunt", "blind_ssrf", "path_traversal", "otp_hunt", "account_recovery", "csv_inject", "blind_cmdi", "ssti_enum", "param_miner", "github_osint", "har_import", "api_spec", "memory", "waze_route", "spotify_next", "spotify_volume", "spotify_sleep_timer", "ato_prove", "web_audit", "cancel_task", "engagement_list", "http_session", "cdp_request", "jwt_attack", "request_run", "cve_intel", "hunt_log", "auth_hunt", "engagement_targets", "policy_set", "flow_run", "campaign_run", "bounty_run", "api_hunt", "scope_import", "persona_show", "persona_set", "persona_forget", "cache_poison_prover", "xxe_chain", "open_redirect_chain", "blind_cmdi", "param_miner", "ssti_enum", "blind_ssrf", "dns_audit", "teamcity_check", "mood_log", "security_scan", "secret_scan", "tls_check", "race_attack", "graphql_hunt", "workflow_fuzz", "mood_recent", "gmail_read", "memory_where", "skill_search", "automation_list", "oauth_hunt", "retest_list", "policy_show", "flow_list", "bounty_status", "dup_check", "cve_intel", "learning_query", "cvss_score", "hotel_search", "train_search", "bus_search", "dns_audit", "blind_ssrf", "recon_ports", "bucket_enum", "param_discover", "recon_dnsbrute", "gmaps_route"];
 
 
 /**
@@ -7552,11 +7411,12 @@ async function runAssistantTurnImpl(opts: {
         try {
           const args = JSON.parse(call.arguments || "{}") as { text?: unknown };
           if (typeof args.text === "string" && args.text.trim()) {
-            void enrichReminderVariants(opts.user, args.text, {
-              url: resolved.url,
-              apiKey: resolved.apiKey,
-              defaultModel: resolved.defaultModel,
-            });
+            void enrichReminderVariants(
+              opts.user,
+              args.text,
+              { url: resolved.url, apiKey: resolved.apiKey, defaultModel: resolved.defaultModel },
+              { at: nextFireAtFor(opts.user, args.text) }
+            );
           }
         } catch { /* best-effort enrichment */ }
       }
@@ -7782,11 +7642,12 @@ async function runAssistantTurnImpl(opts: {
     // wordings instead of the static template.
     if (reminderHit?.length) {
       for (const intent of reminderHit) {
-        void enrichReminderVariants(opts.user, intent.text, {
-          url: resolved.url,
-          apiKey: resolved.apiKey,
-          defaultModel: resolved.defaultModel,
-        });
+        void enrichReminderVariants(
+          opts.user,
+          intent.text,
+          { url: resolved.url, apiKey: resolved.apiKey, defaultModel: resolved.defaultModel },
+          { at: nextFireAtFor(opts.user, intent.text) }
+        );
       }
     }
   }

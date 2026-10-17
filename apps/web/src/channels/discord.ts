@@ -524,6 +524,14 @@ export interface BotPushContext {
   dedicatedChannels: string[];
   /** Raw configured channel for office delivery (unfiltered, see agentConfigsFromEnv). */
   officeChannels: string[];
+  /**
+   * Cache of the resolved office/#general channel. The reminder listener must
+   * ACK synchronously (`return true` = "a push was started"), so it needs the
+   * sendable object in hand instead of awaiting `channels.fetch` on every tick —
+   * awaiting would force the async path, which acks false and marks a DELIVERED
+   * daily slot as `missedAt`/`delivered:false` for one tick.
+   */
+  officeTarget: SendableChannel | null;
   client: Client | null;
   allowedUsers: string[];
 }
@@ -539,14 +547,20 @@ export function getActiveDiscordClient(): Client | null {
  * Resolve the owner's DM as a sendable target. Falls back to the first
  * allow-listed owner user id; returns null when unavailable.
  */
-/** The agent's dedicated channel (office/general), resolved through the client. */
+/** The agent's dedicated channel (office/general), resolved through the client
+ *  and CACHED on the context so the reminder listener can ack synchronously. */
 async function officeChannelTarget(ctx: BotPushContext): Promise<SendableChannel | null> {
+  if (ctx.officeTarget) return ctx.officeTarget;
   const client = ctx.client;
   const id = ctx.officeChannels[0];
   if (!client || !id) return null;
   try {
     const ch = await client.channels.fetch(id);
-    return ch && "send" in ch ? (ch as unknown as SendableChannel) : null;
+    if (ch && "send" in ch) {
+      ctx.officeTarget = ch as unknown as SendableChannel;
+      return ctx.officeTarget;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -591,11 +605,17 @@ async function ownerDmTarget(ctx: BotPushContext): Promise<SendableChannel | nul
   }
 }
 
-/** Best-effort target for proactive pushes: the owner's last-seen channel,
- *  falling back to the owner's DM so a push never fails just because the owner
- *  hasn't messaged since restart. */
-async function resolvePushTarget(ctx: BotPushContext): Promise<SendableChannel | null> {
-  return ctx.lastSeen ?? (await ownerDmTarget(ctx));
+/** Best-effort target for proactive pushes, in order: the configured
+ *  DISCORD_CHANNEL_ID_* channel (#general), the owner's last-seen channel, then
+ *  the owner's DM.
+ *
+ *  The configured channel comes FIRST on purpose (owner decision 2026-10-17):
+ *  `lastSeen` is recorded from any owner message with no channel-type filter, so
+ *  a DM used to win over #general and every reminder landed in the DM. The
+ *  last-seen/DM steps stay as fallbacks so a push still works without
+ *  DISCORD_CHANNEL_ID_* configured. */
+export async function resolvePushTarget(ctx: BotPushContext): Promise<SendableChannel | null> {
+  return (await officeChannelTarget(ctx)) ?? ctx.lastSeen ?? (await ownerDmTarget(ctx));
 }
 
 function isAllowedUser(msg: Message, allowedUsers: string[]): boolean {
@@ -676,7 +696,7 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
     return s;
   };
 
-  const ctx: BotPushContext = { lastSeen: null, dedicatedChannels: cfg.dedicatedChannels, officeChannels: cfg.officeChannels, client, allowedUsers: cfg.allowedUsers };
+  const ctx: BotPushContext = { lastSeen: null, dedicatedChannels: cfg.dedicatedChannels, officeChannels: cfg.officeChannels, officeTarget: null, client, allowedUsers: cfg.allowedUsers };
 
   client.on(Events.ClientReady, async () => {
     console.log("[discord] logged in as", client.user?.tag);
@@ -687,6 +707,13 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
     // forensics; the short version is that discord.js login() sets the REST
     // token and then destroy() (its own error path) clears it again.
     discordRestTokenHeal(client, token, cfg.label, (m) => console.warn(m));
+    // Warm the #general channel cache here, NOT at registration: before the
+    // gateway is ready `channels.fetch` fails, and a cold cache forces the FIRST
+    // due reminder onto the async path (which acks false -> the delivered daily
+    // slot is recorded `missedAt`/`delivered:false` for a tick).
+    void officeChannelTarget(ctx).then((t) => {
+      if (t) console.log("[discord] office channel ready for proactive pushes");
+    });
     if (client.user) {
       trioBotIds.add(client.user.id);
       trioBotLabels.set(client.user.id, cfg.label);
@@ -1319,53 +1346,49 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
     }
   });
 
-  // Proactive reminder push: deliver due reminders to the owner's channel/dm.
-  // Ack: true only when a channel is known (last-seen or owner DM resolvable
-  // from the bot's owner id) AND a send is initiated — a slot is never marked
-  // delivered when nothing could receive it. Two guards: (1) owner-scope —
-  // slots owned by another key are ignored, so one human's reminders never
-  // leak into (or get consumed for) another's channel; (2) confirmed-delivery
-  // — the async DM-resolve path returns false until a send truly succeeds, so
-  // an unresolvable target can no longer burn the slot (deliveredIds caps at
-  // 500; a restart may redeliver a still-due slot once — accepted).
+  // Proactive reminder push: deliver due reminders through `resolvePushTarget` —
+  // the configured DISCORD_CHANNEL_ID_* channel (#general) FIRST, then the owner's
+  // last-seen channel, then the owner's DM. It used to short-circuit on
+  // `ctx.lastSeen` here, so a reminder went to the DM whenever the owner had last
+  // talked there (owner decision 2026-10-17: pushes belong in #general).
+  // Ack: true only when a target is resolvable AND a send is initiated — a slot
+  // is never marked delivered when nothing could receive it. Owner-scope guard:
+  // slots owned by another key are ignored, so one human's reminders never leak
+  // into (or get consumed for) another's channel (deliveredIds caps at 500; a
+  // restart may redeliver a still-due slot once — accepted).
   const deliveredReminderIds = new Set<string>();
-  subscribeReminders((reminder: Reminder, slotOwner: string): boolean => {
-    if (canonicalUserKey(slotOwner) !== cfg.reminderScope) return false;
-    if (deliveredReminderIds.has(reminder.id)) return true;
-    if (ctx.lastSeen) {
-      const target = ctx.lastSeen;
-      const at = new Date(reminder.at);
-      const timeLabel = clockLabel(at);
-      void target.send(`🌸 **${cfg.reminderBrand}** — ${reminderMessage(reminder.text, timeLabel)}`).then(
-        () => {
-          deliveredReminderIds.add(reminder.id);
-          if (deliveredReminderIds.size > 500) {
-            const first = deliveredReminderIds.values().next();
-            if (!first.done) deliveredReminderIds.delete(first.value);
-          }
-        },
-        (e: unknown) => {
-          console.warn("[discord] reminder push failed:", e instanceof Error ? e.message : String(e));
-        },
-      );
-      return true;
-    }
-    if (!ctx.client || !ctx.allowedUsers[0]) return false;
-    void (async () => {
-      const target = await resolvePushTarget(ctx);
-      if (target == null) return;
-      const at = new Date(reminder.at);
-      const timeLabel = clockLabel(at);
-      try {
-        await target.send(`🌸 **${cfg.reminderBrand}** — ${reminderMessage(reminder.text, timeLabel)}`);
+  const pushReminder = (target: SendableChannel, reminder: Reminder): void => {
+    const at = new Date(reminder.at);
+    const timeLabel = clockLabel(at);
+    void target.send(`🌸 **${cfg.reminderBrand}** — ${reminderMessage(reminder.text, timeLabel)}`).then(
+      () => {
         deliveredReminderIds.add(reminder.id);
         if (deliveredReminderIds.size > 500) {
           const first = deliveredReminderIds.values().next();
           if (!first.done) deliveredReminderIds.delete(first.value);
         }
-      } catch (e: unknown) {
+      },
+      (e: unknown) => {
         console.warn("[discord] reminder push failed:", e instanceof Error ? e.message : String(e));
-      }
+      },
+    );
+  };
+  subscribeReminders((reminder: Reminder, slotOwner: string): boolean => {
+    if (canonicalUserKey(slotOwner) !== cfg.reminderScope) return false;
+    if (deliveredReminderIds.has(reminder.id)) return true;
+    if (!ctx.client || !ctx.allowedUsers[0]) return false;
+    // A real sendable channel is already in hand (cached #general, or last-seen):
+    // start the push and ACK now, which is what keeps a delivered daily slot from
+    // being recorded as `missedAt`/`delivered:false` for one tick.
+    const ready = ctx.officeTarget ?? ctx.lastSeen;
+    if (ready) {
+      pushReminder(ready, reminder);
+      return true;
+    }
+    void (async () => {
+      const target = await resolvePushTarget(ctx);
+      if (target == null) return;
+      pushReminder(target, reminder);
     })();
     return false;
   });

@@ -18,6 +18,7 @@
 
 import { detectMoodIntent } from "./moodIntent";
 import { isInternalTurn } from "./memoryNoise";
+import { SWEEP_REFUSAL_HEAD } from "./sweepGate";
 
 export type ReactionPlatform = "discord" | "telegram";
 export type ReactionMode = "routed_agent_only" | "participating_agents" | "all_agents";
@@ -224,7 +225,11 @@ export function turnOutcomeFromMessages(messages: TurnMessageLike[]): TurnOutcom
     if (m.role !== "tool" || typeof m.content !== "string") continue;
     const t = m.content.trim();
     const id = String(m.tool_call_id ?? "");
-    if (/^(?:Not selected|Not executed|Auto-declined|The user declined)/i.test(t)) {
+    // SWEEP_REFUSAL_HEAD ("Error: belum ada pengujian nyata di giliran ini") is a
+    // refusal too. Without it, `turnOutcomeFromMessages` counted a refused
+    // call as executed, so a workflow's evidence listed a tool that never ran
+    // (audit 2026-10-16).
+    if (/^(?:Not selected|Not executed|Auto-declined|The user declined)/i.test(t) || t.startsWith(SWEEP_REFUSAL_HEAD)) {
       if (id) refusedIds.add(id);
       continue;
     }

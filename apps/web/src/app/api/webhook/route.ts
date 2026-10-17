@@ -36,10 +36,12 @@ export async function POST(req: NextRequest) {
   // task the dashboard had assigned TO Agnes.
   const agentLabel = isAgentLabel(agent) ? agent : undefined;
 
-  // Which channel the result must actually reach. `pushToOwner` picks whichever
-  // adapter registered LAST, which on a multi-bot host is arbitrary (observed:
-  // slack-michelle), so a caller that asked for Discord could be delivered to
-  // Slack — or to nothing. Naming the channel makes delivery verifiable.
+  // Which channel the result must actually reach. `pushToOwner` prefers the
+  // most-recently-registered adapter and then falls back through the other
+  // registered ones (2026-10-17 — it used to trust that one label alone, so a
+  // webhook result died with "no slack owner channel seen"), which means a caller
+  // that asked for Discord can still be delivered to Slack. Naming the channel
+  // keeps delivery exact and verifiable.
   const deliverTo =
     typeof deliverToRaw === "string" && deliverToRaw.trim() ? deliverToRaw.trim() : "";
 

@@ -783,6 +783,203 @@ const toolRegistry: ToolPlugin[] = [
       }
     },
   },
+{
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "workflow_add",
+        description:
+          "Register a scheduled/proactive workflow for a registered agent (Mia/Agnes/Michelle). Use when the user wants work to happen automatically later ('setiap pagi riset...', 'tiap jam cek...', 'senin pagi ringkasan...'). Risky tools are NEVER auto-approved: the run pauses and asks the owner instead.",
+        parameters: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "workflow name" },
+            agent_id: { type: "string", enum: ["mia", "agnes", "michelle"] },
+            task_type: { type: "string", description: "research | code | security | assistant | coordinate" },
+            task_configuration: { type: "string", description: "the concrete job, written as an instruction" },
+            schedule: {
+              type: "string",
+              description: 'JSON schedule: {"kind":"daily","hour":8,"minute":0} | {"kind":"weekly","day_of_week":1,"hour":9,"minute":0} | {"kind":"interval","every_minutes":30} | {"kind":"runonce","at":"2026-03-02T09:00:00.000Z"}',
+            },
+            timezone: { type: "string", description: "default Asia/Jakarta" },
+            description: { type: "string" },
+            catch_up_policy: { type: "string", enum: ["SKIP", "RUN_ONCE", "CATCH_UP"] },
+            enabled: { type: "boolean" },
+          },
+          required: ["name", "agent_id", "task_configuration", "schedule"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { buildWorkflow, saveWorkflow, workflowSummary } = await import("./workflow/store");
+        const sched = typeof args.schedule === "string" ? JSON.parse(args.schedule) : args.schedule;
+        const wf = buildWorkflow(ctx.rawUser, {
+          name: String(args.name ?? ""),
+          description: String(args.description ?? ""),
+          trigger_type: "recurring",
+          schedule: sched as never,
+          timezone: args.timezone ? String(args.timezone) : undefined,
+          agent_id: args.agent_id as never,
+          task_type: String(args.task_type ?? "assistant"),
+          task_configuration: String(args.task_configuration ?? ""),
+          catch_up_policy: (args.catch_up_policy as never) ?? "SKIP",
+          enabled: args.enabled !== false,
+        });
+        saveWorkflow(ctx.rawUser, wf);
+        return `Workflow terdaftar: ${workflowSummary(wf)} (id ${wf.workflow_id}).`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "gagal membuat workflow"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "workflow_list",
+        description: "List proactive workflows with their real state (schedule, next run, last status, consecutive failures).",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: async (_args, ctx) => {
+      try {
+        const { readWorkflows, workflowSummary } = await import("./workflow/store");
+        const { describeSchedule } = await import("./workflow/schedule");
+        const rows = readWorkflows(ctx.rawUser);
+        if (!rows.length) return "Belum ada workflow terjadwal.";
+        return rows
+          .map((w) => `${workflowSummary(w)}\n  jadwal: ${describeSchedule(w.schedule)} ${w.timezone} · berikutnya: ${w.next_run_at ? new Date(w.next_run_at).toISOString() : "-"}`)
+          .join("\n");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "gagal membaca workflow"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "workflow_history",
+        description: "Show recent workflow executions with their REAL status, executed tools and evidence reference.",
+        parameters: {
+          type: "object",
+          properties: { workflow_id: { type: "string" }, limit: { type: "number" } },
+          required: [],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { readExecutions } = await import("./workflow/store");
+        // Filter BEFORE the limit: slicing first made an older workflow look
+        // like it had no history once the cap evicted its rows (audit 2026-10-16).
+        const all = readExecutions(ctx.rawUser, 200);
+        const filtered = (args.workflow_id ? all.filter((e) => e.workflow_id === args.workflow_id) : all).slice(
+          0,
+          Math.max(1, Number(args.limit ?? 10) || 10)
+        );
+        if (!filtered.length) return "Belum ada riwayat eksekusi workflow.";
+        // execution_id is REQUIRED to approve a paused run: without it the
+        // approval tool is unreachable from chat (audit 2026-10-16, CRITICAL-4).
+        return filtered
+          .map((e) => `${e.scheduled_for} · ${e.status} · tools=${e.executed_tools.join(",") || "-"}${e.error_summary ? ` · ${e.error_summary}` : ""}\n  execution_id: ${e.execution_id}`)
+          .join("\n");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "gagal membaca riwayat"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "workflow_run_now",
+        description: "Run a workflow immediately through the SAME pipeline as a scheduled run (authorization and approval still enforced).",
+        parameters: { type: "object", properties: { workflow_id: { type: "string" } }, required: ["workflow_id"] },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { readWorkflow } = await import("./workflow/store");
+        const { dispatchWorkflowRun, runningSlots } = await import("./workflow/worker");
+        const { slotKey } = await import("./workflow/schedule");
+        const wf = readWorkflow(ctx.rawUser, String(args.workflow_id ?? ""));
+        if (!wf) return "Error: workflow tidak ditemukan";
+        // Shared dispatch path: a manual run must obey the SAME in-flight guard
+        // as the worker, or 5 parallel run_now = 5 concurrent turns (audit 2026-10-16).
+        const sk = slotKey(wf.workflow_id, Date.now());
+        const busy = runningSlots().some((s) => s.startsWith(`wf-${wf.workflow_id}-`));
+        if (wf.concurrency_policy !== "ALLOW_PARALLEL" && busy)
+          return `Error: ${wf.name} sedang berjalan — tunggu sampai selesai (kebijakan ${wf.concurrency_policy}).`;
+        const exec = await dispatchWorkflowRun(String(ctx.rawUser), wf, sk, Date.now());
+        return `Eksekusi manual ${exec.status}${exec.error_summary ? ` — ${exec.error_summary}` : ""}. Bukti: ${exec.evidence_reference}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "gagal menjalankan workflow"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "workflow_pause",
+        description: "Pause / resume / delete a scheduled workflow (execution history is preserved on delete).",
+        parameters: {
+          type: "object",
+          properties: { workflow_id: { type: "string" }, action: { type: "string", enum: ["pause", "resume", "delete"] } },
+          required: ["workflow_id", "action"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { deleteWorkflow, updateWorkflowProgress, workflowSummary } = await import("./workflow/store");
+        const id = String(args.workflow_id ?? "");
+        const action = String(args.action ?? "");
+        if (action === "delete")
+          return deleteWorkflow(ctx.rawUser, id) ? `Workflow ${id} dihapus (riwayat disimpan).` : "Error: workflow tidak ditemukan";
+        const wf = updateWorkflowProgress(ctx.rawUser, id, { paused: action === "pause" });
+        if (!wf) return "Error: workflow tidak ditemukan";
+        return `${action === "pause" ? "Dijeda" : "Dilanjutkan"}: ${workflowSummary(wf)}`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "gagal mengubah workflow"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "workflow_approve",
+        description:
+          "Owner decision for a workflow run that paused at an approval boundary. One approval = the exact pending operation(s), once; it never authorizes a different action.",
+        parameters: {
+          type: "object",
+          properties: { execution_id: { type: "string" }, allow: { type: "boolean" } },
+          required: ["execution_id", "allow"],
+        },
+      },
+    },
+    execute: async (args, ctx) => {
+      try {
+        const { resolveApproval } = await import("./workflow/engine");
+        // An omitted/zero-ish `allow` used to count as approval; only an explicit
+        // true may approve (audit 2026-10-16, HIGH-6).
+        if (args.allow !== true) return "Error: allow harus true (menyetujui) atau false (menolak) secara eksplisit.";
+        const exec = await resolveApproval(ctx.rawUser, String(args.execution_id ?? ""), true, "owner");
+        return `Eksekusi ${exec.status}${exec.error_summary ? ` — ${exec.error_summary}` : ""}.`;
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "gagal menyelesaikan persetujuan"}`;
+      }
+    },
+  },
   {
     definition: {
       type: "function",

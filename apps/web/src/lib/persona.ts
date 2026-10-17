@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sanitizeUser, appRoot, userDataRoot } from "./users";
+import { OWNER_KEY } from "./identity";
 import {
   canonicalFactKey,
   looksLikeSecret,
@@ -72,7 +73,14 @@ export function ensureUserPersona(rawUser: unknown): string | null {
   for (const file of PERSONA_ORDER) {
     const target = join(dir, file);
     if (!existsSync(target) && existsSync(join(TEMPLATE_DIR, file))) {
-      copyFileSync(join(TEMPLATE_DIR, file), target);
+      // The shared template holds the OWNER's real facts (`- name: Naufal` in
+      // persona/USER.md), so seeding any other key copied the owner's identity
+      // into that user — measured live 2026-10-16: a scheduled run for a
+      // throwaway user still answered "Mas Naufal". The owner's own directory is
+      // already seeded, so this never touches them.
+      if (file === "USER.md" && userKey !== OWNER_KEY)
+        writeFileSync(target, "# User\n\n## Facts\n- name: (belum diisi)\n");
+      else copyFileSync(join(TEMPLATE_DIR, file), target);
     }
   }
   return userKey;

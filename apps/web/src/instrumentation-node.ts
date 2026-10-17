@@ -53,6 +53,13 @@ export async function registerNode(): Promise<void> {
     logError("automation", `failed to start runner: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
+    // Proactive workflow scheduler: durable registry, one execution per slot.
+    const { startWorkflowWorker } = await import("@/lib/workflow/worker");
+    startWorkflowWorker(Number(process.env.WORKFLOW_TICK_MS) || 60_000);
+  } catch (err) {
+    logError("workflow", `failed to start worker: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
     const { startHeartbeat } = await import("@/lib/heartbeat");
     startHeartbeat();
   } catch (err) {

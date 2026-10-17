@@ -1154,6 +1154,7 @@ async function buildState() {
     },
     schedules: schedulesState,
     reminders: remindersState,
+    workflows: buildWorkflows(),
     dispatch_paused: paused,
     log: buildLog(audit),
     version: { app: 'office-dashboard', started_iso: STARTED_ISO, node: process.version, port: PORT, auth: AUTH_ENABLED ? 'token' : 'open' },
@@ -1230,6 +1231,60 @@ const REMINDERS_CAP = 60;
 function readRemindersStore(dir, name) {
   const rows = readJson(path.join(dir, name), []);
   return Array.isArray(rows) ? rows : [];
+}
+
+/* ─────────────────────────── proactive workflows (Mia's registry) ─────────────────────────── */
+/* Workflow definitions + execution history live in apps/web/.data/users/<user>/
+   workflows.json / workflow-executions.json (written by lib/workflow/store.ts).
+   Read-only view: the dashboard never invents state, it mirrors the store. */
+const WORKFLOWS_FILE = 'workflows.json';
+const WORKFLOW_EXECUTIONS_FILE = 'workflow-executions.json';
+
+function readUserJson(file, user) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(USERS_DIR, user, file), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function buildWorkflows() {
+  const agents = AGENTS.map((a) => a.user).filter(Boolean);
+  const rows = [];
+  const execs = [];
+  let storeFound = false;
+  for (const user of agents) {
+    const defs = readUserJson(WORKFLOWS_FILE, user);
+    if (!Array.isArray(defs)) continue;
+    storeFound = true;
+    for (const w of defs) {
+      rows.push({
+        workflow_id: w.workflow_id,
+        name: w.name,
+        agent: w.agent_id,
+        enabled: !!w.enabled,
+        paused: !!w.paused,
+        timezone: w.timezone,
+        schedule: JSON.stringify(w.schedule),
+        next_run_at: w.next_run_at,
+        last_run_at: w.last_run_at,
+        last_run_status: w.last_run_status,
+        consecutive_failures: w.consecutive_failures || 0,
+        user,
+      });
+    }
+    const history = readUserJson(WORKFLOW_EXECUTIONS_FILE, user);
+    if (Array.isArray(history)) {
+      for (const e of history.slice(-20)) execs.push({ workflow_id: e.workflow_id, status: e.status, scheduled_for: e.scheduled_for, finished_at: e.finished_at, tools: e.executed_tools || [], error: e.error_summary || '', user });
+    }
+  }
+  return {
+    available: storeFound,
+    note: storeFound ? null : 'Belum ada workflow terdaftar di .data/users.',
+    count: rows.length,
+    workflows: rows,
+    executions: execs.reverse(),
+  };
 }
 
 function buildReminders() {

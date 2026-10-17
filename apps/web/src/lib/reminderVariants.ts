@@ -77,13 +77,44 @@ export function parseVariantLines(content: string): string[] {
  * that was just created with `reminderText`. Never throws; never awaited by
  * callers. Returns the number of variants stored (0 on any failure).
  */
+/** Daypart words the writer may use, longest phrase first ("malam" is inside "larut malam"). */
+const DAYPART_WORDS = ["larut malam", "larut", "malam", "sore", "siang", "pagi"] as const;
+/** "larut" and "malam" both read as night; either one is fine at either hour. */
+const NIGHT_ALIASES = ["malam", "larut malam", "larut"];
+/** Sleep-topic wording is only honest at night — the exact bug seen live. */
+const SLEEP_TOPIC_RE = /\b(tidur|tidurkan|bobo|reban|rebahan|istirahat|ngantuk|mengantuk|off dulu|sleep)\b/i;
+
+/**
+ * A variant whose daypart word (or sleep topic) contradicts the fire time is
+ * discarded: the model ignores the clock line often enough (live 2026-10-16: a
+ * 10:00 wake-up produced "waktunya siap-siap tidur dan istirahat") that a prompt
+ * instruction alone is not a guarantee. Silence (no signal at all) is kept.
+ */
+export function daypartMismatch(variant: string, hour: number): boolean {
+  const low = variant.toLowerCase();
+  const wanted = periodForHour(hour);
+  const night = wanted === "malam" || wanted === "larut malam";
+  for (const w of DAYPART_WORDS) {
+    if (!low.includes(w)) continue;
+    if (w === wanted) return false;
+    if (NIGHT_ALIASES.includes(w) && night) return false;
+    if (NIGHT_ALIASES.includes(wanted) && NIGHT_ALIASES.includes(w)) return false;
+    return true;
+  }
+  return !night && SLEEP_TOPIC_RE.test(variant);
+}
+
 export async function enrichReminderVariants(
   rawUser: unknown,
   reminderText: string,
-  provider: ReminderProvider
+  provider: ReminderProvider,
+  opts: { at?: number } = {}
 ): Promise<number> {
   try {
     if (!reminderText.trim() || !provider.url || !provider.apiKey || !provider.defaultModel) return 0;
+    // The clock the reminder will RING at, not the clock right now — otherwise a
+    // morning reminder created at night gets night wording (live 2026-10-16).
+    const at = opts.at ?? Date.now();
     const res = await fetch(provider.url, {
       method: "POST",
       headers: providerHeaders(provider, "mia-reminder-variants"),
@@ -93,7 +124,7 @@ export async function enrichReminderVariants(
           { role: "system", content: VARIANT_PROMPT },
           {
             role: "user",
-            content: `Reminder untuk di variasikan: "${reminderText.trim()}"\n${variantClockContext()}`,
+            content: `Reminder untuk di variasikan: "${reminderText.trim()}"\n${variantClockContext(at)}`,
           },
         ],
         stream: false,
@@ -107,7 +138,9 @@ export async function enrichReminderVariants(
     } | null;
     const content = json?.choices?.[0]?.message?.content;
     if (!content) return 0;
-    const variants = parseVariantLines(content);
+    const fireHour = wibParts(at).h;
+    const rawLines = parseVariantLines(content);
+    const variants = rawLines.filter((v) => !daypartMismatch(v, fireHour));
     if (variants.length < 2) return 0;
     const ok = attachVariants(rawUser, reminderText, variants);
     if (ok) console.log("[reminderVariants] attached", variants.length, "variant(s) for:", reminderText.slice(0, 60));

@@ -47,13 +47,27 @@ export function listChannels(): string[] {
 }
 
 /**
- * Deliver a proactive message to the owner's currently-registered channel
- * (most recently registered label). Returns false when no channel is available.
+ * Deliver a proactive message to the owner's channel: the most recently
+ * registered label first, then any other registered label until one accepts it.
+ * Returns false when NO channel could take it.
+ *
+ * The fallback chain matters because "most recently registered" is boot order,
+ * not owner activity — live 2026-10-17: `slack-michelle` registered last, so every
+ * automation result died with "no slack owner channel seen" and
+ * "[automation] no active channel to deliver …", even though Telegram/Discord/Slack
+ * were all connected. Each label is tried at most once, and the first success wins
+ * so a message is still delivered exactly once.
  */
 export async function pushToOwner(content: string): Promise<boolean> {
   const s = state();
-  if (!s.lastRegistered || !s.senders[s.lastRegistered]) return false;
-  return deliver(s.lastRegistered, content);
+  const labels = s.lastRegistered
+    ? [s.lastRegistered, ...Object.keys(s.senders).filter((l) => l !== s.lastRegistered)]
+    : Object.keys(s.senders);
+  for (const label of labels) {
+    if (!s.senders[label]) continue;
+    if (await deliver(label, content)) return true;
+  }
+  return false;
 }
 
 /**
