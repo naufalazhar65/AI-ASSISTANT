@@ -5,316 +5,445 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AI Office — Mia / Agnes / Michelle</title>
 <style>
+  /* ══════════════════════════════════════════════════════════════════════════
+     AI Office — design system (2026-10-17 redesign)
+     Tokens → primitives → shell → views → office → panel → responsive → a11y.
+     Every class the JS templates emit is kept; new markup adds new classes.
+     ══════════════════════════════════════════════════════════════════════════ */
+
+  /* ── tokens ─────────────────────────────────────────────── */
   :root{
-    --bg:#0f1115; --panel:#171a21; --panel-2:#1d212a; --line:#272c37;
-    --text:#e8eaf0; --muted:#9aa2b1; --faint:#6b7382;
-    --blue:#8b9dc3; --sage:#7fae9b; --lav:#a08fc0;
-    --ok:#7fae9b; --warn:#d9a75f; --bad:#d97f7f;
-    --r:14px;
+    /* type scale */
+    --t-2:10.5px; --t-1:11.5px; --t0:13px; --t1:14px; --t2:16px; --t3:20px; --t4:30px;
+    /* spacing scale (4px base) */
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s8:32px; --s10:40px;
+    /* shape */
+    --r-xs:6px; --r-sm:9px; --r-md:12px; --r-lg:16px; --r:14px; --r-full:999px;
+    /* chrome */
+    --bg:#0b0d11; --bg2:#08090c;
+    --panel:#12151b; --panel-2:#171b23; --panel-3:#1d222c;
+    --line:#232936; --line-2:#2f3745;
+    --text:#e9ecf3; --muted:#9aa3b2; --faint:#6c7484; --dim:#8b93a3;
+    /* semantic */
+    --ok:#63c9a6; --ok-2:#1e3a33; --warn:#dda45f; --warn-2:#3d3120; --bad:#e0736f; --bad-2:#3d2523;
+    --info:#8b9dc3; --info-2:#232c3d; --lav:#a98fc4; --sage:#7fae9b; --blue:#8b9dc3;
+    --accent:#8b9dc3; --accent-2:#232c3d;
+    /* depth + motion */
+    --shadow:0 20px 48px rgba(0,0,0,.45);
+    --shadow-1:0 1px 2px rgba(0,0,0,.3);
+    --shadow-2:0 8px 24px rgba(0,0,0,.38);
+    --ring:0 0 0 2px rgba(139,157,195,.55);
+    --dur:.14s; --sbw:56px; --hudbg:rgba(18,21,27,.86); --hudw:384px;
   }
+  html[data-theme="light"]{
+    --bg:#eef1f6; --bg2:#e6eaf1;
+    --panel:#ffffff; --panel-2:#f4f6fa; --panel-3:#eaeef4;
+    --line:#dde2eb; --line-2:#c9d1de;
+    --text:#171b23; --muted:#4f5a6b; --faint:#727d8f; --dim:#4f5a6b;
+    --ok:#1f7d5f; --ok-2:#dcf0e8; --warn:#96650f; --warn-2:#f7ecd8; --bad:#b23c38; --bad-2:#f8e2e1;
+    --info:#2f5f9c; --info-2:#e2ebf7; --lav:#67459b; --sage:#2f8a6e; --blue:#2f5f9c;
+    --accent:#2f5f9c; --accent-2:#e2ebf7;
+    --shadow:0 20px 48px rgba(20,30,50,.14);
+    --shadow-1:0 1px 2px rgba(20,30,50,.08);
+    --shadow-2:0 8px 24px rgba(20,30,50,.12);
+    --ring:0 0 0 2px rgba(47,95,156,.45);
+    --hudbg:rgba(255,255,255,.9);
+  }
+
+  /* ── base ───────────────────────────────────────────────── */
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
     -webkit-font-smoothing:antialiased;overflow:hidden;height:100%}
+  body{font-size:var(--t0);line-height:1.45}
   #app{display:flex;height:100dvh;width:100vw;overflow:hidden}
+  :where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{
+    outline:none;box-shadow:var(--ring);border-radius:var(--r-sm)}
+  .sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+    clip:rect(0 0 0 0);white-space:nowrap;border:0}
 
-  /* ── sidebar ─────────────────────────── */
-  aside{width:232px;flex:0 0 232px;background:var(--panel);border-right:1px solid var(--line);
-    display:flex;flex-direction:column;padding:16px 12px;gap:4px;overflow-y:auto}
-  .brand{padding:6px 10px 14px;display:flex;align-items:center;gap:10px}
-  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--sage);flex:0 0 9px}
-  .brand b{font-size:14px;letter-spacing:.02em}
-  .brand small{display:block;color:var(--faint);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
-  nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;
-    background:transparent;border:0;color:var(--muted);padding:9px 10px;border-radius:10px;
-    font-size:13px;cursor:pointer;transition:background .12s,color .12s}
-  nav button:hover{background:var(--panel-2);color:var(--text)}
-  nav button.on{background:var(--panel-2);color:var(--text);box-shadow:inset 2px 0 0 var(--blue)}
-  nav button .ic{width:16px;text-align:center;opacity:.85}
-  .spacer{flex:1}
-  .side-foot{padding:10px;font-size:11px;color:var(--faint);border-top:1px solid var(--line);line-height:1.5}
-
-  /* ── main ───────────────────────────── */
-  main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
-  header{height:56px;flex:0 0 56px;border-bottom:1px solid var(--line);
-    display:flex;align-items:center;gap:12px;padding:0 18px;background:var(--panel)}
-  header h1{font-size:14px;font-weight:600;margin:0;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
-  header .sp{flex:1}
-  .pill{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;
-    color:var(--muted);background:var(--panel-2);white-space:nowrap}
-  .pill.ok{color:var(--ok);border-color:#2c4038}
-  .pill.bad{color:var(--bad);border-color:#4a2f2f}
-  .pill.warn{color:var(--warn);border-color:#4a3d2a}
-  .btn{background:var(--panel-2);border:1px solid var(--line);color:var(--text);
-    border-radius:9px;padding:6px 12px;font-size:12px;cursor:pointer}
-  .btn:hover{border-color:var(--blue)}
-  .btn.warn{border-color:#4a3d2a;color:var(--warn)}
-  .btn.ok{border-color:#2c4038;color:var(--ok)}
-  section.view{flex:1;min-height:0;overflow:auto;padding:18px}
-  section.view.hide{display:none}
-
-  /* ── cards ───────────────────────────── */
-  .grid{display:grid;gap:14px}
-  .g3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
-  .g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
-    padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.28)}
-  .card h3{margin:0 0 4px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600}
-  .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;
-    border-bottom:1px solid var(--line);font-size:13px}
-  .kv:last-child{border-bottom:0}
-  .kv span:first-child{color:var(--muted)}
-  .kv span:last-child{color:var(--text);text-align:right;word-break:break-word}
-  .big{font-size:26px;font-weight:600;letter-spacing:-.01em}
-  .note{font-size:12px;color:var(--faint);line-height:1.55;margin-top:8px}
-  .bar{height:6px;border-radius:3px;background:var(--panel-2);overflow:hidden;margin-top:8px}
-  .bar i{display:block;height:100%;border-radius:3px;background:var(--blue)}
-  .bar i.danger{background:var(--bad)}
-  .badge{display:inline-block;font-size:11px;padding:2px 9px;border-radius:999px;
-    border:1px solid var(--line);color:var(--muted);background:var(--panel-2)}
-  .badge.working{color:var(--ok);border-color:#2c4038}
-  .badge.idle{color:var(--faint)}
-  .badge.paused{color:var(--warn);border-color:#4a3d2a}
-  .unavail{color:var(--faint);font-style:italic}
-
-  table{width:100%;border-collapse:collapse;font-size:12.5px}
-  th{text-align:left;color:var(--faint);font-weight:600;text-transform:uppercase;
-    letter-spacing:.07em;font-size:11px;padding:6px 8px;border-bottom:1px solid var(--line)}
-  td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-  tr:last-child td{border-bottom:0}
-
-  /* ── office ─────────────────────────── */
-  /* The 3D room must FILL the view. `#office` is a flex child, so its parent
-     view has to be a flex column — otherwise flex:1 resolves against a block
-     box and the canvas collapses to height 0.
-     `:not(.hide)` matters: an id selector outranks `section.view.hide`, so a
-     plain `#view-office{display:flex}` would leave the office visible on top
-     of whichever view was just opened. */
-  #view-office:not(.hide){display:flex;flex-direction:column;padding:0;overflow:hidden}
-  #office{position:relative;flex:1;min-height:0}
-  #officeWrap{position:absolute;inset:0}
-  canvas{display:block;width:100%;height:100%;touch-action:none}
-  .ovl{position:absolute;inset:0;pointer-events:none;padding:14px;
-    display:flex;flex-direction:column;justify-content:space-between}
-  .ovlTop{display:flex;gap:8px;flex-wrap:wrap;pointer-events:auto;align-items:center}
-  .ovlBottom{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  /* Room selector: small ghost buttons, same language as the rest of the UI. */
-  .rooms{display:inline-flex;gap:4px;padding:3px;border:1px solid var(--line);
-    border-radius:999px;background:rgba(17,20,26,.72)}
-  .rooms button{font:inherit;font-size:12px;color:var(--faint);background:none;
-    border:0;border-radius:999px;padding:4px 11px;cursor:pointer;white-space:nowrap}
-  .rooms button:hover{color:var(--text)}
-  .rooms button.on{background:rgba(139,157,195,.20);color:var(--text)}
-  .rooms button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-  @media (max-width:560px){.rooms button{padding:4px 8px;font-size:11px}}
-  /* Agent label card: two stacked rows — name + room on top, a status pill
-     below. The pill carries the colour so status is readable without reading
-     the text, which is the part that matters when three cards overlap. */
-  .tagLbl{position:absolute;transform:translate(-50%,-100%);pointer-events:auto;cursor:pointer;
-    background:rgba(23,26,33,.92);border:1px solid var(--line);border-radius:10px;
-    padding:5px 8px 5px 9px;font-size:11px;white-space:nowrap;line-height:1.35;
-    box-shadow:0 6px 16px rgba(0,0,0,.45);transition:border-color .15s}
-  .tagLbl:hover{border-color:var(--accent)}
-  .tagLbl b{font-weight:600}
-  .tagLbl .tRow{display:flex;align-items:center;gap:5px}
-  .tagLbl .tRoom{color:var(--faint);font-size:10px}
-  .tagLbl .tProv{color:var(--faint);font-size:10px;opacity:.8;max-width:230px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal}
-  .tagLbl .tDot{width:5px;height:5px;border-radius:50%;flex:0 0 auto;background:var(--faint)}
-  .tagLbl .tDot.working{background:var(--ok);box-shadow:0 0 6px var(--ok)}
-  .tagLbl .tDot.idle{background:var(--faint)}
-  .tagLbl .tDot.error{background:var(--bad)}
-  .tagLbl .tDot.degraded{background:#e0a33c}
-  .tagLbl small{display:block;color:var(--faint);font-size:10px;
-    max-width:150px;overflow:hidden;text-overflow:ellipsis}
-  /* the little stem that ties the card to the character's head */
-  .tagLbl:after{content:'';position:absolute;left:50%;top:100%;width:1px;height:7px;
-    background:linear-gradient(to bottom,var(--line),transparent);transform:translateX(-50%)}
-  canvas.panning{cursor:grabbing}
-  .fb{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
-    text-align:center;padding:28px;background:var(--panel)}
-  .fb.on{display:flex}
-  .modalBg{position:fixed;inset:0;background:rgba(8,9,12,.72);display:none;
-    align-items:center;justify-content:center;padding:20px;z-index:50}
-  .modalBg.on{display:flex}
-  .modal{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
-    padding:18px;max-width:520px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.5)}
-  textarea{width:100%;min-height:110px;background:var(--panel-2);color:var(--text);
-    border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;font-size:13px;resize:vertical}
-  textarea:focus,input:focus{outline:1px solid var(--blue);outline-offset:0}
-  .err{color:var(--bad);font-size:12px;margin-top:8px;min-height:16px}
-  details{margin-top:10px}
-  summary{cursor:pointer;color:var(--muted);font-size:12px;letter-spacing:.05em;text-transform:uppercase}
-  .logbox{max-height:420px;overflow:auto;background:var(--panel-2);border-radius:10px;
-    padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.6}
-  .logline{display:grid;grid-template-columns:78px 74px 1fr;gap:8px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.03)}
-  .logline .t{color:var(--faint)}
-  .logline .a{color:var(--blue)}
-  .logline .a.agnes{color:var(--sage)} .logline .a.michelle{color:var(--lav)}
-  .logline .m{color:var(--muted);word-break:break-word}
-  .empty{color:var(--faint);font-size:12.5px;padding:14px;text-align:center;
-    border:1px dashed var(--line);border-radius:10px}
-  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-
-  @media (max-width:820px){
-    #app{flex-direction:column-reverse}
-    aside{width:100%;flex:0 0 auto;flex-direction:row;overflow-x:auto;border-right:0;
-      border-top:1px solid var(--line);padding:8px;gap:6px}
-    .brand,.side-foot{display:none}
-    nav{display:flex;gap:6px}
-    nav button{white-space:nowrap}
-    section.view{padding:12px}
-  }
-
-  /* ══ mission-control chrome (2026-10-13; refreshed for the collapsible rail,
-     the right-docked panel and airier type). The 3D rules above are untouched. ══ */
-  :root{--dim:#8b93a3;--accent:#8b9dc3;--bg2:#0b0d11;--shadow:0 18px 40px rgba(0,0,0,.35);
-    --sbw:0px;--hudbg:rgba(16,19,25,.84)}
-  body.sbopen{--sbw:252px}
-  html[data-theme="light"]{--bg:#f3f5f9;--panel:#ffffff;--panel-2:#eef1f6;--line:#d7dce6;--text:#191d25;--muted:#57616f;--faint:#8a93a3;--dim:#57616f;--accent:#40689f;--blue:#40689f;--sage:#2f8a6e;--lav:#7050a4;--ok:#2f8a6e;--warn:#a9721a;--bad:#bf4444;--bg2:#e9edf4;--shadow:0 18px 40px rgba(20,30,50,.14);--hudbg:rgba(255,255,255,.9)}
-  html[data-theme="light"] body{background:var(--bg)}
-
-  /* collapsible rail — closed by default, opens on demand */
-  aside{flex:0 0 var(--sbw);width:var(--sbw);overflow-y:auto;overflow-x:hidden;
+  /* ── sidebar / rail ─────────────────────────────────────── */
+  aside{flex:0 0 var(--sbw);width:var(--sbw);background:var(--panel);
+    border-right:1px solid var(--line);display:flex;flex-direction:column;
+    padding:var(--s4) var(--s3) var(--s3);gap:var(--s1);overflow-y:auto;overflow-x:hidden;
     transition:flex-basis .2s ease,width .2s ease}
-  body:not(.sbopen) aside{flex-basis:0;width:0;padding-left:0;padding-right:0;
-    border-right-color:transparent;overflow:hidden}
+  body.sbopen{--sbw:248px}
+  body:not(.sbopen) aside{padding-left:0;padding-right:0;overflow:hidden}
+  .brand{padding:var(--s2) var(--s2) var(--s4);display:flex;align-items:center;gap:var(--s2);
+    white-space:nowrap}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--sage);
+    flex:0 0 8px;box-shadow:0 0 0 3px rgba(127,174,155,.15)}
+  .brand .dot.off{background:var(--bad);box-shadow:0 0 0 3px rgba(224,115,111,.15)}
+  .brand b{font-size:var(--t1);letter-spacing:.01em;font-weight:650}
+  .brand small{display:block;color:var(--faint);font-size:var(--t-2);letter-spacing:.08em;
+    text-transform:uppercase;margin-top:1px}
+  nav{display:flex;flex-direction:column;gap:1px}
+  nav button{display:flex;align-items:center;gap:var(--s3);width:100%;text-align:left;
+    background:transparent;border:0;color:var(--muted);padding:7px var(--s2);
+    border-radius:var(--r-sm);font:inherit;font-size:var(--t0);cursor:pointer;
+    transition:background var(--dur),color var(--dur)}
+  nav button:hover{background:var(--panel-2);color:var(--text)}
+  nav button.on{background:var(--panel-3);color:var(--text);box-shadow:inset 2px 0 0 var(--accent)}
+  nav button .ic{width:18px;text-align:center;flex:0 0 18px;font-size:13px;opacity:.9}
+  nav button .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nvgroup{font-size:var(--t-2);letter-spacing:.16em;text-transform:uppercase;
+    color:var(--faint);padding:var(--s4) var(--s2) var(--s1);white-space:nowrap}
+  aside .sub{display:none}
+  /* Collapsed = an icon rail, not an empty gutter: destinations stay one click
+     away and each button's title carries the label it no longer shows. */
+  body:not(.sbopen) aside{padding-left:0;padding-right:0;align-items:center}
+  /* display:none, not visibility:hidden: a hidden label still occupies width, so
+     the button content overflowed a 56 px rail and clipped the icon. */
+  body:not(.sbopen) aside .lbl{display:none}
+  body:not(.sbopen) aside .nvgroup,
+  body:not(.sbopen) aside .brand span{visibility:hidden}
+  body:not(.sbopen) nav button{justify-content:center;padding-left:0;padding-right:0}
+  body:not(.sbopen) nav button .ic{width:auto;flex:0 0 auto}
+  body:not(.sbopen) .brand .dot{margin:0 auto}
+  body:not(.sbopen) .side-foot{display:none}
+  .spacer{flex:1}
+  .side-foot{padding:var(--s3) var(--s2) 0;font-size:var(--t-2);color:var(--faint);
+    border-top:1px solid var(--line);line-height:1.6}
 
-  /* nav */
-  .nvgroup{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);padding:14px 10px 6px}
-  nav button{padding:8px 10px;border-radius:9px}
-  nav button .sub{display:block;font-size:10px;color:var(--faint);letter-spacing:.03em;text-transform:none;margin-top:1px}
-
-  /* header — one slim row: breadcrumb left, sync + actions right */
-  header{padding:0 16px;gap:10px}
-  header h1{font-size:11px;letter-spacing:.17em;font-weight:600;color:var(--text)}
-  .crumbA{font-size:11px;letter-spacing:.17em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
-  header .grp{display:flex;align-items:center;gap:6px}
-  header .vb{font:inherit;font-size:11px;padding:5px 9px;border-radius:8px}
-  #burger{display:inline-flex}
-  #dispatchBtn{font-size:11px;padding:5px 11px;white-space:nowrap}
-  #busPill{font-size:11px;letter-spacing:.11em;text-transform:uppercase;padding:3px 9px}
-  .sync{display:inline-flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.14em;
-    text-transform:uppercase;color:var(--faint)}
-  #lastPill{font-variant-numeric:tabular-nums}
+  /* ── main / top bar ─────────────────────────────────────── */
+  main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+  header{flex:0 0 auto;min-height:52px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:var(--s2);padding:0 var(--s4);
+    background:linear-gradient(180deg,var(--panel),var(--panel-2))}
+  header h1{font-size:var(--t0);font-weight:600;margin:0;letter-spacing:.01em;color:var(--text)}
+  header .sp{flex:1}
+  .crumbA{font-size:var(--t-2);letter-spacing:.14em;text-transform:uppercase;
+    color:var(--faint);white-space:nowrap}
+  header .grp{display:flex;align-items:center;gap:var(--s1)}
+  .sync{display:inline-flex;align-items:center;gap:var(--s2);font-size:var(--t-2);
+    letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
   #apiPill{display:inline-block;width:7px;height:7px;border-radius:50%;flex:0 0 7px;
     background:var(--faint);overflow:hidden;text-indent:-9999px}
   #apiPill.ok{background:var(--ok)}
   #apiPill.bad{background:var(--bad)}
+  #lastPill{font-variant-numeric:tabular-nums;letter-spacing:.04em}
 
-  /* generic view furniture — generous spacing, centred measure */
-  section.view:not(.hide){padding:28px 30px 44px}
-  section.view:not(.hide)>*{max-width:1120px;margin-left:auto;margin-right:auto}
-  /* The 3D stage and the panel must keep stretching across the whole section —
-     auto side-margins would centre them at their content width instead. */
+  /* ── primitives ─────────────────────────────────────────── */
+  .pill{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line-2);
+    border-radius:var(--r-full);padding:3px 10px;font-size:var(--t-1);color:var(--muted);
+    background:var(--panel-2);white-space:nowrap}
+  .pill.ok{color:var(--ok);border-color:var(--ok-2);background:var(--ok-2)}
+  .pill.bad{color:var(--bad);border-color:var(--bad-2);background:var(--bad-2)}
+  .pill.warn{color:var(--warn);border-color:var(--warn-2);background:var(--warn-2)}
+  .btn{font:inherit;display:inline-flex;align-items:center;gap:6px;background:var(--panel-2);
+    border:1px solid var(--line-2);color:var(--text);border-radius:var(--r-sm);
+    padding:6px 12px;font-size:var(--t-1);cursor:pointer;
+    transition:background var(--dur),border-color var(--dur),color var(--dur)}
+  .btn:hover{border-color:var(--accent);background:var(--panel-3)}
+  .btn:active{transform:translateY(1px)}
+  .btn[disabled],.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed;transform:none}
+  .btn.warn{border-color:var(--warn-2);color:var(--warn);background:var(--warn-2)}
+  .btn.warn:hover{border-color:var(--warn)}
+  .btn.ok{border-color:var(--ok-2);color:var(--ok);background:var(--ok-2)}
+  .btn.ok:hover{border-color:var(--ok)}
+  .btn.vb{padding:5px 9px;font-size:var(--t-1)}
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:var(--t-1);
+    padding:2px 9px;border-radius:var(--r-full);border:1px solid var(--line-2);
+    color:var(--muted);background:var(--panel-2);white-space:nowrap}
+  .badge.working{color:var(--ok);border-color:var(--ok-2);background:var(--ok-2)}
+  .badge.idle{color:var(--faint)}
+  .badge.paused{color:var(--warn);border-color:var(--warn-2);background:var(--warn-2)}
+  .badge.done,.badge.error,.badge.failed{color:var(--bad);border-color:var(--bad-2);
+    background:var(--bad-2)}
+  .badge.done{color:var(--ok);border-color:var(--ok-2);background:var(--ok-2)}
+  .badge::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;
+    flex:0 0 5px}
+  .badge.idle::before{background:var(--faint)}
+  .unavail{color:var(--faint);font-style:italic}
+  input,.inp,textarea{font:inherit;font-size:var(--t0);background:var(--panel-2);
+    color:var(--text);border:1px solid var(--line-2);border-radius:var(--r-sm);
+    padding:8px 10px}
+  .inp{border-radius:var(--r-full);font-size:var(--t-1);min-width:190px}
+  .dlrow{display:flex;align-items:center;gap:var(--s2);margin-top:var(--s2);
+    font-size:var(--t-1);color:var(--dim);cursor:pointer}
+  .seg{display:inline-flex;border:1px solid var(--line-2);border-radius:var(--r-full);
+    overflow:hidden;background:var(--panel-2)}
+  .seg button{font:inherit;font-size:var(--t-1);padding:5px 12px;background:transparent;
+    border:0;color:var(--muted);cursor:pointer}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button.on{background:var(--accent-2);color:var(--text)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:var(--s4) var(--s5);box-shadow:var(--shadow-1)}
+  .card h3,.secH{margin:0 0 var(--s2);font-size:var(--t-2);letter-spacing:.13em;
+    text-transform:uppercase;color:var(--faint);font-weight:600}
+  .kv{display:flex;justify-content:space-between;gap:var(--s3);padding:7px 0;
+    border-bottom:1px solid var(--line);font-size:var(--t0)}
+  .kv:last-child{border-bottom:0}
+  .kv span:first-child{color:var(--muted)}
+  .kv span:last-child{color:var(--text);text-align:right;word-break:break-word}
+  .note{font-size:var(--t-1);color:var(--faint);line-height:1.6;margin-top:var(--s2)}
+  .err{color:var(--bad);font-size:var(--t-1);margin-top:var(--s2);min-height:16px}
+  .empty{color:var(--faint);font-size:var(--t-1);padding:var(--s6) 0;text-align:center;
+    border:1px dashed var(--line-2);border-radius:var(--r-md)}
+  details{margin-top:var(--s2)}
+  summary{cursor:pointer;color:var(--muted);font-size:var(--t-2);letter-spacing:.06em;
+    text-transform:uppercase}
+
+  /* ── views ──────────────────────────────────────────────── */
+  section.view{flex:1;min-height:0;overflow:auto;padding:var(--s4)}
+  section.view.hide{display:none}
+  section.view:not(.hide){padding:var(--s6) var(--s6) var(--s10)}
+  section.view:not(.hide)>*{max-width:1180px;margin-left:auto;margin-right:auto}
+  /* The 3D stage and the docked panel must stretch across the whole section. */
   section.view:not(.hide)>#office,
   section.view:not(.hide)>.hud{max-width:none;margin-left:0;margin-right:0}
-  .vbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;height:auto;overflow:visible;
-    margin:0 0 22px;padding-bottom:14px;border-bottom:1px solid var(--line)}
-  .vbar .lab{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)}
-  .seg{display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
-  .seg button{font:inherit;font-size:12px;padding:5px 12px;background:transparent;border:0;color:var(--muted);cursor:pointer}
-  .seg button+button{border-left:1px solid var(--line)}
-  .seg button.on{background:var(--panel-2);color:var(--text)}
-  .inp{font:inherit;font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:999px;color:var(--text);padding:6px 12px;min-width:200px}
-  .stats{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:24px}
-  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
-  .stat .k{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
-  .stat .v{font-size:27px;font-weight:600;margin-top:6px;line-height:1.05}
-  .stat .s{font-size:11.5px;color:var(--muted);margin-top:5px}
-  .bars{display:flex;align-items:flex-end;gap:2px;height:82px;padding-top:6px}
-  .bars i{flex:1 1 0;min-width:2px;min-height:1px;background:var(--accent);opacity:.4;border-radius:2px 2px 0 0}
+  .vbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin:0 0 var(--s5);
+    padding-bottom:var(--s3);border-bottom:1px solid var(--line)}
+  .vbar .lab{font-size:var(--t-2);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  .grid{display:grid;gap:var(--s3)}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+  .stats{display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+    margin-bottom:var(--s5)}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:var(--s3) var(--s4)}
+  .stat .k{font-size:var(--t-2);letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .stat .v{font-size:var(--t3);font-weight:600;margin-top:var(--s1);line-height:1.1;
+    font-variant-numeric:tabular-nums}
+  .stat .s{font-size:var(--t-1);color:var(--muted);margin-top:var(--s1)}
+  .big{font-size:var(--t4);font-weight:650;letter-spacing:-.02em}
+  .bar{height:6px;border-radius:3px;background:var(--panel-3);overflow:hidden;margin-top:var(--s2)}
+  .bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+  .bar i.danger{background:var(--bad)}
+  .bars{display:flex;align-items:flex-end;gap:2px;height:82px;padding-top:var(--s1)}
+  .bars i{flex:1 1 0;min-width:2px;min-height:1px;background:var(--accent);opacity:.4;
+    border-radius:2px 2px 0 0}
   .bars i.hi{opacity:1}
   .bars i.zero{opacity:.1}
-  .split{display:grid;gap:16px;grid-template-columns:1.15fr .85fr;align-items:start}
-  .rank{display:grid;gap:8px}
-  .rank .r{display:grid;grid-template-columns:1fr 74px 46px;gap:10px;align-items:center;font-size:12.5px}
-  .rank .r .t{height:7px;border-radius:4px;background:var(--panel-2);overflow:hidden}
+  .split{display:grid;gap:var(--s4);grid-template-columns:1.15fr .85fr;align-items:start}
+  .rank{display:grid;gap:var(--s2)}
+  .rank .r{display:grid;grid-template-columns:1fr 74px 46px;gap:var(--s2);align-items:center;
+    font-size:var(--t-1)}
+  .rank .r .t{height:7px;border-radius:4px;background:var(--panel-3);overflow:hidden}
   .rank .r .t i{display:block;height:100%;background:var(--accent);border-radius:4px}
   .rank .r .n{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
-  .card{padding:18px 20px}
-  .kv{padding:9px 0;font-size:13.5px}
-  table{font-size:13px}
-  th{padding:9px 10px}
-  td{padding:10px}
-  .empty{padding:28px 0;font-size:13px}
-
-  /* board */
-  .board{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(245px,1fr))}
-  .lane{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:12px;min-height:140px}
-  .lane h4{margin:0 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);display:flex;justify-content:space-between}
-  .tk{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 11px;margin-bottom:9px;font-size:12.5px}
+  table{width:100%;border-collapse:collapse;font-size:var(--t-1)}
+  th{text-align:left;color:var(--faint);font-weight:600;text-transform:uppercase;
+    letter-spacing:.08em;font-size:var(--t-2);padding:8px 10px;
+    border-bottom:1px solid var(--line-2);white-space:nowrap}
+  td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  tbody tr:hover td{background:var(--panel-2)}
+  tr:last-child td{border-bottom:0}
+  .board{display:grid;gap:var(--s3);grid-template-columns:repeat(auto-fit,minmax(245px,1fr))}
+  .lane{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:var(--s3);min-height:140px}
+  .lane h4{margin:0 0 var(--s2);font-size:var(--t-2);letter-spacing:.13em;
+    text-transform:uppercase;color:var(--faint);display:flex;justify-content:space-between;gap:8px}
+  .tk{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);
+    padding:10px 11px;margin-bottom:var(--s2);font-size:var(--t-1)}
   .tk .ttl{font-weight:600;margin-bottom:4px}
-  .tk .meta{color:var(--muted);font-size:11px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-
-  /* explorer */
-  .ex{display:grid;grid-template-columns:minmax(200px,300px) 1fr;gap:16px;align-items:start}
-  .tree{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:8px;max-height:calc(100dvh - 230px);overflow:auto}
-  .tree .r{display:flex;gap:9px;align-items:center;padding:7px 9px;border-radius:8px;font-size:12.5px;color:var(--text);cursor:pointer}
+  .tk .meta{color:var(--muted);font-size:var(--t-2);display:flex;gap:var(--s2);
+    flex-wrap:wrap;align-items:center}
+  .ex{display:grid;grid-template-columns:minmax(200px,300px) 1fr;gap:var(--s4);align-items:start}
+  .tree{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:var(--s2);max-height:calc(100dvh - 230px);overflow:auto}
+  .tree .r{display:flex;gap:var(--s2);align-items:center;padding:7px 9px;
+    border-radius:var(--r-xs);font-size:var(--t-1);color:var(--text);cursor:pointer}
   .tree .r:hover{background:var(--panel)}
   .tree .r.on{background:var(--panel);box-shadow:inset 2px 0 0 var(--accent)}
   .tree .r.denied{opacity:.4;cursor:not-allowed}
-  .tree .r .sz{margin-left:auto;color:var(--faint);font-size:11px}
-  .doc{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:16px 18px;max-height:calc(100dvh - 230px);overflow:auto;white-space:pre-wrap;word-break:break-word;font:13px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}
-  .dochead{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:11px}
-
-  /* sources / health */
-  .src{display:flex;gap:12px;align-items:baseline;padding:11px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .tree .r .sz{margin-left:auto;color:var(--faint);font-size:var(--t-2)}
+  .doc{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:var(--s4);max-height:calc(100dvh - 230px);overflow:auto;white-space:pre-wrap;
+    word-break:break-word;font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--muted)}
+  .dochead{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;margin-bottom:var(--s3)}
+  .src{display:flex;gap:var(--s3);align-items:baseline;padding:10px 0;
+    border-bottom:1px solid var(--line);font-size:var(--t1)}
   .src:last-child{border-bottom:0}
-  .src .dotm{width:8px;height:8px;border-radius:50%;background:var(--bad);flex:0 0 auto;transform:translateY(1px)}
+  .src .dotm{width:8px;height:8px;border-radius:50%;background:var(--bad);flex:0 0 auto;
+    transform:translateY(1px)}
   .src.ok .dotm{background:var(--ok)}
   .src .lb{min-width:190px;font-weight:600}
   .src .nt{color:var(--muted)}
+  .logbox{max-height:440px;overflow:auto;background:var(--bg2);border:1px solid var(--line);
+    border-radius:var(--r-md);padding:var(--s2);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--t-1);line-height:1.6}
+  .logline{display:grid;grid-template-columns:78px 74px 1fr;gap:var(--s2);padding:2px 0;
+    border-bottom:1px solid var(--line)}
+  .logline .t{color:var(--faint);font-variant-numeric:tabular-nums}
+  .logline .a{color:var(--info)}
+  .logline .a.agnes{color:var(--sage)} .logline .a.michelle{color:var(--lav)}
+  .logline .m{color:var(--muted);word-break:break-word}
+  .acts{display:flex;gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s3)}
 
-  /* right-docked panel — floats over the 3D stage, stage keeps flex:1 */
-  #view-office{position:relative}
-  .hud{position:absolute;z-index:20;top:10px;right:12px;bottom:12px;width:392px;
-    max-width:calc(100% - 24px);display:flex;flex-direction:column;background:var(--hudbg);
-    border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;
-    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  /* ── office / 3D stage ──────────────────────────────────── */
+  /* The 3D room must FILL the view: `#office` is a flex child, so its parent view
+     has to be a flex column — otherwise flex:1 resolves against a block box and
+     the canvas collapses. `:not(.hide)` matters: an id selector outranks
+     `section.view.hide`, so a plain `#view-office{display:flex}` would leave the
+     office visible on top of whichever view was just opened. */
+  #view-office:not(.hide){display:flex;flex-direction:row;padding:0;overflow:hidden}
+  #view-office:not(.hide)>#office{flex:1 1 auto;min-width:0}
+  #office{position:relative;flex:1;min-height:0}
+  #officeWrap{position:absolute;inset:0}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+  .ovl{position:absolute;inset:0;pointer-events:none;padding:var(--s3);
+    display:flex;flex-direction:column;justify-content:space-between;gap:var(--s3)}
+  .ovlTop{display:flex;gap:var(--s2);flex-wrap:wrap;pointer-events:auto;align-items:flex-start}
+  .ovlBottom{display:flex;gap:var(--s2);flex-wrap:nowrap;align-items:center;
+    overflow-x:auto;scrollbar-width:none}
+  .ovlBottom::-webkit-scrollbar{display:none}
+  .ovlBottom .sp{flex:1;min-width:0}
+  /* Scene toolbar — every scene control in one coherent group, floats over the
+     stage, sits above the status strip. */
+  .sceneBar{pointer-events:auto;display:inline-flex;gap:var(--s1);align-items:center;
+    padding:var(--s1);border:1px solid var(--line);border-radius:var(--r-full);
+    background:var(--hudbg);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:var(--shadow-2)}
+  .sceneBar .sep{width:1px;align-self:stretch;background:var(--line-2);margin:2px 2px}
+  .sceneBar .btn{background:var(--panel-2);border-color:var(--line);color:var(--muted)}
+  .sceneBar .btn:hover{background:var(--panel-3);border-color:var(--accent);color:var(--text)}
+  .rooms{display:inline-flex;gap:2px}
+  .rooms button{font:inherit;font-size:var(--t-1);color:var(--faint);background:transparent;
+    border:0;border-radius:var(--r-full);padding:5px 11px;cursor:pointer;white-space:nowrap;
+    transition:background var(--dur),color var(--dur)}
+  .rooms button:hover{color:var(--text);background:var(--panel-3)}
+  .rooms button.on{background:var(--accent-2);color:var(--text)}
+  /* Status strip — data only, one line, below the toolbar. */
+  #ovlStatus{pointer-events:auto;display:flex;gap:var(--s1);flex-wrap:wrap;align-items:center;
+    min-width:0}
+  #ovlStatus .pill{font-size:var(--t-1);letter-spacing:.08em;text-transform:uppercase;
+    padding:3px 9px;background:var(--hudbg);border-color:var(--line);
+    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+  #ovlStatus .pill.hot{color:var(--ok);border-color:var(--ok-2)}
+  #ovlStatus .pill.fail{color:var(--bad);border-color:var(--bad-2)}
+  #ovlStatus .pill.due{color:var(--warn);border-color:var(--warn-2)}
+  #officeHint{font-size:var(--t-1);color:var(--faint);background:var(--hudbg);
+    border-color:var(--line);max-width:min(560px,60vw);overflow:hidden;text-overflow:ellipsis}
+  #activityPill{font-size:var(--t-1);color:var(--muted);background:var(--hudbg);
+    border-color:var(--line);max-width:46%;overflow:hidden;text-overflow:ellipsis;
+    display:inline-block;text-overflow:ellipsis}
+  /* Agent nameplate — glass card, two rows: name + status dot, then a short
+     activity line. Status is carried by a dot AND a word, never colour alone. */
+  .tagLbl{position:absolute;transform:translate(-50%,-100%);pointer-events:auto;
+    cursor:pointer;background:var(--hudbg);border:1px solid var(--line);
+    border-radius:var(--r-sm);padding:5px 9px 5px 8px;min-width:104px;max-width:220px;
+    font-size:var(--t-1);white-space:nowrap;line-height:1.35;
+    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    box-shadow:var(--shadow-2);transition:border-color var(--dur),background var(--dur)}
+  .tagLbl:hover{border-color:var(--accent);background:var(--panel-3)}
+  .tagLbl.sel{border-color:var(--accent);background:var(--accent-2)}
+  .tagLbl b{font-weight:650;font-size:var(--t0)}
+  .tagLbl .tRow{display:flex;align-items:center;gap:5px}
+  .tagLbl .tRole{color:var(--faint);font-size:var(--t-2);letter-spacing:.04em;
+    text-transform:uppercase;overflow:hidden;text-overflow:ellipsis}
+  .tagLbl .tRoom{color:var(--faint);font-size:var(--t-2)}
+  .tagLbl small{display:block;color:var(--muted);font-size:var(--t-2);margin-top:1px;
+    max-width:200px;overflow:hidden;text-overflow:ellipsis}
+  .tagLbl .tProv{display:none}
+  .tagLbl .tDot{width:6px;height:6px;border-radius:50%;flex:0 0 6px;background:var(--faint)}
+  .tagLbl .tDot.working{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+  .tagLbl .tDot.idle{background:var(--faint)}
+  .tagLbl .tDot.error{background:var(--bad);box-shadow:0 0 6px var(--bad)}
+  .tagLbl .tDot.degraded{background:var(--warn);box-shadow:0 0 6px var(--warn)}
+  .tagLbl small .w{color:var(--faint);font-style:italic}
+  /* the little stem that ties the card to the character's head */
+  .tagLbl:after{content:'';position:absolute;left:50%;top:100%;width:1px;height:7px;
+    background:linear-gradient(to bottom,var(--line-2),transparent);
+    transform:translateX(-50%)}
+  canvas.panning{cursor:grabbing}
+  .fb{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    text-align:center;padding:var(--s6);background:var(--panel)}
+  .fb.on{display:flex}
+
+  /* ── context panel (docked right of the stage) ──────────── */
+  .hud{position:relative;z-index:20;flex:0 0 var(--hudw);width:var(--hudw);
+    max-width:100%;display:flex;flex-direction:column;background:var(--panel);
+    border-left:1px solid var(--line);overflow:hidden}
   .hud[hidden]{display:none}
-  .hudRow{display:flex;align-items:center;gap:6px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line)}
-  .hudTab{font:inherit;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);background:transparent;border:1px solid var(--line);border-radius:999px;padding:5px 11px;cursor:pointer}
-  .hudTab.on{color:var(--text);border-color:var(--accent);background:var(--panel-2)}
-  .hudPane{display:grid;gap:10px;grid-template-columns:1fr 1fr;align-content:start;padding:12px;overflow:auto;flex:1;min-height:0}
-  .hudCard{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:11px 13px}
-  .hudCard .k{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
-  .hudCard .v{font-size:15px;font-weight:600;margin-top:4px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-  .hudCard .s{font-size:11px;color:var(--muted);margin-top:3px}
-  .hudFoot{padding:9px 12px;border-top:1px solid var(--line);font-size:11.5px;letter-spacing:.04em;color:var(--faint)}
-  #hudClose{font-size:13px;line-height:1;padding:4px 8px;border-radius:8px}
+  .hudRow{display:flex;align-items:center;gap:var(--s1);margin:0;
+    padding:var(--s2) var(--s3);border-bottom:1px solid var(--line);flex:0 0 auto}
+  .hudTab{font:inherit;font-size:var(--t-2);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);background:transparent;border:1px solid transparent;
+    border-radius:var(--r-full);padding:5px 11px;cursor:pointer}
+  .hudTab:hover{color:var(--text);background:var(--panel-2)}
+  .hudTab.on{color:var(--text);border-color:var(--accent);background:var(--accent-2)}
+  .hudPane{display:grid;gap:var(--s2);grid-template-columns:1fr;align-content:start;
+    padding:var(--s3);overflow:auto;flex:1;min-height:0}
+  .hudPane.crew{grid-template-columns:1fr 1fr}
+  .hudCard{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);
+    padding:10px 12px;text-align:left;width:100%;color:inherit;font:inherit;cursor:pointer;
+    transition:border-color var(--dur),background var(--dur)}
+  button.hudCard:hover{border-color:var(--accent);background:var(--panel-3)}
+  .hudCard.sel{border-color:var(--accent);background:var(--accent-2)}
+  .hudDetail .hdName{display:flex;flex-direction:column;gap:2px;padding-bottom:var(--s2);
+    border-bottom:1px solid var(--line)}
+  .hudDetail .hdName b{font-size:var(--t2)}
+  .hudDetail .hdName span{font-size:var(--t-1);color:var(--muted)}
+  .hdList{margin:0;padding-left:18px;font-size:var(--t-1);color:var(--muted);line-height:1.5}
+  .hdActions{display:flex;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s3)}
+  .hudCard .k{font-size:var(--t-2);letter-spacing:.11em;text-transform:uppercase;color:var(--faint)}
+  .hudCard .v{font-size:var(--t1);font-weight:600;margin-top:3px;display:flex;
+    align-items:center;gap:var(--s2);flex-wrap:wrap}
+  .hudCard .s{font-size:var(--t-1);color:var(--muted);margin-top:3px;
+    overflow:hidden;text-overflow:ellipsis}
+  .hudDetail{display:flex;flex-direction:column;gap:var(--s2)}
+  .hudDetail .kv{font-size:var(--t-1);padding:6px 0}
+  .hudFoot{padding:var(--s2) var(--s3);border-top:1px solid var(--line);
+    font-size:var(--t-1);letter-spacing:.02em;color:var(--faint);flex:0 0 auto}
 
-  /* slim status strip + control row over the 3D stage */
-  .ovlTop{flex-wrap:wrap;row-gap:8px;gap:8px}
-  /* keep the stage controls clear of the docked panel (panel floats, 392px + 12px inset) */
-  body.hudopen .ovlTop{padding-right:408px}
-  #ovlStatus{display:flex;gap:7px;flex-wrap:wrap;align-items:center;min-width:0}
-  #ovlStatus .pill{font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:3px 9px;
-    background:rgba(9,11,15,.55);border-color:rgba(255,255,255,.08)}
-  html[data-theme="light"] #ovlStatus .pill{background:rgba(255,255,255,.74);border-color:rgba(0,0,0,.08)}
-  .ovlBottom{gap:8px}
-  #officeHint{font-size:11.5px;opacity:.72;background:rgba(9,11,15,.5);border-color:rgba(255,255,255,.07)}
-  html[data-theme="light"] #officeHint{background:rgba(255,255,255,.72);border-color:rgba(0,0,0,.08)}
+  /* ── modal ──────────────────────────────────────────────── */
+  .modalBg{position:fixed;inset:0;background:rgba(4,5,7,.72);display:none;
+    align-items:center;justify-content:center;padding:var(--s5);z-index:50}
+  .modalBg.on{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:var(--s5);max-width:560px;width:100%;box-shadow:var(--shadow)}
+  .modal h3{margin:0 0 var(--s3);font-size:var(--t-2);letter-spacing:.13em;
+    text-transform:uppercase;color:var(--faint)}
+  textarea{width:100%;min-height:110px;resize:vertical}
+  .modalRow{display:flex;gap:var(--s2);justify-content:flex-end;margin-top:var(--s3)}
 
+  /* ── responsive ─────────────────────────────────────────── */
+  @media (max-width:1100px){:root{--hudw:340px}}
+  @media (max-width:900px){
+    .split,.ex{grid-template-columns:1fr}
+    .tree,.doc{max-height:280px}
+  }
   @media (max-width:820px){
-    aside{position:fixed;z-index:70;inset:0 auto 0 0;box-shadow:var(--shadow)}
+    /* One mobile strategy: the rail is an overlay drawer, the rest is a column. */
+    aside{position:fixed;z-index:70;inset:0 auto 0 0;flex-basis:248px;width:248px;
+      box-shadow:var(--shadow);padding:var(--s4) var(--s3)}
     body.sbopen aside{transform:none}
-    body:not(.sbopen) aside{transform:translateX(-105%);visibility:hidden}
-    header{flex-wrap:wrap;height:auto;min-height:56px;padding:8px 12px;row-gap:8px}
-    header h1{font-size:12px}
+    body:not(.sbopen) aside{transform:translateX(-102%);visibility:hidden;flex-basis:248px}
+    body:not(.sbopen) aside .lbl,
+    body:not(.sbopen) aside .nvgroup,
+    body:not(.sbopen) aside .brand span{visibility:visible}
+    header{flex-wrap:wrap;min-height:52px;padding:var(--s2) var(--s3);row-gap:var(--s2)}
+    .crumbA{display:none}
+    section.view:not(.hide){padding:var(--s4) var(--s3) var(--s8)}
+    .hud{position:fixed;z-index:60;top:auto;left:0;right:0;bottom:0;
+      flex-basis:auto;width:auto;height:min(62dvh,520px);border-left:0;
+      border-top:1px solid var(--line);box-shadow:var(--shadow)}
+    .hudPane.crew{grid-template-columns:1fr 1fr}
+    .ovlTop,#roomBar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+    .ovlTop::-webkit-scrollbar,#roomBar::-webkit-scrollbar{display:none}
+    #ovlStatus{flex-wrap:nowrap;overflow-x:auto}
+    #ovlStatus .pill,.sceneBar,.ovlTop .btn{flex:0 0 auto}
+    .sceneBar{border-radius:var(--r-md)}
     #officeHint{display:none}
     .card{overflow-x:auto}
-    .card table{min-width:540px}
-    .ex,.split{grid-template-columns:1fr}
-    .tree,.doc{max-height:280px}
-    .hudPane{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
-    body.hudopen .ovlTop{padding-right:0}
-    .ovlTop,#roomBar{flex-wrap:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:none}
-    .ovlTop{flex-wrap:nowrap;max-width:100%}
-    #ovlStatus{flex:0 0 auto;overflow-x:visible}
-    #roomBar{flex:0 0 auto;overflow-x:auto}
-    .ovlTop::-webkit-scrollbar,#roomBar::-webkit-scrollbar{display:none}
-    #ovlStatus{flex-wrap:nowrap}
-    #ovlStatus .pill,.ovlTop .btn,#roomBar .rBtn{flex:0 0 auto}
+    .card table{min-width:520px}
+  }
+  @media (max-width:560px){
+    .rooms button{padding:5px 8px;font-size:var(--t-2)}
+    .hudPane.crew{grid-template-columns:1fr}
+    .stats{grid-template-columns:1fr 1fr}
+  }
+
+  /* ── a11y: motion + forced colors ───────────────────────── */
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;
+      transition-duration:.001ms !important;scroll-behavior:auto !important}
+  }
+  @media (forced-colors:active){
+    .pill,.btn,.badge,.card,.hudCard,.lane{border-color:CanvasText}
+    .tDot{forced-color-adjust:none}
   }
 </style>
 </head>
@@ -326,9 +455,8 @@
     <nav id="nav" aria-label="Navigasi utama"></nav>
     <div class="spacer"></div>
     <div class="side-foot">
-      Sumber data nyata: audit log Mia (<code>apps/web/.data/audit/</code>) + ledger JSONL di
-      <code>apps/office-dashboard/data/</code>.<br>
-      Nilai yang tidak bisa dibaca ditampilkan <b>Tidak tersedia</b>, bukan dikarang.
+      Data: audit log Mia + ledger JSONL. Nilai tak terbaca → <b>Tidak tersedia</b>.
+      <span class="sr">Rincian sumber data ada di halaman Pengaturan.</span>
     </div>
   </aside>
 
@@ -339,7 +467,7 @@
       <span class="crumbA" aria-hidden="true">/</span>
       <h1 id="viewTitle">Office</h1>
       <span class="sp"></span>
-      <span class="sync"><i id="apiPill" title="Koneksi API"></i><span>Tersinkron</span><span id="lastPill">—</span></span>
+      <span class="sync" role="status"><i id="apiPill" title="Koneksi API"></i><span class="sr">Koneksi API: </span><span>Tersinkron</span><span id="lastPill">—</span></span>
       <span class="pill" id="busPill" aria-live="polite" title="Live Event Bus dari Mia — sumber kebenaran status agent">BUS …</span>
       <div class="grp">
         <button class="btn vb" id="modeBtn" title="Tema terang / gelap (UI)" aria-label="Ganti tema terang atau gelap">◐</button>
@@ -352,41 +480,44 @@
       <div id="office">
         <div id="officeWrap"><canvas id="c3d"></canvas></div>
         <div class="ovl">
+          <!-- Scene toolbar: every camera/scene control in one coherent group.
+               Controls only move the camera or open a panel — never agent state. -->
           <div class="ovlTop">
+            <span class="sceneBar">
+              <span class="rooms" id="roomBar" role="group" aria-label="Pilih ruangan"></span>
+              <span class="sep" aria-hidden="true"></span>
+              <button class="btn" id="themeBtn" title="Siang / malam untuk 3D saja (bukan tema UI)">3D: Malam</button>
+              <button class="btn" id="avatarBtn" aria-label="Edit avatar">Avatar</button>
+              <button class="btn" id="camReset" aria-label="Reset kamera">Reset</button>
+              <span class="sep" aria-hidden="true"></span>
+              <button class="btn" id="hudToggle" aria-expanded="true" aria-controls="hud" title="Panel status">Panel</button>
+            </span>
+          </div>
+          <div class="ovlBottom">
             <!-- Live crew / queue / next-cron strip. Every value below comes from
                  /api/state; nothing here is estimated. -->
             <span id="ovlStatus"></span>
             <span class="sp"></span>
-            <!-- Room selector. Buttons only set a camera destination; they never
-                 touch agent state, so switching rooms never interrupts work. -->
-            <span class="rooms" id="roomBar" role="group" aria-label="Pilih ruangan"></span>
-            <button class="btn" id="themeBtn" title="Siang / malam untuk 3D saja (bukan tema UI)">3D: Malam</button>
-            <button class="btn" id="avatarBtn">Edit avatar</button>
-            <button class="btn" id="camReset">Reset kamera</button>
-            <button class="btn" id="hudToggle" aria-expanded="true" title="Panel status">Panel</button>
-          </div>
-          <div class="ovlBottom">
-            <span class="pill" id="officeHint">Seret untuk memutar · scroll/trackpad untuk geser · Shift+scroll atau pinch untuk zoom · klik avatar untuk detail</span>
-            <span class="sp"></span>
-            <span class="pill" id="activityPill">—</span>
+            <span class="pill" id="activityPill" aria-live="polite">—</span>
           </div>
         </div>
         <div class="fb" id="fb">
           <div>
-            <h3 style="letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-size:12px">3D tidak tersedia</h3>
+            <h3 class="secH">3D tidak tersedia</h3>
             <p class="note" id="fbMsg" style="max-width:420px"></p>
           </div>
         </div>
       </div>
-      <!-- Status panel: docks to the right of the stage, so the 3D view keeps the
-           full width when it is closed. -->
+      <!-- Context panel: a flex sibling of the stage, so opening/closing it only
+           resizes the canvas (ResizeObserver) — the renderer is never rebuilt. -->
       <div class="hud" id="hud">
         <div class="hudRow">
-          <span class="hudTab on">Crew</span>
+          <button class="hudTab on" id="tabCrew" aria-selected="true" role="tab" aria-controls="hudPane">Crew</button>
+          <button class="hudTab" id="tabAgent" role="tab" aria-selected="false" aria-controls="hudPane" disabled>Detail</button>
           <span style="flex:1"></span>
           <button class="btn vb" id="hudClose" aria-label="Tutup panel" title="Tutup panel">×</button>
         </div>
-        <div class="hudPane" id="hudPane"></div>
+        <div class="hudPane crew" id="hudPane" role="tabpanel" aria-live="polite"></div>
         <div class="hudFoot"><span id="hudHint">—</span></div>
       </div>
     </section>
@@ -404,16 +535,16 @@
 </div>
 
 <div class="modalBg" id="modalBg">
-  <div class="modal">
-    <h3 style="margin:0 0 10px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)" id="mTitle">Prompt</h3>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <h3 id="mTitle">Prompt</h3>
     <div id="mBody"></div>
     <textarea id="mText" placeholder="Tulis prompt untuk agent ini…"></textarea>
-    <label class="dlrow" id="mDeliverRow" style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--dim);cursor:pointer">
+    <label class="dlrow" id="mDeliverRow">
       <input type="checkbox" id="mDeliver">
       <span>Kirim hasil ke Discord</span>
     </label>
-    <div class="err" id="mErr"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+    <div class="err" id="mErr" role="alert"></div>
+    <div class="modalRow">
       <button class="btn" id="mCancel">Tutup</button>
       <button class="btn ok" id="mSend">Antrekan</button>
     </div>
@@ -422,11 +553,11 @@
 
 <div class="modalBg" id="tokBg">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tokTitle">
-    <h3 style="margin:0 0 10px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)" id="tokTitle">Token dashboard</h3>
+    <h3 id="tokTitle">Token dashboard</h3>
     <p class="note" style="margin-top:0">Dashboard terkunci (401). Tempel AUTH_TOKEN dari <code>apps/web/.env.local</code> — disimpan di browser ini saja.</p>
-    <input id="tokInput" type="password" autocomplete="off" placeholder="Tempel token…" style="width:100%;background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;font-size:13px">
-    <div class="err" id="tokErr"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+    <input id="tokInput" type="password" autocomplete="off" placeholder="Tempel token…" style="width:100%">
+    <div class="err" id="tokErr" role="alert"></div>
+    <div class="modalRow">
       <button class="btn" id="tokCancel">Batal</button>
       <button class="btn ok" id="tokSave">Simpan</button>
     </div>
@@ -645,24 +776,71 @@ function openFile(name) {
    the Stats tab and the Activity view, and the session list lived in both the
    Activity tab and the Activity view. Those views are the single home now, so the
    dock keeps only the crew glance you cannot get from any table. */
+function agentDetailHtml(id) {
+  var a = STATE.agents.filter(function (x) { return x.id === id; })[0];
+  if (!a) return '<div class="empty">Agent tidak ada di /api/state.</div>';
+  var b = a.basis || {};
+  var av = office.avatar[id];
+  var r = ROSTER[id] || {};
+  var t = (STATE.tasks || []).filter(function (x) { return x.agent === id; }).slice(0, 4);
+  var rows = [
+    ['Status (backend)', stBadge(a.status)],
+    ['Dasar status', b.note ? esc(b.note) : 'turnstile dari event bus'],
+    ['Ruang', esc(av ? (ROOM_LABEL_UI[av.room] || '\u2014') : '\u2014')],
+    ['Aktivitas visual', esc(av ? (ACTIVITY_LABEL[av.activity] || av.activity) : '\u2014')],
+    ['Task aktif', a.active_task ? esc(a.active_task) : 'tidak ada'],
+    ['Turn / tool', b.turns != null ? esc(count(b.turns) + ' turn \u00b7 ' + count(b.tool_calls) + ' tool') : '\u2014'],
+    ['Update terakhir', esc(hhmmss(a.last_update)) + ' \u00b7 ' + esc(ago(a.last_update))],
+    ['Sinyal turunan', av ? stBadgeByAgent(String(av.state || 'unknown')) : '\u2014']
+  ];
+  return '<div class="hudDetail">' +
+    '<div class="hdName"><b>' + esc(a.name) + '</b><span>' + esc(a.role || r.role || '') + '</span></div>' +
+    rows.map(function (x) { return '<div class="kv"><span>' + x[0] + '</span><span>' + x[1] + '</span></div>'; }).join('') +
+    (r.duties ? '<div class="note" style="margin:10px 0 4px">Tugas tetap</div><ul class="hdList">' +
+      r.duties.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>' : '') +
+    (av && av.provenance ? '<div class="note" style="margin:10px 0 4px">Provenance</div>' +
+      '<div class="note">' + esc(String(av.provenance).slice(0, 220)) + '</div>' : '') +
+    '<div class="note" style="margin:10px 0 4px">Task terakhir</div>' +
+    (t.length ? '<table><tbody>' + t.map(function (x) {
+      return '<tr><td>' + esc(trunc(x.title, 34)) + '</td><td>' + esc(x.status) + '</td></tr>';
+    }).join('') + '</tbody></table>' : '<div class="note">Belum ada task tercatat.</div>') +
+    '<div class="hdActions">' +
+      '<button class="btn" data-quick="' + esc(id) + '">Kirim prompt</button>' +
+      '<button class="btn" data-openagent="' + esc(id) + '">Buka modal</button>' +
+    '</div></div>';
+}
+
 function renderHud() {
   var pane = $('#hudPane'), hint = $('#hudHint');
   if (!pane) return;
   if (!STATE) {
-    pane.innerHTML = '<div class="hudCard"><div class="k">Status</div><div class="v">Memuat…</div></div>';
-    if (hint) hint.textContent = '—';
+    pane.innerHTML = '<div class="hudCard"><div class="k">Status</div><div class="v">Memuat\u2026</div></div>';
+    if (hint) hint.textContent = '\u2014';
+    return;
+  }
+  if (hudTab === 'agent' && office.selAgent) {
+    pane.innerHTML = agentDetailHtml(office.selAgent);
+    if (hint) hint.textContent = 'memilih agent tidak mengantrekan apa pun';
+    return;
+  }
+  if (!STATE.agents.length) {
+    pane.innerHTML = '<div class="empty">Tidak ada agent di /api/state.</div>';
+    if (hint) hint.textContent = '\u2014';
     return;
   }
   var cards = STATE.agents.map(function (a) {
     var b = a.basis || {};
-    return '<div class="hudCard"><div class="k">' + esc(a.name) + '</div><div class="v">' +
+    var sel = office.selAgent === a.id;
+    return '<button class="hudCard' + (sel ? ' sel' : '') + '" type="button"' +
+      ' data-selectagent="' + esc(a.id) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' +
+      '<div class="k">' + esc(a.name) + '</div><div class="v">' +
       stBadge(a.status) + '<span>' + esc((a.role || '').split('/')[0].trim()) + '</span></div><div class="s">' +
       (b.turns != null
         ? esc(count(b.turns) + ' turn \u00b7 ' + count(b.tool_calls) + ' tool \u00b7 ' + ago(a.last_update))
-        : esc(b.note || 'belum ada data')) + '</div></div>';
+        : esc(b.note || 'belum ada data')) + '</div></button>';
   });
   pane.innerHTML = cards.join('');
-  if (hint) hint.textContent = 'klik avatar untuk detail \u00b7 metrik mesin di Pengaturan \u00b7 sesi audit di Activity';
+  if (hint) hint.textContent = 'pilih crew untuk detail \u00b7 metrik mesin di Pengaturan \u00b7 sesi audit di Activity';
 }
 
 function wireLogFilter(el) {
@@ -1167,7 +1345,11 @@ var DESK_ROWS_Z = [-3.5, -1];
 var MIN_DESK_COLUMNS = 3;
 var BASE_MIN_X = -9.5;
 var BASE_SCENE_WIDTH = 28.7;
-var CAMERA_OFFSET_BASE = [-3.9, 15.2, 18.8];
+/* Framing is authored as an OFFSET from the focus point, so "less sky, more
+   room" is a bigger height-to-span ratio, not a smaller Y. 14.2/16.75 ≈ 0.85 puts
+   the camera ~41° above the floor: the old 0.70 ratio left the top third of the
+   frame as empty background. */
+var CAMERA_OFFSET_BASE = [-3.2, 15.5, 18.0];
 var STALL_SPOTS = {
   bakso: [[-11.9, 0, -2.3]],
   kopi: [[-11.9, 0, 1.6]]
@@ -1203,7 +1385,7 @@ scene.background = new T.Color('#bfe0ef');
 scene.fog = new T.Fog('#bfe0ef', 34, 78);
 
 var camera = new T.PerspectiveCamera(40, 1, 0.5, 150);
-camera.position.set(-3, 13, 16);
+camera.position.set(-3.2, 15.5, 18.0);
 var camTarget = new T.Vector3(LAYOUT.camera.target[0], LAYOUT.camera.target[1], LAYOUT.camera.target[2]);
 camera.lookAt(camTarget);
 
@@ -1708,7 +1890,10 @@ function createLayout(agentCount) {
     gangCenterX: gangCenterX,
     sceneMinX: sceneMinX,
     camera: {
-      target: [(sceneMinX + 15.5) / 2 - 0.15, 0.6, 0.2],
+      /* Aimed a touch right of the building centre: with the crew panel docked
+         the usable stage is left of the canvas centre, and an exact-centre aim
+         pushed the right-hand rooms under the panel edge. */
+      target: [(sceneMinX + 15.5) / 2 + 1.0, 0.6, 0.2],
       offset: [CAMERA_OFFSET_BASE[0], CAMERA_OFFSET_BASE[1], CAMERA_OFFSET_BASE[2]]
     },
     pan: { minX: sceneMinX - 0.3, maxX: 17, minZ: -7, maxZ: 11 }
@@ -3966,8 +4151,12 @@ function animateAgent(agent, dt, time) {
 AGENT_IDS.forEach(function (id) {
   var el = document.createElement('div');
   el.className = 'tagLbl';
-  el.innerHTML = '<b>' + ROSTER[id].name + '</b><small>—</small>';
-  el.addEventListener('click', function () { openAgent(id); });
+  el.setAttribute('role', 'button');
+  el.setAttribute('tabindex', '0');
+  el.addEventListener('click', function () { selectAgent(id); });
+  el.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectAgent(id); }
+  });
   $('#office').appendChild(el);
   office.tags[id] = el;
 });
@@ -4019,9 +4208,16 @@ function fitOffset() {
   var off = camera.position.clone().sub(cam.target);
   if (!off.length()) return;
   /* idempotent: scale from cam.dist each frame, never compound the live offset */
-  off.setLength(cam.dist * Math.max(1, 1.2 / aspect));
+  /* Portrait pulls back far enough to keep the whole building, but only just:
+     the old 1.2/aspect pushed it to a speck in a band of empty grass. Aiming at
+     the building centre (not a fixed corner) keeps it in the middle of a tall
+     frame instead of drifting to the top edge. */
+  off.setLength(cam.dist * Math.max(1, 0.78 / aspect));
   camera.position.copy(cam.target).add(off);
-  camera.lookAt(cam.target.x - 1.4, cam.target.y, cam.target.z + 0.8);
+  /* Aim low: in a tall frame the horizon sits inside the canvas, so a level aim
+     wastes the top third on empty sky. Dropping the aim point ~4 m tilts the
+     whole frame onto the building and its grounds. */
+  camera.lookAt(cam.target.x - 1.4, cam.target.y - 4.0, cam.target.z + 0.8);
 }
 
 function applyCam() {
@@ -4097,8 +4293,11 @@ panBtn.addEventListener('click', function () {
   panMode = !panMode;
   panBtn.textContent = panMode ? 'Putar' : 'Geser';
 });
-var top = document.querySelector('#office .ovlTop');
-if (top) top.insertBefore(panBtn, $('#camReset'));
+/* The drag-mode toggle belongs in the scene toolbar, next to the camera controls
+   it mirrors — and next to THEIR parent, since #camReset moved into .sceneBar. */
+var camResetBtn = $('#camReset');
+var bar = (camResetBtn && camResetBtn.parentNode) || document.querySelector('#office .ovlTop');
+if (bar && camResetBtn) bar.insertBefore(panBtn, camResetBtn);
 
 canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 canvas.addEventListener('pointerdown', function (e) {
@@ -4362,7 +4561,6 @@ window.__miaOffice = office;
 function fail3D(msg) {
   $('#fb').classList.add('on');
   $('#fbMsg').textContent = msg + ' — status agent, antrean, dan log tetap dapat dilihat di menu lain.';
-  $('#officeHint').textContent = 'Mode 2D: data nyata tetap tampil di menu lain';
 }
 
 // Label copy is derived from REAL status + REAL task, plus the visual activity
@@ -4393,10 +4591,13 @@ function tagText(id, name, status, activeTask, provenance) {
     : /err|fail/i.test(dot) || /err|fail|down|offline/i.test(st) ? 'error'
     : dot === 'Unknown' ? 'degraded'
     : /degrad|warn|slow/i.test(st) ? 'degraded' : 'idle';
+  var role = (ROSTER[id] && ROSTER[id].role) || '';
+  if (role && role.indexOf('/') > 0) role = role.slice(0, role.indexOf('/'));
   var sub = activeTask ? String(activeTask).slice(0, 30)
     : (act && act !== '—' ? act : st);
   var html = '<span class="tRow"><b>' + esc(name) + '</b>'
     + '<span class="tDot ' + dotCls + '"></span>'
+    + (role ? '<span class="tRole">' + esc(role) + '</span>' : '')
     + '<span class="tRoom">' + esc(room) + '</span></span>'
     + '<small>' + esc(sub) + '</small>';
   /* Provenance: the reason this character looks the way it does. Without it
@@ -4413,6 +4614,13 @@ function tagText(id, name, status, activeTask, provenance) {
     html += '<small class="tProv" title="' + esc(provFull) + '">'
       + esc(provShort) + '</small>';
   }
+  /* The whole card explains itself on hover/focus: provenance is the reason the
+     character looks the way it does, and it is too long for the card itself. */
+  if (provenance) {
+    html += '<span class="sr">' + esc(String(provenance)) + '</span>';
+    var el = office.tags[id];
+    if (el) el.title = String(provenance);
+  }
   return html;
 }
 
@@ -4428,24 +4636,55 @@ function syncOffice() {
     if (tag) tag.innerHTML = tagText(a.id, a.name, a.status, a.active_task, av && av.provenance);
   });
   projectTags();
+  /* One line under the stage: who is on which floor right now. Written from the
+     same poll as the tags so the strip can never contradict a nameplate. */
+  var pill = $('#activityPill');
+  if (pill) {
+    pill.textContent = STATE.agents.length ? STATE.agents.map(function (a) {
+      var av2 = office.avatar[a.id];
+      return a.name + ' \u00b7 ' + (av2 ? (ROOM_LABEL_UI[av2.room] || '\u2014') : '\u2014');
+    }).join('   ') : 'Tidak ada agent terdaftar';
+  }
+  if (office.selAgent) markSelected();
 }
 
-// Labels follow the characters as they walk between rooms, so the text is
-// refreshed on the render tick rather than only when /api/state is polled.
-function refreshTagText() {
-  if (!office.ready || !STATE) return;
-  STATE.agents.forEach(function (a) {
-    var tag = office.tags[a.id];
-    if (tag) tag.innerHTML = tagText(a.id, a.name, a.status, a.active_task, office.avatar[a.id] && office.avatar[a.id].provenance);
-  });
-  var pill = $('#activityPill');
-  if (pill && STATE.agents.length) {
-    pill.textContent = STATE.agents.map(function (a) {
-      var av = office.avatar[a.id];
-      return ROSTER[a.id].name + ' · ' + (av ? (ROOM_LABEL_UI[av.room] || '—') : '—');
-    }).join('   ');
-  }
+/* Selecting an agent is the same action from a nameplate and from a crew card:
+   it highlights the character in the scene and opens the Detail tab. The prompt
+   composer stays one action further away, so inspecting never queues work by
+   accident. */
+function selectAgent(id) {
+  office.selAgent = id;
+  markSelected();
+  var t = $('#tabAgent');
+  if (t) t.disabled = false;
+  showHudTab('agent');
+  if (!$('#hud').hidden) setHud(true);
+  renderHud();
 }
+function markSelected() {
+  /* Iterate the tags that exist rather than AGENT_IDS: the roster list lives
+     inside init3D()'s scope, and guessing at its name here silently threw. */
+  Object.keys(office.tags || {}).forEach(function (id) {
+    var el = office.tags[id];
+    if (!el) return;
+    var on = id === office.selAgent;
+    el.classList.toggle('sel', on);
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+function showHudTab(which) {
+  ['crew', 'agent'].forEach(function (k) {
+    var b = $(k === 'crew' ? '#tabCrew' : '#tabAgent');
+    if (!b) return;
+    b.classList.toggle('on', k === which);
+    b.setAttribute('aria-selected', k === which ? 'true' : 'false');
+  });
+  var pane = $('#hudPane');
+  if (pane) pane.classList.toggle('crew', which === 'crew');
+  hudTab = which;
+  renderHud();
+}
+var hudTab = 'crew';
 
 /* Label projector. Called from the render loop, not from a setInterval: the
    camera moves every frame, so a timer-driven projection leaves the labels up
@@ -4464,6 +4703,10 @@ function projectTags() {
   // balloon.
   var st = office.camState ? office.camState() : null;
   var scale = Math.max(0.62, Math.min(1.35, 26 / Math.max(1, st ? st.dist : 26)));
+  /* Project every plate first, then push overlapping ones upward. Two agents
+     standing at the same desk otherwise stack into one unreadable blob, and the
+     selected plate always wins its position. */
+  var placed = [];
   ['mia', 'agnes', 'michelle'].forEach(function (id) {
     var a = office.avatar[id], tag = office.tags[id];
     if (!a || !tag) return;
@@ -4476,8 +4719,23 @@ function projectTags() {
     // Margin adapts to the tag's own half-width (fixed 80px still clips wide tags).
     var tw = (tag.offsetWidth || 0) * scale;
     var lx = Math.max(tw/2 + 6, Math.min(w - tw/2 - 6, ((v.x + 1) / 2 * w)));
-    tag.style.left = lx + 'px';
-    tag.style.top = ((-v.y + 1) / 2 * h) + 'px';
+    var ly = ((-v.y + 1) / 2 * h);
+    placed.push({ id: id, el: tag, w: tw, x: lx, y: ly, sel: id === office.selAgent });
+  });
+  placed.sort(function (a, b) { return (b.sel ? 1 : 0) - (a.sel ? 1 : 0) || a.y - b.y; });
+  placed.forEach(function (p) {
+    var tag = p.el;
+    var minH = (p.el.offsetHeight || 34) + 6;
+    p.y = Math.max(minH, Math.min(h - 4, p.y));
+    placed.forEach(function (o) {
+      if (o === p || o.resolved) return;
+      if (Math.abs(o.x - p.x) < (o.w + p.w) / 2 && Math.abs(o.y - p.y) < minH) {
+        p.y = o.y - minH;
+        p.resolved = true;
+      }
+    });
+    tag.style.left = p.x + 'px';
+    tag.style.top = Math.max(minH, p.y) + 'px';
     // translate(-50%,-100%) centres and bottom-anchors the label; the extra
     // scale is appended in the same transform so it composes with the anchor.
     tag.style.transform = 'translate(-50%,-100%) scale(' + scale.toFixed(3) + ')';
@@ -4509,6 +4767,9 @@ function openAgent(id) {
 /* ── modal: one implementation, static markup is reused ─────────────── */
 var modalTask = null;
 function modal(title, html, taskAgent) {
+  if (!$('#modalBg').classList.contains('on') && document.activeElement && document.activeElement !== document.body) {
+    lastFocus = document.activeElement;
+  }
   modalTask = taskAgent;
   $('#mTitle').textContent = title;
   $('#mBody').innerHTML = html || '';
@@ -4538,7 +4799,19 @@ function submitTask() {
     closeModal(); poll();
   }).catch(function (e) { err.textContent = e.message; });
 }
+var lastFocus = null;
 $('#mCancel').addEventListener('click', closeModal);
+$('#tabCrew').addEventListener('click', function () { showHudTab('crew'); });
+$('#tabAgent').addEventListener('click', function () { showHudTab('agent'); });
+/* Escape closes the topmost dialog only, and focus returns to whatever opened
+   it — without that, keyboard users land back at the top of the document. */
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  if ($('#modalBg').classList.contains('on')) { closeModal(); if (lastFocus) lastFocus.focus(); }
+});
+document.addEventListener('focusin', function (e) {
+  if ($('#modalBg').classList.contains('on')) lastFocus = e.target;
+});
 $('#mSend').addEventListener('click', submitTask);
 $('#modalBg').addEventListener('click', function (e) { if (e.target === $('#modalBg')) closeModal(); });
 
@@ -4551,8 +4824,12 @@ MENU.forEach(function (g) {
   nav.appendChild(lbl);
   g.items.forEach(function (m) {
     var b = document.createElement('button');
-    b.innerHTML = '<span class="ic">' + m[2] + '</span>' + esc(m[1]) + '<span class="sub">' + esc(m[3]) + '</span>';
+    b.innerHTML = '<span class="ic">' + m[2] + '</span><span class="lbl">' + esc(m[1]) + '</span>';
     b.dataset.view = m[0];
+    /* Collapsed the rail is icon-only, so the label has to survive somewhere the
+       pointer can read it — and in the accessible name for everyone else. */
+    b.title = m[1] + ' \u2014 ' + m[3];
+    b.setAttribute('aria-label', b.title);
     if (m[0] === 'office') b.className = 'on';
     b.addEventListener('click', function () { show(m[0]); });
     nav.appendChild(b);
@@ -4592,6 +4869,7 @@ document.addEventListener('click', function (e) {
   var t;
   function hit(sel) { return e.target.closest ? e.target.closest(sel) : null; }
   if ((t = hit('[data-quick]'))) { modal(t.getAttribute('data-label'), '', t.getAttribute('data-quick')); return; }
+  if ((t = hit('[data-selectagent]'))) { selectAgent(t.getAttribute('data-selectagent')); return; }
   if ((t = hit('[data-openagent]'))) { openAgent(t.getAttribute('data-openagent')); return; }
   if ((t = hit('[data-agentmem]'))) { show('memory'); loadMemory(t.getAttribute('data-agentmem'), true); return; }
   if ((t = hit('[data-memfile]'))) { MEM.file = t.getAttribute('data-memfile'); render(); return; }

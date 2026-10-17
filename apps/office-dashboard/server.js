@@ -1819,7 +1819,11 @@ function proxyBusStream(req, res, url) {
   let upstream = null;
   let closed = false;
   try {
-    upstream = http.get(target, { headers: { accept: 'text/event-stream' } }, (up) => {
+    /* Mia menolak stream tanpa token (401) — dan dashboard yang menyusun URL ini
+       hanya 도로nya. Tanpa header ini bus selalu "terputus" di UI. */
+    const headers = { accept: 'text/event-stream' };
+    if (AUTH_TOKEN) headers.authorization = `Bearer ${AUTH_TOKEN}`;
+    upstream = http.get(target, { headers }, (up) => {
       if (closed) {
         up.resume();
         return;
