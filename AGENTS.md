@@ -2584,7 +2584,7 @@ Owner: "kamu yakin sudah tidak ada bug yang fatal?" lalu "ya coba live drill PS 
 **BELUM commit** — menunggu approval owner.
 
 
-## Sesi 2026-10-18 (lanjutan 2) — freedirchain ke 9router + reconcile plan terblokir (2 cacat, 4 mutasi)
+## Sesi 2026-10-18 (lanjutan 2) — freeride chain ke 9router + reconcile plan terblokir (2 cacat, 4 mutasi)
 
 Owner: "kerjakan no 2 dan 3" dari 5 item terbuka. Keduanya cacat nyata yang ditemukan live, bukan review diff.
 
