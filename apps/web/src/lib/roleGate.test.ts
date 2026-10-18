@@ -94,3 +94,26 @@ describe("role gate — classification integrity", () => {
     expect(agentDomains(undefined)).toBeUndefined();
   });
 });
+describe("shared owner memory is nobody's exclusive territory (live 2026-10-17)", () => {
+  // Michelle was refused search_memory for "kemarin kita buat project apa?" —
+  // the table classified the owner's own record as Agnes's research.
+  const RECALL = ["memory", "memory_get", "search_memory", "memory_where"];
+
+  it("lets every agent read the owner's own memory", () => {
+    for (const agent of ["agnes", "michelle", undefined]) {
+      for (const t of RECALL) expect(roleGateRefusal(agent, t), `${agent}/${t}`).toBeNull();
+    }
+  });
+
+  it("classifies no memory tool as a single agent's territory", () => {
+    for (const t of RECALL) expect(toolDomain(t), t).toBeUndefined();
+  });
+
+  it("a refusal no longer tells the agent to end its turn", () => {
+    const r = roleGateRefusal("michelle", "google_news");
+    expect(r).toMatch(NOT_YOURS);
+    expect(r).toContain("Agnes");
+    expect(r).toContain("Do not end your reply empty-handed");
+    expect(r).not.toContain("and stop");
+  });
+});

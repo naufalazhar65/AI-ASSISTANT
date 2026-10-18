@@ -90,8 +90,6 @@ const TOOL_DOMAIN: Record<string, ToolDomain> = {
   recon_ports: "research",
   recon_dnsbrute: "research",
   recon_takeover: "research",
-  memory_where: "research",
-  search_memory: "research",
   context_active: "research",
 
   // ── code: reading, writing and running things ───────────────────────────────
@@ -297,8 +295,11 @@ const TOOL_DOMAIN: Record<string, ToolDomain> = {
   persona_set: "assistant",
   persona_forget: "assistant",
   send_channel: "assistant",
-  memory: "assistant",
-  memory_get: "assistant",
+  // Mia's shared memory recall (`memory`, `memory_get`, `search_memory`,
+  // `memory_where`) is intentionally ABSENT from this table: it is the owner's
+  // own record, not one role's territory, so rule 1 lets every agent read it.
+  // Classifying it as `assistant` denied Michelle and Agnes the ability to
+  // recall yesterday's work at all — live Discord 2026-10-17.
   memory_hygiene: "assistant",
   mac_open: "assistant",
   device_list: "assistant",
@@ -395,7 +396,8 @@ export function roleGateRefusal(agent: string | undefined, toolName: string): st
   return (
     `Not your tool: \`${toolName}\` belongs to ${owner} (${DOMAIN_LABEL[domain]}). ` +
     `Your role does not cover it, so it was NOT run — do not claim it was done. ` +
-    `Tell the owner this is ${owner}'s work and stop.`
+    `Answer from what you already have, or hand the request to ${owner}. ` +
+    `Do not end your reply empty-handed because of this one tool.`
   );
 }
 

@@ -513,9 +513,13 @@ async function dispatchQueueItem(item) {
     ? { prompt: item.prompt, user: userKey, agent: item.agent, deliver_to: deliveryLabelFor(item.agent), ...(WEBHOOK_SECRET ? { secret: WEBHOOK_SECRET } : {}) }
     : { messages: [{ role: 'user', content: item.prompt }], user: userKey, channel: 'office-dashboard' };
   try {
+    const headers = { 'content-type': 'application/json' };
+    // Mia's middleware 401s every /api/* call without a Bearer token, so a
+    // quick task with deliver:none failed 401 before Mia ever saw the prompt.
+    if (AUTH_TOKEN) headers.authorization = `Bearer ${AUTH_TOKEN}`;
     const res = await fetch(target, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
       signal: ac.signal,
     });
