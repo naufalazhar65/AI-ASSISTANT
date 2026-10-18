@@ -465,3 +465,12 @@ Semua bukti sebelumnya memakai runner palsu. Drill `apps/web/drill-ps-loop-live.
 
 **Keterbatasan jujur (tidak disembunyikan):** subtugas `code` praktis tidak bisa SUCCEEDED lewat delegasi karena `autoDenyRisky` menolak semua tool tulis — itu memang desain (delegasi bukan jalan memintas approval), tapi berarti mixer research+code berakhir `PARTIALLY_COMPLETED`; dan `stop_reason` untuk kegagalan TRANSIENT berulang menyebut "kriteria …" (kelas kegagalan ada di `attempts`, bukan di stop_reason).
 
+
+### 21.21 Rantai cadangan + status plan yang jujur (2026-10-18)
+
+| Perbaikan | Lokasi | Bukti |
+|---|---|---|
+| Rantai freeride hanya untuk OpenRouter | `freeride.ts` `freerideChainAppliesTo` + `agent.ts:7536` | 3 test + mutasi M14; live: kedua id katalog OpenRouter 404 di 9router |
+| Plan terblokir tidak lagi "RUNNING" | `orchestration.ts` `reconcile` | 4 test + mutasi M15-M17; drill live teks `Status pekerjaan: FAILED` |
+
+Keterbatasan: `OPENCODEGO_API_KEY` masih expired (butuh aksi owner), dan model nyata kadang tidak menulis marker `KRITERIA` sehingga hasil subtugas turun ke `PARTIALLY_COMPLETED` — itu jawaban yang jujur, bukan kegagalan loop.

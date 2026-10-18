@@ -77,6 +77,18 @@ function rankModels(models: FreerideModel[]): FreerideModel[] {
  * Nvidia…", "Rate limit exceeded: free-models-per-min"), so `res.ok` alone
  * keeps dead models in the chain — the whole point of the watcher/rotate.
  */
+/**
+ * The chain's model ids (`nvidia/…:free`, `openrouter/free`) are OpenRouter
+ * catalog ids. Applied to the local 9router proxy they 404 — 9router serves
+ * only its own 12 ids, and OpenRouter passthrough only as `openrouter/<id>`.
+ * PROVEN live 2026-10-18: `nvidia/nemotron-3-ultra-550b-a55b:free` and
+ * `openrouter/free` both 404 on 127.0.0.1:20128 while the chain was pointed
+ * there, so a 429 on the primary had no working fallback at all.
+ */
+export function freerideChainAppliesTo(url: string | undefined | null): boolean {
+  return /openrouter\.ai/.test(url ?? "");
+}
+
 export function isProbeAliveResponse(status: number, body: unknown): boolean {
   if (status < 200 || status >= 300) return false;
   if (!body || typeof body !== "object") return false;

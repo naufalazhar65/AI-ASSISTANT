@@ -2583,3 +2583,17 @@ Owner: "kamu yakin sudah tidak ada bug yang fatal?" lalu "ya coba live drill PS 
 
 **BELUM commit** — menunggu approval owner.
 
+
+## Sesi 2026-10-18 (lanjutan 2) — freedirchain ke 9router + reconcile plan terblokir (2 cacat, 4 mutasi)
+
+Owner: "kerjakan no 2 dan 3" dari 5 item terbuka. Keduanya cacat nyata yang ditemukan live, bukan review diff.
+
+**1. Rantai freeride diarahkan ke proxy yang tidak menyajikannya.** Helper purest baru `freerideChainAppliesTo(url)` di `freeride.ts` (hanya `openrouter.ai`); gate di `agent.ts:7536` sekarang memanggilnya, bukan regex inline yang mengizinkan `127.0.0.1:20128`. Bukti live 2026-10-18: `nvidia/nemotron-3-ultra-550b-a55b:free` + `openrouter/free` (id katalog OpenRouter) sama-sama 404 di 9router yang hanya serve 12 id sendiri → saat primer kena 429 tidak ada cadangan sama sekali. 3 test di `llmStream.test.ts`.
+
+**2. `reconcile` melapor plan yang sudah gagal sebagai "RUNNING".** Bentuk dari drill P3 (t1 research opsional FAILED, t2 code wajib BLOCKED): `TERMINAL_STATES` tidak memuat BLOCKED sehingga (a) `unfinished` ikut menghitung t2 dan disclosure-nya dobel ("terblokir" + "belum selesai"), (b) cabang `parentStatus` terakhir tidak melihat `blocked` jadi hasilnya "RUNNING" padahal sudah selesai dan gagal, (c) disclosure opsional tetap mengklaim "tujuan utama tetap tercapai" padahal tujuan utamanya BLOCKED. Fix 3 baris di `orchestration.ts`; 4 test di `orchestration.test.ts`.
+
+**Mutasi (semua arresting, dikembalikan):** M14 gate balik ke 9router → test "does NOT apply to the local 9router proxy" GAGAL · M15 BLOCKED dikembalikan ke `unfinished` → test disclosure ganda GAGAL · M16 `+ blocked.length` dihapus → test "expected 'RUNNING' to be 'FAILED'" GAGAL · M17 `mainGoalHeld = true` → test klaim-bohong GAGAL. `verify.ts` +1 blok (source assertion `freerideChainAppliesTo(cand.resolved.url)` + runtime reconcile P3) supaya "helper benar tapi kawatnya lepas" ikut tertangkap.
+
+**Bukti:** `npx tsx apps/web/drill-ps-loop-live.mts` ALL GREEN (273s) — P3 plan `FAILED`, teks final tidak lagi "RUNNING", tanpa disclosure dobel; P2 stop beralasan; `falseSuccess=0 · correctStopRate=100`. Gates: tsc 0 · `npm test` **2523/2523 (126 file)** · `verify.ts` EXIT=0 (223 blok) · lint 0.
+
+**Masih terbuka (tidak dikerjakan):** `OPENCODEGO_API_KEY` expired (`401 api_key_expired`) — hanya owner; drill P1 model nyata kadang tidak menulis marker `KRITERIA` → t1 `PARTIALLY_COMPLETED` (penyebab belum dibuktikan; drill ini juga melihat 9router 502 connect timeout lalu failover ke opencodego yang 401).

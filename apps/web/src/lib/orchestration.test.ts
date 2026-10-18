@@ -506,3 +506,37 @@ describe("plans whose subtasks are all optional (live drill 2026-10-16)", () => 
     expect(reconcile(plan([task({ task_id: "t1", required: false, status: "RUNNING" })])).parentStatus).toBe("RUNNING");
   });
 });
+
+describe("reconcile — a blocked required task is not a running plan (live 2026-10-18)", () => {
+  // Shape from the live drill P3: t1 research FAILED (optional), t2 code BLOCKED
+  // (required). The plan had already finished, yet it reported RUNNING.
+  const drillP3 = () =>
+    plan([
+      task({ task_id: "t1", required: false, status: "FAILED", error_summary: "LLM failed (401)" }),
+      task({ task_id: "t2", status: "BLOCKED", dependencies: ["t1"] }),
+    ]);
+
+  it("a required task that is blocked with nothing succeeded is FAILED, never RUNNING", () => {
+    expect(reconcile(drillP3()).parentStatus).toBe("FAILED");
+  });
+
+  it("does not disclose the same task as both blocked and unfinished", () => {
+    const d = reconcile(drillP3()).disclosures.join(" | ");
+    expect(d).toContain("1 tugas terblokir: t2");
+    expect(d).not.toContain("belum selesai: t2");
+  });
+
+  it("never claims the main goal still holds while a required task is blocked", () => {
+    expect(reconcile(drillP3()).disclosures.join(" | ")).not.toContain("tujuan utama tetap tercapai");
+  });
+
+  it("still says the main goal holds when only optional work failed", () => {
+    const ok = plan([
+      task({ task_id: "t1", status: "SUCCEEDED", result_reference: "r1" }),
+      task({ task_id: "t2", required: false, status: "FAILED", error_summary: "x" }),
+    ]);
+    const d = reconcile(ok).disclosures.join(" | ");
+    expect(d).toContain("tujuan utama tetap tercapai");
+    expect(reconcile(ok).parentStatus).toBe("PARTIALLY_COMPLETED");
+  });
+});

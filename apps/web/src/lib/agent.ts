@@ -28,7 +28,7 @@ import { detectMonitorIntents, detectMonitorIntent, cryptoSubject } from "./moni
 import { addMonitor } from "./monitor";
 import { SpotifyControlIntent, detectSpotifyControl, detectSpotifyIntent, detectSpotifyResume, spotifyControlToolName, planSpotifyTurn } from "./spotifyIntent";
 import { detectPriceIntent } from "./priceIntent";
-import { freerideGetConfig } from "./freeride";
+import { freerideChainAppliesTo, freerideGetConfig } from "./freeride";
 import { detectPlaceIntent, placeNudge } from "./placeIntent";
 import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolume, spotifySleepTimer } from "./spotify";
 import { getPersonaFact, loadPersonaPrompt } from "./persona";
@@ -7530,10 +7530,11 @@ async function runAssistantTurnImpl(opts: {
       try {
         const freerideChain: (string | undefined)[] = (() => {
           try {
-            // FreeRide's model IDs (e.g. nvidia/*:free, openrouter/free) only exist
-            // on OpenRouter / the local 9router proxy. Sending them to another
-            // endpoint (Groq, OpenCode Go) 404s — so the chain applies there only.
-            if (!/openrouter\.ai|127\.0\.0\.1:20128|localhost:20128/.test(cand.resolved.url)) return [attemptModel];
+            // FreeRide's model IDs (e.g. nvidia/*:free, openrouter/free) are
+            // OpenRouter catalog ids. Sent to another endpoint (Groq, OpenCode
+            // Go, or the local 9router proxy, which serves only its own ids)
+            // they 404 — so the chain applies there only.
+            if (!freerideChainAppliesTo(cand.resolved.url)) return [attemptModel];
             const cfg = freerideGetConfig();
             const chainIds: (string | undefined)[] = [attemptModel];
             if (cfg.primary && !chainIds.includes(cfg.primary)) chainIds.push(cfg.primary);

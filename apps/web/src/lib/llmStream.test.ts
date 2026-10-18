@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { chainMayFailover, endpointHeaders, parseStreamError, runOneCompletion } from "./agent";
 import { classifyAssistantError, isProviderRetryable, isQuotaExhaustion } from "./assistantError";
-import { isProbeAliveResponse, shouldProbeNow } from "./freeride";
+import { freerideChainAppliesTo, isProbeAliveResponse, shouldProbeNow } from "./freeride";
 
 function sseResponse(frames: string[], status = 200): Response {
   const body = new ReadableStream<Uint8Array>({
@@ -244,5 +244,23 @@ describe("subscription 403 (inactive plan) is a failover signal, not a hard stop
     ]) {
       expect(isProviderRetryable(new Error(msg))).toBe(false);
     }
+  });
+});
+
+describe("freerideChainAppliesTo (live 2026-10-18)", () => {
+  // The chain's ids are OpenRouter catalog ids. Pointed at the local 9router
+  // proxy they 404, so a 429 on the primary had no working fallback at all.
+  it("applies to OpenRouter only", () => {
+    expect(freerideChainAppliesTo("https://openrouter.ai/api/v1/chat/completions")).toBe(true);
+  });
+  it("does NOT apply to the local 9router proxy", () => {
+    expect(freerideChainAppliesTo("http://127.0.0.1:20128/v1/chat/completions")).toBe(false);
+    expect(freerideChainAppliesTo("http://localhost:20128/v1/chat/completions")).toBe(false);
+  });
+  it("does NOT apply to other providers, and survives a missing url", () => {
+    expect(freerideChainAppliesTo("https://api.groq.com/openai/v1/chat/completions")).toBe(false);
+    expect(freerideChainAppliesTo("https://opencode.ai/zen/go/v1/chat/completions")).toBe(false);
+    expect(freerideChainAppliesTo(undefined)).toBe(false);
+    expect(freerideChainAppliesTo(null)).toBe(false);
   });
 });

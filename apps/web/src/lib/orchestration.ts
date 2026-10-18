@@ -313,7 +313,9 @@ export function reconcile(plan: OrchestrationPlan): Reconciliation {
   const failed = required.filter((t) => t.status === "FAILED");
   const blocked = required.filter((t) => t.status === "BLOCKED");
   const cancelled = required.filter((t) => t.status === "CANCELLED");
-  const unfinished = required.filter((t) => !TERMINAL_STATES.includes(t.status)).map((t) => t.task_id);
+  // BLOCKED has its own disclosure below; counting it here printed the same
+  // task twice ("1 tugas terblokir: t2" + "1 tugas belum selesai: t2").
+  const unfinished = required.filter((t) => !TERMINAL_STATES.includes(t.status) && t.status !== "BLOCKED").map((t) => t.task_id);
   const optionalFailed = optional.filter((t) => t.status === "FAILED").map((t) => t.task_id);
   // A task whose acceptance criteria were never proven lands on
   // PARTIALLY_COMPLETED. It is terminal (nothing is still running) but it is NOT
@@ -333,14 +335,25 @@ export function reconcile(plan: OrchestrationPlan): Reconciliation {
   else if (failed.length + blocked.length + cancelled.length === 0 && unfinished.length === 0) {
     parentStatus = optionalFailed.length > 0 || partial.length > 0 ? "PARTIALLY_COMPLETED" : "SUCCEEDED";
   } else if (done.length > 0) parentStatus = "PARTIALLY_COMPLETED";
-  else parentStatus = failed.length + cancelled.length > 0 ? "FAILED" : "RUNNING";
+  // Nothing succeeded and a REQUIRED task is blocked: the goal was not reached
+  // and nothing is still running, so "RUNNING" was a plan that reported itself
+  // as in-progress forever after it had already failed.
+  else parentStatus = failed.length + cancelled.length + blocked.length > 0 ? "FAILED" : "RUNNING";
 
   const disclosures: string[] = [];
   if (failed.length) disclosures.push(`${failed.length} tugas wajib gagal: ${failed.map((t) => t.task_id).join(", ")}`);
   if (blocked.length) disclosures.push(`${blocked.length} tugas terblokir: ${blocked.map((t) => t.task_id).join(", ")}`);
   if (cancelled.length) disclosures.push(`${cancelled.length} tugas dibatalkan: ${cancelled.map((t) => t.task_id).join(", ")}`);
   if (unfinished.length) disclosures.push(`${unfinished.length} tugas belum selesai: ${unfinished.join(", ")}`);
-  if (optionalFailed.length) disclosures.push(`${optionalFailed.length} tugas opsional gagal (tujuan utama tetap tercapai): ${optionalFailed.join(", ")}`);
+  // "the main goal still holds" is only true while no required task failed, got
+  // blocked, or is unfinished — otherwise this line told the owner the plan had
+  // succeeded while its required subtask was stuck.
+  if (optionalFailed.length) {
+    const mainGoalHeld = failed.length === 0 && blocked.length === 0 && unfinished.length === 0;
+    disclosures.push(mainGoalHeld
+      ? `${optionalFailed.length} tugas opsional gagal (tujuan utama tetap tercapai): ${optionalFailed.join(", ")}`
+      : `${optionalFailed.length} tugas opsional gagal: ${optionalFailed.join(", ")}`);
+  }
   if (partial.length) disclosures.push(`${partial.length} tugas selesai sebagian — kriteria belum terverifikasi: ${partial.join(", ")}`);
   const gaps = plan.tasks.filter((t) => t.agent_id === null && t.status !== "CANCELLED").map((t) => t.task_id);
   if (gaps.length) disclosures.push(`${gaps.length} tugas dilewati karena tidak ada agent terdaftar yang mampu: ${gaps.join(", ")}`);

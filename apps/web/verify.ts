@@ -9577,7 +9577,58 @@ async function verifyProactiveWorkflows(): Promise<void> {
     } finally {
       cleanup();
     }
+
+    // 7. Rantai freeride: id katalog OpenRouter TAK boleh dikirim ke proxy 9router
+    // (live 2026-10-18: keduanya 404 di 127.0.0.1:20128 -> 429 = tidak ada cadangan).
+    const frSrc = readFileSync(join(import.meta.dirname, "src", "lib", "freeride.ts"), "utf8");
+    if (!/export function freerideChainAppliesTo/.test(frSrc)) {
+      throw new Error("freeride: helper purest freerideChainAppliesTo tidak ada (gate agent.ts membutuhkannya)");
+    }
+    if (/127\\\.0\\\.0\\\.1:20128|localhost:20128/.test(frSrc)) {
+      throw new Error("freeride: gate chain tidak boleh menyertakan proxy 9router");
+    }
+    if (!/freerideChainAppliesTo\(cand\.resolved\.url\)/.test(agentSrc)) {
+      throw new Error("freeride: agent.ts harus memakai freerideChainAppliesTo (helper benar tapi kawatnya lepas)");
+    }
+    const frMod = await import("./src/lib/freeride");
+    if (frMod.freerideChainAppliesTo("https://openrouter.ai/api/v1/chat/completions") !== true) {
+      throw new Error("freeride: OpenRouter harus ikut rantai");
+    }
+    if (frMod.freerideChainAppliesTo("http://127.0.0.1:20128/v1/chat/completions") !== false) {
+      throw new Error("freeride: proxy 9router tidak boleh ikut rantai (id katalog OpenRouter 404 di sana)");
+    }
+
+    // 8. reconcile: wajib-terblokir tanpa satu pun sukses harus FAILED, tanpa
+    // disclosure ganda dan tanpa klaim "tujuan utama tetap tercapai" (drill P3).
+    const orch = await import("./src/lib/orchestration");
+    const blk = (id: string, over: Partial<OrchestrationTask>): OrchestrationTask => ({
+      task_id: id, parent_task_id: null, agent_id: "mia", objective: `Kerjakan ${id}`,
+      task_type: "code", input_context: "", expected_output: "hasil", acceptance_criteria: ["selesai"],
+      dependencies: [], priority: 1, required: true, status: "READY",
+      created_at: new Date().toISOString(), started_at: null, completed_at: null,
+      result_reference: null, evidence_references: [], error_summary: null, attempts: 0, idempotent: true,
+      ...over,
+    });
+    const drillP3 = orch.reconcile({
+      id: "plan_verify_blocked", user, request: "req", created_at: new Date().toISOString(),
+      status: "PLANNED", notes: [],
+      budget: { maxDepth: 2, maxTasks: 6, maxConcurrent: 2, maxRetries: 1, taskTimeoutMs: 1000, maxDurationMs: 1000 },
+      tasks: [
+        blk("t1", { required: false, status: "FAILED", error_summary: "LLM failed (401)" }),
+        blk("t2", { status: "BLOCKED", dependencies: ["t1"] }),
+      ],
+    } as OrchestrationPlan);
+    if (drillP3.parentStatus !== "FAILED") {
+      throw new Error(`reconcile: wajib-terblokir tanpa sukses harus FAILED, dapat ${drillP3.parentStatus}`);
+    }
+    const disclosureText = drillP3.disclosures.join(" | ");
+    if (!/1 tugas terblokir: t2/.test(disclosureText)) throw new Error("reconcile: tugas terblokir harus didisclose");
+    if (/belum selesai: t2/.test(disclosureText)) throw new Error("reconcile: disclosure ganda (terblokir + belum selesai)");
+    if (/tujuan utama tetap tercapai/.test(disclosureText)) {
+      throw new Error("reconcile: tidak boleh mengklaim tujuan utama tercapai saat wajib terblokir");
+    }
     console.log("problem-solving loop (kriteria+VERIFY · recovery class+budget · loop · approval fingerprint · restart unknown · metrik): OK");
+    console.log("freeride chain (hanya OpenRouter · 9router 404) + reconcile blocked-plan (FAILED · disclosure jujur): OK");
   }
 }
 
