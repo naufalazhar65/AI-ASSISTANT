@@ -172,7 +172,7 @@ function cleanReminderText(clause: string): string {
 }
 
 export function splitReminderRequests(userText: string): Array<{ text: string; hour: number; minute: number; suffixed?: boolean; cancel?: boolean }> {
-  const clauseRe = /\s*[,;，]|\s+\band\b|\s+dan\s+|\s+lalu\s+|\s+terus\s+/i;
+  const clauseRe = /\s*[,;\uff0c]|\s+\band\b|\s+dan\s+|\s+lalu\s+|\s+terus\s+/i;
   const clauses = userText.split(clauseRe);
   return clauses.flatMap((clause) => {
     const times = parseClockTimes(clause);

@@ -23,6 +23,7 @@ import {
 import { planFromRequest, pickAgent, shouldOrchestrate } from "./orchestrationPlanner";
 import { cancelPlan, getPlan, listPlans, savePlan } from "./orchestrationStore";
 import { orchestrateRequest, runPlan, type SubtaskRunner } from "./orchestrator";
+import { criterionId } from "./recovery";
 
 const TEST_USER = "orch_test_user";
 const USER_DIR = join(process.cwd(), "apps", "web", ".data", "users", TEST_USER);
@@ -80,7 +81,9 @@ function result(over: Partial<AgentResult> = {}): AgentResult {
     findings: ["satu"],
     evidence_references: [],
     artifact_references: [],
-    validations: [],
+    // The loop only accepts a success its criteria are attested for, so a
+    // synthetic runner has to attest too (every task fixture uses "selesai").
+    validations: [`KRITERIA ${criterionId("selesai")}: bukti test sintetis`],
     errors: [],
     remaining_uncertainty: [],
     next_step: null,
@@ -426,6 +429,37 @@ describe("reconciliation", () => {
     );
     expect(partial.parentStatus).not.toBe("SUCCEEDED");
   });
+
+  // Live drill 2026-10-18 caught this: a task whose acceptance criteria were
+  // never proven lands on PARTIALLY_COMPLETED, which is TERMINAL but is not a
+  // success. Counting only FAILED made a plan with zero proven criteria report
+  // DONE.
+  it("a PARTIALLY_COMPLETED task can never make the plan SUCCEEDED (live 2026-10-18)", () => {
+    const r = reconcile(
+      plan([
+        task({ task_id: "a", status: "PARTIALLY_COMPLETED", criteria_outcome: "PARTIALLY_COMPLETED", result_reference: "r" }),
+        task({ task_id: "b", required: false, status: "PARTIALLY_COMPLETED", criteria_outcome: "FAILED", result_reference: "r2" }),
+      ])
+    );
+    expect(r.parentStatus).toBe("PARTIALLY_COMPLETED");
+    expect(r.partial).toEqual(["a", "b"]);
+    expect(r.disclosures.join(" ")).toMatch(/kriteria belum terverifikasi/);
+  });
+
+  it("an all-optional plan that never verified anything is not SUCCEEDED either", () => {
+    expect(reconcile(plan([task({ task_id: "t1", required: false, status: "PARTIALLY_COMPLETED" })])).parentStatus).toBe("PARTIALLY_COMPLETED");
+  });
+
+  it("progressLine counts only SUCCEEDED inside Completed", () => {
+    const line = progressLine(
+      plan([
+        task({ task_id: "a", status: "SUCCEEDED", result_reference: "r" }),
+        task({ task_id: "b", status: "PARTIALLY_COMPLETED" }),
+      ])
+    );
+    expect(line).toMatch(/\*\*Completed:\*\* 1 dari 2 tahap/);
+    expect(line).toMatch(/1 sebagian, kriteria belum terverifikasi/);
+  });
 });
 
 describe("wiring: the orchestrator is reachable from the real turn pipeline", () => {
@@ -440,6 +474,26 @@ describe("wiring: the orchestrator is reachable from the real turn pipeline", ()
   });
 });
 describe("plans whose subtasks are all optional (live drill 2026-10-16)", () => {
+  // Live drill 2026-10-18: research ABOUT the repo was handed to the
+  // public-facts researcher, who bounced it ("bukan tugasku ... ranahnya
+  // Michelle") and attested nothing. Repo research is code work.
+  it("research about the codebase is not a research subtask (live 2026-10-18)", () => {
+    const askRepo = "riset pola pagination yang dipakai di repo ini, lalu perbaiki fungsi helper pagination yang salah di test terkait";
+    expect(shouldOrchestrate(askRepo)).toBe(false);
+    expect(planFromRequest(askRepo, { user: TEST_USER }).tasks.map((t) => t.task_type)).toEqual(["code"]);
+  });
+
+  it("real research plus code still decomposes, with a scoped objective per task (live 2026-10-18)", () => {
+    const ask = "riset best practice pagination REST API di internet, lalu perbaiki fungsi helper pagination yang salah di test terkait";
+    expect(shouldOrchestrate(ask)).toBe(true);
+    const tasks = planFromRequest(ask, { user: TEST_USER }).tasks;
+    expect(tasks.map((t) => t.task_type)).toEqual(["research", "code"]);
+    // Each objective must name its OWN work, not the generic category label:
+    // the specialist's persona boundary rule fires on foreign verbs.
+    expect(tasks[0].objective).toMatch(/Riset dan verifikasi sumber: riset best practice pagination REST API di internet/);
+    expect(tasks[1].objective).toMatch(/Implementasi \/ perbaikan kode: perbaiki fungsi helper pagination/);
+  });
+
   it("all-optional plans still reach a terminal status", () => {
     const p = plan([task({ task_id: "t1", required: false, status: "SUCCEEDED", result_reference: "r1" }), task({ task_id: "t2", required: false, status: "SUCCEEDED", result_reference: "r2", dependencies: ["t1"] })]);
     expect(reconcile(p).parentStatus).toBe("SUCCEEDED");

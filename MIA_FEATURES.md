@@ -375,7 +375,7 @@ Enam guard diganti dari pencocokan kosakata ke **lookup fakta** (termasuk pada k
 Mia jadi koordinator sungguhan: permintaan kompleks dipecah jadi subtugas, didelegasikan ke agent yang **terdaftar & punya token aktif**, lalu hasilnya direkonsiliasi jadi satu jawaban jujur.
 
 **Modul baru** (semua di `apps/web/src/lib/`):
-- `agentRegistry.ts` — sumber kebenaran capability: `AgentProfile {domains, categories, outputTypes, tokenEnv, maxConcurrent, restrictions}`. `domains` diambil dari `roleGate.agentDomains()` (gate yang真的 menolak tool di dispatch), `availableAgents()` hanya mengembalikan agent yang tokennya benar-benar ada. Agen tak terdaftar/Offline **tidak pernah dipilih**.
+- `agentRegistry.ts` — sumber kebenaran capability: `AgentProfile {domains, categories, outputTypes, tokenEnv, maxConcurrent, restrictions}`. `domains` diambil dari `roleGate.agentDomains()` (gate yang benar-benar menolak tool di dispatch), `availableAgents()` hanya mengembalikan agent yang tokennya benar-benar ada. Agen tak terdaftar/Offline **tidak pernah dipilih**.
 - `orchestration.ts` — engine murni (tanpa I/O/LLM): 10 status + `ALLOWED_TRANSITIONS` (transisi ilegal ditolak), `transition()` **menolak SUCCEEDED tanpa `result_reference`**, `validatePlan()` (cycle / unknown-dep / unregistered / unavailable / duplicate-objective / budget / capability-gap), `readyTasks(plan.tasks)` (dependensi FAILED → BLOCKED), `budgetStops`, `canRetry` (hanya task idempotent), `reconcile` (required gagal → bukan SUCCEEDED; optional gagal → PARTIALLY_COMPLETED + disclosure), `findContradictions`, `progressLine`.
 - `orchestrationPlanner.ts` — dekomposisi deterministik tanpa panggilan LLM tambahan. `shouldOrchestrate()` hanya true untuk ask ≥25 char dengan ≥2 objektif kerja berbeda; chat pendek/satu domain/konfirmasi tetap jalur langsung (hemat token).
 - `orchestrationStore.ts` — status task otoritatif: `.data/users/<user>/orchestration.json` (atomic, cap 20). `cancelPlan()` hanya membatalkan task non-terminal; subtask yang sudah selesai **menjaga hasilnya**.
@@ -384,7 +384,7 @@ Mia jadi koordinator sungguhan: permintaan kompleks dipecah jadi subtugas, didel
 
 **Integrasi**: wiring di `runAssistantTurn` hanya untuk jalur koordinator (`!opts.agent && !skipDelegate && askText`, jadi subtugas tidak bisa rekursif) dan selalu jatuh ke `result.text` Mia bila orkestrasi gagal (`auditLog orchestration_error`). `GET/POST /api/orchestration` (status plan + `progress` + baris `tasks[]`, dan `action:"cancel"`) memakai `isAuthorized` yang sudah ada — **tanpa** memperluas `PUBLIC_PREFIXES`. Dashboard 3D sudah ikut status nyata karena orchestrator memancarkan event bus + audit yang dibaca `apps/office-dashboard/`.
 
-**Yang dijaga lewat verify.ts** (semua di-mutation-test): registry diturunkan dari `roleGate`, nama env token cocok dengan channel spec, `SUCCEEDED` wajib `result_reference`, `readyTasks(plan.tasks)` (kalau difilter subtask, dependensi yang gagal tak terlihat → dependent tetap jalan), `attempts` tak pernah di-rollback (loop tak结束的), budget memblokir taskYUPAYA maxTasks, gate koordinator, fallback ke jawaban Mia, dan `autoDenyRisky: true`.
+**Yang dijaga lewat verify.ts** (semua di-mutation-test): registry diturunkan dari `roleGate`, nama env token cocok dengan channel spec, `SUCCEEDED` wajib `result_reference`, `readyTasks(plan.tasks)` (kalau difilter subtask, dependensi yang gagal tak terlihat → dependent tetap jalan), `attempts` tak pernah di-rollback (loop tak berakhir), budget memblokir task lewat maxTasks, gate koordinator, fallback ke jawaban Mia, dan `autoDenyRisky: true`.
 
 **Batas saat ini**: planner deterministik (bukan LLM) — dekomposisi hanya mengenali research/code/security/assistant; eksekusi subtugas real memakai `runAssistantTurn` per subtask (bukan proses paralel lintas-model); dashboard belum punya view plan khusus (tetap pakai audit + bus SSE); belum ada retry pasif untuk tugas non-idempotent demi keamanan (kebijakan, bukan kelemahan data).
 
@@ -416,4 +416,52 @@ perbandingan baseline.
    plan dengan subtask wajib GAGAL dilaporkan selesai
    (`orc-partial-failure-not-completed`). `PlanStatus` kini punya
    `PARTIALLY_COMPLETED` sendiri; `cancelPlan` memperlakukannya sebagai selesai.
+
+### 21.20 Autonomous problem-solving loop (2026-10-17)
+
+Tuples looping `PLAN → EXECUTE → OBSERVE → VERIFY → DIAGNOSE → RECOVER | STOP` sebagai kode, bukan arahan prompt. Modul baru `apps/web/src/lib/recovery/`.
+
+| File | Isi |
+|---|---|
+| `types.ts` | `PsPhase` + tabel transisi (`STOP` terminal; satu back-edge `RECOVER→EXECUTE`), `FailureClass` (11 kelas), `AcceptanceCriterion` + `CriterionProbe`, `RecoveryBudget` + `recoveryBudgetFromEnv` (`RECOVERY_*`), `PsAttempt` (+`tool_calls`), `PsSession` |
+| `classify.ts` | `classifyFailure` — tabel aturan berurutan; tiap aturan bisa **confirmed** (sinyal pemanggil/kode keras) atau **hypothesis** (cuma kata). Tidak menebak: teks tak dikenal -> `UNKNOWN` |
+| `criteria.ts` | `evaluateCriteria` — sebuah kriteria `met` hanya bila probe lulus atau ada attestation berbukti; selain itu `unknown`, jadi `UNKNOWN` tak pernah jadi `COMPLETE`. `fileProber` default (file_exists/file_contains lewat sandbox); probe tool di-inject |
+| `policy.ts` | `decideRecovery` — urutan: budget stop → kelas non-retryable (escalate/stop) → deteksi loop fingerprint (3x identik tanpa alasan recovery = stop) → saturasi kelas → aksi per kelas. `approvalFingerprint` mengikat persetujuan ke op+params (dipakai `agent.ts`) |
+| `session.ts` | Store per-user `recovery-sessions.json` (cap 40, tmp+rename), `newSession`/`recordAttempt`/`saveSession`, `markSessionActive`/`releaseSession` (sesi yang masih hidup di proses ini tak pernah direkonsiliasi), `reconcileSessions` -> sesi `active` tertinggal jadi `unknown` + alasan (tidak pernah di-resume buta) |
+| `report.ts` | `computeLoopMetrics` (recovery success rate, attempts/task, repeated-failure rate, loop-detection rate, false-success rate, correct-stop rate; `null` = tidak diukur, bukan 0), `renderPsReport`, `renderMetricsLine` |
+
+Integrasi (bukan sistem baru — semuanya di dalam orkestrator yang sudah ada):
+- `orchestrator.ts`: `reconcileSessions` saat plan mulai (catatan unknown per sesi), `verifyTask` sebelum menerima sukses (verdict `FAILED` -> **lewat DIAGNOSE** seperti kegagalan lain, `BLOCKED`/`PARTIALLY_COMPLETED` -> `PARTIALLY_COMPLETED`), `recoverTask` sebagai SATU jalur pemulihan untuk exception, subtask yang melaporkan FAILED, **dan** kriteria yang terbukti salah, recovery delegate=swap `agent_id` (task id tetap, tanpa task duplikat), approval-required -> `BLOCKED` + escalate. Sesi di-scope per plan (`ps_<planId>_<taskId>`) + `markSessionActive`/`releaseSession`.
+- `orchestratorAgents.ts`: brief memuat failure class + alasan pemulihan ("jangan mengulang aksi persis yang sama"), aturan jujur riset (bukti tak karangan, kontradiksi diakui), aturan kode (jangan klaim lulus tanpa menjalankan, jangan melemahkan assertion, jangan membuang perubahan lain), format `KRITERIA <id>: <bukti>`, dan `tool_calls` (**dihitung** dari tool_calls assistant di balasan turn, bukan ditebak); `toolProber` memprobe kriteria bentuk tool secara read-only.
+- `agent.ts`: `orchestrateRequest(..., { probe: toolProber })` — verifikasi bukan dari klaim model; plus `confirmCallChanged` menolak continuation yang mengganti params yang sudah disetujui.
+- `orchestration.ts`: task membawa `ps_phase`, `ps_failure`, `ps_recovery`, `ps_recovery_reason`, `criteria_outcome`, `ps_session_id`; `AgentResult` membawa `tool_calls`.
+
+Kriteria penerimaan bisa memakai probe mesin lewat prefiks `file:<path>` di teks kriteria; tanpa probe kriteria hanya bisa `unknown` (tidak pernah CONFIRMED). Attestation **wajib** memakai penanda `KRITERIA <id>:` — ringkasan yang sekadar menyebut id kriteria tidak bisa bersertifikasi sendiri.
+
+Audit 2026-10-18 (7 cacat nyata ditemukan, semua diperbaiki + 7 mutasi pembuktian):
+1. **Id sesi bentrok antar plan** — `task_id` = `t1`/`t2` per plan, jadi sesi `ps_t1` dipakai SEMUA permintaan; permintaan kedua mulai dengan budget percobaan yang sudah terpakai dan bisa langsung dibunuh sebagai "loop". Sekarang `ps_<planId>_<taskId>`.
+2. **Veto verifikasi melewati loop** — kriteria terbukti salah langsung `task.status = FAILED` tanpa DIAGNOSE/retry, jadi kelas `VERIFICATION_FAILURE` mustahil terjadi. Sekarang lewat `recoverTask` dengan sinyal `verificationFailed` + `clearCause`.
+3. **Fingerprint mengandung teks error** — error yang sedikit berbeda (port/id) menyelundupkan loop; fingerprint sekarang aksi (`task_type` + objektif), error tetap terekam di `action`/`error`.
+4. **Budget tool call mati** — `session.tool_calls` tak pernah dinaikkan; sekarang dijumlahkan dari `tool_calls` asli per attempt.
+5. **Rekonsiliasi menabrak loop yang sedang jalan** — sesi `active` milik plan lain di proses yang sama ditandai `unknown` (krash palsu); sekarang dilewati lewat penanda in-flight (globalThis, alasan bundle terpisah).
+6. **Ringkasan bisa bersertifikasi sendiri** — regex attestation mengizinkan id kriteria tanpa penanda; sekarang `KRITERIA` wajib (dua arah diuji).
+7. **Approval tidak terikat params** — `approvalValid`/`ApprovalBinding` dekoratif; sekarang `confirmCallChanged` (fingerprint op+params yang dideklarasikan) menolak call yang paramsnya diganti di jalur konfirmasi FR-014.
+
+Bukti: 47 unit (`recovery/recovery.test.ts`) + 17 integrasi orkestrator (`orchestratorLoop.test.ts`) + 1 uji confirm-path (`turnRouting.test.ts`) + 8 kasus eval (`eval/recoveryCheckers.ts` + dataset). Gates: tsc 0 · `npm test` 2506/2506 (126 file) · `verify.ts` EXIT=0 (222 blok) · lint 0 · 8/8 kasus eval recovery + 9/9 orkestrator lolos · 7 mutasi (tiap perbaikan dimatikan satu per satu → test/verify yang menangkap).
+
+Keterbatasan jujur: kriteria tanpa probe tidak bisa dibuktikan benar, hanya `unknown`; metrik hanya terukur pada sesi yang tercatat (bukan produksi live); `RECOVERY_MAX_ATTEMPTS` efektif `min(RECOVERY_MAX_ATTEMPTS, ORCHESTRATION_MAX_RETRIES + 1)` — anggaran plan tetap berkuasa; `npm run eval` masih gagal pada `evidence-poc-no-signal-stays-no-signal` yang terbukti pre-existing (store poc-runs user eval sudah penuh 120 baris).
+
+#### Live drill 2026-10-18 — tiga cacat integrasi yang tak terlihat oleh unit test
+
+Semua bukti sebelumnya memakai runner palsu. Drill `apps/web/drill-ps-loop-live.mts` (provider nyata, `runSubtaskViaAgent` sungguhan) menemukan tiga cacat yang mustahil terlihat dari test fakes:
+
+1. **Plan melapor DONE tanpa satu pun kriteria terbukti.** `reconcile` hanya menghitung `FAILED` sebagai kegagalan; task yang kriterianya tak terbukti berstatus `PARTIALLY_COMPLETED` — yang TERMINAL tapi bukan sukses — jadi terhitung "tidak ada yang gagal" dan plan jadi `DONE`. Fix: `reconcile` menghitung `partial` (semua task `PARTIALLY_COMPLETED`) dan menurunkan parentStatus ke `PARTIALLY_COMPLETED` + disclosure "kriteria belum terverifikasi"; `progressLine` kini hanya menghitung `SUCCEEDED` di "Completed".
+2. **Riset tentang repo dikirim ke peneliti fakta-publik.** `matchedObjectives` menguji seluruh ask, jadi "riset pola pagination di repo ini" cocok kategori research lalu jatuh ke Agnes; persona boundary rule-nya ("request di luar peranmu bukan tugasanmu") menyala dan dia menjawab "Bukan tugasku Mas Naufal — itu ranahnya Michelle" tanpa satu baris attest. Fix: `REPO_WORK_RE` — klausa riset yang semuanya menyebut repo/kode/file/test bukan riset publik, jadi tidak jadi subtugas research (ask jadi 1 objektif → `shouldOrchestrate` false → Mia menjawab langsung).
+3. **Objective generik tidak menyebut kerjaan sendiri.** Task diberi objective konstanta ("Riset dan verifikasi sumber") sehingga spesialis harus menebak dari `KONTEKS ASAL` — yang justru berisi kerja kolega. Fix: `clauseFor()` mengambil klausa ask yang cocok deteksi tiap objektif (`Riset dan verifikasi sumber: riset best practice pagination REST API di internet`), dan `applyDelegatedSubtaskTurn` (agentRole, pola `applyPeerTurn`) menimpa aturan boundary persona pada giliran subtugas.
+
+**Bukti setelah fix (drill ALL GREEN, 74s):** P3 all-real → `t1=SUCCEEDED/COMPLETE` (attestation `KRITERIA` dari model nyata diterima), `t2=PARTIALLY_COMPLETED` (jujur:Michelle butuh langkah yang tidak bolehnya), `plan status=PARTIALLY_COMPLETED` (bukan DONE), metrik `recoveryRate 25% · falseSuccess 0 · correctStopRate 100%`. P1 hybrid (gagal sekali → retry → agen nyata) dan P2 hard-stop tetap hijau.
+
+**Mutasi baru (M8-M10, semuanya arresting):** M8 kembalikan cabang `reconcile` → test reconciliation GAGAL · M9 hapus baris `applyDelegatedSubtaskTurn` dari `agent.ts` → `verify.ts` GAGAL "helper benar tapi kawatnya lepas" · M10 hapus guard `REPO_WORK_RE` → test planner GAGAL.
+
+**Keterbatasan jujur (tidak disembunyikan):** subtugas `code` praktis tidak bisa SUCCEEDED lewat delegasi karena `autoDenyRisky` menolak semua tool tulis — itu memang desain (delegasi bukan jalan memintas approval), tapi berarti mixer research+code berakhir `PARTIALLY_COMPLETED`; dan `stop_reason` untuk kegagalan TRANSIENT berulang menyebut "kriteria …" (kelas kegagalan ada di `attempts`, bukan di stop_reason).
 

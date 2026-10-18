@@ -34,6 +34,7 @@ import { spotifyPause, spotifyPlay, spotifyNext, spotifyPrevious, spotifySetVolu
 import { getPersonaFact, loadPersonaPrompt } from "./persona";
 import {
   applyAgentRole,
+  applyDelegatedSubtaskTurn,
   applyPeerTurn,
   applySystemDeliveryTurn,
   nineRouterFormattingMemo,
@@ -93,6 +94,7 @@ import { fixAddressComma } from "./textStyle";
 import { dayRotated } from "./dayRotated";
 import { isProviderRetryable } from "./assistantError";
 import { isInternalTurn } from "./memoryNoise";
+import { approvalFingerprint } from "./recovery/policy";
 import { isEndpointTestAsk, isListAsk } from "./turnGate";
 // STATIC on purpose. `await import("./policy")` produced a lazy webpack chunk
 // that the dev server referenced from the instrumentation entry but frequently
@@ -279,7 +281,7 @@ const SYSTEM_PROMPT = [
   "FOOD VARIETY: when user asks 'makan apa enaknya' / 'belum makan' / 'lapar', do NOT default to 'nasi goreng atau bakso' every time — vary: ask what they crave, offer to search nearby (web_search), or suggest other options (sate padang, ayam geprek, gado-gado, soto, etc). Only mention bakso/nasi goreng occasionally, not every turn. ",
   "LANGUAGE HARD RULE: always reply in Latin script only — NEVER emit CJK/Chinese, ",
   "Japanese, Korean, or other non-Latin glyphs inside an Indonesian/English reply ",
-  "(e.g. write 'asup energi' never '摄入能量' or '能量'). A single non-Latin character is a bug. ",
+  "(e.g. write 'asup energi' never '\u6444\u5165\u80fd\u91cf' or '\u80fd\u91cf'). A single non-Latin character is a bug. ",
   "TIME REFERENCES: you always know the current time — phrase schedule/wake-up talk ",
   "relative to it, naturally ('udah lewat jam bangunmu jam 7' when it is past 07:00, ",
   "'masih 2 jam lagi' when something is upcoming). Never invent a different time for ",
@@ -766,7 +768,7 @@ function openCodeSystemPromptParts(): string {
     "never list capabilities unless asked, never narrate in telegraphese. ",
     "LANGUAGE HARD RULE: always reply in Latin script only — NEVER emit CJK/Chinese, ",
     "Japanese, Korean, or other non-Latin glyphs inside an Indonesian/English reply ",
-    "(e.g. write 'asup energi' never '摄入能量' or '能量'). A single non-Latin character is a bug. ",
+    "(e.g. write 'asup energi' never '\u6444\u5165\u80fd\u91cf' or '\u80fd\u91cf'). A single non-Latin character is a bug. ",
     "If the user switches language, answer in the same language. ",
     "For factual or live questions you are unsure about (weather, news, sports, ",
     "countries, people, events), use your READ-ONLY tool 'web_search' to look it ",
@@ -2234,6 +2236,26 @@ export function normalizeMessageToolCalls(messages: ChatMessage[]): void {
  *
  * Pure. Never mutates the input.
  */
+/**
+ * Did a confirmation continuation change the operation it was approved for?
+ *
+ * The approval is granted for the exact op+params the model declared, so a
+ * submitted call whose fingerprint differs from the declared one is a material
+ * change (buggy or crafted client replaying a known call id). No declared call
+ * means nothing to compare against — the normal re-gates still apply.
+ * Pure; exported for tests and verify.
+ */
+export function confirmCallChanged(
+  submitted: Pick<ToolCall, "name" | "arguments">,
+  declared: { function: { name: string; arguments: string } } | undefined,
+): boolean {
+  if (!declared) return false;
+  return (
+    approvalFingerprint(submitted.name, submitted.arguments) !==
+    approvalFingerprint(declared.function.name, declared.function.arguments)
+  );
+}
+
 export function gatewayToolCall(call: ToolCall): NonNullable<ChatMessage["tool_calls"]>[number] {
   const raw = call as { id: string; type?: string; function?: { name: string; arguments: string }; name?: unknown; arguments?: unknown };
   if (raw.function?.name) return { id: raw.id, type: "function", function: { ...raw.function } };
@@ -2660,14 +2682,15 @@ export function stripToolCallProse(text: string): string {
     .replace(/<\/?(?:invoke|parameter|tool_call|tool_use|tool_result|function_calls|antml:[a-z_]+)\b[^>]*>/gi, " ")
     // Unclosed/malformed opening tags (cut off mid-tag): drop just the tag.
     .replace(/<(?:invoke|tool_call|tool_use|function_calls)\b[^>\n]*>?/gi, " ")
-    // DeepSeek-style fullwidth markup: "｜｜DSML｜｜ calls> … ｜｜DSML｜｜ invoke name=…".
-    .replace(/[|｜]{2}\s*DSML\s*[|｜]{2}[\s\S]*?(?=\n\s*\n|$)/gi, " ")
-    .replace(/[|｜]{2}\s*DSML\s*[|｜]{2}[^\n]*/gi, " ")
-    .replace(/<\/?(?:[|｜]{2}\s*DSML\s*[|｜]{2})\s*(?:invoke|parameter|calls?)\b[^>]*>?/gi, " ");
+    // DeepSeek-style fullwidth markup: fullwidth pipe (U+FF5C) twice, "DSML", twice,
+    // then " calls> … " / " invoke name=…" — matched with the ASCII pipe too.
+    .replace(/[|\uff5c]{2}\s*DSML\s*[|\uff5c]{2}[\s\S]*?(?=\n\s*\n|$)/gi, " ")
+    .replace(/[|\uff5c]{2}\s*DSML\s*[|\uff5c]{2}[^\n]*/gi, " ")
+    .replace(/<\/?(?:[|\uff5c]{2}\s*DSML\s*[|\uff5c]{2})\s*(?:invoke|parameter|calls?)\b[^>]*>?/gi, " ");
   // A stripped block can leave a lone "<" / ">" or stray separator behind — drop
   // those scraps so "empty" is really empty (they used to defeat the
   // empty-answer guard and the user got a bare "(link tersimpan)" note).
-  text = text.replace(/^[\s<>|｜/]+/, "").replace(/[\s<>|｜/]+$/, "");
+  text = text.replace(/^[\s<>|\uff5c/]+/, "").replace(/[\s<>|\uff5c/]+$/, "");
   const names = getTOOLS().map((t) => t.function.name).join("|");
   // A whole line that IS a tool call: "remind_me(text='...', when='...')" → drop.
   const lineRe = new RegExp(`^\\s*(?:${names})\\s*\\(`, "i");
@@ -3846,7 +3869,7 @@ const PROVER_STRENGTH_TOOLS = new Set([
   "smuggle_probe", "csrf_prove", "auth_matrix", "exploit_chain", "vuln_compose",
 ]);
 const FINDING_PRESENTED_RE =
-  /(terkonfirmasi|terbukti|terbukti|proven|confirmed|rentan|vulnerable|celah|kerentanan|temuan|漏洞|id\s?or|bola|sqli|sql\s?injection|xss|ssrf|rce|xxe|csrf)/i;
+  /(terkonfirmasi|terbukti|terbukti|proven|confirmed|rentan|vulnerable|celah|kerentanan|temuan|\u6f0f\u6d1e|id\s?or|bola|sqli|sql\s?injection|xss|ssrf|rce|xxe|csrf)/i;
 const CONCLUSION_RE =
   /(sudah\s+(selesai|complete|done)|berhasil|pengujian\s+(menyeluruh|selesai)|laporan|report|ringkasan|hasil\s+akhir|ditemukan|terverifikasi)/i;
 const RECORD_ADMISSION_RE =
@@ -5357,7 +5380,7 @@ export const ASPECT_MARKERS: readonly string[] = [
  * ("udah lengkap, terima kasih ya") is never read as a claim.
  */
 export const RESULT_CLAUSE_RE =
-  /\b\d+\s*(?:temuan|celah|bug|issue|issues|findings?|vulnerabilit|endpoint|endpointnya|lapisan|layer)\b|[:：]|\bketemu\b|\btemuan\b|\bcelah\b|\bhasilnya\b|\bteridentifikasi\b|\bterbuka\b|\bketahuan\b/i;
+  /\b\d+\s*(?:temuan|celah|bug|issue|issues|findings?|vulnerabilit|endpoint|endpointnya|lapisan|layer)\b|[:\uff1a]|\bketemu\b|\btemuan\b|\bcelah\b|\bhasilnya\b|\bteridentifikasi\b|\bterbuka\b|\bketahuan\b/i;
 
 const esc = (terms: readonly string[]): string =>
   terms.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
@@ -6917,6 +6940,11 @@ export async function runAssistantTurn(opts: {
    * would deliver the same report twice.
    */
   systemDelivers?: string;
+  /**
+   * Set by the orchestration loop. See the implementation's docblock: the brief
+   * quotes the parent ask, and the persona boundary rule bounced the subtask.
+   */
+  delegatedSubtask?: { objective?: string };
 }): Promise<TurnResult> {
   checkRateLimit(opts.user);
   for (const d of confirmDecisions(opts)) {
@@ -6994,11 +7022,13 @@ export async function runAssistantTurn(opts: {
       try {
         const { shouldOrchestrate } = await import("./orchestrationPlanner");
         if (shouldOrchestrate(askText)) {
-          const [{ orchestrateRequest }, { runSubtaskViaAgent }] = await Promise.all([
+          const [{ orchestrateRequest }, { runSubtaskViaAgent, toolProber }] = await Promise.all([
             import("./orchestrator"),
             import("./orchestratorAgents"),
           ]);
-          const outcome = await orchestrateRequest(askText, busCtx.userKey, runSubtaskViaAgent);
+          // The loop verifies before believing a success: tool criteria are
+          // probed read-only instead of being taken from the agent's word.
+          const outcome = await orchestrateRequest(askText, busCtx.userKey, runSubtaskViaAgent, { probe: toolProber });
           if (outcome.orchestrated && outcome.finalText) orchestratedText = outcome.finalText;
         }
       } catch (err) {
@@ -7073,6 +7103,13 @@ async function runAssistantTurnImpl(opts: {
   peerAgent?: string;
   /** Same meaning as the public wrapper's `systemDelivers`; forwarded via `opts`. */
   systemDelivers?: string;
+  /**
+   * Set by the orchestration loop (`orchestratorAgents.runSubtaskViaAgent`).
+   * The subtask brief quotes the parent's ask, which can name a colleague's
+   * work; the persona boundary rule then bounced the whole subtask (measured
+   * live 2026-10-18). This flag tells the role layer it is a delegated subtask.
+   */
+  delegatedSubtask?: { objective?: string };
 }): Promise<TurnResult> {
   const { messages: inputMessages } = opts;
   const model = opts.model?.trim() || undefined;
@@ -7096,6 +7133,7 @@ async function runAssistantTurnImpl(opts: {
   // Peer turn: the trigger was another agent, not the user. Appended last so it
   // overrides the owner-honorific rule that sits far above in the prompt.
   systemPrompt = applyPeerTurn(systemPrompt, opts.peerAgent);
+  if (opts.delegatedSubtask) systemPrompt = applyDelegatedSubtaskTurn(systemPrompt, opts.delegatedSubtask.objective);
   // System-delivered turn: the caller pushes this reply itself (office webhook).
   // Appended last so it overrides the per-agent delivery clause above.
   systemPrompt = applySystemDeliveryTurn(systemPrompt, opts.systemDelivers);
@@ -7347,6 +7385,22 @@ async function runAssistantTurnImpl(opts: {
       }
       if (seen.has(call.id)) continue;
       seen.add(call.id);
+      // Approval is bound to the exact op+params the model DECLARED and the
+      // owner was shown. A continuation that replays a known call id with
+      // different arguments is a material change: the owner approved a
+      // different operation, so it is declined instead of executed.
+      const declaredCall = messages
+        .flatMap((m) => (m.role === "assistant" && Array.isArray(m.tool_calls) ? m.tool_calls : []))
+        .find((tc) => tc.id === call.id);
+      if (allow && confirmCallChanged(call, declaredCall)) {
+        console.warn(`[agent] confirm call ${call.id} changed its arguments since the proposal — refusing`);
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: `Not executed: "${call.name}" was approved with different arguments than the ones requested. Approval covers the exact operation only; propose the new parameters so the owner can approve them.`,
+        });
+        continue;
+      }
       // Idempotency (invariant: risky tools execute at most once per call.id).
       // A duplicate POST of the same confirm (double-click / client retry after a
       // dropped stream) must NOT re-run a delete/add side effect — reuse the
@@ -8575,10 +8629,10 @@ async function runAssistantTurnImpl(opts: {
 
 /**
  * Deterministic CJK / non-Latin scrub. Some Chinese-trained LLMs (GLM, DeepSeek)
- * occasionally leak CJK glyphs into an Indonesian reply ("摄入能量"). The prompt
+ * occasionally leak CJK glyphs into an Indonesian reply. The prompt
  * bans them, but this is a hard guarantee on the final reply text — ever before
  * it reaches the channel. Removes the char (keeps words around it intact,
- * e.g. "Buruan摄入能量" → "Buruan能量").
+ * e.g. an Indonesian word glued to two hanzi becomes just the Indonesian word).
  */
 /** True when a reply carries no real content (empty, or markup/punctuation scraps). */
 export function isEffectivelyEmpty(text: string): boolean {

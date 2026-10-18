@@ -39,38 +39,38 @@ export async function securityHunt(rawUser: unknown, urlRaw: string, opts: { dee
   const audit = await safe(() => webAudit(url), "");
   const auditFlags = flags(audit);
   if (auditFlags.length) leads.push(...auditFlags.map((f) => `header/cookie: ${f}`));
-  sections.push(`【1】HEADER & COOKIE\n${head(audit, 8)}`);
+  sections.push(`\u30101\u3011HEADER & COOKIE\n${head(audit, 8)}`);
 
   const csp = await safe(() => cspAudit(url), "");
   const cspFlags = flags(csp);
   if (cspFlags.length) leads.push(...cspFlags.map((f) => `CSP: ${f}`));
-  sections.push(`【2】CSP\n${head(csp, 4)}`);
+  sections.push(`\u30102\u3011CSP\n${head(csp, 4)}`);
 
   const cors = await safe(() => corsAudit(url, rawUser), "");
   const corsFlags = flags(cors);
   if (corsFlags.length) leads.push(...corsFlags.map((f) => `CORS: ${f}`));
-  sections.push(`【3】CORS\n${head(cors, 4)}`);
+  sections.push(`\u30103\u3011CORS\n${head(cors, 4)}`);
 
   const content = await safe(() => contentDiscover(rawUser, url), "");
   const contentFlags = flags(content);
   if (contentFlags.length) leads.push(...contentFlags.map((f) => `content: ${f}`));
-  sections.push(`【4】CONTENT DISCOVERY\n${head(content, 10)}`);
+  sections.push(`\u30104\u3011CONTENT DISCOVERY\n${head(content, 10)}`);
 
   const crawl = await safe(() => crawlSite(rawUser, url, 15, 2), "");
   const crawlFlags = flags(crawl);
   if (crawlFlags.length) leads.push(...crawlFlags.map((f) => `crawl: ${f}`));
-  sections.push(`【5】CRAWL\n${head(crawl, 8)}`);
+  sections.push(`\u30105\u3011CRAWL\n${head(crawl, 8)}`);
 
   const js = await safe(() => jsMine(rawUser, url), "");
   const jsFlags = flags(js);
   if (jsFlags.length) leads.push(...jsFlags.map((f) => `js: ${f}`));
-  sections.push(`【6】JS MINING\n${head(js, 10)}`);
+  sections.push(`\u30106\u3011JS MINING\n${head(js, 10)}`);
 
   if (opts.deep) {
     const pd = await safe(() => paramDiscover(undefined, { url }), "");
     const pdFlags = flags(pd);
     if (pdFlags.length) leads.push(...pdFlags.map((f) => `param: ${f}`));
-    sections.push(`【7】PARAM DISCOVERY\n${head(pd, 8)}`);
+    sections.push(`\u30107\u3011PARAM DISCOVERY\n${head(pd, 8)}`);
   }
 
   const header = `🛰️ SECURITY HUNT ${url}${opts.deep ? " (deep)" : ""}\n${sections.join("\n\n")}`;

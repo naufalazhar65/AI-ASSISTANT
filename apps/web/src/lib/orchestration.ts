@@ -13,6 +13,7 @@
 import { AGENT_REGISTRY, agentProfile, agentsForCategory, isAvailableAgent, unavailableReason } from "./agentRegistry";
 import type { AgentLabel } from "./agentRouting";
 import type { TaskCategory } from "./agentRegistry";
+import type { CriteriaVerdict, FailureClass, PsPhase, RecoveryAction } from "./recovery/types";
 
 export type OrchestrationTaskType = TaskCategory;
 
@@ -68,6 +69,19 @@ export interface OrchestrationTask {
   attempts: number;
   /** Safe to repeat without duplicating an external effect. */
   idempotent: boolean;
+  /* --- problem-solving loop (optional; absent on plans built before it) --- */
+  /** Phase the loop reached for this task. */
+  ps_phase?: PsPhase;
+  /** Failure class decided by the deterministic classifier. */
+  ps_failure?: FailureClass;
+  /** Recovery action the policy chose after the last failure. */
+  ps_recovery?: RecoveryAction;
+  /** Why that recovery was allowed (never empty when recovering). */
+  ps_recovery_reason?: string;
+  /** VERIFY verdict from the acceptance criteria. */
+  criteria_outcome?: CriteriaVerdict;
+  /** Stable id of the persisted loop session for this task. */
+  ps_session_id?: string;
 }
 
 export interface OrchestrationBudget {
@@ -126,6 +140,8 @@ export interface AgentResult {
   evidence_references: string[];
   artifact_references: string[];
   validations: string[];
+  /** Real tool calls this subtask executed; the loop budget reads it. */
+  tool_calls?: number;
   errors: string[];
   remaining_uncertainty: string[];
   next_step: string | null;
@@ -276,6 +292,8 @@ export interface Reconciliation {
   requiredBlocked: number;
   requiredCancelled: number;
   optionalFailed: string[];
+  /** Task ids that finished PARTIALLY_COMPLETED — criteria never proven. */
+  partial: string[];
   unfinished: string[];
   /** Lines the final response must disclose. */
   disclosures: string[];
@@ -297,6 +315,11 @@ export function reconcile(plan: OrchestrationPlan): Reconciliation {
   const cancelled = required.filter((t) => t.status === "CANCELLED");
   const unfinished = required.filter((t) => !TERMINAL_STATES.includes(t.status)).map((t) => t.task_id);
   const optionalFailed = optional.filter((t) => t.status === "FAILED").map((t) => t.task_id);
+  // A task whose acceptance criteria were never proven lands on
+  // PARTIALLY_COMPLETED. It is terminal (nothing is still running) but it is NOT
+  // a success, so counting only FAILED here used to fold "nothing verified"
+  // into SUCCEEDED and the plan reported DONE with zero proven criteria.
+  const partial = plan.tasks.filter((t) => t.status === "PARTIALLY_COMPLETED").map((t) => t.task_id);
 
   let parentStatus: Reconciliation["parentStatus"];
   if (required.length === 0) {
@@ -305,10 +328,10 @@ export function reconcile(plan: OrchestrationPlan): Reconciliation {
     // reported them as FAILED even when every subtask had succeeded.
     const open = plan.tasks.filter((t) => !TERMINAL_STATES.includes(t.status));
     const cancelledAll = plan.tasks.length > 0 && plan.tasks.every((t) => t.status === "CANCELLED");
-    parentStatus = open.length > 0 ? "RUNNING" : cancelledAll ? "CANCELLED" : optionalFailed.length > 0 ? "PARTIALLY_COMPLETED" : "SUCCEEDED";
+    parentStatus = open.length > 0 ? "RUNNING" : cancelledAll ? "CANCELLED" : optionalFailed.length > 0 || partial.length > 0 ? "PARTIALLY_COMPLETED" : "SUCCEEDED";
   } else if (cancelled.length === required.length) parentStatus = "CANCELLED";
   else if (failed.length + blocked.length + cancelled.length === 0 && unfinished.length === 0) {
-    parentStatus = optionalFailed.length > 0 ? "PARTIALLY_COMPLETED" : "SUCCEEDED";
+    parentStatus = optionalFailed.length > 0 || partial.length > 0 ? "PARTIALLY_COMPLETED" : "SUCCEEDED";
   } else if (done.length > 0) parentStatus = "PARTIALLY_COMPLETED";
   else parentStatus = failed.length + cancelled.length > 0 ? "FAILED" : "RUNNING";
 
@@ -318,6 +341,7 @@ export function reconcile(plan: OrchestrationPlan): Reconciliation {
   if (cancelled.length) disclosures.push(`${cancelled.length} tugas dibatalkan: ${cancelled.map((t) => t.task_id).join(", ")}`);
   if (unfinished.length) disclosures.push(`${unfinished.length} tugas belum selesai: ${unfinished.join(", ")}`);
   if (optionalFailed.length) disclosures.push(`${optionalFailed.length} tugas opsional gagal (tujuan utama tetap tercapai): ${optionalFailed.join(", ")}`);
+  if (partial.length) disclosures.push(`${partial.length} tugas selesai sebagian — kriteria belum terverifikasi: ${partial.join(", ")}`);
   const gaps = plan.tasks.filter((t) => t.agent_id === null && t.status !== "CANCELLED").map((t) => t.task_id);
   if (gaps.length) disclosures.push(`${gaps.length} tugas dilewati karena tidak ada agent terdaftar yang mampu: ${gaps.join(", ")}`);
   if (plan.notes.length) disclosures.push(...plan.notes);
@@ -333,6 +357,7 @@ export function reconcile(plan: OrchestrationPlan): Reconciliation {
     requiredBlocked: blocked.length,
     requiredCancelled: cancelled.length,
     optionalFailed,
+    partial,
     unfinished,
     disclosures,
     contradictions,
@@ -382,13 +407,16 @@ export function findContradictions(plan: OrchestrationPlan): string[] {
 /** Progress block for channels — counts come from task records, never invented. */
 export function progressLine(plan: OrchestrationPlan): string {
   const r = reconcile(plan);
-  const done = plan.tasks.filter((t) => DONE_FOR_DEPS.includes(t.status)).length;
+  // Only SUCCEEDED counts as completed: a PARTIALLY_COMPLETED task never had its
+  // criteria proven, so reporting it inside "Completed" overclaims.
+  const done = plan.tasks.filter((t) => t.status === "SUCCEEDED").length;
+  const partial = r.partial.length;
   const running = plan.tasks.find((t) => t.status === "RUNNING" || t.status === "READY" || t.status === "QUEUED");
   const awaiting = plan.tasks.filter((t) => t.status === "AWAITING_APPROVAL").length;
   const lines = [
     `**Task:** ${plan.request.slice(0, 80)}`,
     `**Status:** ${r.parentStatus}`,
-    `**Completed:** ${done} dari ${plan.tasks.length} tahap`,
+    `**Completed:** ${done} dari ${plan.tasks.length} tahap${partial ? ` (+${partial} sebagian, kriteria belum terverifikasi)` : ""}`,
     `**Current:** ${running ? `${running.task_id} · ${AGENT_REGISTRY[running.agent_id ?? "mia"].displayName}` : "tidak ada tahap berjalan"}`,
     `**Blocked:** ${r.requiredBlocked ? r.requiredBlocked : awaiting ? `${awaiting} menunggu persetujuan` : "None"}`,
   ];

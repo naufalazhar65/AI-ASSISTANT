@@ -268,7 +268,7 @@ Private personal project.
 
 *Built with 🌸 — Mia is a woman, she/her, always.*
 
-**Orkestrasi multi-agent (Mia koordinator):** permintaan kompleks dipecah jadi subtugas dan didelegasikan ke agent terdaftar (Agnes = riset, Michelle = kode/keamanan) lewat `apps/web/src/lib/orchestrator*.ts` + `agentRegistry.ts`; status task otoritatif di `.data/users/<user>/orchestration.json`, dibaca dashboard & `/api/orchestration`. Detail di `MIA_FEATURES.md` §21.19.
+**Orkestrasi multi-agent (Mia koordinator):** permintaan kompleks dipecah jadi subtugas dan didelegasikan ke agent terdaftar (Agnes = riset, Michelle = kode/keamanan) lewat `apps/web/src/lib/orchestrator*.ts` + `agentRegistry.ts`; status task otoritatif di `.data/users/<user>/orchestration.json`, dibaca dashboard & `/api/orchestration`. Detail di `MIA_FEATURES.md` §21.19. Setiap task berjalan di loop `PLAN→EXECUTE→OBSERVE→VERIFY→DIAGNOSE→RECOVER|STOP` dengan kriteria penerimaan terverifikasi (bukti wajib; `UNKNOWN` tak pernah jadi `SUCCEEDED`), 11 kelas kegagalan + policy pemulihan per kelas, deteksi loop via fingerprint, budget keras (percobaan/wall-clock/tool-call), dan rekonsiliasi restart (`apps/web/src/lib/recovery/`).
 
 ## Evaluasi agent (deterministik + baseline regresi)
 

@@ -82,11 +82,51 @@ export function shouldOrchestrate(ask: string): boolean {
   return matchedObjectives(t).length >= 2;
 }
 
+/** Repo/code work a "research" verb can hide: research ABOUT the codebase is
+ *  code work, and the research specialist is a public-facts researcher. */
+const REPO_WORK_RE = /\b(repo|repository|kode|codebase|source code|file|fungsi|function|test|implementasi|implement|refactor|commit|script|modul|module|class)\b/i;
+
+function splitClauses(text: string): string[] {
+  return text
+    .split(/(?:\s+lalu\s+|\s+kemudian\s+|\s*[,;]\s+|\s+dan's?\s+|\s+then\s+)/i)
+    .map((c) => c.trim())
+    .filter(Boolean);
+}
+
 function matchedObjectives(text: string): ObjectiveSpec[] {
   const t = text.trim();
   const hits: ObjectiveSpec[] = [];
-  for (const spec of OBJECTIVES) if (spec.detect.test(t)) hits.push(spec);
+  const clauses = splitClauses(t);
+  for (const spec of OBJECTIVES) {
+    if (!spec.detect.test(t)) continue;
+    // Live drill 2026-10-18: "riset pola pagination yang dipakai di repo ini"
+    // matched research and was handed to the public-facts researcher, who
+    // answered "bukan tugasku ... itu ranahnya Michelle" and attested nothing.
+    // Research ABOUT the codebase is code work, so it must not become a
+    // research subtask nobody can finish.
+    if (spec.category === "research") {
+      const researchClauses = clauses.filter((c) => spec.detect.test(c));
+      if (researchClauses.length > 0 && researchClauses.every((c) => REPO_WORK_RE.test(c))) continue;
+    }
+    hits.push(spec);
+  }
   return hits;
+}
+
+/**
+ * The ask clause that carries THIS objective, so a subtask is not handed to a
+ * specialist as the generic objective alone.
+ *
+ * Measured by the live drill 2026-10-18: "Riset dan verifikasi sumber" plus a
+ * parent ask that also asks for a code fix bounced — Agnes read the code half,
+ * her persona boundary rule fired, and the subtask ended with nothing attested.
+ * The objective has to name the work; the parent context stays as context.
+ */
+function clauseFor(text: string, spec: ObjectiveSpec): string | null {
+  const clauses = splitClauses(text);
+  const hit = clauses.find((c) => spec.detect.test(c));
+  // The split leaves the conjunction on the next clause ("lalu perbaiki ...").
+  return hit ? hit.replace(/^(lalu|kemudian|dan|then|sedangkan|berikutnya)\s+/i, "").slice(0, 160) : null;
 }
 
 /**
@@ -110,7 +150,7 @@ export function planFromRequest(
       task_id: id,
       parent_task_id: null,
       agent_id: agent,
-      objective: spec.objective,
+      objective: clauseFor(request, spec) ? `${spec.objective}: ${clauseFor(request, spec)}` : spec.objective,
       task_type: spec.category,
       input_context: request,
       expected_output: spec.expected,

@@ -291,6 +291,33 @@ export function applyPeerTurn(prompt: string, peerAgent?: unknown): string {
 }
 
 /**
+ * DELEGATED SUBTASK TURN (orchestration loop): the caller is Mia's loop, not the
+ * owner.
+ *
+ * Measured by the live drill 2026-10-18: a research subtask whose brief quotes
+ * the parent's ask ("riset pola pagination ... lalu perbaiki fungsi helper")
+ * made Agnes answer "Bukan tugasku Mas Naufal - urusan codebase ada di Michelle"
+ * and stop. The cause is the boundary clause far above ("a request outside your
+ * role is NOT yours to do ... say which agent owns it and stop"), which fired on
+ * the CODE half of the parent ask that a sibling task already owns. The subtask
+ * brief could not win that argument: it is a user message, the boundary is a
+ * persona rule. So the exception has to live in the persona, appended last -
+ * same shape as applyPeerTurn.
+ */
+export function applyDelegatedSubtaskTurn(prompt: string, objective?: unknown): string {
+  const obj = typeof objective === "string" ? objective.trim() : "";
+  return (
+    `${prompt}\n\nDELEGATED SUBTASK (overrides the boundary rule above): this turn ` +
+    `is a subtask delegated by Mia's planning loop${obj ? ` — your objective: ${obj}` : ""}. ` +
+    `The message quotes the parent's original ask, so it may mention work that ` +
+    `belongs to a colleague; that part is already assigned to them and is NOT a ` +
+    `reason for you to decline or to hand it back. Do the delegated objective ` +
+    `with the tools you have, then stop and report what really happened - ` +
+    `including "not verified" when you could not prove a criterion.`
+  );
+}
+
+/**
  * SYSTEM-DELIVERED TURN: the caller already ships this reply for you.
  *
  * Measured live 2026-10-12 (office task q-mv50): the owner asked Agnes for viral
@@ -305,8 +332,7 @@ export function applyPeerTurn(prompt: string, peerAgent?: unknown): string {
  * Same shape as applyPeerTurn: appended last, so it wins over the
  * RESEARCH_OUTPUT_CONTRACT clause far above it.
  */
-export function applySystemDeliveryTurn(prompt: string, delivers?: unknown): string {
-  const label = typeof delivers === "string" ? delivers.trim() : "";
+export function applySystemDeliveryTurn(prompt: string, delivers?: unknown): string {  const label = typeof delivers === "string" ? delivers.trim() : "";
   if (!label) return prompt;
   return (
     `${prompt}\n\nSYSTEM-DELIVERED TURN (overrides the delivery instruction above): ` +

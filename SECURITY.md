@@ -267,6 +267,15 @@ engagement_close id=ENG-…
   blocked, redirects validated per hop.
 - **FR-014 confirmation** for scans/edits and for `engagement_create` (granting
   scan permission); read-only tools auto-run.
+- **Approval bound to the exact op + params the model declared**
+  (`approvalFingerprint` in `recovery/policy.ts`, enforced by
+  `confirmCallChanged` in `agent.ts`): a confirmation continuation that replays a
+  known call id with different tool or arguments is a material change, so the
+  call is refused with an honest "Not executed: approved with different
+  arguments" instead of running. Changing what to run therefore always requires a
+  new proposal and a new approval. The problem-solving loop never retries an
+  `APPROVAL_REQUIRED` or `AUTHORIZATION_BLOCKED` failure — it escalates instead of
+  re-asking on its own.
 - **Audit log** records each tool call (`breach_check`/`password_strength` args
   redacted).
 - **Secrets never echoed**: `secret_scan` reports `file:line:type` only.

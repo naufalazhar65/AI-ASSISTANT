@@ -23,7 +23,7 @@ export function detectPriceIntent(text: string): PriceIntent | null {
     .trim()
     .replace(/\b(?:sekarang|saat\s+ini|hari\s+ini|berapa|harganya|dong|ya|beb|mas|bang|kak|sih|a)\b.*$/i, "")
     .replace(/\b(?:aja|kalau|jika|kalo|dan|lalu|terus|untuk)\b.*$/i, "")
-    .replace(/[?。.!,;:)]+$/g, "")
+    .replace(/[?\u3002.!,;:)]+$/g, "")
     .replace(/^[\s\-:"]+|[\s\-:"]+$/g, "")
     .trim();
 

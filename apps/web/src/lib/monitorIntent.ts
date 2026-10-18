@@ -136,7 +136,7 @@ export function detectMonitorIntent(userText: string): MonitorIntent | null {
 export function detectMonitorIntents(userText: string): MonitorIntent[] {
   const text = (userText ?? "").replace(/\s+/g, " ").trim();
   if (!text) return [];
-  const clauses = text.split(/\s*[,;，]\s*|\s+dan\s+|\s+terus\s+|\s+lalu\s+|\s+\band\b\s+/i).map((c) => c.trim()).filter(Boolean);
+  const clauses = text.split(/\s*[,;\uff0c]\s*|\s+dan\s+|\s+terus\s+|\s+lalu\s+|\s+\band\b\s+/i).map((c) => c.trim()).filter(Boolean);
   const out: MonitorIntent[] = [];
   const seen = new Set<string>();
   // Clauses FIRST: "storage 90% … terus batre 20%" must yield storage@90 AND

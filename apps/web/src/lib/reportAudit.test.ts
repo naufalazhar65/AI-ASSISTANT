@@ -106,7 +106,7 @@ describe("report audit locks (2026-10-15)", () => {
     const user = withFixtureUser();
     try {
       const md = generateReport(user, { target: HOST });
-      expect(md).not.toMatch(/Steps to Reproduce】?:\s*-\s*(\n|$)/);
+      expect(md).not.toMatch(/Steps to Reproduce\u3011?:\s*-\s*(\n|$)/);
       expect(md).not.toContain("merged from <REDACTED>");
       expect(md).not.toMatch(/merged from F-[A-Za-z0-9-]+/);
     } finally {

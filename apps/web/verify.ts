@@ -1,4 +1,5 @@
 import { ConversationManager } from "./src/ai/ConversationManager";
+import type { AgentResult, OrchestrationPlan, OrchestrationTask } from "./src/lib/orchestration";
 import { MockProvider } from "@ai-provider/mock";
 import { executeTool, getTOOLS } from "./src/lib/tools";
 import { autoUpdateStatus, runAutoUpdate, runAutoUpdaterTick } from "./src/lib/autoUpdater";
@@ -9398,6 +9399,185 @@ async function verifyProactiveWorkflows(): Promise<void> {
       storeMod.purgeWorkflows(guardUser);
     }
     console.log("proactive workflow (approval tak-bypass · policy · tools · route auth): OK");
+  }
+  // --- autonomous problem-solving loop: phases, criteria, recovery, restart ---
+  {
+    const runnerSrc = readFileSync(join(import.meta.dirname, "src", "lib", "orchestrator.ts"), "utf8");
+    const agentsSrc = readFileSync(join(import.meta.dirname, "src", "lib", "orchestratorAgents.ts"), "utf8");
+    const agentSrc = readFileSync(join(import.meta.dirname, "src", "lib", "agent.ts"), "utf8");
+    for (const f of ["types", "classify", "criteria", "policy", "session", "report", "index"]) {
+      const p = join(import.meta.dirname, "src", "lib", "recovery", `${f}.ts`);
+      if (!existsSync(p)) throw new Error(`recovery: file missing ${p}`);
+    }
+    for (const call of ["classifyFailure(", "decideRecovery(", "evaluateCriteria(", "recordAttempt(", "reconcileSessions("]) {
+      if (!runnerSrc.includes(call)) throw new Error(`recovery: orchestrator.ts must call ${call}`);
+    }
+    const policySrc = readFileSync(join(import.meta.dirname, "src", "lib", "recovery", "policy.ts"), "utf8");
+    if (!/loop terdeteksi/.test(policySrc) || !/maxIdenticalRepeat/.test(policySrc)) {
+      throw new Error("recovery: policy harus mendeteksi aksi identik, bukan hanya menghitung attempt");
+    }
+    // The loop must never buy itself a retry with its own previous reason.
+    if (/recoveryReason:/.test(runnerSrc)) {
+      throw new Error("recovery: orchestrator tidak boleh memberi dirinya sendiri recoveryReason (looplub retries)");
+    }
+    if (!/toolProber/.test(agentsSrc)) throw new Error("recovery: orchestratorAgents.ts must expose toolProber for deterministic VERIFY");
+    if (!/probe: toolProber/.test(agentSrc)) throw new Error("recovery: agent.ts must hand the prober to runPlan so VERIFY is not taken on trust");
+
+    // Live drill 2026-10-18: three integration defects the unit tests could not
+    // see, because each lived in a file the fake runner never executed.
+    // (1) the delegated-subtask clause must be APPLIED, not merely defined;
+    const plannerSrc = readFileSync(join(import.meta.dirname, "src", "lib", "orchestrationPlanner.ts"), "utf8");
+    if (!/if \(opts\.delegatedSubtask\) systemPrompt = applyDelegatedSubtaskTurn\(/.test(agentSrc)) {
+      throw new Error("recovery: agent.ts must apply applyDelegatedSubtaskTurn (helper benar tapi kawatnya lepas)");
+    }
+    if (!/delegatedSubtask: \{ objective: task\.objective \}/.test(agentsSrc)) {
+      throw new Error("recovery: orchestratorAgents.ts must pass delegatedSubtask so the persona stops bouncing subtasks");
+    }
+    // (2) a subtask objective must name ITS work: the generic category label
+    // left the specialist reading the parent ask and bouncing (live probe).
+    if (!/clauseFor\(request, spec\)/.test(plannerSrc)) {
+      throw new Error("recovery: planner harus memberi objective per-klausa, bukan label kategori generik");
+    }
+    if (!/REPO_WORK_RE/.test(plannerSrc)) {
+      throw new Error("recovery: riset tentang repo bukan riset publik (jika tidak, subtugas riset selalu mentholak)");
+    }
+    // (3) a plan whose criteria were never proven must not report DONE.
+    if (!/partial\.length > 0 \? "PARTIALLY_COMPLETED" : "SUCCEEDED"/.test(readFileSync(join(import.meta.dirname, "src", "lib", "orchestration.ts"), "utf8"))) {
+      throw new Error("recovery: reconcile harus menurunkan PARTIALLY_COMPLETED, bukan melapor DONE tanpa kriteria terbukti");
+    }
+
+    const user = `verify_recovery_${Date.now().toString(36)}`;
+    const cleanup = () => rmSync(join(appRoot(), ".data", "users", user), { recursive: true, force: true });
+    try {
+      const rec = await import("./src/lib/recovery/index");
+      const { confirmCallChanged } = await import("./src/lib/agent");
+      const { runPlan } = await import("./src/lib/orchestrator");
+      const budget = { maxDepth: 2, maxTasks: 6, maxConcurrent: 1, maxRetries: 1, taskTimeoutMs: 5000, maxDurationMs: 60000 };
+      const mkTask = (over: Partial<OrchestrationTask> = {}): OrchestrationTask => ({
+        task_id: "task_verify_rec", parent_task_id: null, agent_id: "mia", objective: "bikin test hijau",
+        task_type: "code", input_context: "", expected_output: "npm test hijau",
+        acceptance_criteria: ["npm test hijau"], dependencies: [], priority: 1, required: true,
+        status: "READY", created_at: new Date().toISOString(), started_at: null, completed_at: null,
+        result_reference: null, evidence_references: [], error_summary: null, attempts: 0, idempotent: true,
+        ...over,
+      });
+      const mkPlan = (tasks: OrchestrationTask[]): OrchestrationPlan => ({
+        id: "plan_verify_rec", user, request: "bikin test hijau", created_at: new Date().toISOString(),
+        status: "PLANNED", tasks, budget, notes: [],
+      });
+      const okResult = (validations: string[]): AgentResult => ({
+        task_id: "task_verify_rec", agent_id: "mia", status: "SUCCEEDED",
+        summary: "selesai", findings: [], evidence_references: [], artifact_references: [],
+        validations, errors: [], remaining_uncertainty: [], next_step: null,
+      });
+
+      // 1. VERIFY gate: a success with no evidence is PARTIALLY_COMPLETED, never SUCCEEDED.
+      const bare = await runPlan(mkPlan([mkTask()]), async () => okResult([]));
+      const bareTask = bare.plan.tasks[0]!;
+      if (bareTask.status !== "PARTIALLY_COMPLETED" || bareTask.criteria_outcome === "COMPLETE") {
+        throw new Error(`recovery: sukses tanpa bukti tidak boleh COMPLETE (${bareTask.status}/${bareTask.criteria_outcome})`);
+      }
+
+      // 1b. VERIFY veto: an attested file criterion that does not exist is proven FALSE, not unknown.
+      const fake = await runPlan(
+        mkPlan([mkTask({ task_id: "task_verify_rec_veto", acceptance_criteria: ["file:apps/web/.data/tidak-ada-verifikasi.txt"] })]),
+        async () => ({
+          ...okResult(["KRITERIA file-apps-web-data-tidak-ada-verifikasi-txt: sudah kubuat"]),
+          task_id: "task_verify_rec_veto",
+        }),
+      );
+      const vetoTask = fake.plan.tasks[0]!;
+      if (vetoTask.status !== "FAILED" || !/verifikasi gagal/.test(vetoTask.error_summary ?? "")) {
+        throw new Error(`recovery: kriteria terbukti salah harus memblokir sukses (${vetoTask.status}/${vetoTask.error_summary})`);
+      }
+      if (fake.plan.status !== "FAILED") throw new Error("recovery: veto gagal harus menurunkan status plan");
+
+      // 2. Recovery: transient throw -> retried once with a recorded reason, then a second failure stops.
+      let calls = 0;
+      const flaky = await runPlan(mkPlan([mkTask()]), async () => {
+        calls += 1;
+        throw new Error("socket ETIMEDOUT");
+      });
+      const flakyTask = flaky.plan.tasks[0]!;
+      if (calls !== 2) throw new Error(`recovery: transient harus dicoba sesuai budget (calls=${calls})`);
+      if (flakyTask.status !== "FAILED" || flakyTask.ps_failure !== "TRANSIENT") {
+        throw new Error(`recovery: kegagalan transient harus terdiagnosis (${flakyTask.status}/${flakyTask.ps_failure})`);
+      }
+      // Session ids are plan-scoped: `task_id` alone is t1/t2 for every plan, so
+      // a shared id would carry the previous request's attempts into this one.
+      const stored = rec.getSession(user, "ps_plan_verify_rec_task_verify_rec");
+      if (!stored || stored.attempts.length !== 2) throw new Error("recovery: setiap percobaan harus tersimpan");
+      if (stored.attempts[0]?.recovery !== "retry" || !stored.attempts[0]?.recovery_reason?.trim()) {
+        throw new Error("recovery: percobaan ulang wajib punya alasan terdokumentasi");
+      }
+      if (stored.status !== "stopped" || !stored.stop_reason?.trim()) {
+        throw new Error("recovery: berhenti harus punya alasan, bukan diam-diam");
+      }
+      if (stored.attempts[0]?.fingerprint !== stored.attempts[1]?.fingerprint) {
+        throw new Error("recovery: fingerprint percobaan harus bisa dibandingkan");
+      }
+
+      // 3. Loop: 3x aksi identik tanpa alasan -> stop, bukan ulangan diam-diam.
+      const loopDec = rec.decideRecovery({
+        failure: "IMPLEMENTATION_ERROR",
+        attempts: [
+          { n: 1, task_id: "t", phase: "EXECUTE", action: "a", fingerprint: "same", failure: "IMPLEMENTATION_ERROR", at: 1, duration_ms: 1 },
+          { n: 2, task_id: "t", phase: "EXECUTE", action: "a", fingerprint: "same", failure: "IMPLEMENTATION_ERROR", at: 2, duration_ms: 1 },
+        ],
+        budget: { ...rec.DEFAULT_RECOVERY_BUDGET, maxIdenticalRepeat: 2 }, fingerprint: "same",
+      });
+      if (loopDec.action !== "stop" || !loopDec.loop) throw new Error("recovery: aksi identik berulang harus terdeteksi sebagai loop");
+
+      // 4. Approval: persetujuan terikat pada op+params yang DIDEKLARASIKAN, dan
+      //    continuation yang mengganti params ditolak (bukan dieksekusi).
+      const fp = rec.approvalFingerprint("git_commit", { msg: "a" });
+      if (fp !== rec.approvalFingerprint("git_commit", { msg: "a" })) {
+        throw new Error("recovery: approval fingerprint harus stabil untuk params yang sama");
+      }
+      if (fp === rec.approvalFingerprint("git_commit", { msg: "b" })) {
+        throw new Error("recovery: approval tidak boleh dipakai ulang setelah params berubah");
+      }
+      const declared = { function: { name: "git_commit", arguments: '{"msg":"a"}' } };
+      if (!confirmCallChanged({ name: "git_commit", arguments: '{"msg":"b"}' }, declared)) {
+        throw new Error("approval: params yang diganti harus terdeteksi sebagai perubahan materi");
+      }
+      if (confirmCallChanged({ name: "git_commit", arguments: '{"msg":"a"}' }, declared)) {
+        throw new Error("approval: params yang sama harus tetap valid");
+      }
+      if (confirmCallChanged({ name: "git_commit", arguments: '{"msg":"b"}' }, undefined)) {
+        throw new Error("approval: tanpa deklarasi tidak boleh ditebak jadi perubahan");
+      }
+      if (!/if \(allow && confirmCallChanged\(call, declaredCall\)\)/.test(readFileSync(join(appRoot(), "src/lib/agent.ts"), "utf8"))) {
+        throw new Error("approval: confirm path wajib menolak call yang paramsnya berubah");
+      }
+
+      // 5. Restart: sesi yatim -> unknown, dicatat di plan.notes, bukan diulang diam-diam.
+      const orphan = rec.newSession({
+        plan_id: "plan_verify_rec", user, task_id: "task_orphan", agent_id: "mia",
+        objective: "x", criteria: [], budget: rec.DEFAULT_RECOVERY_BUDGET, now: Date.now() - 120_000,
+      });
+      rec.saveSession(user, orphan);
+      const restartPlan = mkPlan([mkTask({ task_id: "task_verify_rec2" })]);
+      await runPlan(restartPlan, async () => okResult([]));
+      if (rec.getSession(user, orphan.id)?.status !== "unknown") throw new Error("recovery: sesi terputus harus resolving ke unknown");
+      const notes = restartPlan.notes.join(" ");
+      if (!/unknown setelah restart/.test(notes)) throw new Error("recovery: hasil setelah restart harus dilaporkan");
+
+      // 6. Metrik: tidak ada sukses palsu pada sesi yang benar-benar berjalan.
+      const metrics = rec.computeLoopMetrics(rec.readSessions(user));
+      if (metrics.sessions < 2) throw new Error("recovery: metrik harus dihitung dari sesi tersimpan");
+      if (metrics.falseSuccessSessions !== 0) {
+        throw new Error(`recovery: sukses palsu terdeteksi (${metrics.falseSuccessSessions})`);
+      }
+      // Unmeasured is null, not 0: a rate with no denominator must never read as "clean".
+      if (metrics.falseSuccessRate === 0) {
+        throw new Error("recovery: rate 0 tanpa denominator menyesatkan (harusnya null)");
+      }
+      cleanup();
+    } finally {
+      cleanup();
+    }
+    console.log("problem-solving loop (kriteria+VERIFY · recovery class+budget · loop · approval fingerprint · restart unknown · metrik): OK");
   }
 }
 

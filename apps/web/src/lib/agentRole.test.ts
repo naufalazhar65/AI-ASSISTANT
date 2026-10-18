@@ -15,6 +15,7 @@ import {
   agentPersonaVersion,
   applyAgentRole,
   applyPeerTurn,
+  applyDelegatedSubtaskTurn,
   applySystemDeliveryTurn,
   redirectPeerVocative,
   isAgentLabel,
@@ -1587,6 +1588,21 @@ describe("redirectPeerVocative — the owner's vocative must not survive a peer 
  * conditional rule instead, in both directions: silent when delivery really is
  * the model's job, decisive when the system already ships the reply.
  */
+describe("applyDelegatedSubtaskTurn — a delegated subtask is not a bounce (live 2026-10-18)", () => {
+  const BOUNDARY = "a request outside your role is NOT yours to do";
+  it("overrides the boundary rule and names the objective", () => {
+    const out = applyDelegatedSubtaskTurn(`RULE: ${BOUNDARY}`, "Riset dan verifikasi sumber: riset pagination");
+    expect(out).toMatch(/DELEGATED SUBTASK/);
+    expect(out).toMatch(/overrides the boundary rule above/);
+    expect(out).toMatch(/Riset dan verifikasi sumber: riset pagination/);
+    // Appended LAST so it can beat the persona rule above it.
+    expect(out.indexOf("DELEGATED SUBTASK")).toBeGreaterThan(out.indexOf(BOUNDARY));
+  });
+  it("still applies without an objective (flag is the signal)", () => {
+    expect(applyDelegatedSubtaskTurn("p", undefined)).toMatch(/DELEGATED SUBTASK/);
+  });
+});
+
 describe("applySystemDeliveryTurn — delivery is the model's job only when nobody else does it", () => {
   it("stays silent when the caller is not delivering (chat turns must still send)", () => {
     const prompt = "BASE PROMPT";

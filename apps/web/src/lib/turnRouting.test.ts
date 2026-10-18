@@ -308,7 +308,7 @@ describe("outbound scrub keeps list structure", () => {
 
 describe("markup scraps never reach the chat", () => {
   it("strips the DSML leak and the leftover scraps it leaves behind", () => {
-    const leaked = ["<" + '｜｜DSML｜｜' + " calls>", "<" + '｜｜DSML｜｜' + ' invoke name="http_request">', "<" + '｜｜DSML｜｜' + ' parameter name="url">https://x', "</" + '｜｜DSML｜｜' + " invoke>", "</" + '｜｜DSML｜｜' + " calls>"].join("\n");
+    const leaked = ["<" + '\uff5c\uff5cDSML\uff5c\uff5c' + " calls>", "<" + '\uff5c\uff5cDSML\uff5c\uff5c' + ' invoke name="http_request">', "<" + '\uff5c\uff5cDSML\uff5c\uff5c' + ' parameter name="url">https://x', "</" + '\uff5c\uff5cDSML\uff5c\uff5c' + " invoke>", "</" + '\uff5c\uff5cDSML\uff5c\uff5c' + " calls>"].join("\n");
     const out = stripToolCallProse(leaked);
     expect(out).not.toMatch(/DSML/);
     expect(out.trimStart().startsWith("<")).toBe(false);
@@ -316,7 +316,7 @@ describe("markup scraps never reach the chat", () => {
   });
 
   it("keeps real prose that merely sits next to markup", () => {
-    const text = "Halo beb 🌸 " + "<" + '｜｜DSML｜｜' + " calls>";
+    const text = "Halo beb 🌸 " + "<" + '\uff5c\uff5cDSML\uff5c\uff5c' + " calls>";
     const out = stripToolCallProse(text);
     expect(out).toContain("Halo beb");
   });
@@ -880,7 +880,7 @@ describe("chunkText word boundary (no mid-word cuts)", () => {
 // Executor reads top-level name/arguments; gateway replay needs nested
 // function.*. normalizeToolCall fills both on confirm decisions;
 // normalizeMessageToolCalls strips top-level + fills nested on messages.
-import { normalizeToolCall, normalizeMessageToolCalls, gatewayToolCall, type ChatMessage } from "./agent";
+import { normalizeToolCall, normalizeMessageToolCalls, gatewayToolCall, confirmCallChanged, type ChatMessage } from "./agent";
 
 describe("normalizeToolCall (confirm decisions, executor-canonical)", () => {
   it("fills nested function.* from top-level and keeps top-level", () => {
@@ -941,6 +941,17 @@ describe("gatewayToolCall (single call, gateway-canonical)", () => {
     const before = JSON.stringify(msgs[0].tool_calls);
     normalizeMessageToolCalls(msgs);
     expect(JSON.stringify(msgs[0].tool_calls)).toBe(before);
+  });
+
+  it("refuses a confirm continuation whose arguments changed after the proposal", () => {
+    const declared = { function: { name: "git_commit", arguments: '{"msg":"fix test"}' } };
+    expect(confirmCallChanged({ name: "git_commit", arguments: '{"msg":"fix test"}' }, declared)).toBe(false);
+    // Same call id, different params: a material change the owner never saw.
+    expect(confirmCallChanged({ name: "git_commit", arguments: '{"msg":"rm -rf /"}' }, declared)).toBe(true);
+    // Same params, different tool, is also a different operation.
+    expect(confirmCallChanged({ name: "file_delete", arguments: '{"msg":"fix test"}' }, declared)).toBe(true);
+    // No declared call (history trimmed): nothing to compare, never a guess.
+    expect(confirmCallChanged({ name: "git_commit", arguments: '{"msg":"x"}' }, undefined)).toBe(false);
   });
 });
 
