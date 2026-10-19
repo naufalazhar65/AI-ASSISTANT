@@ -6152,7 +6152,13 @@ export async function executeTool(
     // Never persist sensitive tool args (e.g. a password handed to breach_check).
     // Redact by KEY (any secret-ish arg, any tool) — the old 5-name list let
     // http_request/jwt_attack/http_session/cdp_request write tokens into the log.
-    auditLog(rawUser, `tool:${call.name}`, redactArgsForDisplay(JSON.stringify(args)).slice(0, 300));
+    // `||task=<id>` links the operation to the orchestration task it ran under
+    // (orchestrator -> withBusTurn -> here), which is what lets attribution.ts
+    // build the plan -> task -> tool chain instead of a bare file list. A
+    // suffix, not a JSON key: the detail above is already truncated and the
+    // existing readers keep working unchanged.
+    const taskTag = busTurnContext()?.taskId;
+    auditLog(rawUser, `tool:${call.name}`, redactArgsForDisplay(JSON.stringify(args)).slice(0, 300) + (taskTag ? ` ||task=${taskTag}` : ""));
   } catch { /* no-op */ }
   recordToolCall(rawUser, call.name);
   const userKey = sanitizeUser(rawUser);

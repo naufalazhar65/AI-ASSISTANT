@@ -7204,6 +7204,22 @@ async function main() {
     if (!f2.mentioned || f2.mentionedOther) {
       throw new Error("own role mention (case-insensitive) must count as mentioned");
     }
+    // Live 2026-10-18: owner pinged Michelle's "Engineer" ROLE. No member
+    // mention and no sibling name in the role name, so every pre-existing flag
+    // was false and Mia's concierge branch answered a message meant for
+    // Michelle. An unmappable role ping still addresses someone.
+    const fRole = trioMentionFlags({ ...noMentions, roles: [{ name: "Engineer" }] }, "mia-id", "Mia", ["Agnes", "Michelle"]);
+    if (fRole.mentioned || fRole.mentionedOther || !fRole.foreignRole) {
+      throw new Error("role ping that maps to no agent must be flagged foreignRole");
+    }
+    if (shouldRespondToAgent("mia", { mentioned: false, isDM: false, inDedicatedChannel: false, mentionedOtherTrioBot: false, mentionedForeignRole: fRole.foreignRole, ...trio })) {
+      throw new Error("concierge must not answer an unmappable role ping (live 2026-10-18)");
+    }
+    // Wiring: the flag has to reach the adapter, or the guard above is decorative.
+    const discordMentionSrc = readFileSync(join(appRoot(), "src/channels/discord.ts"), "utf8");
+    if (!/mentionedForeignRole: mf\.foreignRole/.test(discordMentionSrc)) {
+      throw new Error("discord.ts harus meneruskan mentionedForeignRole: mf.foreignRole (helper benar tapi kawatnya lepas)");
+    }
     const f3 = trioMentionFlags({ has: (id: string) => id === "B", roles: [] }, "B", "Agnes", ["Mia", "Michelle"]);
     if (!f3.mentioned || f3.mentionedOther) {
       throw new Error("member mention must keep working");
@@ -9627,6 +9643,79 @@ async function verifyProactiveWorkflows(): Promise<void> {
     if (/tujuan utama tetap tercapai/.test(disclosureText)) {
       throw new Error("reconcile: tidak boleh mengklaim tujuan utama tercapai saat wajib terblokir");
     }
+    // --- project ownership: authorship claims are answered from records ---
+    {
+      const attrSrc = readFileSync(join(appRoot(), "src/lib/attribution.ts"), "utf8");
+      if (!/export function attributionNote/.test(attrSrc)) throw new Error("attribution: attribution.ts harus mengekspor attributionNote");
+      if (!/export function classifyAttributionClaim/.test(attrSrc)) throw new Error("attribution: classifyAttributionClaim hilang");
+      // The cheap claim gate keeps every ordinary turn from reading + parsing the
+      // whole audit log. Assert the CALL SITE, not just the exported helper: a
+      // helper that is correct but never called is the trap this repo hit twice.
+      if (!/if \(!hasAuthorshipClaim\(text\)\) return "";/.test(attrSrc)) throw new Error("attribution: attributionNote harus menolak pesan tanpa klaim sebelum membaca audit log (helper benar tapi kawatnya lepas)");
+      // Direct assignment, not just a mention: `const attributed = false ? "" : attributionNote(...)`
+      // still contains the call text, so a bare /attributionNote\(text, opts\)/ assertion passes on a
+      // DEAD guard (proven by mutation).
+      if (!/const attributed = attributionNote\(text, opts\);/.test(agentSrc)) throw new Error("attribution: agent.ts harus memanggil attributionNote sebagai nilai balasan (helper benar tapi kawatnya lepas)");
+      if (!/AUTHORSHIP \(hard\)/.test(agentSrc)) throw new Error("attribution: system prompt harus punya aturan AUTHORSHIP");
+      const att = await import("./src/lib/attribution");
+      const dir = "/Users/n/Documents/TEST_MICHELLE";
+      // The live shape: the file was only READ, and the agent claimed authorship.
+      const events = att.workEventsFromAudit([
+        { ts: "2026-10-18T07:23:19.000Z", user: "u.michelle", action: "tool:file_read", detail: JSON.stringify({ path: `${dir}/nusa.html` }) },
+      ]);
+      const readOnly = att.classifyAttributionClaim("nusa.html itu project yang aku bikin", { events, agent: "michelle", artifact: `${dir}/nusa.html` });
+      if (readOnly.status !== "CONFIRMED_INSPECTION") throw new Error(`attribution: klaim tanpa operasi tulis harus jadi CONFIRMED_INSPECTION, bukan ${readOnly.status}`);
+      if (!/bukan dibuat/.test(readOnly.note)) throw new Error("attribution: catatan harus menyatakan hanya dibaca");
+      const ordinary = att.classifyAttributionClaim("Halo Mas Naufal", { events, agent: "michelle", artifact: null });
+      if (ordinary.claimed || ordinary.note !== "") throw new Error("attribution: jawaban biasa tidak boleh membawa note");
+      // A write in the same project says nothing about a different file.
+      const mixed = att.workEventsFromAudit([
+        { ts: "2026-10-16T03:18:37.000Z", user: "u.michelle", action: "tool:write_file", detail: JSON.stringify({ path: `${dir}/index.html` }) },
+        { ts: "2026-10-18T07:23:19.000Z", user: "u.michelle", action: "tool:file_read", detail: JSON.stringify({ path: `${dir}/nusa.html` }) },
+      ]);
+      const scoped = att.classifyAttributionClaim("nusa.html itu project yang aku bikin", { events: mixed, agent: "michelle", artifact: `${dir}/nusa.html` });
+      if (scoped.status === "PARTIALLY_SUPPORTED") throw new Error("attribution: write di file lain tidak boleh mengonfirmasi klaim file ini");
+      if (att.projectIdFor(`${dir}/nested/deep/x.html`).name !== "TEST_MICHELLE") throw new Error("attribution: project = ancestor terluar yang bermakna");
+      // Passive / third-person claims are still claims. Dropping the "dibuat oleh",
+      // "itu yang bikin" and "hasil karya" arms leaves first-person-only detection,
+      // which silently reads every passive claim as "no claim" (fail-open).
+      for (const passive of [
+        "nusa.html itu yang bikin dia",
+        "nusa.html itu dibuat oleh Michelle",
+        "itu hasil karya Michelle",
+        "file itu ditulis oleh dia sendiri",
+      ]) {
+        const r = att.classifyAttributionClaim(passive, { events: mixed, agent: "michelle", artifact: `${dir}/nusa.html` });
+        if (!r.claimed) throw new Error(`attribution: klaim pasif tak terdeteksi: ${passive}`);
+        if (r.status === "CONFIRMED_CONTRIBUTION") throw new Error(`attribution: klaim pasif tak boleh confirmed: ${passive}`);
+      }
+      // `days` must be a time window, not a file count: an undated line and an old
+      // line both sit outside it, and an explicit sinceIso must never be widened.
+      const yesterday = new Date(Date.now() - 86_400_000).toISOString();
+      const window = att.workEventsFromAudit(
+        [
+          { ts: "", user: "u.michelle", action: "tool:write_file", detail: JSON.stringify({ path: `${dir}/old.html` }) },
+          { ts: "2020-01-01T00:00:00.000Z", user: "u.michelle", action: "tool:write_file", detail: JSON.stringify({ path: `${dir}/older.html` }) },
+          { ts: new Date().toISOString(), user: "u.michelle", action: "tool:write_file", detail: JSON.stringify({ path: `${dir}/fresh.html` }) },
+        ],
+        { sinceIso: yesterday },
+      );
+      if (window.length !== 1 || !/fresh\.html/.test(window[0]!.artifact_reference ?? "")) {
+        throw new Error(`attribution: jendela hari harus menyisakan hanya record hari ini, dapat ${window.length}`);
+      }
+    }
+
+    // 9. Task chain: the audit line a tool really writes must carry the
+    // orchestrator task id, or every work event reports task_id: null.
+    const toolsSrc = readFileSync(join(appRoot(), "src", "lib", "tools.ts"), "utf8");
+    if (!/const taskTag = busTurnContext\(\)\?\.taskId;/.test(toolsSrc)) throw new Error("attribution: tools.ts harus ambil taskId dari busTurnContext");
+    if (!/\|\|task=\$\{taskTag\}/.test(toolsSrc)) throw new Error("attribution: audit tool harus-distempel task id (||task=), tanpa itu work event selalu task_id null");
+    const attrTaskSrc = readFileSync(join(appRoot(), "src", "lib", "attribution.ts"), "utf8");
+    if (!/const TASK_TAG_RE = \/\\\|\\\|task=/.test(attrTaskSrc)) throw new Error("attribution: attribution.ts harus mem-parse suffix ||task= dari detail audit");
+    if (!/\.\.\.ATTRIBUTION_CHECKERS,/.test(readFileSync(join(appRoot(), "src", "lib", "eval", "checkers.ts"), "utf8"))) {
+      throw new Error("attribution: eval/checkers.ts harus mendaftarkan ATTRIBUTION_CHECKERS (helper benar tapi kawatnya lepas)");
+    }
+    console.log("project ownership (authorship claim vs recorded operations · cross-agent · artifact-scoped · fail-closed window): OK");
     console.log("problem-solving loop (kriteria+VERIFY · recovery class+budget · loop · approval fingerprint · restart unknown · metrik): OK");
     console.log("freeride chain (hanya OpenRouter · 9router 404) + reconcile blocked-plan (FAILED · disclosure jujur): OK");
   }

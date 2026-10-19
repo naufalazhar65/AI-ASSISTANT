@@ -334,13 +334,18 @@ function roleNamesFrom(roles: unknown): string[] {
  *  `mentionedOther` = member-mention of a known sibling bot id OR a mentioned
  *  role named like a sibling. Name matching is case-insensitive exact
  *  (`"agnes"` matches role `"Agnes"`, not `"Agnes-fan"`). Pure —
- *  unit-tested in verify.ts (incl. the exact reported `<@&…> halo` shape). */
+ *  unit-tested in verify.ts (incl. the exact reported `<@&…> halo` shape).
+ *  `foreignRole` = a role ping nobody can map to an agent (live 2026-10-18:
+ *  the owner pinged Michelle's "Engineer" role, no flag matched, and Mia
+ *  answered a message explicitly meant for Michelle — Discord's
+ *  `mentions.roles` never contains @everyone/@here, so every entry is a real
+ *  role addressing someone). */
 export function trioMentionFlags(
   mentions: { has: (id: string) => boolean; roles?: unknown },
   botId: string,
   myName: string,
   siblingNames: string[]
-): { mentioned: boolean; mentionedOther: boolean } {
+): { mentioned: boolean; mentionedOther: boolean; foreignRole: boolean } {
   const roleNames = roleNamesFrom(mentions.roles);
   const mine = myName.toLowerCase();
   const mentioned =
@@ -351,7 +356,9 @@ export function trioMentionFlags(
       const n = s.toLowerCase();
       return n !== mine && roleNames.includes(n);
     });
-  return { mentioned, mentionedOther };
+  const foreignRole =
+    roleNames.length > 0 && !mentioned && !mentionedOther;
+  return { mentioned, mentionedOther, foreignRole };
 }
 
 /** Seed an agent's role identity files (IDENTITY.md + SOUL.md) from
@@ -1163,6 +1170,7 @@ async function startAgentBot(cfg: AgentBotConfig): Promise<void> {
             isDM,
             inDedicatedChannel: inDedicated,
             mentionedOtherTrioBot,
+            mentionedForeignRole: mf.foreignRole,
             trioMode: cfg.trioMode,
             nameAddressed,
             fromPeerBot: isBotAuthor,

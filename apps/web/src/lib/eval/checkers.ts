@@ -1,4 +1,5 @@
 import { RECOVERY_CHECKERS } from "./recoveryCheckers";
+import { ATTRIBUTION_CHECKERS } from "./attributionCheckers";
 import type { CriterionResult, EvalCase } from "./types";
 import { criterionId } from "../recovery";
 
@@ -767,4 +768,5 @@ export const CHECKERS: Record<string, Checker> = {
   "inj.botSelfEcho": injBotSelfEcho,
   "inj.textCannotGrantTools": injTextCannotGrantTools,
   ...RECOVERY_CHECKERS,
+  ...ATTRIBUTION_CHECKERS,
 };

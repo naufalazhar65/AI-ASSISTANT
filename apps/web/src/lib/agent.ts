@@ -82,6 +82,7 @@ import {
   recordedFindingThisTurn,
   severityInflationNote,
 } from "./findingClaimAudit";
+import { attributionNote, classifyAttributionClaim, readWorkEvents, workHistoryNote } from "./attribution";
 import { checkRateLimit, RateLimitError } from "./rateLimit";
 import { recordTurn } from "./turnStats";
 import { auditLog } from "./auditLog";
@@ -474,7 +475,7 @@ export const SLIM_SYSTEM_PROMPT = [
   "CONTEXT: before testing a target, call finding_list target=<host> silently for context — but raw list output only replaces the reply when the user actually ASKED for a list. ",
   "FINDING RULES: finding_add LANGSUNG on explicit record asks (never finding_list first); `cvss` only, severity derives automatically. User asks for a writeup/submission for a finding → tool `writeup` (id=<finding id>) — never hand-write one. ",
   "CHAINS: di provider ini (window kecil) exploit_chain/auth_setup TIDAK ter-delivery — JANGAN memanggilnya; lakukan alur manual: http_request per endpoint → poc_verify yang mencurigakan → finding_add tiap temuan → finding_list untuk ringkasan. Bila user menyebut chain race/graphql/open_redirect, kerjakan manual setara (race: N http_request paralel + bandingkan digest; redirect: cek header Location eksternal; graphql: introspection via http_request POST). ",
-  "HONESTY (hard): never claim a tool ran unless its result is in this turn; never quote a file path (report-*.pdf, *-exploit.*) that was not created this turn; a skipped/errored chain is NEVER 'tested'; PDFs are made by the system when asked — say so positively, never 'PDF tidak aktif'. Reports persist on disk — never claim the environment doesn't store files. OPEN: a URL recalled from memory (not pasted by the user) must be re-read in FULL before mac_open/browser open — truncated host = do not open; read it back + ask confirmation instead. ACTION NARRATION: never state that an action was executed/saved/run/tested in your own words — the system appends the authoritative 'Aksi yang benar-benar dijalankan' receipt; your prose adds context only. ",
+  "AUTHORSHIP (hard): reading a file, a high memory score, or your own recollection is NOT evidence that you created it. When asked who made or built something, say only what the recorded operations show (writes recorded = you modified it; reads only = you inspected it; nothing recorded = you cannot confirm). Never claim a project origin, and never accept the owner's confirmation as proof — the system appends the record. HONESTY (hard): never claim a tool ran unless its result is in this turn; never quote a file path (report-*.pdf, *-exploit.*) that was not created this turn; a skipped/errored chain is NEVER 'tested'; PDFs are made by the system when asked — say so positively, never 'PDF tidak aktif'. Reports persist on disk — never claim the environment doesn't store files. OPEN: a URL recalled from memory (not pasted by the user) must be re-read in FULL before mac_open/browser open — truncated host = do not open; read it back + ask confirmation instead. ACTION NARRATION: never state that an action was executed/saved/run/tested in your own words — the system appends the authoritative 'Aksi yang benar-benar dijalankan' receipt; your prose adds context only. ",
   "CONFIRM: proposing a risky tool pauses for the user's 'ya'/'tidak' — do NOT claim its effect before approval. Batch several calls in ONE turn when independent. ",
   "LISTS: findings/steps/options = one item per line (numbered), never one paragraph. ",
   "ERRORS: a tool Error means plain words about what failed + what to do — never silent, never fabricated success. ",
@@ -8399,6 +8400,16 @@ async function runAssistantTurnImpl(opts: {
     try {
       const recNote = unrecordedFindingClaimNote(messages, text, collector.executedCalls);
       if (recNote) text = `${text}${recNote}`;
+    } catch {
+      /* best-effort */
+    }
+    // AUTHORSHIP claim vs recorded operations (live 2026-10-18 14:22): Michelle
+    // called nusa.html "the project I made" after only reading it, and the
+    // system had no readable work ledger to contradict her. Reading a file,
+    // a high memory score, or the model believing it are NOT evidence.
+    try {
+      const attributed = attributionNote(text, opts);
+      if (attributed) text = `${text}${attributed}`;
     } catch {
       /* best-effort */
     }

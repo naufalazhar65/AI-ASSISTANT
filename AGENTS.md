@@ -2597,3 +2597,55 @@ Owner: "kerjakan no 2 dan 3" dari 5 item terbuka. Keduanya cacat nyata yang dite
 **Bukti:** `npx tsx apps/web/drill-ps-loop-live.mts` ALL GREEN (273s) — P3 plan `FAILED`, teks final tidak lagi "RUNNING", tanpa disclosure dobel; P2 stop beralasan; `falseSuccess=0 · correctStopRate=100`. Gates: tsc 0 · `npm test` **2523/2523 (126 file)** · `verify.ts` EXIT=0 (223 blok) · lint 0.
 
 **Masih terbuka (tidak dikerjakan):** `OPENCODEGO_API_KEY` expired (`401 api_key_expired`) — hanya owner; drill P1 model nyata kadang tidak menulis marker `KRITERIA` → t1 `PARTIALLY_COMPLETED` (penyebab belum dibuktikan; drill ini juga melihat 9router 502 connect timeout lalu failover ke opencodego yang 401).
+
+## Sesi 2026-10-18 (lanjutan 3) — authorship project: klaim vs operasi yang tercatat
+
+Owner laporkan Michelle mengklaim membuat project padahal tidak ada record-nya. Prinsip owner: **akses file / memori yang menyebut nama TIDAK membuktikan authorship**. Audit dulu (bukan tebak): grep audit log membuktikan `nusa.html` tidak pernah ditulis siapa pun (satu-satunya record `tool:file_read` oleh `.michelle` 2026-10-18T07:23:19Z), sedangkan `index.html` + `product-detail.html` benar-benar ditulis Michelle 2026-10-16. Akar: tidak ada ledger kerja yang bisa dibaca → pertanyaan sejarah dijawab dari semantic memory.
+
+**Dibuat `apps/web/src/lib/attribution.ts`**: `workEventsFromAudit` (audit JSONL → work events, 11 event type, cross-agent by design), `projectLedger` (`project_origin` selalu UNKNOWN — kontribusi satu file ≠ authorship project), `classifyAttributionClaim` (7 status, fail-closed), `workHistoryNote`, `attributionNote` (guard respons). Wiring: `agent.ts` memanggil `attributionNote(text, opts)` + aturan prompt `AUTHORSHIP (hard)`. **5 bug di dalam fix sendiri yang tertangkap test:** (1) cabang "ada write" tercapai tanpa write record (kondisi `writes.length === 0 && touchedNamed === false`) → klaim read-only jadi PARTIALLY_SUPPORTED; (2) write di file lain mengonfirmasi klaim file berbeda → evidence di-scope ke artefak bernama; (3) `projectIdFor` ambil ancestor TERDALAM ("deep") → jadi ancestor terluar bermakna (repo/project dir); (4) write tanpa timestamp tetap CONFIRMED → turun jadi PARTIALLY_SUPPORTED; (5) `workHistoryNote` fallback ke project → artifact-scoped. Assertion verify.py pertama soal wiring VACUOUS (mutasi `false ? "" : attributionNote(...)` masih mengandung teks call) → diketatkan jadi bentuk `const attributed = attributionNote(text, opts);` → M20 arresting.
+
+Gates: tsc 0 · `npm test` **2553/2553** · verify.ts EXIT=0 **224 blok** · lint 0. **BELUM commit** (masih ngikut perubahan role-ping Discord dari sesi sebelumnya).
+
+## Sesi 2026-10-18 (lanjutan 4) — audit attribution pass 2/3: fail-closed time window + klaim pasif
+
+Owner: "coba cek lagi pastikan no bugs dan berjalan dengan baik". Cara: baca `attribution.ts` sendiri (bukan review diff), cari fail-open, buktikan dengan mutasi. Plus live test lewat jalur produksi karena tidak ada satu pun turn NYATA sebelumnya.
+
+**Bug nyata 1 — baris tanpa timestamp lolos since-window.** `if (since && ts && new Date(ts)…)` → clause seluruhnya dilewati saat `ts` kosong, jadi record lama tanpa tanggal lolos `sinceIso`. Fail-open, bukan sekadar label. Fix `if (since && (!ts || new Date(ts).getTime() < since)) continue;`. Mutasi M22 balik ke bentuk lama → test "an undated audit line cannot slip into a since-window" GAGAL.
+
+**Bug nyata 2 — `days` = jumlah file, bukan rentang hari.** `files.slice(-days)` + retensi `AUDIT_KEEP_DAYS=7` = history efektif ≤7 hari dan file yang sama bisa terhitung dua kali. Fix: `daysAgo` ISO + `sinceIso = max(opts.sinceIso, daysAgo)` (since eksplisit tak pernah dilebarkan), slicing file dihapus. Mutasi M23 → test "`days` is a real time window, not a file count" GAGAL.
+
+**Bug nyata 3 — klaim pasif/orang ketiga fail-open.** `CREATION_CLAIM_RE` hanya menangkap orang pertama, jadi "nusa.html itu dibuat oleh Michelle" / "itu hasil karya Michelle" lolos sebagai "bukan klaim". Fix 3 arm baru (dibuat-oleh, itu-yang-bikin, karya-dari). Mutasi M24b (hapus arm karya) dan M24c (`oleh`→`ama`) → test "a passive authorship claim is still a claim" GAGAL. Sisa gap dicatat di kode: "Michelle yang bikin X" (nama pihak ketiga + verba, tanpa marker) hanya kena lewat `OWNERSHIP_ASK_RE`.
+
+**Yang TIDAK bug (dilaporkan apa adanya).** sempat menyimpulkan sort `projectLedger` terbalik lalu "memperbaikinya"; mutasi balik ke bentuk asli tidak gagal karena kedua bentuk adalah predikat identik (`a<b` ⟺ `b>a`) = mutasi NO-OP, jadi bukti originally tidak berlaku. Test diperkuat (3 project, input ascending, expect NEW/MID/OLD) tetap hijau di kedua bentuk → tidak ada bug comparator; kode dikembalikan ke bentuk asli dan test diberi komentar yang mencatat penyimpulan audit ini keliru.
+
+**Live proof (bukan fixture).** `"nusa.html itu project apa? apakah kamu yang bikin file itu?"` via `POST /api/webhook` (`deliver_to`, user `.michelle`) → "bukan dibikin dari awal oleh aku sendiri, tapi aku bantu baca dan telusuri strukturnya"; audit 2x `tool:file_read nusa.html`, nol `tool:write_file` = persis record sumber verdict CONFIRMED_INSPECTION. `verify.ts` blok ownership ditambah assertion runtime untuk 4 bentuk klaim pasif + jendela 1 hari (224 blok, EXIT=0).
+
+**Gates:** tsc 0 · `npm test` **2558/2558** (128 file) · `verify.ts` EXIT=0 **224 blok** · lint 0. **BELUM commit** (masil ngikut perubahan role-ping Discord + attribution di worktree).
+
+## Sesi 2026-10-18 (lanjutan 5) — audit attribution pass 4: scope klaim, sibling, gate murah
+
+Owner: "coba audit sekali lagi yang teliti". Cara: baca seluruh `attribution.ts` sendiri, cari fail-open, buktikan dengan probe runtime lalu mutasi.
+
+**Bug nyata 1 — klaim level-project membuang semua write record.** `inScope` untuk klaim tanpa nama file = `e.project_id === project`, sementara `project` null → `e.project_id === null` tak pernah true → verdict `HISTORICAL_UNVERIFIED` + note "belum punya catatan operasi apa pun", padahal baris history di balasan yang sama menulis "menulis 1 file" (self-contradiction paling terlihat ke owner). Fix `!project || e.project_id === project`. M25 (balik ke bentuk lama) → 2 test GAGAL.
+
+**Bug nyata 2 — pertanyaan tentang sibling dijawab dari record pembicara.** `OWNERSHIP_ASK_RE` sengaja mencocokkan "apakah/siapa … bikin", tapi evidence di-scope ke `e.agent_id === facts.agent`. Probe: Mia ditanya "apakah Michelle yang bikin index.html?" → `HISTORICAL_UNVERIFIED` = Mia menyangkal kontribusi yang audit log benar-benar catat. Fix helper `subjectAgent(text)` (nama yang disebut; ambigu >1 atau tak ada → fallback pembicara, jangan menebak). M26 → test pihak ketiga GAGAL.
+
+**Perbaikan scope/biaya — gate murah sebelum baca disk.** `attributionNote` jalan tiap turn dan selalu `readWorkEvents` (baca + parse semua file audit) walau 99% pesan tanpa klaim authorship. Fix: `hasAuthorshipClaim(text)` exported + guard `if (!hasAuthorshipClaim(text)) return "";`. M27 (hapus guard) → **tidak ada test yang gagal** karena helper masih diekspor + diuji langsung = jebakan "helper benar, kawatnya lepas"; diketatkan dengan assertion wiring di `verify.ts` (bentuk persis, bukan "teks call muncul") → mutasi yang sama VERIFY EXIT=1. Pelajaran yang sama sudah menimpa `confirmCallChanged`, `applyDelegatedSubtaskTurn`, dan `attributionNote` sendiri.
+
+**Fix label — "Riwayat tercatat untuk unknown".** `workHistoryNote(agent, null, …)` mengetik `projectIdFor(null).name` = "unknown". Fix: `artifact ? projectIdFor(artifact).name : events[0]?.project_name ?? "unknown"`.
+
+**Test:** `attribution.test.ts` 34/34 (+5 pass 4: project-level claim, tidak mengontradiksi history sendiri, pihak ketiga pakai record subject, subjek ambigu tak menebak, gate claim). **Gates:** tsc 0 · `npm test` 2563/2563 (128 file) · verify.ts EXIT=0 224 blok · lint 0. **BELUM commit**.
+
+## Sesi 2026-10-18 (lanjutan 6) — task chain plan→task→tool + 16 skenario attribution ke framework eval
+
+Owner: "kerjakan task_id + eval dulu" (dua gap yang dia pilih dari audit pass 2-4). Keduanya cacat nyata: `task_id` selalu `null` jadi rantai plan→task→tool→test tidak ada, dan 16 skenario attribution hanya ada sebagai vitest padahal owner minta di framework eval.
+
+**Task chain.** `executeTool` (`tools.ts:6155`) mengambil `busTurnContext()?.taskId` dan menempel suffix ` ||task=<id>` ke detail audit yang sudah ter-redact (suffix bukan JSON key: detail sudah ter-truncate, pembaca lama tak berubah; `::denied` tak disentuh karena bukan operasi nyata). `attribution.ts` parse `TASK_TAG_RE` ke `WorkEvent.task_id`; `projectLedger` isi `related_task_ids` (urutan oldest→newest lewat peta `firstSeen`, karena event masuk newest-first). Mutasi **M28** (suffix dihapus) TIDAK tertangkap test lama — semua test menulis suffix manual di fixture, jadi sisi producer tak pernah dijalankan;(test producer-side baru: dynamic import `executeTool` + `withBusTurn`, user run-unique, baca `.data/audit/*.log`, assert baris bertanda → `workEventsFromAudit` → task_id) membuat mutasi GAGAL. **M29** (blok pengumpul `related_task_ids` dihapus) → test ledger GAGAL.
+
+**Gap produk dari eval.** "BisaModule yang kemarin itu bikin kamu?" tidak memicu guard: `OWNERSHIP_ASK_RE` hanya menangkap pembuka interogatif (`apakah|who|siapa`), sedangkan bahasa owner sering terbalik ("<X> itu bikin kamu?"). Fix `OWNERSHIP_TARGETED_RE` (verba + `kamu|aku|saya|gue|Anda`), dipakai di `classifyAttributionClaim` dan `hasAuthorshipClaim`. **M30** (hapus di satu situs saja) → `attr-low-relevance-memory-is-not-evidence` GAGAL, kasus creation tetap pass (bukti bukan dari jalur lain).
+
+**Eval.** `eval/attributionCheckers.ts` (7 checker `attr.*`) + 16 kasus `attr-*` di `eval/dataset.ts` + spread `...ATTRIBUTION_CHECKERS,` di `eval/checkers.ts`. Run pertama 8/16 FAIL: 7 karena fixture saya salah (generator membuang elemen tuple ke-9 = `expect_status`, satu case diarahkan ke checker yang tak cocok, `before` diisi status padahal dibaca sebagai TEKS klaim) + 1 GAP PRODUK di atas. `npm run eval`: **16/16 pass**, `evidence_integrity` 96% (24/25) — satu-satunya gagal tetap `evidence-poc-no-signal-stays-no-signal` (proven pre-existing, store poc-runs user eval di cap 120). **M32** (spread dihapus) → verify.ts GAGAL "eval: 16 kasus tanpa checker terdaftar".
+
+**Verify.ts** blok ownership += "9. Task chain" (source: `const taskTag = busTurnContext()?.taskId;`, `||task=${taskTag}`, `TASK_TAG_RE`, `...ATTRIBUTION_CHECKERS,`). **M31** (suffix dihapus dari tools.ts) → verify.ts GAGAL "audit tool harus distempel task id".
+
+**Gates:** tsc 0 · `npm test` **2566/2566** (128 file) · `npm run lint` 0 · `verify.ts` EXIT=0 **224 blok** · `npm run eval` exit 1 HANYA kasus pre-existing. Docs `MIA_FEATURES.md` §21.22 += tabel task chain + eval harness. Gap tersisa: `git` belum jadi sumber evidence; "Michelle yang bikin X" hanya kena `OWNERSHIP_ASK_RE`; `CREATED` tak pernah bisa dikonfirmasi dari audit log.

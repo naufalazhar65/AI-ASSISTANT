@@ -261,6 +261,18 @@ export function shouldRespondToAgent(
      * so no existing call site changes unless it opts in.
      */
     fromPeerBot?: boolean;
+    /**
+     * The message pings a Discord ROLE that maps to no agent (live 2026-10-18:
+     * the owner pinged Michelle's "Engineer" role — no member mention, no
+     * sibling name inside the role name, so every flag was false and Mia's
+     * concierge branch answered a message meant for Michelle).
+     *
+     * A role ping IS addressing someone: markup, deliberate, exactly like
+     * `<@bot>`. Discord's `mentions.roles` never carries @everyone/@here, so
+     * every entry here is a real role. Absent means "no role ping", i.e. the
+     * pre-existing behaviour.
+     */
+    mentionedForeignRole?: boolean;
   }
 ): boolean {
   // A message addressed BY TYPED NAME to a different agent is not ours — and
@@ -329,6 +341,10 @@ export function shouldRespondToAgent(
   if (opts.mentioned) return true;
   if (opts.isDM) return true;
   if (opts.mentionedOtherTrioBot) return false;
+  // A role ping nobody can map to an agent still addresses someone; answering it
+  // as the concierge is the live 2026-10-18 hijack. Same rank as the sibling
+  // check above, and below it so an explicit <@bot> or DM still wins.
+  if (opts.mentionedForeignRole) return false;
   if (opts.nameAddressed) return opts.nameAddressed === label;
   // A sibling's message that named nobody is addressed to nobody. Falling
   // through to the concierge here would answer a private handoff a second
@@ -370,6 +386,9 @@ export function routingDropReason(
   }
   if (opts.trioMode && !opts.mentioned && !opts.isDM && opts.mentionedOtherTrioBot) {
     return "addressed a sibling bot";
+  }
+  if (opts.trioMode && !opts.mentioned && !opts.isDM && opts.mentionedForeignRole) {
+    return "role ping that maps to no agent";
   }
   if (!opts.trioMode && label !== "mia") return "not mentioned (solo mode)";
   return "unaddressed channel chatter (not the concierge)";
