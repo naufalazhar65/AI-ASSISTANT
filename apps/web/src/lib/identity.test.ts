@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   canonicalUserKey,
   resolveBrowserUserKey,
+  resolveOwnerScopedKey,
   validateUserKey,
+  agentTurnUserKey,
   OWNER_KEY,
   OWNER_LABEL,
 } from "./identity";
@@ -172,5 +174,33 @@ describe("resolveBrowserUserKey — override, not fold (live 2026-09-30 failure)
     // is a module constant that passes validation on its own.
     expect(canonicalUserKey("../evil")).toBeNull();
     expect(resolveBrowserUserKey("../evil")).toBe(OWNER_KEY);
+  });
+});
+
+/**
+ * 2026-10-19: the office chat answered every tab with Mia's persona, so Agnes
+ * called herself "PM dari trio kita". The persona key is per agent…
+ */
+describe("agentTurnUserKey (persona scope, per agent)", () => {
+  it("gives Agnes and Michelle their own persona dir", () => {
+    expect(agentTurnUserKey("naufal", "agnes")).toBe("naufal.agnes");
+    expect(agentTurnUserKey("naufal", "michelle")).toBe("naufal.michelle");
+  });
+
+  it("leaves Mia on the base key", () => {
+    expect(agentTurnUserKey("naufal", "mia")).toBe("naufal");
+  });
+
+  it("never invents a suffix for an unknown label", () => {
+    expect(agentTurnUserKey("naufal", "bob")).toBe("naufal");
+    expect(agentTurnUserKey("naufal", "")).toBe("naufal");
+  });
+
+  it("is the inverse direction of resolveOwnerScopedKey on purpose", () => {
+    // persona/memory is per agent …
+    expect(canonicalUserKey(agentTurnUserKey(OWNER_KEY, "agnes"))).toBe(`${OWNER_KEY}.agnes`);
+    // … while pentest state folds back to the owner, or the three agents would
+    // each hold a private set of findings and contradict each other.
+    expect(resolveOwnerScopedKey(`${OWNER_KEY}.agnes`)).toBe(OWNER_KEY);
   });
 });

@@ -89,6 +89,23 @@ export function canonicalUserKey(user: unknown): string | null {
 const AGENT_SUFFIXES = [".agnes", ".michelle"] as const;
 
 /**
+ * Persona/memory key for an AGENT turn — the same rule as `userKeyForAgent` in
+ * discord.ts / slack.ts: Mia keeps the base key, the other two get their suffix
+ * so each loads its OWN IDENTITY/SOUL and voice.
+ *
+ * Deliberately the opposite of `resolveOwnerScopedKey` below, which folds a
+ * suffixed key back to the owner because pentest state must be shared.
+ *
+ * Symptom this fixes (2026-10-19): the office chat passed the owner key for all
+ * three agents, so Agnes and Michelle both read Mia's persona and answered
+ * "PM dari trio kita" instead of "Agnes, Researcher".
+ */
+export function agentTurnUserKey(base: string, agent: string): string {
+  const suffix = AGENT_SUFFIXES.find((s) => s === `.${agent}`);
+  return suffix ? `${base}${suffix}` : base;
+}
+
+/**
  * PENTEST state is OWNER-scoped, deliberately NOT agent-scoped.
  *
  * Observed 2026-10-07 16:43 WIB, verified against the store on disk: the owner

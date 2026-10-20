@@ -179,7 +179,10 @@ describe("runner status and exit codes (§19.3, §19.4, §19.14)", () => {
     const report = await runEval({ deterministicOnly: true });
     expect(report.model_calls).toBe(0);
     expect(report.totals.selected).toBe(EVAL_DATASET.length);
-  });
+    // Runs the WHOLE deterministic dataset; ~6s on a loaded machine, so the
+    // 5s default cap flaked once another test file joined the run. Assertions
+    // above are unchanged — only the wall-clock budget moved.
+  }, 30_000);
 
   it("exit code is 0 only when every gate passes", async () => {
     // Config-independent subset: no case here reads operator .env.local state.

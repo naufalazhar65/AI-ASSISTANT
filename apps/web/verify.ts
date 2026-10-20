@@ -9718,6 +9718,30 @@ async function verifyProactiveWorkflows(): Promise<void> {
     console.log("project ownership (authorship claim vs recorded operations · cross-agent · artifact-scoped · fail-closed window): OK");
     console.log("problem-solving loop (kriteria+VERIFY · recovery class+budget · loop · approval fingerprint · restart unknown · metrik): OK");
     console.log("freeride chain (hanya OpenRouter · 9router 404) + reconcile blocked-plan (FAILED · disclosure jujur): OK");
+
+    // Office chat sidebar: the dashboard UI must reach the REAL backend and
+    // must never run a privileged op itself. Wiring assertions, because a green
+    // helper proves nothing if the call site was never made.
+    const officeRoute = readFileSync(join(appRoot(), "src", "app", "api", "office", "chat", "route.ts"), "utf8");
+    if (!/await runAssistantTurn\(\{/.test(officeRoute) || !/agent,/.test(officeRoute) || !/channel: "text"/.test(officeRoute)) {
+      throw new Error("office chat: route harus memanggil runAssistantTurn dengan agent + channel text (turn nyata, bukan mock)");
+    }
+    if (!/subscribeBus\(/.test(officeRoute)) throw new Error("office chat: route harus melempar event bus turn ini (kartu tool tanpa sumber akan buta)");
+    if (!/upsertSession\(user, sessionId/.test(officeRoute)) throw new Error("office chat: route harus persist lewat /api/sessions (store existing), bukan localStorage");
+    if (!/type: "confirm"/.test(officeRoute) || !/needsConfirmation/.test(officeRoute)) {
+      throw new Error("office chat: pause FR-014 harus dikembalikan sebagai frame confirm");
+    }
+    const officeServer = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "server.js"), "utf8");
+    if (!/p === '\/api\/office\/chat'/.test(officeServer)) throw new Error("office chat: dashboard harus mem-proxy /api/office/chat");
+    if (!/parsed\.user = OWNER_USER;/.test(officeServer)) throw new Error("office chat: proxy harus pin user owner di body POST (riwayat tidak boleh ditulis bucket lain)");
+    const officeIndex = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "index.html"), "utf8");
+    if (!/<script type="module" src="\/chat\.js"><\/script>/.test(officeIndex)) throw new Error("office chat: index.html harus memuat chat.js sebagai module");
+    const officeUi = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "chat.js"), "utf8");
+    if (/child_process|execSync|spawnSync|\beval\(/.test(officeUi)) {
+      throw new Error("office chat: frontend tidak boleh menjalankan operasi privileged (tool hanya server-side)");
+    }
+    if (!/from '\.\/chat-core\.mjs'/.test(officeUi)) throw new Error("office chat: chat.js harus memakai chat-core (sanitasi teruji), bukan logika sendiri");
+    console.log("office chat sidebar (route nyata · bus lifecycle · FR-014 confirm · store existing · proxy pin user · UI tanpa operasi privileged): OK");
   }
 }
 

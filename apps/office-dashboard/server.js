@@ -1779,6 +1779,137 @@ function readBody(req) {
   });
 }
 
+// Chat history turns can be far larger than a queue item (40 messages), so the
+// 64KB queue cap must not silently reject a legit conversation.
+const MAX_CHAT_BODY_BYTES = 512 * 1024;
+
+function readBodyLimited(req, max) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > max) {
+        reject(Object.assign(new Error('Body terlalu besar'), { statusCode: 413 }));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+/**
+ * Sidebar chat → Mia `/api/office/chat` (GET = history JSON, POST = NDJSON
+ * stream of the real turn). Same auth convention as the bus proxy: the bearer
+ * is attached server-side so no token ever reaches the browser JS, and the
+ * upstream status is forwarded so "Mia menolak" is distinguishable from
+ * "Mia tidak hidup".
+ */
+function proxyOfficeChat(req, res, url) {
+  const target = new URL('/api/office/chat', MIA_WEB_BASE);
+  target.searchParams.set('user', OWNER_USER);
+  if (url.searchParams.get('agent')) target.searchParams.set('agent', url.searchParams.get('agent'));
+
+  let body = Buffer.alloc(0);
+  // The browser must never choose whose history it reads/writes: pin the owner
+  // user here, both in the query (GET) and in the JSON body (POST).
+  const withOwnerUser = (buf) => {
+    try {
+      const parsed = JSON.parse(buf.toString('utf8') || '{}');
+      if (!parsed || typeof parsed !== 'object') return buf;
+      parsed.user = OWNER_USER;
+      return Buffer.from(JSON.stringify(parsed));
+    } catch {
+      return buf;
+    }
+  };
+  const send = (up) => {
+    const headers = { accept: 'application/x-ndjson, application/json' };
+    if (AUTH_TOKEN) headers.authorization = `Bearer ${AUTH_TOKEN}`;
+    if (body.length) {
+      headers['content-type'] = 'application/json';
+      headers['content-length'] = String(body.length);
+    }
+    const up2 = http.request(
+      { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method: req.method, headers },
+      (r) => {
+        res.writeHead(r.statusCode || 502, {
+          'content-type': r.headers['content-type'] || 'application/x-ndjson; charset=utf-8',
+          'cache-control': 'no-store',
+          'x-accel-buffering': 'no',
+        });
+        r.pipe(res);
+      },
+    );
+    up2.on('error', () => {
+      if (!res.headersSent) sendJson(res, 502, { error: 'office_chat_unreachable' });
+      else res.end();
+    });
+    if (body.length) up2.write(body);
+    up2.end();
+    return up2;
+  };
+
+  const start = () => {
+    const upstream = send();
+    const abort = () => {
+      try { upstream.destroy(); } catch { /* already gone */ }
+    };
+    req.on('close', abort);
+    res.on('error', abort);
+  };
+
+  if (req.method === 'POST') {
+    readBodyLimited(req, MAX_CHAT_BODY_BYTES).then(
+      (buf) => { body = withOwnerUser(buf); start(); },
+      (err) => sendJson(res, err.statusCode || 400, { error: String(err.message || err) }),
+    );
+    return;
+  }
+  start();
+}
+
+/**
+ * Portraits of the trio, proxied from Mia's `public/` folder.
+ *
+ * The files live in ONE place (`apps/web/public/*.webp`, the same ones the
+ * Telegram/Discord side uses), so the dashboard never carries a duplicate copy
+ * that can drift. The path is a fixed whitelist — a request can only ask for
+ * one of the three registered ids, never an arbitrary upstream file.
+ */
+const AVATAR_IDS = new Set(['mia', 'agnes', 'michelle']);
+
+function proxyAvatar(req, res, urlPath) {
+  const id = urlPath.replace(/^\/avatars\//, '').replace(/\.webp$/, '');
+  if (!AVATAR_IDS.has(id)) {
+    sendJson(res, 404, { error: 'not_found', path: urlPath });
+    return;
+  }
+  const target = new URL(`/${id}.webp`, MIA_WEB_BASE);
+  const headers = {};
+  if (AUTH_TOKEN) headers.authorization = `Bearer ${AUTH_TOKEN}`;
+  const upstream = http.get(target, { headers }, (up) => {
+    if (up.statusCode !== 200) {
+      up.resume();
+      sendJson(res, 404, { error: 'not_found', path: urlPath });
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'image/webp',
+      'content-length': up.headers['content-length'] || 0,
+      'cache-control': 'no-store',
+    });
+    up.pipe(res);
+  });
+  upstream.on('error', () => {
+    if (!res.headersSent) sendJson(res, 404, { error: 'not_found', path: urlPath });
+    else res.end();
+  });
+}
+
 function serveStatic(req, res, urlPath) {
   let rel = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
   const resolved = path.resolve(ROOT, rel);
@@ -1793,7 +1924,7 @@ function serveStatic(req, res, urlPath) {
     return;
   }
   const ext = path.extname(resolved);
-  const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.md': 'text/plain; charset=utf-8' };
+  const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.md': 'text/plain; charset=utf-8' };
   res.writeHead(200, { 'content-type': types[ext] || 'application/octet-stream', 'content-length': stat.size, 'cache-control': 'no-store' });
   fs.createReadStream(resolved).pipe(res);
 }
@@ -1908,6 +2039,10 @@ const server = http.createServer(async (req, res) => {
       proxyBusStream(req, res, url);
       return;
     }
+    if (p === '/api/office/chat' && (req.method === 'GET' || req.method === 'POST')) {
+      proxyOfficeChat(req, res, url);
+      return;
+    }
     if (p === '/api/state' && req.method === 'GET') {
       sendJson(res, 200, await buildState());
       return;
@@ -1967,6 +2102,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.method === 'GET') {
+      if (p.startsWith('/avatars/')) {
+        proxyAvatar(req, res, p);
+        return;
+      }
       serveStatic(req, res, p);
       return;
     }
