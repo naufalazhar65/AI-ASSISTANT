@@ -103,6 +103,10 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
     } catch {
       /* honest: agent cards keep fallback meta + "tidak diketahui" status */
     }
+    /* The panel renders from the chat snapshot, so a status that arrived
+       without an emit() would sit on screen as "tidak diketahui" until the
+       next chat event — which, on an idle panel, is never. */
+    emit();
   }
 
   async function loadHistory(agent = selected) {
@@ -580,11 +584,10 @@ const EMPTY_HINT = {
 function streamNodes(chat, c, agentMeta) {
   const msgs = visibleMessages(c.messages);
   if (!msgs.length && !c.cards.length) {
+    /* No identity block: the header already shows name + role. The empty
+       state starts the conversation instead of repeating the profile. */
     return [
       h('div', { class: 'chatEmpty' }, [
-        avatarBox(agentMeta, 'chatEmptyAv', initials(agentMeta.name)),
-        h('h4', { text: agentMeta.name || 'Agent' }),
-        h('p', { class: 'chatEmptyRole', text: agentMeta.role || 'Agent AI Office' }),
         h('p', { class: 'chatEmptyHint', text: EMPTY_HINT[agentMeta.id] || 'Tulis pesan di bawah — balasan datang dari agent sungguhan.' }),
         h(
           'div',
@@ -742,7 +745,12 @@ function ChatHeader(chat, state, agentMeta, onClose) {
               h('i', { 'aria-hidden': 'true' }),
               h('span', { text: avail.label }),
             ]),
-            h('span', { class: `chatTask ${task.tone}`, role: 'status', 'data-fk': 'taskstate', text: task.label }),
+            h('span', {
+              class: `chatTask ${task.tone}`,
+              role: 'status',
+              'data-fk': 'taskstate',
+              text: task.tone === 'idle' ? '' : task.label,
+            }),
           ]),
         ]),
       ]),
@@ -860,8 +868,10 @@ function ChatSidebar(chat, toggleBtn) {
        steal focus from the agent tabs. */
     const task = taskStateFor(c);
     const taskEl = head.querySelector('[data-fk="taskstate"]');
-    if (taskEl && taskEl.textContent !== task.label) {
-      taskEl.textContent = task.label;
+    /* Idle means "no turn right now" — say nothing rather than "nothing". */
+    const taskLabel = task.tone === 'idle' ? '' : task.label;
+    if (taskEl && taskEl.textContent !== taskLabel) {
+      taskEl.textContent = taskLabel;
       taskEl.className = `chatTask ${task.tone}`;
     }
 

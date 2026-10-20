@@ -12,6 +12,9 @@
   flex:0 0 var(--chatw,340px);width:var(--chatw);min-width:0;
   background:var(--panel);border-left:1px solid var(--line);
   display:flex;flex-direction:column;min-height:0;position:relative;
+  /* The stage is bright; a hard 1px seam read as a cut. A soft warm shadow
+     lifts the panel off the canvas instead. */
+  box-shadow:-14px 0 34px rgba(92,70,44,.16);
 }
 /* The panel is toggled with the `hidden` attribute. `display:flex` on the id
    outranks the UA sheet's `[hidden]{display:none}`, so without this rule the
@@ -45,6 +48,9 @@
 .chatTask.busy{color:var(--warn)}
 .chatTask.warn{color:var(--warn)}
 .chatTask.bad{color:var(--bad)}
+/* "Tidak ada giliran aktif" is the absence of news — it only clutters the
+   identity line. Idle means idle: show nothing. */
+.chatTask.idle{display:none}
 .chatAvail i{width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:var(--faint)}
 .chatAvail i.on{background:var(--ok)}
 .chatAvail i.busy{background:var(--warn);animation:chatPulse 1.6s ease-in-out infinite}
@@ -84,21 +90,18 @@
 .chatTail{flex:0 0 auto}
 
 /* ── empty state ───────────────────────────────────────── */
-.chatEmpty{max-width:320px;margin:var(--s8) auto;text-align:center;
-  display:flex;flex-direction:column;align-items:center;gap:var(--s2)}
-.chatEmptyAv{width:52px;height:52px;border-radius:var(--r-lg);
-  display:flex;align-items:center;justify-content:center;font-weight:700;
-  font-size:var(--t2);color:#2b2724;position:relative;overflow:hidden;
-  box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
-.chatEmpty h4{margin:var(--s2) 0 0;font-size:var(--t2);font-weight:700;color:var(--text)}
-.chatEmptyRole{margin:0;font-size:var(--t-1);color:var(--muted)}
-.chatEmptyHint{margin:var(--s2) 0 0;font-size:var(--t-1);color:var(--muted);line-height:1.6}
-.suggest{display:flex;flex-wrap:wrap;gap:var(--s2);justify-content:center;margin-top:var(--s4)}
-.suggestBtn{font:inherit;font-size:var(--t-1);color:var(--accent-ink);
-  background:var(--accent-2);border:1px solid var(--accent-edge);
-  border-radius:var(--r-sm);padding:7px 11px;cursor:pointer;
+/* The header already carries name + role. The empty state must not repeat
+   them; it starts the conversation instead — one hint, then an even list of
+   starting points, anchored under the header instead of floating mid-panel. */
+.chatEmpty{max-width:340px;margin:var(--s3) 0 0;text-align:left;
+  display:flex;flex-direction:column;align-items:stretch;gap:var(--s3)}
+.chatEmptyHint{margin:0;font-size:var(--t0);color:var(--muted);line-height:1.6}
+.suggest{display:flex;flex-direction:column;gap:var(--s1);margin-top:0}
+.suggestBtn{font:inherit;font-size:var(--t-1);color:var(--text);text-align:left;
+  background:var(--panel-2);border:1px solid var(--line);
+  border-radius:var(--r-sm);padding:8px 11px;cursor:pointer;
   transition:background var(--dur),border-color var(--dur)}
-.suggestBtn:hover{background:var(--accent);border-color:var(--accent);color:#2b2724}
+.suggestBtn:hover{background:var(--accent-2);border-color:var(--accent-edge);color:var(--accent-ink)}
 
 /* ── messages ──────────────────────────────────────────── */
 .msg{display:flex;gap:var(--s2);align-items:flex-start}
@@ -243,6 +246,13 @@
 .chatFootTop{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s2)}
 .chatStatus{font-size:var(--t-2);color:var(--muted);display:inline-flex;align-items:center;
   gap:5px}
+/* Connection is a status, so it wears the house rule: a dot AND a word. */
+.chatStatus:before{content:'';width:7px;height:7px;border-radius:50%;flex:0 0 7px;
+  background:var(--faint)}
+.chatStatus[data-state="connecting"]:before{background:var(--muted)}
+.chatStatus[data-state="open"]:before{background:var(--ok)}
+.chatStatus[data-state="closed"]:before{background:var(--warn)}
+.chatStatus[data-state="error"]:before{background:var(--bad)}
 .chatStatus[data-state="error"]{color:var(--bad)}
 .chatStatus[data-state="closed"]{color:var(--warn)}
 .chatStatus[data-state="open"]{color:var(--ok)}
@@ -255,7 +265,8 @@
 .chatInput:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring);
   background:var(--panel)}
 .chatInput::placeholder{color:var(--faint)}
-.chatSend{flex:0 0 auto;min-width:78px}
+/* The input and the send button sit in one row: same height, same radius. */
+.chatSend{flex:0 0 auto;min-width:78px;min-height:36px;border-radius:var(--r-md)}
 
 /* ── inbox result (gmail_list / gmail_search) ──────────────────────────
    The card shows a real list: subject, sender display name, converted time

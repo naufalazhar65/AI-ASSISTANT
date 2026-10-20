@@ -353,11 +353,18 @@
   .ovl{position:absolute;inset:0;pointer-events:none;padding:var(--s4);
     display:flex;flex-direction:column;justify-content:space-between;gap:var(--s3)}
   .ovlTop{display:flex;gap:var(--s2);flex-wrap:wrap;pointer-events:auto;align-items:flex-start}
-  .ovlBottom{display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center;min-width:0}
+  /* One HUD bar, not four loose pills. The bar is the surface; the chips
+     inside it are flat, so the group reads as one instrument. The bar also
+     carries its own pointer events — without them the "Panel" button was
+     dead to the mouse (clicks landed on the canvas). */
+  .ovlBottom{pointer-events:auto;display:flex;gap:var(--s2);flex-wrap:wrap;
+    align-items:center;min-width:0;max-width:100%;
+    background:var(--hudbg);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:5px 7px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:var(--shadow-2)}
   .ovlBottom .sp{display:none}
-  .ovlBottom .btn{flex:0 0 auto;margin-left:auto;background:var(--hudbg);
-    border-color:var(--line);color:var(--muted);
-    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+  .ovlBottom .btn{flex:0 0 auto;margin-left:auto;background:transparent;
+    border-color:var(--line);color:var(--muted)}
   .ovlBottom .btn:hover{background:var(--accent-2);border-color:var(--accent-edge);
     color:var(--accent-ink)}
   /* Scene toolbar — one coherent group, light neutral surfaces, warm accent for
@@ -397,27 +404,35 @@
      rather than clipping a pill mid-word. */
   #ovlStatus{pointer-events:auto;display:flex;gap:var(--s1);flex-wrap:wrap;
     align-items:center;align-content:flex-start;min-width:0;max-width:100%;
-    flex:1 1 100%}
+    flex:1 1 auto}
   #ovlStatus .pill{font-size:11.5px;letter-spacing:.02em;flex:0 1 auto;min-width:0;
     max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-    padding:3px 8px;background:var(--hudbg);border-color:var(--line);
-    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
-  #ovlStatus .pill.hot{color:var(--ok);border-color:var(--ok-2)}
-  #ovlStatus .pill.fail{color:var(--bad);border-color:var(--bad-2)}
-  #ovlStatus .pill.due{color:var(--warn);border-color:var(--warn-2)}
+    padding:3px 8px;background:transparent;border-color:transparent}
+  #ovlStatus .pill i{width:7px;height:7px;border-radius:50%;flex:0 0 7px;
+    background:var(--muted)}
+  #ovlStatus .pill i.ok{background:var(--ok)}
+  #ovlStatus .pill i.warn{background:var(--warn)}
+  #ovlStatus .pill i.bad{background:var(--bad)}
+  #ovlStatus .pill.hot{color:var(--ok)}
+  #ovlStatus .pill.fail{color:var(--bad)}
+  #ovlStatus .pill.due{color:var(--warn)}
+  /* The bus pill is a liveness word, not a status dot — it must never be
+     clipped to "BUS …". */
+  #busPill{flex:0 0 auto;max-width:none;overflow:visible;text-overflow:clip;
+    white-space:nowrap}
   #officeHint{font-size:var(--t-1);color:var(--muted);background:var(--hudbg);
     border-color:var(--line);max-width:min(560px,60vw);overflow:hidden;text-overflow:ellipsis}
-  #activityPill{font-size:var(--t-1);color:var(--muted);background:var(--hudbg);
-    border-color:var(--line);max-width:min(320px,60%);overflow:hidden;
+  #activityPill{font-size:var(--t-1);color:var(--muted);background:transparent;
+    border-color:transparent;max-width:min(320px,60%);overflow:hidden;
     text-overflow:ellipsis;display:inline-block;flex:0 1 auto}
   /* Agent nameplate — one warm card per character: name + status dot + role +
      room, then a short activity line. Status is carried by a dot AND a word. */
   .tagLbl{position:absolute;transform:translate(-50%,-100%);pointer-events:auto;
     cursor:pointer;background:var(--hudbg);border:1px solid var(--line);
-    border-radius:var(--r-md);padding:7px 11px 7px 10px;min-width:112px;max-width:230px;
+    border-radius:var(--r-sm);padding:5px 9px 5px 8px;min-width:96px;max-width:190px;
     font-size:var(--t-1);white-space:nowrap;line-height:1.4;
     backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-    box-shadow:var(--shadow-2);transition:border-color var(--dur),background var(--dur)}
+    box-shadow:var(--shadow-1);transition:border-color var(--dur),background var(--dur)}
   .tagLbl:hover{border-color:var(--accent-edge);background:var(--panel)}
   .tagLbl.sel{border-color:var(--accent);background:var(--accent-2);
     box-shadow:0 0 0 1px var(--accent-edge),var(--shadow-2)}
@@ -428,7 +443,7 @@
     overflow:hidden;text-overflow:ellipsis}
   .tagLbl .tRoom{color:var(--faint);font-size:var(--t-2)}
   .tagLbl small{display:block;color:var(--muted);font-size:var(--t-2);margin-top:2px;
-    max-width:200px;overflow:hidden;text-overflow:ellipsis}
+    max-width:160px;overflow:hidden;text-overflow:ellipsis}
   .tagLbl .tProv{display:none}
   .tagLbl .tDot{width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:var(--faint)}
   .tagLbl .tDot.working{background:var(--ok);box-shadow:0 0 0 3px rgba(61,122,90,.16)}
@@ -450,14 +465,21 @@
   .hud[hidden]{display:none}
   .hudRow{display:flex;align-items:center;gap:var(--s1);margin:0;
     padding:var(--s3) var(--s4);border-bottom:1px solid var(--line);flex:0 0 auto}
+  .hudSeg{display:inline-flex;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:var(--r-sm);padding:2px;gap:2px}
   .hudTab{font:inherit;font-size:var(--t-1);letter-spacing:.02em;font-weight:600;
     color:var(--muted);background:transparent;border:1px solid transparent;
-    border-radius:var(--r-sm);padding:6px 12px;cursor:pointer}
-  .hudTab:hover{color:var(--text);background:var(--panel-2)}
-  .hudTab.on{color:var(--accent-ink);border-color:var(--accent-edge);background:var(--accent-2)}
+    border-radius:var(--r-xs);padding:5px 12px;cursor:pointer}
+  .hudTab:hover{color:var(--text);background:var(--panel-3)}
+  .hudTab.on{color:var(--accent-ink);border-color:var(--accent-edge);background:var(--panel);
+    box-shadow:var(--shadow-1)}
   .hudPane{display:grid;gap:var(--s3);grid-template-columns:1fr;align-content:start;
     padding:var(--s4);overflow:auto;flex:1;min-height:0}
-  .hudPane.crew{grid-template-columns:1fr 1fr}
+  /* Three agents in a 322px column: one per row. Two columns left half a
+     cell empty and split the role line. */
+  .hudPane.crew{grid-template-columns:1fr}
+  .hudSummary{grid-column:1/-1;display:flex;gap:var(--s2);flex-wrap:wrap;
+    align-items:center;font-size:var(--t-1);color:var(--muted)}
   .hudCard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
     padding:12px 14px;text-align:left;width:100%;color:inherit;font:inherit;cursor:pointer;
     box-shadow:var(--shadow-1);transition:border-color var(--dur),background var(--dur)}
@@ -472,8 +494,12 @@
   .hdActions{display:flex;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s3)}
   .hudCard .k{font-size:var(--t-2);letter-spacing:.08em;text-transform:uppercase;
     color:var(--muted);font-weight:650}
-  .hudCard .v{font-size:var(--t1);font-weight:650;margin-top:5px;display:flex;
-    align-items:center;gap:var(--s2);flex-wrap:wrap}
+  .hudCard .v{font-size:var(--t1);font-weight:650;margin-top:5px}
+  /* Role on its own line under the badge, for every agent — a card that
+     puts "Coder" beside the badge and "Main Assistant" below it reads as
+     two different layouts. */
+  .hudCard .v .role{display:block;margin-top:3px;font-size:var(--t-1);font-weight:550;
+    color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .hudCard .s{font-size:var(--t-1);color:var(--muted);margin-top:5px;
     overflow:hidden;text-overflow:ellipsis}
   .hudDetail{display:flex;flex-direction:column;gap:var(--s2)}
@@ -650,8 +676,10 @@
            resizes the canvas (ResizeObserver) — the renderer is never rebuilt. -->
       <div class="hud" id="hud">
         <div class="hudRow">
-          <button class="hudTab on" id="tabCrew" aria-selected="true" role="tab" aria-controls="hudPane">Crew</button>
-          <button class="hudTab" id="tabAgent" role="tab" aria-selected="false" aria-controls="hudPane" disabled>Detail</button>
+          <span class="hudSeg" role="tablist">
+            <button class="hudTab on" id="tabCrew" aria-selected="true" role="tab" aria-controls="hudPane">Crew</button>
+            <button class="hudTab" id="tabAgent" role="tab" aria-selected="false" aria-controls="hudPane" disabled title="Pilih kartu crew atau nametag di scene untuk melihat detail">Detail</button>
+          </span>
           <span style="flex:1"></span>
           <button class="btn vb" id="hudClose" aria-label="Tutup panel" title="Tutup panel">×</button>
         </div>
@@ -970,7 +998,7 @@ function renderHud() {
   }
   if (hudTab === 'agent' && office.selAgent) {
     pane.innerHTML = agentDetailHtml(office.selAgent);
-    if (hint) hint.textContent = 'memilih agent tidak mengantrekan apa pun';
+    if (hint) hint.textContent = 'Detail agent terpilih — memilih tidak mengirim giliran baru.';
     return;
   }
   if (!STATE.agents.length) {
@@ -978,19 +1006,20 @@ function renderHud() {
     if (hint) hint.textContent = '\u2014';
     return;
   }
+  var busy = STATE.agents.filter(function (a) { return a.status === 'working'; }).length;
   var cards = STATE.agents.map(function (a) {
     var b = a.basis || {};
     var sel = office.selAgent === a.id;
     return '<button class="hudCard' + (sel ? ' sel' : '') + '" type="button"' +
       ' data-selectagent="' + esc(a.id) + '" aria-pressed="' + (sel ? 'true' : 'false') + '">' +
       '<div class="k">' + esc(a.name) + '</div><div class="v">' +
-      stBadge(a.status) + '<span>' + esc((a.role || '').split('/')[0].trim()) + '</span></div><div class="s">' +
+      stBadge(a.status) + '<span class="role">' + esc((a.role || '').split('/')[0].trim()) + '</span></div><div class="s">' +
       (b.turns != null
         ? esc(count(b.turns) + ' turn \u00b7 ' + count(b.tool_calls) + ' tool \u00b7 ' + ago(a.last_update))
         : esc(b.note || 'belum ada data')) + '</div></button>';
   });
-  pane.innerHTML = cards.join('');
-  if (hint) hint.textContent = 'pilih crew untuk detail \u00b7 metrik mesin di Pengaturan \u00b7 sesi audit di Activity';
+  pane.innerHTML = '<div class="hudSummary">' + esc(STATE.agents.length + ' agent \u00b7 ' + busy + ' bekerja') + '</div>' + cards.join('');
+  if (hint) hint.textContent = 'Pilih kartu crew atau nametag di scene untuk detail agent.';
 }
 
 function wireLogFilter(el) {
@@ -1404,12 +1433,14 @@ function renderOvlStatus() {
     }
   }
   var out = [
-    '<span class="pill">Crew ' + working + '/' + ag.length + '</span>',
-    '<span class="pill">Antre ' + queued + '</span>',
-    '<span class="pill">Berjalan ' + running + (failed ? ' · gagal ' + failed : '') + '</span>',
-    '<span class="pill">' + (next && next.kind === 'reminder' ? 'Reminder ' : 'Cron ') + (next
-      ? esc(trunc(next.label, 18)) + ' · ' + esc(hhmmss(new Date(next.at).toISOString()))
-      : '—') + '</span>'
+    '<span class="pill"><i></i>Crew ' + working + '/' + ag.length + '</span>',
+    '<span class="pill"><i class="' + (queued ? 'warn' : '') + '"></i>Antre ' + queued + '</span>',
+    '<span class="pill hot"><i class="ok"></i>Berjalan ' + running + '</span>',
+    failed ? '<span class="pill fail"><i class="bad"></i>gagal ' + failed + '</span>' : '',
+    '<span class="pill"><i class="' + (next ? 'warn' : '') + '"></i>' +
+      (next && next.kind === 'reminder' ? 'Reminder ' : 'Cron ') + (next
+        ? esc(trunc(next.label, 18)) + ' · ' + esc(hhmmss(new Date(next.at).toISOString()))
+        : '—') + '</span>'
   ];
   el.innerHTML = out.join('');
 }
@@ -4806,14 +4837,19 @@ function syncOffice() {
     if (tag) tag.innerHTML = tagText(a.id, a.name, a.status, a.active_task, av && av.provenance);
   });
   projectTags();
-  /* One line under the stage: who is on which floor right now. Written from the
-     same poll as the tags so the strip can never contradict a nameplate. */
+  /* Who is in the room. Written from the same poll as the nameplates so the
+     strip can never contradict them. The rooms live on the nameplates, so
+     cramming four "name - room" pairs into one pill only made it unreadable. */
   var pill = $('#activityPill');
   if (pill) {
-    pill.textContent = STATE.agents.length ? STATE.agents.map(function (a) {
+    var here = STATE.agents.filter(function (a) { return office.avatar[a.id]; });
+    pill.textContent = here.length
+      ? here.map(function (a) { return a.name; }).join(' \u00b7 ')
+      : 'Tidak ada agent di scene';
+    pill.title = here.map(function (a) {
       var av2 = office.avatar[a.id];
-      return a.name + ' \u00b7 ' + (av2 ? (ROOM_LABEL_UI[av2.room] || '\u2014') : '\u2014');
-    }).join('   ') : 'Tidak ada agent terdaftar';
+      return a.name + ' \u2014 ' + (av2 ? (ROOM_LABEL_UI[av2.room] || '\u2014') : '\u2014');
+    }).join(' \u00b7 ');
   }
   if (office.selAgent) markSelected();
 }

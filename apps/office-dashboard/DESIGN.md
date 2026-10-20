@@ -82,6 +82,13 @@ Shadows are warm and low-contrast (`rgba(92,70,44,…)`), never black.
 - Canvas overlays wrap instead of scrolling: room chips flow onto a second
   row and the status pills stack, so nothing is cut in half by a scrollbar
   the user cannot see.
+- The bottom overlay is **one HUD bar**, not a row of loose pills: a single
+  warm surface holds the counters, the roster and the Panel button, and the
+  chips inside it are flat. The bar owns its pointer events — a control inside
+  an overlay that inherits `pointer-events: none` is dead to the mouse.
+- A nameplate is a caption, not a card: tighter padding, smaller radius, one
+  shadow step. It sits over a bright 3D scene, so every pixel of weight it
+  carries is weight on the picture.
 - The HUD (crew + agent detail) is a sibling of the canvas so the office keeps
   the bright surface; it becomes a bottom sheet under 820 px.
 - The chat is a sibling panel; under 900 px it becomes a right drawer, under
@@ -101,6 +108,12 @@ Shadows are warm and low-contrast (`rgba(92,70,44,…)`), never black.
 - Segmented controls (period picker, agent selector): neutral track, accent
   fill on the active segment.
 - Empty states: a soft dashed well with one honest sentence. No decorative art.
+- The chat's empty state never repeats the identity the header already shows
+  (name, role, avatar). It starts the conversation instead: one honest
+  sentence, then an even stack of starting points, anchored under the header
+  instead of floating in the middle of the panel.
+- The composer is one row: the input and the send button share height and
+  radius.
 - Long values (ids, URLs, tool output) truncate with an ellipsis or scroll
   inside their own box — they never widen the layout.
 
@@ -118,6 +131,12 @@ Every visible indicator is wired to real state:
 - Machine-shaped values (basis, counters, provenance, scene signals) live in
   the collapsed **Diagnostics** block of the agent panel, never in the primary
   summary.
+- Counters are dot + word, and success never shares a chip with failure:
+  "Berjalan 448" and "gagal 18" are separate chips with their own colour.
+- Idle is silent. The chat header shows the agent's availability and drops the
+  task line when no turn is running, instead of printing "no turn is active".
+  A status that arrived from the server must reach the panel even when the
+  panel has no other news to render.
 
 ## Tool cards & execution truth
 
