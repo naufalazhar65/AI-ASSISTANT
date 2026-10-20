@@ -112,26 +112,53 @@ export function parseNdjsonLine(line) {
 export function applyBusEvent(cards, ev) {
   if (!Array.isArray(cards) || !ev || typeof ev !== 'object') return cards;
   const list = cards.slice();
-  const name = ev.data && ev.data.name;
-  if (ev.type === 'tool_called' && name) {
+  const data = (ev.data && typeof ev.data === 'object') ? ev.data : {};
+  const name = data.name;
+  const callId = data.call_id ? String(data.call_id) : '';
+  const isTerminal = (s) => s === 'succeeded' || s === 'failed' || s === 'cancelled' || s === 'timed_out';
+  /* Exact match first: the bus carries the provider's tool_call id, so only
+     the event that really owns a card may change it. The name fallback is
+     for older events that predate call_id — and it only ever touches a card
+     that is still open, so an old turn can never be rewritten. */
+  const byId = (id) => list.findIndex((c) => c && String(c.id) === id);
+  const byName = () => {
     for (let i = list.length - 1; i >= 0; i -= 1) {
-      if (list[i].name === name && (list[i].state === 'queued' || list[i].state === 'awaiting_approval')) {
-        list[i] = {
-          ...list[i],
-          state: ev.data.ok ? 'succeeded' : 'failed',
-          at: ev.ts,
-          output: list[i].output || (ev.data.ok ? 'Selesai (hasil di respons agent).' : String(ev.summary || 'Gagal.').slice(0, 300)),
-        };
-        break;
-      }
+      const c = list[i];
+      if (c && c.name === name && !isTerminal(c.state)) return i;
     }
-  } else if (ev.type === 'task_cancelled' && name) {
-    for (let i = list.length - 1; i >= 0; i -= 1) {
-      if (list[i].name === name && list[i].state !== 'succeeded') {
-        list[i] = { ...list[i], state: 'cancelled', at: ev.ts, output: 'Ditolak user — tool tidak dijalankan.' };
-        break;
-      }
+    return -1;
+  };
+  const target = () => (callId ? byId(callId) : byName());
+  if (ev.type === 'tool_started') {
+    if (!callId && !name) return list;
+    const i = target();
+    if (i >= 0) list[i] = { ...list[i], state: 'running', summary: 'Sedang berjalan', at: ev.ts };
+    return list;
+  }
+  if (ev.type === 'tool_called') {
+    if (!callId && !name) return list;
+    const i = target();
+    if (i >= 0) {
+      const ok = data.ok !== false;
+      list[i] = {
+        ...list[i],
+        state: ok ? 'succeeded' : 'failed',
+        summary: ok ? 'Selesai' : 'Gagal',
+        result: String(ev.summary || '').slice(0, 200),
+        at: ev.ts,
+      };
     }
+    return list;
+  }
+  if (ev.type === 'task_cancelled') {
+    if (!callId && !name) return list;
+    const i = target();
+    /* A cancel never overwrites a real outcome: if the tool already produced
+       a result, that result is the truth. */
+    if (i >= 0 && !isTerminal(list[i].state)) {
+      list[i] = { ...list[i], state: 'cancelled', summary: 'Dibatalkan', result: undefined, at: ev.ts };
+    }
+    return list;
   }
   return list;
 }
@@ -141,7 +168,12 @@ export function turnIsLive(frames) {
   const seen = frames || [];
   if (!seen.length) return false;
   const last = seen[seen.length - 1];
-  return last.type === 'task_created' || last.type === 'task_started' || last.type === 'tool_called';
+  return (
+    last.type === 'task_created' ||
+    last.type === 'task_started' ||
+    last.type === 'tool_started' ||
+    last.type === 'tool_called'
+  );
 }
 
 /**
@@ -153,15 +185,117 @@ export function turnIsLive(frames) {
  * one" while the stream appends, which is all the renderer needs to avoid
  * re-rendering the conversation on every token.
  */
+/**
+ * Internal notes the backend pushes INTO the conversation as `role: "user"`
+ * (the email/probe gates nudge the model, and the rolling summary carries
+ * "[Percakapan sebelumnya — …]"). They are NOT something the owner said, so
+ * they must never render as a user bubble.
+ */
+const INTERNAL_NOTE_RE =
+  /^\[(?:probe-gate|email-gate|percakapan sebelumnya|self-correct|superseded|automation|system)\b/i;
+
+export function isInternalNote(text) {
+  return INTERNAL_NOTE_RE.test(String(text ?? '').trim());
+}
+
 export function visibleMessages(messages) {
   const out = [];
   (Array.isArray(messages) ? messages : []).forEach((m, i) => {
     if (!m || typeof m !== 'object' || m.role === 'tool') return;
-    if (m.role === 'assistant' && !m.content) return;
     const content = String(m.content ?? '');
-    out.push({ key: `${i}|${m.role}|${content.slice(0, 48)}`, role: m.role, content });
+    /* An assistant turn that ONLY proposes tool calls carries no text.
+       Dropping it used to leave its cards with no anchor, so they floated to
+       the end of the conversation and rendered under an unrelated later
+       message. Keep the turn and expose the call ids it owns. */
+    const callIds = Array.isArray(m.tool_calls)
+      ? m.tool_calls.map((c) => (c && c.id ? String(c.id) : '')).filter(Boolean)
+      : [];
+    if (m.role === 'assistant' && !content && !callIds.length) return;
+    out.push({
+      key: `${i}|${m.role}|${content.slice(0, 48)}`,
+      // Index into the FULL message list — the stamp array is aligned with it,
+      // so a message can be dated without guessing from its text.
+      index: i,
+      role: m.role,
+      content,
+      callIds,
+      internal: m.role === 'user' && isInternalNote(content),
+    });
   });
   return out;
+}
+
+/**
+ * Normalise send times to one array aligned with the message list. A message
+ * whose time is genuinely unknown stays null — it is never filled with "now".
+ * The server is the ONLY source: a local copy is indexed by position, and a
+ * history that changed shape would move a time onto the wrong message.
+ */
+export function mergeStamps(server, len) {
+  const out = new Array(Math.max(0, len)).fill(null);
+  for (let i = 0; i < out.length; i += 1) {
+    const s = server && server[i];
+    out[i] = typeof s === 'number' && Number.isFinite(s) ? s : null;
+  }
+  return out;
+}
+
+/**
+ * "20 Okt 2026, 14.45 WIB" — the app's configured timezone, built from
+ * formatToParts so the output is identical on every ICU build. A missing or
+ * unparseable date yields "" — a date is never invented.
+ *
+ * The zone AND its label come from the SERVER (`/api/office/chat` returns
+ * `tz` / `tz_label`), so the browser never hardcodes "WIB".
+ */
+export function dateTimeLabel(at, zone, label) {
+  if (at === null || at === undefined || at === '') return '';
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('id-ID', {
+      timeZone: zone || 'Asia/Jakarta',
+      day: 'numeric', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(d);
+    const get = (t) => {
+      const p = parts.find((x) => x.type === t);
+      return p ? p.value : '';
+    };
+    const day = get('day');
+    const month = get('month');
+    const year = get('year');
+    const hour = get('hour') === '24' ? '00' : get('hour');
+    const minute = get('minute');
+    if (!day || !month || !year || !hour || !minute) return '';
+    const lbl = label ? String(label) : '';
+    return `${day} ${month} ${year}, ${hour}.${minute}${lbl ? ' ' + lbl : ''}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Cards a given assistant turn owns. The card id IS the provider's
+ * tool_call id, so this is an exact join — never a name match.
+ */
+export function cardsForCallIds(cards, callIds) {
+  const want = new Set((Array.isArray(callIds) ? callIds : []).map(String));
+  if (!want.size) return [];
+  return (Array.isArray(cards) ? cards : []).filter((c) => c && want.has(String(c.id)));
+}
+
+/**
+ * Cards no visible turn claims — typically a live turn whose assistant
+ * message has not arrived yet. They are rendered last, but they are still
+ * real: they belong to the turn in flight.
+ */
+export function unclaimedCards(cards, msgs) {
+  const claimed = new Set();
+  (Array.isArray(msgs) ? msgs : []).forEach((m) => {
+    (m && Array.isArray(m.callIds) ? m.callIds : []).forEach((id) => claimed.add(String(id)));
+  });
+  return (Array.isArray(cards) ? cards : []).filter((c) => c && !claimed.has(String(c.id)));
 }
 
 /**
@@ -188,12 +322,50 @@ export function agentAvailability(status) {
 export function toolStateMeta(state) {
   const map = {
     queued: { label: 'Menunggu dijalankan', icon: '·', tone: 'pending' },
-    awaiting_approval: { label: 'Menunggu persetujuan', icon: '?', tone: 'warn' },
+    running: { label: 'Sedang berjalan', icon: '↻', tone: 'warn' },
+    awaiting_approval: { label: 'Menunggu persetujuanmu', icon: '?', tone: 'warn' },
     succeeded: { label: 'Selesai', icon: '✓', tone: 'ok' },
     failed: { label: 'Gagal', icon: '!', tone: 'bad' },
     cancelled: { label: 'Dibatalkan', icon: '×', tone: 'muted' },
+    timed_out: { label: 'Berhenti — timeout', icon: '⏱', tone: 'bad' },
+    unknown: { label: 'Status akhir tidak diketahui', icon: '?', tone: 'muted' },
   };
-  return map[state] || { label: String(state || 'tidak diketahui'), icon: '·', tone: 'muted' };
+  return map[state] || { label: 'Status akhir tidak diketahui', icon: '?', tone: 'muted' };
+}
+
+/**
+ * The correction line for a turn whose tool call was DECLINED. The agent's
+ * own words can claim the action happened ("udah aku simpan") right after
+ * the owner rejected it, so the interface states the fact next to the claim.
+ * Returns null when nothing was declined — no note, no noise.
+ */
+export function declinedNoteText(cards) {
+  const names = (Array.isArray(cards) ? cards : [])
+    .filter((c) => c && c.state === 'cancelled')
+    .map((c) => c.name)
+    .filter(Boolean);
+  if (!names.length) return null;
+  return `${[...new Set(names)].join(', ')} tidak dijalankan — aksi itu dibatalkan.`;
+}
+
+/**
+ * The TASK state of the selected agent — a different fact from the agent's
+ * backend availability. An agent can be "Siap" (idle) while a tool it
+ * started is still running, so both are shown side by side instead of one
+ * being derived from the other.
+ */
+export function taskStateFor(conv) {
+  const c = conv || {};
+  if (c.pending && !c.pending.decided) {
+    const n = Array.isArray(c.pending.calls) ? c.pending.calls.length : 0;
+    return { label: n > 1 ? `Menunggu ${n} persetujuan` : 'Menunggu persetujuanmu', tone: 'warn' };
+  }
+  const cards = Array.isArray(c.cards) ? c.cards : [];
+  const running = cards.find((x) => x && x.state === 'running');
+  if (running) return { label: `Menjalankan ${running.name}`, tone: 'busy' };
+  if (c.live) return { label: 'Sedang memproses', tone: 'busy' };
+  if (c.failed) return { label: 'Giliran terakhir gagal', tone: 'bad' };
+  return { label: 'Tidak ada giliran aktif', tone: 'idle' };
 }
 
 /**
@@ -219,6 +391,12 @@ export function humanError(err) {
 export function humanGenerationError(message) {
   const raw = String(message || '').trim();
   if (!raw) return 'alasan tidak dilaporkan';
+  /* The upstream gateway's transient function-call-shape 400. Say what it
+     actually is instead of "model tidak menjawab" — and that retrying is the
+     right move, because the same request usually passes right after. */
+  if (/function call turn comes immediately after/i.test(raw)) {
+    return 'provider menolak permintaan ini (400) — gangguan sesaat di sisi model. Coba lagi ya.';
+  }
   const code = raw.match(/\b(4\d{2}|5\d{2})\b/);
   const kind = /rate|quota|limit/i.test(raw)
     ? 'batas pemakaian model tercapai'

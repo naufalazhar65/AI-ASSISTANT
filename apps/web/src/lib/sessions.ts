@@ -15,6 +15,13 @@ import { sanitizeUser, userDataRoot } from "./users";
 export interface SerializedConversation {
   messages: unknown[];
   transcripts: { id: string; role: string; text: string; state: string }[];
+  /**
+   * Per-message SEND time, aligned with `messages` (same index).
+   * `null`/absent = the time is genuinely unknown — never a guess.
+   * The office chat persists this so a reload shows the real time a message
+   * was sent instead of the time the page happened to be opened.
+   */
+  stamps?: (number | null)[];
 }
 
 export interface SessionMeta {

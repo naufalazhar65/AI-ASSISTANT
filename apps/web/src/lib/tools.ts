@@ -6204,6 +6204,26 @@ export async function executeTool(
   // Defensive: a plugin that throws must surface as an Error string, never
   // bubble up and 500 the whole turn.
   try {
+    // 2026-10-20: pre-execution marker. The bus only reported tool_called AFTER
+    // the plugin returned, so a UI could never tell "running" from "finished"
+    // and had to guess. This fires first and carries no `ok` — there is no
+    // outcome yet, and inventing one would be a lie.
+    try {
+      const bc = busTurnContext();
+      emitBusEvent({
+        user: bc?.userKey ?? userKey ?? "shared",
+        turn: bc?.turnId,
+        task_id: bc?.taskId,
+        type: "tool_started",
+        actor: bc?.actor ?? "mia",
+        summary: `${call.name} → dijalankan`,
+        // call_id = the provider's tool_call id. The UI correlates a card to
+        // this event by id, not by tool name: a name matches every call of
+        // that tool in every turn, so a late event would rewrite an older,
+        // unrelated card.
+        data: { name: call.name, call_id: call.id },
+      });
+    } catch { /* bus best-effort */ }
     const out = await plugin.execute(args, { userKey, rawUser, lastUserText: extra?.lastUserText });
     const result = out ?? "";
     // Event Bus Fase 1: setiap eksekusi nyata memancarkan tool_called
@@ -6219,7 +6239,7 @@ export async function executeTool(
         type: "tool_called",
         actor: bc?.actor ?? "mia",
         summary: `${call.name} → ${failed ? firstLine || "error" : "ok"}`,
-        data: { name: call.name, ok: !failed },
+        data: { name: call.name, ok: !failed, call_id: call.id },
       });
     } catch {
       /* bus best-effort — tidak pernah mengganggu hasil tool */
@@ -6238,7 +6258,7 @@ export async function executeTool(
         type: "tool_called",
         actor: bc?.actor ?? "mia",
         summary: `${call.name} → ${msg.slice(0, 120)}`,
-        data: { name: call.name, ok: false },
+        data: { name: call.name, ok: false, call_id: call.id },
       });
     } catch {
       /* bus best-effort */

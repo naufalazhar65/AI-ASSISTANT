@@ -28,6 +28,9 @@
  * penundaan, model boleh mengusulkan lagi). agent_delegated/task_assigned
  * diekspos lewat emitBusEvent untuk fase trio (belum ada pemanggil —
  * sengaja, prinsip no-fake-work: tidak ada event tanpa eksekusi).
+ * tool_started (2026-10-20) dipancarkan SEBELUM plugin.execute: tanpa itu
+ * UI tidak pernah bisa membedakan "tool sudah jalan" dari "tool sudah
+ * selesai", dan kartu chat akan mengklaim "sedang berjalan" tanpa bukti.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sanitizeUser } from "./users";
@@ -37,6 +40,7 @@ export type BusEventType =
   | "agent_delegated"
   | "task_assigned"
   | "task_started"
+  | "tool_started"
   | "tool_called"
   | "file_read"
   | "file_written"

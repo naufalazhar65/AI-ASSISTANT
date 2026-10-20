@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { canonicalUserKey, userDataRoot } from "./users";
+import { dateTimeLabel, dateTimeShort, userTimeZone } from "./time";
 
 export const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || "";
 export const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || "";
@@ -288,26 +289,95 @@ function headerValue(headers: Array<{ name: string; value: string }>, name: stri
   return headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || "";
 }
 
+/**
+ * Inbox list — COMPACT, privacy-aware and timezone-aware.
+ *
+ * What changed (2026-10-20): the old output was a wall of text — every email
+ * repeated as 4 lines (index, subject, the RAW `From:` header with the full
+ * address, the RAW RFC-2822 date, then the snippet) and the whole thing was
+ * printed into the chat as the assistant's message. The owner saw 10 emails
+ * as an unstructured dump and had to read it in the chat pane.
+ *
+ * Now: one line per email — subject, sender DISPLAY NAME (never the full
+ * address), the time in the USER's timezone, and a short snippet. No bodies,
+ * no raw headers. The full sender address stays behind `gmail_read`, which
+ * takes a deliberate action.
+ *
+ * The line format is deterministic and parseable (`parseInboxSummary` in
+ * officeChat.ts) so the UI can render a real list instead of prose:
+ *   `N. [id] Subject | Display Name | 20 Okt 2026, 14.45 WIB | snippet`
+ */
 export async function gmailList(rawUser: unknown, maxResults = 10, query = ""): Promise<string> {
   const q = query ? `?q=${encodeURIComponent(query)}&maxResults=${maxResults}` : `?maxResults=${maxResults}`;
   const data = await gmailRequest<{ messages?: Array<{ id: string; threadId: string }>; resultSizeEstimate?: number }>(rawUser, "GET", `/users/me/messages${q}`);
   const msgs = data.messages || [];
-  if (!msgs.length) return "Inbox kosong atau tidak ada hasil.";
-  const lines: string[] = [`📧 ${Math.min(msgs.length, maxResults)} email terbaru:\n`];
+  if (!msgs.length) return "📬 Ringkasan Inbox — 0 email. Inbox kosong atau tidak ada hasil.";
+  const zone = userTimeZone();
+  const rows: { id: string; subject: string; from: string; at: string; snippet: string; atMs: number }[] = [];
   for (let i = 0; i < Math.min(msgs.length, maxResults); i++) {
+    const id = msgs[i].id;
     try {
-      const full = await gmailRequest<Record<string, unknown>>(rawUser, "GET", `/users/me/messages/${msgs[i].id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`);
+      const full = await gmailRequest<Record<string, unknown>>(rawUser, "GET", `/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`);
       const hdrs = (full.payload as Record<string, unknown>)?.headers as Array<{ name: string; value: string }> | undefined;
-      const from = hdrs ? headerValue(hdrs, "From") : "";
+      const rawFrom = hdrs ? headerValue(hdrs, "From") : "";
       const subject = hdrs ? headerValue(hdrs, "Subject") : "";
-      const date = hdrs ? headerValue(hdrs, "Date") : "";
-      const snippet = String(full.snippet || "").slice(0, 120);
-      lines.push(`${i + 1}. [${msgs[i].id}] ${subject || "(no subject)"}\n   From: ${from}\n   Date: ${date}\n   ${snippet}`);
+      const rawDate = hdrs ? headerValue(hdrs, "Date") : "";
+      const atMs = rawDate ? Date.parse(rawDate) : NaN;
+      rows.push({
+        id,
+        subject: oneLine(subject) || "(tanpa judul)",
+        from: senderDisplayName(rawFrom),
+        // An unparseable provider date stays EMPTY — a date is never invented.
+        at: Number.isNaN(atMs) ? "" : dateTimeLabel(atMs, zone),
+        snippet: oneLine(String(full.snippet || "")).slice(0, 90),
+        atMs: Number.isNaN(atMs) ? 0 : atMs,
+      });
     } catch {
-      lines.push(`${i + 1}. [${msgs[i].id}] (gagal baca metadata)`);
+      rows.push({ id, subject: "(gagal baca metadata)", from: "", at: "", snippet: "", atMs: 0 });
     }
   }
-  return lines.join("\n\n");
+  const stamps = rows.map((r) => r.atMs).filter((n) => n > 0);
+  const range = stamps.length
+    ? `${dateTimeShort(Math.min(...stamps), zone)} – ${dateTimeLabel(Math.max(...stamps), zone)}`
+    : "";
+  const header = `📬 Ringkasan Inbox — ${rows.length} email terbaru${range ? ` · ${range}` : ""}`;
+  const lines = rows.map(
+    (r, i) => `${i + 1}. [${r.id}] ${r.subject} | ${r.from} | ${r.at} | ${r.snippet}`,
+  );
+  return [header, ...lines].join("\n");
+}
+
+/** Collapse whitespace; the inbox summary is one line per email. */
+function oneLine(text: string): string {
+  return String(text || "").replace(/\s+/g, " ").replace(/\|/g, " ").trim();
+}
+
+/**
+ * "Home Credit Indonesia <donotreply@homecredit.co.id>" → "Home Credit
+ * Indonesia". A bare address is masked ("d***@homecredit.co.id") — the full
+ * address is only revealed by gmail_read, on purpose.
+ */
+export function senderDisplayName(from: string): string {
+  const raw = oneLine(from);
+  if (!raw) return "";
+  const m = raw.match(/^(.*?)\s*<([^>]+)>$/);
+  if (m) {
+    const name = m[1].replace(/^["']|["']$/g, "").trim();
+    if (name) return name;
+    return maskAddress(m[2]);
+  }
+  if (raw.includes("@")) return maskAddress(raw);
+  return raw;
+}
+
+/** "donotreply@x.co" → "d***@x.co" — enough to recognise, not to contact. */
+export function maskAddress(addr: string): string {
+  const raw = String(addr || "").trim();
+  const at = raw.indexOf("@");
+  if (at <= 0) return raw;
+  const local = raw.slice(0, at);
+  const domain = raw.slice(at + 1);
+  return `${local.slice(0, 1)}***@${domain}`;
 }
 
 export async function gmailRead(rawUser: unknown, id: string): Promise<string> {

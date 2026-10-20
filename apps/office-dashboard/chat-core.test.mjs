@@ -4,7 +4,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   sanitizeMarkdown, escapeHtml, parseNdjsonLine, applyBusEvent, turnIsLive, connectionLabel,
-  visibleMessages, agentAvailability, toolStateMeta, humanError, humanGenerationError, avatarUrl,
+  visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
+  dateTimeLabel,
+  agentAvailability, taskStateFor,
+  toolStateMeta, humanError, humanGenerationError, avatarUrl,
 } from './chat-core.mjs';
 
 test('escapeHtml neutralises every HTML-significant char', () => {
@@ -66,10 +69,11 @@ test('applyBusEvent: tool_called ok:false settles as failed', () => {
     type: 'tool_called',
     ts: 'T',
     summary: 'web_search → Error: timeout',
-    data: { name: 'web_search', ok: false },
+    data: { name: 'web_search', ok: false, call_id: 'c1' },
   });
   assert.equal(out[0].state, 'failed');
-  assert.ok(out[0].output.includes('timeout'));
+  assert.equal(out[0].summary, 'Gagal');
+  assert.ok(out[0].result.includes('timeout'), 'the failure reason is the user-facing result');
 });
 
 test('applyBusEvent: task_cancelled marks a declined tool cancelled, never succeeded', () => {
@@ -107,15 +111,16 @@ test('connectionLabel is honest per state', () => {
   assert.equal(connectionLabel(undefined), 'Belum terhubung');
 });
 
-test('visibleMessages drops tool traffic and empty assistant turns', () => {
+test('visibleMessages keeps the tool-proposal turn but never the tool result', () => {
   const out = visibleMessages([
     { role: 'user', content: 'halo' },
     { role: 'assistant', content: null, tool_calls: [{ id: 't1' }] },
     { role: 'tool', content: 'ok', tool_call_id: 't1' },
     { role: 'assistant', content: 'hai' },
   ]);
-  assert.deepEqual(out.map((m) => m.role), ['user', 'assistant']);
-  assert.equal(out[1].content, 'hai');
+  assert.deepEqual(out.map((m) => m.role), ['user', 'assistant', 'assistant']);
+  assert.deepEqual(out[1].callIds, ['t1'], 'the proposal turn owns the card');
+  assert.equal(out[2].content, 'hai');
 });
 
 test('visibleMessages gives every rendered message a distinct, stable key', () => {
@@ -223,4 +228,167 @@ test('avatarUrl allows only the registered trio and never carries a path', () =>
   assert.equal(avatarUrl('mia/../../secret'), null);
   assert.equal(avatarUrl(''), null);
   assert.equal(avatarUrl(undefined), null);
+});
+
+/* ── tool execution integrity (2026-10-20) ─────────────────────────────────
+   The reported bug: a tool card from an old turn rendered under the newest
+   reply, so the user read a stale result as the outcome of the last action.
+   The fix has two halves — cards are anchored to the turn that proposed
+   them, and a bus event may only touch the card its own call id owns. */
+
+test('visibleMessages keeps the tool-proposal turn even when it has no text', () => {
+  const msgs = visibleMessages([
+    { role: 'user', content: 'cek email' },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'call_1', function: { name: 'gmail_list' } }] },
+    { role: 'tool', tool_call_id: 'call_1', content: 'ok' },
+    { role: 'assistant', content: 'Sudah kubaca.' },
+  ]);
+  assert.equal(msgs.length, 3, 'the tool result message is not a bubble');
+  assert.deepEqual(msgs[1].callIds, ['call_1'], 'the proposal turn must expose its call ids');
+  assert.equal(msgs[1].content, '');
+});
+
+test('visibleMessages still drops an assistant turn with neither text nor calls', () => {
+  const msgs = visibleMessages([
+    { role: 'assistant', content: '' },
+    { role: 'assistant', content: 'halo' },
+  ]);
+  assert.equal(msgs.length, 1);
+});
+
+test('cardsForCallIds joins a card to the turn that proposed it, by id only', () => {
+  const cards = [
+    { id: 'call_old', name: 'gmail_list', state: 'succeeded' },
+    { id: 'call_new', name: 'gmail_list', state: 'queued' },
+  ];
+  const picked = cardsForCallIds(cards, ['call_new']);
+  assert.equal(picked.length, 1);
+  assert.equal(picked[0].id, 'call_new');
+  assert.deepEqual(cardsForCallIds(cards, []), []);
+  assert.deepEqual(cardsForCallIds(cards, ['nope']), []);
+});
+
+test('unclaimedCards keeps only the cards no visible turn owns', () => {
+  const cards = [{ id: 'call_old' }, { id: 'call_live' }];
+  const msgs = [{ callIds: ['call_old'] }];
+  assert.deepEqual(unclaimedCards(cards, msgs).map((c) => c.id), ['call_live']);
+});
+
+test('applyBusEvent matches by call id, so a same-named call in another turn is untouched', () => {
+  const cards = [
+    { id: 'call_old', name: 'gmail_list', state: 'succeeded', summary: 'Selesai' },
+    { id: 'call_new', name: 'gmail_list', state: 'queued', summary: 'Menunggu dijalankan' },
+  ];
+  const out = applyBusEvent(cards, {
+    type: 'tool_called', ts: '2026-10-20T00:00:00Z', summary: 'gmail_list → ok',
+    data: { name: 'gmail_list', ok: true, call_id: 'call_new' },
+  });
+  assert.equal(out[0].state, 'succeeded', 'the older card keeps its own outcome');
+  assert.equal(out[0].summary, 'Selesai');
+  assert.equal(out[1].state, 'succeeded', 'the addressed card takes the outcome');
+  assert.equal(out[1].result, 'gmail_list → ok');
+});
+
+test('applyBusEvent marks a started tool as running instead of guessing', () => {
+  const cards = [{ id: 'call_1', name: 'gmail_list', state: 'queued' }];
+  const out = applyBusEvent(cards, {
+    type: 'tool_started', ts: 't1', data: { name: 'gmail_list', call_id: 'call_1' },
+  });
+  assert.equal(out[0].state, 'running');
+  assert.equal(out[0].summary, 'Sedang berjalan');
+});
+
+test('applyBusEvent never overwrites a finished card with a late cancel', () => {
+  const cards = [{ id: 'call_1', name: 'gmail_list', state: 'succeeded', summary: 'Selesai' }];
+  const out = applyBusEvent(cards, {
+    type: 'task_cancelled', ts: 't1', data: { name: 'gmail_list', call_id: 'call_1' },
+  });
+  assert.equal(out[0].state, 'succeeded');
+  assert.equal(out[0].summary, 'Selesai');
+});
+
+test('applyBusEvent cancels exactly the declined call id', () => {
+  const cards = [
+    { id: 'call_a', name: 'gmail_list', state: 'queued' },
+    { id: 'call_b', name: 'gmail_list', state: 'queued' },
+  ];
+  const out = applyBusEvent(cards, {
+    type: 'task_cancelled', ts: 't1', data: { name: 'gmail_list', call_id: 'call_b' },
+  });
+  assert.equal(out[0].state, 'queued');
+  assert.equal(out[1].state, 'cancelled');
+});
+
+test('toolStateMeta knows every state the backend can report', () => {
+  assert.equal(toolStateMeta('running').label, 'Sedang berjalan');
+  assert.equal(toolStateMeta('unknown').label, 'Status akhir tidak diketahui');
+  assert.equal(toolStateMeta('timed_out').label, 'Berhenti — timeout');
+  assert.equal(toolStateMeta('nonsense').label, 'Status akhir tidak diketahui');
+});
+
+test('turnIsLive counts a started tool as a live turn', () => {
+  assert.equal(turnIsLive([{ type: 'tool_started' }]), true);
+  assert.equal(turnIsLive([{ type: 'task_done' }]), false);
+});
+
+test('taskStateFor separates the running task from the agent availability', () => {
+  assert.equal(taskStateFor({ live: true }).tone, 'busy');
+  assert.equal(taskStateFor({ pending: { calls: [{}] } }).tone, 'warn');
+  assert.equal(taskStateFor({ cards: [{ name: 'gmail_list', state: 'running' }] }).label, 'Menjalankan gmail_list');
+  assert.equal(taskStateFor({}).tone, 'idle');
+});
+
+test('a backend nudge is flagged as an internal note, never as the owner speaking', () => {
+  const msgs = visibleMessages([
+    { role: 'user', content: '[email-gate] Error: giliran ini belum mengecek email' },
+    { role: 'user', content: '[probe-gate] teliti ya' },
+    { role: 'user', content: 'halo' },
+  ]);
+  assert.equal(msgs[0].internal, true);
+  assert.equal(msgs[1].internal, true);
+  assert.equal(msgs[2].internal, false);
+  assert.equal(isInternalNote('halo'), false);
+  assert.equal(isInternalNote('[Percakapan sebelumnya — …]'), true);
+});
+
+test('declinedNoteText names the declined tool and stays silent otherwise', () => {
+  assert.equal(
+    declinedNoteText([{ name: 'save_note', state: 'cancelled' }]),
+    'save_note tidak dijalankan — aksi itu dibatalkan.',
+  );
+  assert.equal(declinedNoteText([{ name: 'gmail_list', state: 'succeeded' }]), null);
+  assert.equal(declinedNoteText([{ name: 'gmail_list', state: 'unknown' }]), null);
+  assert.equal(declinedNoteText([]), null);
+});
+
+test('a transient function-call-shape 400 reads as an upstream hiccup, not "model tidak menjawab"', () => {
+  const raw = 'LLM failed (400): {"error":{"message":"[gemini/gemini-3.5-flash-lite] [400]: {"error": {"code": 400, "message": "Please ensure that function call turn comes immediately after a user turn or after a function response turn."}} (reset after 30s)"}}';
+  const copy = humanGenerationError(raw);
+  assert.ok(copy.includes('400'), copy);
+  assert.ok(copy.includes('gangguan sesaat'), copy);
+  assert.ok(!copy.includes('model tidak menjawab'), copy);
+});
+
+test('mergeStamps keeps the server time and never invents one', () => {
+  assert.deepEqual(mergeStamps([1000, null], 3), [1000, null, null]);
+  assert.deepEqual(mergeStamps(null, 2), [null, null]);
+  assert.deepEqual(mergeStamps([1], 0), []);
+  assert.deepEqual(mergeStamps(['x', 5], 2), [null, 5], 'a non-numeric stamp is not a time');
+});
+
+test('visibleMessages exposes the source index, so a message can be dated without guessing', () => {
+  const out = visibleMessages([
+    { role: 'user', content: 'a' },
+    { role: 'tool', content: 'r', tool_call_id: 't1' },
+    { role: 'assistant', content: 'b' },
+  ]);
+  assert.deepEqual(out.map((m) => m.index), [0, 2], 'the index points into the FULL list');
+});
+
+test('dateTimeLabel renders the configured timezone and never fabricates a date', () => {
+  assert.equal(dateTimeLabel(new Date('2026-10-20T07:45:38Z'), 'Asia/Jakarta', 'WIB'), '20 Okt 2026, 14.45 WIB');
+  assert.equal(dateTimeLabel(new Date('2026-10-20T07:45:38Z'), 'Asia/Jayapura', 'WIT'), '20 Okt 2026, 16.45 WIT');
+  assert.equal(dateTimeLabel(null, 'Asia/Jakarta', 'WIB'), '');
+  assert.equal(dateTimeLabel('bukan tanggal', 'Asia/Jakarta', 'WIB'), '');
+  assert.equal(dateTimeLabel('', 'Asia/Jakarta', 'WIB'), '');
 });

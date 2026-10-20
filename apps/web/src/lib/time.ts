@@ -84,3 +84,71 @@ export function wibDailyNext(hour: number, minute: number, after: number = Date.
 export function wibDayIndex(at: Date | number = Date.now()): number {
   return Math.floor(Date.parse(`${wibDay(at)}T00:00:00Z`) / 86_400_000);
 }
+
+/**
+ * The USER's configured timezone — the app has one, it is not hardcoded.
+ * `MIA_USER_TIMEZONE` (e.g. "Asia/Jakarta"); defaults to Asia/Jakarta.
+ */
+export function userTimeZone(): string {
+  const raw = String(process.env.MIA_USER_TIMEZONE || "").trim();
+  return raw || "Asia/Jakarta";
+}
+
+/**
+ * Short label for a timezone. Indonesian zones get their real abbreviation
+ * (WIB/WITA/WIT); anything else shows the zone id itself. A label is never
+ * invented: the abbreviation is only used for the zone it actually belongs to.
+ */
+export function tzLabel(zone: string = userTimeZone()): string {
+  switch (zone) {
+    case "Asia/Jakarta":
+      return "WIB";
+    case "Asia/Makassar":
+      return "WITA";
+    case "Asia/Jayapura":
+      return "WIT";
+    default:
+      return zone;
+  }
+}
+
+/**
+ * "20 Okt 2026, 14.45 WIB" — built from formatToParts so the output is the
+ * same on every ICU build (id-ID's own time separator varies).
+ * An unparseable/missing date yields "" — a date is never invented.
+ */
+export function dateTimeLabel(
+  at: Date | number | string | null | undefined,
+  zone: string = userTimeZone(),
+  label?: string,
+): string {
+  if (at === null || at === undefined || at === "") return "";
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  try {
+    const parts = new Intl.DateTimeFormat("id-ID", {
+      timeZone: zone, day: "numeric", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(d);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    const month = get("month");
+    const day = get("day");
+    const year = get("year");
+    const hour = get("hour") === "24" ? "00" : get("hour");
+    const minute = get("minute");
+    if (!day || !month || !year || !hour || !minute) return "";
+    const lbl = label === undefined ? tzLabel(zone) : label;
+    return `${day} ${month} ${year}, ${hour}.${minute}${lbl ? ` ${lbl}` : ""}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Same as dateTimeLabel but without the zone label — for a range where the
+ * label is written once ("20 Okt 2026, 14.05 – 14.45 WIB").
+ */
+export function dateTimeShort(at: Date | number | string | null | undefined, zone: string = userTimeZone()): string {
+  const full = dateTimeLabel(at, zone, "");
+  return full ? full.replace(/\s+[A-Z]{2,4}$/, "") : "";
+}

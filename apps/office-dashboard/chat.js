@@ -9,7 +9,9 @@
  */
 import {
   sanitizeMarkdown, parseNdjsonLine, applyBusEvent, turnIsLive, connectionLabel,
-  visibleMessages, agentAvailability, toolStateMeta, humanError, humanGenerationError,
+  visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
+  dateTimeLabel, agentAvailability,
+  taskStateFor, toolStateMeta, humanError, humanGenerationError,
   avatarUrl,
 } from './chat-core.mjs';
 
@@ -69,9 +71,20 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
   }
   const blankConv = () => ({
     messages: [], cards: [], pending: null, error: null, retryText: '', live: false, failed: false,
-    frames: [], stamps: {}, accepted: false,
+    // Send times, aligned with `messages` by index. A null = unknown time.
+    frames: [], stamps: [], accepted: false,
+    // True while the history is still being fetched. Sending before it lands
+    // would POST a one-message conversation and REPLACE the stored history —
+    // a silent wipe of everything the owner had.
+    loading: false,
   });
-  const conv = (id) => (convs[id] ||= blankConv());
+  const conv = (id) => {
+    if (!convs[id]) {
+      convs[id] = blankConv();
+      convs[id].agent = id;
+    }
+    return convs[id];
+  };
   const subscribe = (fn) => {
     listeners.add(fn);
     return () => listeners.delete(fn);
@@ -94,6 +107,7 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
 
   async function loadHistory(agent = selected) {
     const c = conv(agent);
+    c.loading = true;
     connection = 'connecting';
     emit();
     try {
@@ -109,15 +123,20 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
       c.retryText = '';
       c.failed = false;
       c.live = false;
-      // Persisted messages carry no server timestamp. Rather than printing the
-      // current time on every render (which would read as a real send time),
-      // loaded history simply shows no time — only messages that arrive live in
-      // this session are stamped, in `stampNew`.
-      c.stamps = {};
+      // The send time is a property of the message, not of the page. The
+      // server hands back the real times it persisted; the browser's local
+      // copy fills any gap (older sessions were stored before times existed).
+      // A message with no known time shows NO time — never "now".
+      c.stamps = mergeStamps(data.stamps, (c.messages || []).length);
+      // The app's real timezone config, from the server.
+      c.tz = typeof data.tz === 'string' ? data.tz : 'Asia/Jakarta';
+      c.tzLabel = typeof data.tz_label === 'string' ? data.tz_label : '';
       connection = 'open';
+      c.loading = false;
     } catch (err) {
       connection = 'error';
       c.error = `Riwayat tidak bisa dimuat: ${humanError(err)}`;
+      c.loading = false;
     }
     emit();
   }
@@ -133,6 +152,13 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
     const body = String(text || '').trim().slice(0, MAX_CHARS);
     if (!body || busyAgent) return false;
     const c = conv(agent);
+    if (c.loading) {
+      // The history is still on its way. Sending now would replace the stored
+      // conversation with a one-message one — the owner's history, gone.
+      c.error = 'Riwayat percakapan masih dimuat — tunggu sebentar lalu kirim lagi.';
+      emit();
+      return false;
+    }
     busyAgent = agent;
     connection = 'connecting';
     c.error = null;
@@ -140,15 +166,18 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
     c.failed = false;
     c.live = true;
     c.frames = [];
-    if (!c.stamps) c.stamps = {};
+    if (!Array.isArray(c.stamps)) c.stamps = [];
     // Optimistic bubble with a stable local id; replaced by server truth when
     // the stream returns `messages`.
     const outgoing = [...c.messages, { role: 'user', content: body }];
     c.messages = outgoing;
-    stampNew(c);
+    // Only the message sent NOW gets a timestamp. The history keeps the times
+    // it already had — stamping everything again is what made a reload change
+    // every time in the conversation to the reload time.
+    c.stamps = mergeStamps(c.stamps, outgoing.length - 1).concat([Date.now()]);
     emit();
     abort = new AbortController();
-    await stream({ agent, messages: outgoing }, abort.signal);
+    await stream({ agent, messages: outgoing, stamps: c.stamps }, abort.signal);
     busyAgent = null;
     abort = null;
     c.live = false;
@@ -166,6 +195,8 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
       if (c.messages[i]?.role !== 'user') continue;
       const text = String(c.messages[i].content || '');
       c.messages = c.messages.slice(0, i);
+      // The stamps array is aligned with the messages — drop the same tail.
+      if (Array.isArray(c.stamps)) c.stamps = c.stamps.slice(0, i);
       emit();
       return send(text, selected);
     }
@@ -243,13 +274,14 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
     }
   }
 
-  /** Stamp messages that just arrived in this session; older ones keep no time. */
-  function stampNew(c) {
-    if (!c.stamps) c.stamps = {};
-    const now = Date.now();
-    for (const m of visibleMessages(c.messages)) {
-      if (!c.stamps[m.key]) c.stamps[m.key] = now;
-    }
+  /**
+   * The server sends the send time of every message it persisted; the browser
+   * keeps a local copy for the ones the server could not date. Nothing is
+   * invented here: an unknown time stays unknown.
+   */
+  function applyStamps(c, agent, frame) {
+    const len = (c.messages || []).length;
+    c.stamps = mergeStamps(frame && frame.stamps, len);
   }
 
   function handle(c, frame, seen) {
@@ -267,14 +299,14 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
       c.messages = frame.messages || c.messages;
       c.cards = frame.cards || c.cards;
       c.pending = { calls: frame.calls || [], decided: null };
-      stampNew(c);
+      applyStamps(c, c.agent, frame);
     } else if (frame.type === 'message') {
       c.messages = frame.messages || c.messages;
       c.cards = frame.cards || c.cards;
       c.pending = null;
       c.failed = false;
       c.live = false;
-      stampNew(c);
+      applyStamps(c, c.agent, frame);
     } else if (frame.type === 'error') {
       c.error = `Agent gagal menjalankan giliran ini: ${humanGenerationError(frame.message)}`;
       c.failed = true;
@@ -337,10 +369,14 @@ function initials(name) {
     .toUpperCase();
 }
 
-function clockOf(ts) {
-  const d = ts ? new Date(ts) : new Date();
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+/**
+ * The time, in the app's configured timezone: "20 Okt 2026, 14.45 WIB".
+ * The zone AND its label come from the server (`tz` / `tz_label`), so a
+ * non-Jakarta deployment shows its own zone — "WIB" is never hardcoded.
+ * A missing/invalid time renders NOTHING (a date is never invented).
+ */
+function clockOf(ts, zone, label) {
+  return dateTimeLabel(ts, zone, label);
 }
 
 /**
@@ -370,7 +406,27 @@ function avatarBox(agentMeta, cls, text) {
  * one avatar, not five).
  */
 function MessageRow(m, { agentMeta, showMeta, time }) {
+  /* A backend nudge ("[email-gate] …") is not the owner speaking. It gets a
+     quiet note, never the beige user bubble — otherwise a long internal
+     message fills the panel and looks like something the owner said. */
+  if (m.internal) {
+    return h('div', { class: 'msgNote' }, [
+      h('span', { class: 'msgNoteText', html: sanitizeMarkdown(m.content) }),
+    ]);
+  }
   const isUser = m.role === 'user';
+  /* An assistant turn with no text is a turn that only PROPOSES tool calls.
+     An empty bubble is a hole in the conversation; one honest line says what
+     happened and the tool card below carries the details. */
+  if (m.role === 'assistant' && !m.content) {
+    const n = Array.isArray(m.callIds) ? m.callIds.length : 0;
+    return h('div', { class: 'msg agent proposal' }, [
+      !isUser && showMeta ? avatarBox(agentMeta, 'msgAvatar', initials(agentMeta.name)) : null,
+      h('div', { class: 'msgCol' }, [
+        h('div', { class: 'msgProposal', text: n > 1 ? `Mengusulkan ${n} tindakan` : 'Mengusulkan tindakan' }),
+      ]),
+    ]);
+  }
   const col = h('div', { class: 'msgCol' });
   if (showMeta) {
     col.append(
@@ -392,23 +448,61 @@ function MessageRow(m, { agentMeta, showMeta, time }) {
  * alone); long output stays collapsed until the owner opens it. Nothing here is
  * inferred — the card only shows what the backend reported.
  */
-function ToolCard(card) {
+function ToolCard(card, zone, zoneLabel) {
   const meta = toolStateMeta(card.state);
-  const long = (card.output || '').length > 240;
+  const state = card.state || 'unknown';
+  /* The card header states the OUTCOME; the raw output is diagnostics and
+     lives in its own disclosure, so a model-facing placeholder can never
+     read as a user-facing status. A card that is still open (queued, running,
+     awaiting approval) or that failed opens itself — those need attention.
+     A finished card stays closed. */
+  /* An inbox result IS the answer, so that card opens itself. A finished
+     operation with no list stays closed — its raw output is diagnostics. */
+  const open = state === 'queued' || state === 'running' || state === 'awaiting_approval'
+    || state === 'failed' || state === 'timed_out' || !!card.inbox;
+  const summary = card.summary || meta.label;
   return h(
     'details',
-    { class: 'tool', 'data-state': card.state || 'queued', ...(long ? {} : { open: true }) },
+    { class: 'tool', 'data-state': state, ...(open ? { open: true } : {}) },
     [
       h('summary', { class: 'toolSum' }, [
-        h('span', { class: 'toolState', 'data-state': card.state || 'queued', 'data-tone': meta.tone }, [
+        h('span', { class: 'toolState', 'data-state': state, 'data-tone': meta.tone }, [
           h('span', { class: 'toolGlyph', 'aria-hidden': 'true', text: meta.icon }),
-          h('span', { class: 'toolLabel', text: meta.label }),
+          h('span', { class: 'toolLabel', text: summary }),
         ]),
         h('span', { class: 'toolName', text: card.name || 'tool' }),
         h('span', { class: 'toolArgs', text: card.args || '' }),
-        card.at ? h('span', { class: 'toolAt', text: clockOf(card.at) }) : null,
+        card.at ? h('span', { class: 'toolAt', text: clockOf(card.at, zone, zoneLabel) }) : null,
       ]),
-      card.output ? h('pre', { class: 'toolOut', text: card.output }) : null,
+      card.result ? h('p', { class: 'toolResult', text: card.result }) : null,
+      /* An inbox result renders as a REAL list — subject, sender display
+         name, converted time, short snippet. No bodies, no full addresses:
+         the provider text stays behind "Detail teknis". */
+      card.inbox
+        ? h('div', { class: 'inbox' }, [
+            h('div', {
+              class: 'inboxHead',
+              text: `📬 Ringkasan Inbox — ${card.inbox.count} email terbaru`
+                + (card.inbox.range ? ` · ${card.inbox.range}` : ''),
+            }),
+            h('ul', { class: 'inboxList' }, (card.inbox.emails || []).map((e) =>
+              h('li', { class: 'inboxItem' }, [
+                h('div', { class: 'inboxSubject', text: e.subject || '(tanpa judul)' }),
+                h('div', { class: 'inboxMeta' }, [
+                  e.from ? h('span', { class: 'inboxFrom', text: e.from }) : null,
+                  e.at ? h('span', { class: 'inboxAt', text: e.at }) : null,
+                ]),
+                e.snippet ? h('div', { class: 'inboxSnippet', text: e.snippet }) : null,
+              ]),
+            )),
+          ])
+        : null,
+      card.detail
+        ? h('details', { class: 'toolDiag' }, [
+            h('summary', { class: 'toolDiagHead', text: 'Detail teknis' }),
+            h('pre', { class: 'toolOut', text: card.detail }),
+          ])
+        : null,
     ],
   );
 }
@@ -504,16 +598,45 @@ function streamNodes(chat, c, agentMeta) {
   }
   const nodes = [];
   let prevRole = null;
+  let declineNote = null;
   for (const m of msgs) {
-    const isUser = m.role === 'user';
     const showMeta = m.role !== prevRole;
     prevRole = m.role;
     nodes.push(
-      MessageRow(m, { agentMeta, showMeta, time: c.stamps ? clockOf(c.stamps[m.key]) : '' }),
+      MessageRow(m, {
+        agentMeta,
+        showMeta,
+        time: clockOf(Array.isArray(c.stamps) ? c.stamps[m.index] : null, c.tz, c.tzLabel),
+      }),
     );
-    void isUser;
+    /* A pending correction belongs AFTER the reply it corrects. */
+    if (declineNote) {
+      nodes.push(declineNote);
+      declineNote = null;
+    }
+    /* The cards a turn owns render directly under it. Appending every card
+       at the end of the conversation made an old tool result look like the
+       outcome of the newest reply. */
+    const owned = cardsForCallIds(c.cards, m.callIds);
+    for (const card of owned) nodes.push(ToolCard(card, c.tz, c.tzLabel));
+    /* A declined call is the one case where the agent's own words can say
+       the opposite of what happened ("udah aku simpan" for a tool the owner
+       just rejected). The truth is stated AFTER that reply, so the last
+       thing on screen is the fact and not the claim. */
+    const declinedText = declinedNoteText(owned);
+    if (declinedText) {
+      declineNote = h('div', { class: 'msgNote warn' }, [
+        h('span', { class: 'msgNoteText', text: declinedText }),
+      ]);
+    }
   }
-  for (const card of c.cards || []) nodes.push(ToolCard(card));
+  /* Cards no turn claims yet: a live turn whose assistant message has not
+     arrived. They are real, so they are shown — at the end, where the turn
+     being read actually is. */
+  for (const card of unclaimedCards(c.cards, msgs)) nodes.push(ToolCard(card, c.tz, c.tzLabel));
+  /* The turn ended on the proposal itself — the correction still has to be
+     shown, otherwise the decline would be visible only as a card. */
+  if (declineNote) nodes.push(declineNote);
   return nodes;
 }
 
@@ -601,17 +724,26 @@ function ChatHeader(chat, state, agentMeta, onClose) {
         h('span', { class: 'chatTabName', text: a.name }),
       ],
     );
+  const task = taskStateFor(state.conv);
   return h('div', { class: 'chatHead' }, [
     h('div', { class: 'chatHeadTop' }, [
       h('div', { class: 'chatWho' }, [
         avatarBox(agentMeta, 'chatAv', initials(agentMeta.name)),
         h('div', { class: 'chatWhoText' }, [
           h('div', { class: 'chatName', text: agentMeta.name || 'Agent' }),
-          h('div', { class: 'chatRole', text: agentMeta.role || '' }),
-        ]),
-        h('span', { class: `chatAvail ${avail.tone}`, role: 'status' }, [
-          h('i', { 'aria-hidden': 'true' }),
-          h('span', { text: avail.label }),
+          h('div', {
+            class: 'chatRole',
+            text: agentMeta.role || '',
+            // The full role for a truncated one.
+            title: agentMeta.role || '',
+          }),
+          h('div', { class: 'chatStates' }, [
+            h('span', { class: `chatAvail ${avail.tone}`, role: 'status' }, [
+              h('i', { 'aria-hidden': 'true' }),
+              h('span', { text: avail.label }),
+            ]),
+            h('span', { class: `chatTask ${task.tone}`, role: 'status', 'data-fk': 'taskstate', text: task.label }),
+          ]),
         ]),
       ]),
       h('button', {
@@ -653,7 +785,7 @@ function ChatSidebar(chat, toggleBtn) {
     { class: 'msg agent typing', hidden: true },
     [
       h('div', { class: 'msgAvatar typingAvatar', 'aria-hidden': 'true', text: '·' }),
-      h('div', { class: 'msgCol' }, [
+      h('div', { class: 'msgCol typingCol' }, [
         h('span', { class: 'dots', 'aria-label': 'Agent sedang bekerja' }, [h('i'), h('i'), h('i')]),
       ]),
     ],
@@ -671,19 +803,25 @@ function ChatSidebar(chat, toggleBtn) {
     h('div', { class: 'chatFootTop' }, [status, hint]),
     composer.form,
   ]);
+  // The jump button belongs INSIDE the scroll region: as a panel sibling it
+  // was absolutely positioned over the conversation and covered the tool card
+  // it was meant to help the user reach. Sticky at the bottom of the log, it
+  // stays in the region and the log reserves a band for it.
   const jump = h('button', {
     class: 'chatJump',
     type: 'button',
     'aria-label': 'Gulir ke pesan terbaru',
-    text: '↓ Pesan terbaru',
+    text: '↓ Terbaru',
     onclick: () => {
+      unseen = false;
       log.scrollTo({ top: log.scrollHeight, behavior: 'smooth' });
     },
   });
+  log.appendChild(jump);
   // Announcements live outside the log: replacing log children would otherwise
   // re-announce the whole conversation on every frame.
   const live = h('div', { class: 'sr', role: 'status', 'aria-live': 'polite' });
-  panel.replaceChildren(head, log, foot, jump, live);
+  panel.replaceChildren(head, log, foot, live);
 
   let headSig = null;
   let streamSig = null;
@@ -691,8 +829,15 @@ function ChatSidebar(chat, toggleBtn) {
   let announced = null;
 
   const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  /* The jump button is a "there is something new below" affordance, not a
+     permanent overlay: it appears only when NEW messages arrive while the
+     reader is up in the history, and disappears as soon as they are back at
+     the bottom. That keeps it from sitting on top of the conversation. */
+  let unseen = false;
+  let lastCount = 0;
   const updateJump = () => {
-    jump.classList.toggle('show', !nearBottom() && log.scrollHeight > log.clientHeight + 8);
+    if (nearBottom()) unseen = false;
+    jump.classList.toggle('show', unseen && !nearBottom() && log.scrollHeight > log.clientHeight + 8);
   };
   log.addEventListener('scroll', updateJump, { passive: true });
 
@@ -700,6 +845,9 @@ function ChatSidebar(chat, toggleBtn) {
     const agentMeta = state.agents.find((a) => a.id === state.selected) || FALLBACK_AGENT_META[state.selected];
     const c = state.conv;
     const wasNearBottom = nearBottom();
+    const count = (c.messages || []).length;
+    if (count > lastCount && !wasNearBottom) unseen = true;
+    lastCount = count;
 
     const hSig = state.agents.map((a) => `${a.id}:${a.name}:${a.role}:${a.status}`).join('|') + `#${state.selected}`;
     if (hSig !== headSig) {
@@ -708,12 +856,20 @@ function ChatSidebar(chat, toggleBtn) {
       headSig = hSig;
       if (fk) head.querySelector(`[data-fk="${fk}"]`)?.focus();
     }
+    /* Task state updates in place: rebuilding the head on every turn would
+       steal focus from the agent tabs. */
+    const task = taskStateFor(c);
+    const taskEl = head.querySelector('[data-fk="taskstate"]');
+    if (taskEl && taskEl.textContent !== task.label) {
+      taskEl.textContent = task.label;
+      taskEl.className = `chatTask ${task.tone}`;
+    }
 
     const msgs = visibleMessages(c.messages);
     const sSig =
       msgs.map((m) => m.key).join('\u0001') +
       '\u0002' +
-      (c.cards || []).map((x) => `${x.id}:${x.state}:${x.at || ''}:${x.output || ''}`).join('\u0001');
+      (c.cards || []).map((x) => `${x.id}:${x.state}:${x.at || ''}:${x.summary || ''}:${x.result || ''}`).join('\u0001');
     if (sSig !== streamSig) {
       stream.replaceChildren(...streamNodes(chat, c, agentMeta));
       streamSig = sSig;
@@ -811,6 +967,13 @@ function boot() {
 
   const sidebar = ChatSidebar(chat, toggleBtn);
   app.append(sidebar.panel);
+  /* Wide screens start with the chat open (it is a daily surface, and the
+     office keeps enough room beside it); a phone starts closed, because there
+     the drawer would cover the whole screen. The Chat button toggles either
+     way — `hidden` now really hides the panel. */
+  const wide = window.matchMedia('(min-width:901px)');
+  sidebar.setOpen(wide.matches);
+  wide.addEventListener('change', (e) => sidebar.setOpen(e.matches));
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !sidebar.panel.hidden) sidebar.setOpen(false);

@@ -114,14 +114,25 @@ dashboard hanya yang benar-benar masih terjadwal + 8 pengiriman terakhir.
 refresh memuat ulang sumber yang sedang aktif, dan tema terang/gelap tersimpan di
 `localStorage`. Everything yang tidak terbaca ditampilkan `Not available`.
 
+### Design system
+
+Tema **hangat** (krem + aksen jingga) adalah bawaan; `data-theme="dark"` = varian
+malam yang hangat. Token, tipografi, radius, dan aturan komponen ada di
+[`DESIGN.md`](DESIGN.md) + [`design-tokens.json`](design-tokens.json); CSS-nya
+sendiri ada di `<style>` `index.html` (dan `chat.css` untuk panel chat).
+Jingga hanya untuk aksi utama dan state terpilih — tidak untuk dekorasi. Adegan
+3D memakai warna naturalnya sendiri; palet aplikasi tidak didorong ke dalam scene.
+
 Layout: header tipis (breadcrumb, dot sinkronisasi, status Event Bus, tema, refresh,
-pause dispatch), **rail kiri kolapsibel** (tombol `☰`; state tersimpan, default
-tertutup agar panggung 3D full-bleed), dan **dock panel kanan** di view Office
-(ringkasan crew, tombol `Panel`, state tersimpan). Strip status di
-panggung menampilkan crew/antre/berjalan/gagal dan jadwal berikutnya, semuanya dari
-`/api/state`. Kontrol `#camReset`/`#hudToggle` otomatis menyingkir saat dock terbuka
-(`body.hudopen`). Konten view non-3D dibatasi lebar 1120 px dan dipusatkan; panggung 3D
-dan dock tetap memenuhi lebar penuh.
+pause dispatch), **rail kiri kolapsibel** (tombol `☰`; state tersimpan, tooltip di
+setiap item icon-only), **dock panel kanan** di view Office (ringkasan crew + detail
+agent, tombol `Panel`, state tersimpan), dan **panel chat** di kanan (terbuka di
+layar lebar, menjadi drawer di bawah 900 px). Strip status di panggung menampilkan
+crew/antre/berjalan/gagal dan jadwal berikutnya, semuanya dari `/api/state`.
+Konten view non-3D dibatasi lebar 1180 px dan dipusatkan; panggung 3D, dock, dan
+chat tetap memenuhi lebar penuh. Membuka/menutup chat **tidak** membuat ulang
+renderer Three.js.
+
 
 ## Setiap angka punya satu rumah
 

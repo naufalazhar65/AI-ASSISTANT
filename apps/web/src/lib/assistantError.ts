@@ -64,6 +64,24 @@ const CODE_ERROR_RE =
 
 /** True when re-sending the request (same model or the next free fallback) is
  *  worth it. Used by the freeride chain to move on to the next model. */
+/**
+ * The upstream gateway's Gemini-compat layer INTERMITTENTLY rejects a request
+ * whose function-call turn it mis-places:
+ *   "Please ensure that function call turn comes immediately after a user turn
+ *    or after a function response turn." (400, INVALID_ARGUMENT)
+ *
+ * Observed live 2026-10-20 on 9router → gemini-3.5-flash-lite: the SAME
+ * request failed and then passed 3/3 on an immediate retry, so the shape we
+ * send is canonical — the fault is upstream, not ours. Worth exactly one more
+ * attempt, never a chain.
+ */
+const FUNCTION_SHAPE_RE = /function call turn comes immediately after/i;
+
+export function isTransientFunctionShapeError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /\b400\b/.test(msg) && FUNCTION_SHAPE_RE.test(msg);
+}
+
 export function isProviderRetryable(err: unknown): boolean {
   const detail = err instanceof Error ? err.message : String(err ?? "");
   if (CODE_ERROR_RE.test(detail)) return false;

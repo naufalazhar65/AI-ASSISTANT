@@ -18,6 +18,7 @@ import { NextRequest } from "next/server";
 import { runAssistantTurn, type ChatMessage } from "@/lib/agent";
 import type { ToolCall } from "@/lib/tools";
 import { loadSession, upsertSession } from "@/lib/sessions";
+import { tzLabel, userTimeZone } from "@/lib/time";
 import { sanitizeUser } from "@/lib/users";
 import { agentTurnUserKey } from "@/lib/identity";
 import { subscribeBus, type BusEvent } from "@/lib/bus";
@@ -51,6 +52,13 @@ export async function GET(request: NextRequest) {
     agent,
     session_id: officeSessionId(agent),
     messages,
+    // Real send times, aligned with `messages`. A message whose time is
+    // unknown stays null — the UI then shows no time rather than a lie.
+    stamps: Array.isArray(session?.conversation?.stamps) ? session.conversation.stamps : [],
+    // The app's real timezone config — the dashboard renders every timestamp
+    // (message AND email) in it. It is never hardcoded in the browser.
+    tz: userTimeZone(),
+    tz_label: tzLabel(),
     // Cards are derived server-side from the SAME messages, so the browser has
     // one source of truth and no duplicated lifecycle logic.
     cards: toolCardsFromMessages(messages),
@@ -63,6 +71,8 @@ export async function POST(request: NextRequest) {
     user?: unknown;
     messages?: unknown;
     confirm_calls?: unknown;
+    /** Per-message send time, aligned with `messages` (epoch ms, null = unknown). */
+    stamps?: unknown;
   };
   try {
     body = await request.json();
@@ -82,8 +92,19 @@ export async function POST(request: NextRequest) {
   const turnUser = agentTurnUserKey(user, agent);
   const messages = sanitizeIncomingMessages(body.messages);
   if (!messages.length) return new Response("messages is required", { status: 400 });
+  // The browser's own stamps are the authority for what it already sent: the
+  // server keeps them, and only fills a time for a message nobody timed.
+  const incomingStamps: (number | null)[] = Array.isArray(body.stamps)
+    ? body.stamps.map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null))
+    : [];
   const confirm_calls = confirmCallsFrom(body.confirm_calls);
   const sessionId = officeSessionId(agent);
+  // The previous session's stamps, so history the browser re-sends keeps the
+  // time it was actually sent (the browser's own stamps win over these).
+  const prevStamps: (number | null)[] = (() => {
+    const prev = loadSession(user, sessionId);
+    return Array.isArray(prev?.conversation?.stamps) ? prev.conversation.stamps : [];
+  })();
 
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | null = null;
@@ -136,8 +157,17 @@ export async function POST(request: NextRequest) {
             result.needsConfirmation?.length || hasAssistantText
               ? base
               : [...base, { role: "assistant", content: result.text ?? "" }];
+          // One stamp per PERSISTED message, aligned with `nextMessages`: the
+          // browser's own value where it has one, the previous session's value
+          // for history it re-sent, and THIS turn's time for everything the
+          // agent just produced.
+          const now = Date.now();
+          const stamps: (number | null)[] = nextMessages.map((_m, i) => {
+            if (i < messages.length) return incomingStamps[i] ?? prevStamps[i] ?? null;
+            return now;
+          });
           try {
-            upsertSession(user, sessionId, { messages: nextMessages, transcripts: [] }, `${agent} — office chat`);
+            upsertSession(user, sessionId, { messages: nextMessages, transcripts: [], stamps }, `${agent} — office chat`);
           } catch {
             /* history is best-effort; the turn itself already succeeded */
           }
@@ -146,13 +176,15 @@ export async function POST(request: NextRequest) {
               type: "confirm",
               calls: result.needsConfirmation,
               messages: nextMessages,
-              cards: toolCardsFromMessages(nextMessages, { pendingIds: result.needsConfirmation.map((c) => c.id) }),
+              stamps,
+              cards: toolCardsFromMessages(nextMessages, { pendingIds: result.needsConfirmation.map((c) => c.id), final: false }),
             });
           } else {
             send({
               type: "message",
               text: result.text ?? "",
               messages: nextMessages,
+              stamps,
               cards: toolCardsFromMessages(nextMessages),
             });
           }

@@ -1,0 +1,101 @@
+{
+  "name": "AI Office — warm playful-minimal",
+  "version": "1.0.0",
+  "updated": "2026-10-20",
+  "note": "Single source for the CSS custom properties in apps/office-dashboard/index.html. Light is the default; data-theme=\"dark\" is a warm night variant.",
+  "color": {
+    "background": "#faf7f2",
+    "backgroundAlt": "#f3ebe0",
+    "surface": "#ffffff",
+    "surfaceAlt": "#f7f1e8",
+    "surfaceSunken": "#efe4d6",
+    "border": "#e8e0d6",
+    "borderStrong": "#dbd0c1",
+    "text": "#2b2724",
+    "textMuted": "#635c53",
+    "textFaint": "#7f776d",
+    "textDim": "#6b645c",
+    "accent": "#e99a56",
+    "accentSoft": "#fceedd",
+    "accentInk": "#a85c1a",
+    "accentEdge": "#f3c99b",
+    "success": "#3d7a5a",
+    "successSoft": "#e7f1e9",
+    "warning": "#8f6112",
+    "warningSoft": "#f9eed7",
+    "danger": "#a8442f",
+    "dangerSoft": "#fae7e1",
+    "info": "#4c6d88",
+    "lavender": "#7b5f99",
+    "sage": "#3f7a5a"
+  },
+  "colorDark": {
+    "background": "#1c1815",
+    "backgroundAlt": "#161310",
+    "surface": "#231f1b",
+    "surfaceAlt": "#2b2621",
+    "surfaceSunken": "#342e28",
+    "border": "#3b342d",
+    "borderStrong": "#4c433a",
+    "text": "#f3eee7",
+    "textMuted": "#b8ada1",
+    "textFaint": "#9a8f83",
+    "textDim": "#aaa094",
+    "accent": "#e99a56",
+    "accentSoft": "#3b2b1d",
+    "accentInk": "#f0ae6e",
+    "accentEdge": "#6b4a2a",
+    "success": "#7fc0a0",
+    "successSoft": "#243830",
+    "warning": "#e0b071",
+    "warningSoft": "#3a2f1e",
+    "danger": "#e3907c",
+    "dangerSoft": "#3b2622",
+    "info": "#95b5ce",
+    "lavender": "#b49bd0",
+    "sage": "#7fc0a0"
+  },
+  "typography": {
+    "fontSans": "Nunito, Avenir Next, Segoe UI Variable Text, Segoe UI, system-ui, -apple-system, Helvetica Neue, sans-serif",
+    "fontMono": "ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace",
+    "scale": {
+      "t-2": "11px",
+      "t-1": "12px",
+      "t0": "13.5px",
+      "t1": "15px",
+      "t2": "17px",
+      "t3": "21px",
+      "t4": "30px"
+    },
+    "note": "Nothing operational below 11px. Section labels are uppercase 11px at textMuted — never faint grey."
+  },
+  "space": {
+    "base": 4,
+    "scale": { "s1": "4px", "s2": "8px", "s3": "12px", "s4": "16px", "s5": "20px", "s6": "24px", "s8": "32px", "s10": "40px" }
+  },
+  "radius": {
+    "xs": "8px",
+    "sm": "10px",
+    "md": "14px",
+    "lg": "18px",
+    "full": "999px",
+    "note": "Small controls 8-10px, inputs/buttons 10-14px, panels 14-18px. Pills are for status chips only."
+  },
+  "shadow": {
+    "1": "0 1px 2px rgba(92,70,44,.06)",
+    "2": "0 6px 18px rgba(92,70,44,.10)",
+    "3": "0 18px 42px rgba(92,70,44,.12)",
+    "ring": "0 0 0 3px rgba(233,154,86,.45)"
+  },
+  "motion": {
+    "duration": "0.15s",
+    "note": "Only colour/border/opacity transitions. prefers-reduced-motion kills every animation and transition."
+  },
+  "layout": {
+    "railCollapsed": "60px",
+    "railExpanded": "248px",
+    "hudWidth": "322px",
+    "chatWidth": "340px",
+    "contentMax": "1180px"
+  }
+}

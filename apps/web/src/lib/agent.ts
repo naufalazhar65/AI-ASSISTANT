@@ -93,7 +93,8 @@ import { detectDelegation } from "./delegation";
 import { applyOutputFormat, countSectionLabels, outputFormatGuidance, type FormatterOutcome } from "./outputFormat";
 import { fixAddressComma } from "./textStyle";
 import { dayRotated } from "./dayRotated";
-import { isProviderRetryable } from "./assistantError";
+import { isProviderRetryable, isTransientFunctionShapeError } from "./assistantError";
+import { stripInboxList } from "./inboxText";
 import { isInternalTurn } from "./memoryNoise";
 import { approvalFingerprint } from "./recovery/policy";
 import { isEndpointTestAsk, isListAsk } from "./turnGate";
@@ -400,7 +401,7 @@ const SYSTEM_PROMPT = [
   + "Use learnings_search (query) to find past corrections/learnings or learnings_review for counts — when user asks 'learning apa', 'error apa aja', 'review learnings'. Both run immediately without confirmation. "
   + "Mia updates herself daily (mandiri, no Clawdbot/OpenClaw): AUTO_UPDATE_HOUR default 04:00 git pull --ff-only + npm install + gates typecheck/test/verify + summary push. auto_update_status (read, auto) shows jadwal/last run/riwayat; auto_update (write, confirm) runs the update NOW — when user says 'update mia', 'coba update', 'update dong' call auto_update (confirm first). "
   + "RULE: kalau user cuma BERTANYA lagu apa yang sedang diputar (\"lagu apa\", \"sedang putar apa\", \"what's playing\") → pakai spotify_status (read), JANGAN play/ganti lagu. Use spotify_status to report what's playing, spotify_search to find tracks, spotify_devices to check where music will play, spotify_play/spotify_pause/spotify_previous/spotify_mode/spotify_queue to control playback (they run immediately, no confirmation) — shuffle & ulang lagu/album pakai spotify_mode, 'tambahin ke antrean / putar ini berikutnya' pakai spotify_queue. Untuk permintaan 'stop lagunya kalau udah selesai / biar nggak bablas / matiin spotify kalau ketiduran' pakai spotify_sleep_timer (after_track=true atau minutes=N) — JANGAN remind_me (reminder cuma ngingetin, tidak menghentikan playback). Kalau user bilang 'lagu favoritku/kesukaanku', panggil spotify_play dengan query itu apa adanya — sistem otomatis mengambil judulnya dari persona (preference.song) + artist. BARE PLAY: user minta play TAPI tidak menyebut judul ('setel lagu', 'play musik', 'putar lagu dong', bukan 'lagi'/lanjutkan) → JANGAN panggil spotify_play — tanya dulu mau lagu apa. SPOTIFY HONESTY: jangan pernah mengklaim sebuah lagu sudah diputar kecuali hasil tool-nya menyebut judul itu. Kalau tool bilang 'Pemutaran dilanjutkan — yang jalan sekarang: X', sebut X apa adanya (jangan mengarang judul lain); kalau ragu, panggil spotify_status dulu. If Spotify is not connected, call spotify_link and share the returned authorization URL so the user can connect once in a browser.",
-  "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. Present the returned list as one email per line.",
+  "Gmail inbox is read-only and tidy: when the user asks to check/read their email ('cek email', 'email apa aja / masuk', 'read my inbox'), ALWAYS call gmail_list (or gmail_search) — never exec/git for email. gmail_list shows inbox (id/subject/from), gmail_search finds by query (from: boss, subject: invoice), gmail_read shows full body by id. All run immediately without confirmation and are paginated (max 20, default 10). If the gmail_list result includes an authorization link, relay it so the user can connect once. Never claim Gmail is disconnected or that email failed unless the tool result actually says so. The inbox list is rendered as a CARD beside your reply (subject, sender name, time, short snippet) — so in your reply only SUMMARISE it (how many, the time range, what stands out) and never paste the list again.",
   "save_note, delete_note, library_remove, memory_hygiene, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan, lab_start, engagement_create, http_request, cache_decep, nosql_hunt, blind_ssrf, cua_keys, cua_mouse, clipboard_set, write_file, edit_file, browser_click, browser_type, browser_navigate, browser_use_click, browser_use_input, browser_use_type, browser_use_keys, browser_use_tab, browser_use_close, device_pair, device_exec, device_screenshot, device_location, device_camera, calendar_add, calendar_mac_add, reminders_mac_add, remind_me, edit_reminder, cancel_reminder, add_task, complete_task, cancel_task, reschedule_task, plan_create, plan_add_step, plan_update_step, create_automation, brv_curate, brv_swarm_curate, brv_review_approve, brv_review_reject, summarize_template, freeride_auto, freeride_switch, freeride_rotate, auto_update, and exec_write ",
   "will pause for the user's confirmation before they run; do not claim the ",
   "file was written/edited, the note was saved/deleted, the calendar event added, the reminder set, or the commit pushed yet. send_channel, exec, browser_open, browser_snapshot, browser_eval, browser_use_open, browser_use_state, browser_use_screenshot, browser_use_get, browser_use_eval, browser_use_scroll, browser_use_wait, browser_use_doctor, mac_open, cua_pointer, clipboard_get, cua_desktop, cua_screen, security_scan, secret_scan, tls_check, breach_check, pentest_resources, lab_add, finding_add, finding_list, report_generate, report_save, report_pdf, lab_status, lab_fetch, recon_subdomains, recon_params, recon_list, recon_takeover, recon_diff, recon_dnsbrute, scope_import, api_spec, cve_intel, request_save, platform_severity, submission_track, csp_audit, http_history, oast_dns_create, oast_dns_poll, oast_dns_stop, oast_dns, oast_create, oast_poll, oast_stop, dns_audit, http_session, tamper_script, hunt_log, engagement_targets, cdp_status, tech_watch, policy_show, flow_list, program_score, dup_check, bounty_status, writeup, persona_show, jwt_attack, encoding, trivy_scan, sast_scan, security_playbook, engagement_list, engagement_close, dep_audit, hardening_plan, hardening_pdf, verify_patch, finding_resolve, finding_export, cvss_score, web_audit, domain_audit, password_strength, hash_identify, jwt_inspect, ioc_extract, device_list, device_battery, calendar_list, calendar_check, calendar_mac_list, reminders_mac_list, plan_list, plan_get, automation_list, context_active, briefing, library_list, codebase_search, codebase_refresh, gmail_link, gmail_list, gmail_read, gmail_search, spotify_link, spotify_status, spotify_search, spotify_devices, spotify_play, spotify_pause, spotify_next, spotify_previous, spotify_volume, waze_route, gmaps_route, weather, hotel_search, cinema_showtimes, train_search, bus_search, git_status, safe_exec_list, cua_doctor, cua_list_apps, cua_window_state, cua_browser_state, health, memory, evolver_status, evolver_review, brv_query, brv_search, brv_status, brv_vc_status, brv_vc_log, brv_swarm_query, brv_swarm_status, brv_review, brv_curate_view, brv_query_log_view, brv_query_log_summary, brv_locations, summarize, summarize_history, summarize_saved, summarize_stats, summarize_default, humanize, humanize_history, humanize_stats, freeride_status, freeride_list, freeride_refresh, freeride_watcher, auto_update_status, learnings_search and learnings_review do NOT wait for confirmation — send/run them right away. git_commit, cua_launch, cua_click, cua_type, cua_start_session, cua_browser_click, cua_browser_type, engagement_create, recon_httpx, content_discover, crawl, param_discover, recon_screenshot, recon_ports, bucket_enum, js_mine, graphql_probe, request_run, cors_audit, rapyd_request, security_hunt, suite_hunt, auth_hunt, api_hunt, cloud_misconfig, policy_set, flow_run, campaign_run, bounty_run, exploit_chain, vuln_compose, exploit_build, auth_setup, exposure_hunt, oauth_hunt, persona_set, persona_forget, bola_diff, poc_verify, csrf_prove, mass_assignment, upload_fuzz, xss_hunt, idor_enum, host_header_hunt, recon_full, smuggle_probe, dom_xss_prove, bypass403, otp_probe, proto_pollute, cache_decep, nosql_hunt, blind_ssrf, path_traversal, otp_hunt, account_recovery, csv_inject, blind_cmdi, ssti_enum, param_miner, workflow_add, workflow_run_now, workflow_pause, workflow_approve, cdp_proxy, cdp_request, cdp_eval, cdp_open, param_fuzz, evidence_capture, pentest_scan, nuclei_custom, zap_scan, sqlmap_scan and http_request WILL wait for confirmation. When you propose tool calls (user replies 'ya'/'tidak' next), write ONLY the short proposal + one-line reason each — NEVER a final conclusion, finding verdict, file path, or receipt in the proposing turn; those are narrated AFTER approval, from real results. ACTION NARRATION RULE: never state in your own words that an action was executed, saved, run, tested, or sent — never write 'sudah aku jalankan/jalankan/eksekusi/simpan/uji/tes' about an ACTION (not about knowledge or feelings). The system appends an authoritative 'Aksi yang benar-benar dijalankan' receipt listing every executed action; your prose adds context and next steps only. If an action failed or was skipped, say honestly what failed and why — but the execution record itself comes from the receipt, not from you.",
@@ -905,9 +906,14 @@ export async function runOneCompletion(
       return await runOneCompletionOnce(messages, url, apiKey, systemPrompt, model, withTools, extraHeaders);
     } catch (err) {
       const isRateLimit = err instanceof Error && /429/.test(err.message);
-      if (!isRateLimit || attempt >= 1) throw err;
-      const retryAfter = extractRetryAfterMs(err as Error);
-      await new Promise((r) => setTimeout(r, retryAfter));
+      // A 400 that says the function-call turn is misplaced is the upstream
+      // gateway's own transient translation bug (see assistantError.ts) — the
+      // same request succeeds on an immediate retry. One extra attempt, with a
+      // short backoff; a real contract error still fails on the first try.
+      const isShapeGlitch = isTransientFunctionShapeError(err);
+      if ((!isRateLimit && !isShapeGlitch) || attempt >= 1) throw err;
+      const wait = isShapeGlitch && !isRateLimit ? 1200 : extractRetryAfterMs(err as Error);
+      await new Promise((r) => setTimeout(r, wait));
     }
   }
 }
@@ -1390,7 +1396,7 @@ function recordExecuted(
 const PERSONAL_LIST_TOOLS = new Set([
   "reminders_list", "reminders_mac_list", "list_tasks", "list_notes", "list_uploads",
   "calendar_list", "calendar_mac_list", "plan_list", "plan_get", "automation_list",
-  "skill_list", "skill_search", "gmail_list", "gmail_search", "google_news", "briefing",
+  "skill_list", "skill_search", "google_news", "briefing",
   "recap", "weekly_insight", "hotel_search", "cinema_showtimes", "train_search", "bus_search",
   "gmaps_route",
   "mood_recent", "memory_get", "search_memory", "learnings_search", "persona_show",
@@ -1728,6 +1734,10 @@ async function runAgent(
 // right after the first scan, so a "full pentest" could never chain
 // scan -> probe -> prove -> report inside one turn.
 const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan", "writeup"]);
+// gmail_list / gmail_search are deliberately NOT in VERBATIM_LIST: the inbox
+// is rendered as a CARD (subject, sender name, time, snippet) next to the
+// agent's reply, so hijacking the reply with the raw list showed the same
+// emails twice — once as the card, once as Mia's message.
   const verbatimCalls = toolCalls2.filter((c) => VERBATIM_LIST.has(c.name));
   // A confirmation continuation is answering an ACTION, not a list request —
   // never take the verbatim fast-path there, or a follow-up list_* would mask
@@ -1749,6 +1759,12 @@ const VERBATIM_LIST = new Set<string>([...PERSONAL_LIST_TOOLS, "hardening_plan",
       const content = await executeTool(vcall, user, toolCtx);
       recordExecuted(collector, vcall, user);
       if (!/^error:/i.test(content.trim())) {
+        // The executed call's OWN result must be recorded. Without it the
+        // session keeps an assistant `tool_calls` turn with no matching tool
+        // result: the card then reads "status akhir tidak diketahui" even
+        // though the tool ran and returned data (observed live 2026-10-20 with
+        // gmail_list — the emails were in the reply, the card said unknown).
+        messages.push({ role: "tool", tool_call_id: vcall.id, content });
         collector.verbatimHit = true;
         collector.collect(
           content.length > MAX_VERBATIM_CHARS
@@ -7037,7 +7053,9 @@ export async function runAssistantTurn(opts: {
       }
     }
     const replyText = orchestratedText ?? result.text;
-    const cleaned = collapseHtmlDumps(stripGmailIds(stripToolCallProse(fixAddressComma(replyText))));
+    // The inbox list is rendered as a CARD next to the reply; a reply that
+    // pastes the same list again would show the emails twice.
+    const cleaned = collapseHtmlDumps(stripInboxList(stripGmailIds(stripToolCallProse(fixAddressComma(replyText)))));
     try {
       const turnFacts = formatFactsFromMessages(result.messages);
       const shaped = applyOutputFormat({
@@ -7451,7 +7469,10 @@ async function runAssistantTurnImpl(opts: {
             type: "task_cancelled",
             actor: bc?.actor ?? "mia",
             summary: `dibatalkan: ${call.name || "unknown"}`.slice(0, 200),
-            data: { name: call.name || "unknown" },
+            // call_id lets the UI cancel EXACTLY this call. A tool name
+            // matches every call of that tool in every turn, so a decline
+            // would otherwise mark an unrelated older call cancelled.
+            data: { name: call.name || "unknown", call_id: call.id },
           });
         } catch {
           /* bus best-effort */
