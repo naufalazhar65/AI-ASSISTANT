@@ -14,6 +14,13 @@ Original to AI Office. No third-party mascot, logo, illustration or brand
 asset was copied. The only new artwork is a 26 px flat line-mark (a monitor on
 a stand) in the sidebar header, drawn inline as SVG.
 
+Navigation uses the same hand-drawn approach: one inline SVG sprite of ten
+24 × 24 stroke symbols (`#i-office`, `#i-agents`, `#i-board`, `#i-calendar`,
+`#i-usage`, `#i-activity`, `#i-logs`, `#i-memory`, `#i-files`,
+`#i-settings`), one stroke weight, `currentColor` fill so the selected state
+repaints the glyph instead of swapping a picture. Unicode dingbats are not
+used — a bare `◔` reads as a mystery, an icon reads as a destination.
+
 ## Colour
 
 | role | light | dark | used for |
@@ -64,7 +71,17 @@ Shadows are warm and low-contrast (`rgba(92,70,44,…)`), never black.
 ```
 
 - The rail collapses to a 60 px icon rail; every icon-only button keeps a
-  `title` + `aria-label` tooltip.
+  `title` + `aria-label` tooltip. Collapsed, each destination is a 38 px
+  square plate and the current one is a solid accent square (orange fill,
+  dark ink) — a filled lamp, never an offset stripe that reads as a broken
+  shape at 60 px. Group headings collapse into hairline rules so the rail
+  still reads as four groups instead of ten loose glyphs.
+- The header shares its row with the canvas, HUD and chat: below ~1100 px it
+  drops the breadcrumb prefix and the sync timestamp and wraps to a second
+  row, so the view title is never squeezed into an ellipsis.
+- Canvas overlays wrap instead of scrolling: room chips flow onto a second
+  row and the status pills stack, so nothing is cut in half by a scrollbar
+  the user cannot see.
 - The HUD (crew + agent detail) is a sibling of the canvas so the office keeps
   the bright surface; it becomes a bottom sheet under 820 px.
 - The chat is a sibling panel; under 900 px it becomes a right drawer, under
