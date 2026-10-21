@@ -97,6 +97,16 @@ async function tick(): Promise<void> {
   } catch (e) {
     logError("consolidate", `pass failed: ${e instanceof Error ? e.message : String(e)}`);
   }
+  // Store hygiene: throwaway per-user folders from drills/probes/eval expire
+  // after a week of being untouched. Without this the store keeps ~500 stale
+  // users, and every periodic runner walks them (a leftover test user can
+  // still push its own notification to the owner).
+  try {
+    const { runDailyTestUserSweep } = await import("./testUserSweep");
+    await runDailyTestUserSweep();
+  } catch (e) {
+    logError("test-user-sweep", `pass failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
   // Never-Forget checkpoint (best-effort, safe) — only if HEARTBEAT.md exists (AI Persona OS opt-in)
   // Mandiri: check local .self-improving first, fallback to global ~/self-improving
   try {

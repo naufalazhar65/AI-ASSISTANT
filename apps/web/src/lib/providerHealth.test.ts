@@ -184,3 +184,22 @@ describe("inactive subscription (403) parks the provider for the quota window", 
     expect(h.cooldownUntil).toBeUndefined();
   });
 });
+
+describe("quota cooldown per provider", () => {
+  // Live 2026-10-21: one 429 from the free Gemini tier put 9router in "down"
+  // for a WHOLE DAY while the very next request to it answered 200 — the
+  // default brain was blacked out over a quota that resets in minutes.
+  const okState: ProviderHealth = { status: "ok", failCount: 0, lastCheckedAt: "" };
+  const quotaErr = new Error("LLM failed (429): You exceeded your current quota, please check your plan and billing.");
+
+  it("gives a free-tier provider the short cooldown", () => {
+    const h = applyFailure(okState, quotaErr, 1_700_000_000_000, 5 * 60 * 1000);
+    expect(h.status).toBe("down");
+    expect(h.cooldownUntil).toBe(new Date(1_700_000_000_000 + 5 * 60 * 1000).toISOString());
+  });
+
+  it("keeps the long cooldown for a daily/monthly quota", () => {
+    const h = applyFailure(okState, quotaErr, 1_700_000_000_000, 24 * 60 * 60 * 1000);
+    expect(h.cooldownUntil).toBe(new Date(1_700_000_000_000 + 24 * 60 * 60 * 1000).toISOString());
+  });
+});

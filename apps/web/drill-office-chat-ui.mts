@@ -7,24 +7,119 @@
  * sends a REAL turn to Mia through /api/office/chat and asserts what the user
  * sees. Any FAIL is printed and the process exits non-zero.
  */
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright";
 
 const ROOT = join(import.meta.dirname, "..", "..");
 const DASH = process.env.OFFICE_DASH_URL || "http://127.0.0.1:3001";
 const ARTIFACT = "office_ui";
+// The chat width is a design token (apps/office-dashboard/design-tokens.json).
+// Reading it keeps the width assertion honest: a stale hard-coded range
+// failed this drill for weeks because the contract had moved to 340px.
+const CHAT_WIDTH_PX = (
+  JSON.parse(
+    readFileSync(join(ROOT, "apps", "office-dashboard", "design-tokens.json"), "utf8"),
+  ) as { layout?: { chatWidth?: string } }
+).layout?.chatWidth ?? "340px";
 /** Marker text of the note the approval test creates — removed again at the end. */
 const DRILL_NOTE = "catatan dari drill sidebar";
 
 /** Remove only the drill's own note (surgical filter, never touches real notes). */
 function cleanupDrillNote(): void {
+  // Two files can hold it: the owner's per-user store (the normal path) and
+  // the global fallback (used when a note is saved without a user key). Only
+  // the marker text is ever removed.
+  for (const file of [
+    join(ROOT, "apps/web/.data/users/naufalazhar652952/notes.json"),
+    join(ROOT, "apps/web/.data/notes.json"),
+  ]) {
+    try {
+      if (!existsSync(file)) continue;
+      const notes = JSON.parse(readFileSync(file, "utf8")) as Array<{ content?: string }>;
+      const kept = notes.filter((n) => !String(n?.content ?? "").includes(DRILL_NOTE));
+      if (kept.length !== notes.length) writeFileSync(file, JSON.stringify(kept, null, 2));
+    } catch {
+      /* best-effort cleanup; never fail the drill over it */
+    }
+  }
+  // The drill's turns are also written to the owner's daily memory, and that
+  // memory is what the recall and the morning briefing read. A drill line
+  // left there would be quoted back to the owner as if it were a real
+  // conversation. Every drill turn carries a unique marker, so the whole
+  // block that holds it can go; every other block stays untouched.
   try {
-    const file = join(ROOT, "apps/web/.data/users/naufalazhar652952/notes.json");
-    if (!existsSync(file)) return;
-    const notes = JSON.parse(readFileSync(file, "utf8")) as Array<{ content?: string }>;
-    const kept = notes.filter((n) => !String(n?.content ?? "").includes(DRILL_NOTE));
-    if (kept.length !== notes.length) writeFileSync(file, JSON.stringify(kept, null, 2));
+    const dir = join(ROOT, "apps/web/.data/users/naufalazhar652952/memory");
+    if (existsSync(dir)) {
+      for (const name of readdirSync(dir)) {
+        if (!name.endsWith(".md")) continue;
+        const file = join(dir, name);
+        const text = readFileSync(file, "utf8");
+        const blocks = text.split(/\n\s*\n/);
+        const kept = blocks.filter((b) => !/\[drill-\d+\]/.test(b));
+        if (kept.length !== blocks.length) writeFileSync(file, kept.join("\n\n"));
+      }
+    }
+  } catch {
+    /* best-effort cleanup; never fail the drill over it */
+  }
+  // The semantic index holds a copy of the day's memory text. A copy that
+  // still carries the drill line would be retrievable by recall even after
+  // the file itself was cleaned, so the drill text leaves the index too.
+  try {
+    const index = join(ROOT, "apps/web/.data/users/naufalazhar652952/memory/embeddings.json");
+    // No early return here: the session cleanup below must still run when the
+    // semantic index does not exist.
+    if (existsSync(index)) {
+      const parsed = JSON.parse(readFileSync(index, "utf8")) as { docs?: Array<{ text?: string }> };
+      const docs = Array.isArray(parsed.docs) ? parsed.docs : [];
+      const kept = docs.filter((d) => !/\[drill-\d+\]/.test(String(d?.text ?? "")));
+      // Only rewrite the file when a drill line was actually in it — an
+      // untouched index keeps its exact bytes.
+      if (kept.length !== docs.length) {
+        parsed.docs = kept;
+        writeFileSync(index, JSON.stringify(parsed));
+      }
+    }
+  } catch {
+    /* best-effort cleanup; never fail the drill over it */
+  }
+  // The drill talks to the REAL office endpoint, so its turns land in the
+  // OWNER's chat session. A drill turn is a user message carrying the marker
+  // plus everything the agent said back until the next real user message —
+  // that whole block goes, so the owner's transcript only holds their own
+  // conversation. The send-time stamps are aligned with the messages, so
+  // they are dropped by the same index.
+  try {
+    const sessions = join(ROOT, "apps/web/.data/users/naufalazhar652952/sessions");
+    if (existsSync(sessions)) {
+      for (const name of readdirSync(sessions)) {
+        if (!/^office-.*\.json$/.test(name)) continue;
+        const file = join(sessions, name);
+        const parsed = JSON.parse(readFileSync(file, "utf8")) as {
+          conversation?: { messages?: Array<{ role?: string; content?: unknown }>; stamps?: (number | null)[] };
+        };
+        const messages = Array.isArray(parsed.conversation?.messages) ? parsed.conversation.messages : [];
+        const stamps = Array.isArray(parsed.conversation?.stamps) ? parsed.conversation.stamps : [];
+        const drop = new Set<number>();
+        let inDrillTurn = false;
+        messages.forEach((m, i) => {
+          if (m?.role === "user") {
+            // Two markers: the per-run tag (today's turns) and the fixed note
+            // text (turns from older drill runs that had no tag yet).
+            const content = String(m?.content ?? "");
+            inDrillTurn = /\[drill-\d+\]/.test(content) || content.includes(DRILL_NOTE);
+          }
+          if (inDrillTurn) drop.add(i);
+        });
+        if (!drop.size) continue;
+        const keptMessages = messages.filter((_m, i) => !drop.has(i));
+        const keptStamps = stamps.filter((_s, i) => !drop.has(i));
+        parsed.conversation!.messages = keptMessages;
+        parsed.conversation!.stamps = keptStamps;
+        writeFileSync(file, JSON.stringify(parsed, null, 2));
+      }
+    }
   } catch {
     /* best-effort cleanup; never fail the drill over it */
   }
@@ -101,19 +196,62 @@ async function main(): Promise<void> {
   await page.reload({ waitUntil: "commit" });
   await page.waitForSelector("#chatToggle", { timeout: 60000 });
 
-  // 1. sidebar starts closed and does not disturb the dashboard
-  check("sidebar hidden by default", await page.locator("#chatPanel").isHidden());
+  // 1. On a wide screen the chat is OPEN by default (DESIGN.md: "open on wide
+  // screens") and it does not disturb the dashboard behind it.
+  //
+  // Every state below is WAITED for, never sampled: the panel opens with a
+  // slide, so an instant read can catch the column mid-flight (width 0) and
+  // would report a panel that is open as one that is closed.
+  const chatOpen = () =>
+    page.waitForFunction(
+      () => {
+        const p = document.getElementById("chatPanel");
+        return !!p && !p.hidden && p.getBoundingClientRect().width > 0;
+      },
+      undefined,
+      { timeout: 10000 },
+    );
+  const chatClosed = () =>
+    page.waitForFunction(
+      () => {
+        const p = document.getElementById("chatPanel");
+        if (!p) return true;
+        return p.hidden || p.getBoundingClientRect().width === 0;
+      },
+      undefined,
+      { timeout: 10000 },
+    );
+
+  const openedByDefault = await chatOpen().then(() => true).catch(() => false);
+  check("chat open by default on a wide screen", openedByDefault);
   const dashboardVisible = await page.locator("main header #viewTitle").isVisible();
   check("dashboard still visible", dashboardVisible);
   const officeCanvas = await page.locator("canvas").count();
   check("3D office canvas still mounted", officeCanvas > 0, `canvas count=${officeCanvas}`);
 
-  // 2. open it
-  await openPanel(page);
-  check("sidebar opens on toggle", await page.locator("#chatPanel").isVisible());
+  // 2. the toggle closes it and opens it again
+  await page.click("#chatToggle");
+  const closed = await chatClosed().then(() => true).catch(() => false);
+  check("toggle closes the chat", closed && (await page.locator("#chatPanel").isHidden()));
+  // The close runs a short exit motion before the panel is removed, so the
+  // toggle must wait for `hidden` — clicking while the panel is still
+  // there would ask for another close instead of an open.
+  await page
+    .waitForFunction(() => document.getElementById("chatPanel")?.hidden === true, undefined, { timeout: 10000 })
+    .catch(() => undefined);
+  await page.click("#chatToggle");
+  const reopened = await chatOpen().then(() => true).catch(() => false);
+  check("toggle opens the chat", reopened && (await page.locator("#chatPanel").isVisible()));
   check("toggle reports aria-expanded", (await page.getAttribute("#chatToggle", "aria-expanded")) === "true");
   const panelBox = await page.locator("#chatPanel").boundingBox();
-  check("desktop width 360–440px", !!panelBox && panelBox.width >= 360 && panelBox.width <= 440, `width=${panelBox?.width}`);
+  // The width comes from the design token (design-tokens.json), so the
+  // assertion cannot drift away from the contract again.
+  const expectedWidth = Number((CHAT_WIDTH_PX.match(/\d+/) || ["0"])[0]);
+  check(
+    "desktop width matches the design token",
+    !!panelBox && Math.abs(panelBox.width - expectedWidth) <= 4,
+    `width=${panelBox?.width} expected=${expectedWidth}`,
+  );
   const focused = await page.evaluate(() => document.activeElement?.className || "");
   check("focus moves into the panel on open", focused.includes("chatInput"), `activeElement=${focused}`);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
@@ -124,13 +262,60 @@ async function main(): Promise<void> {
   check("agent tabs = Mia/Agnes/Michelle", JSON.stringify(tabs) === JSON.stringify(["Mia", "Agnes", "Michelle"]), tabs.join(","));
 
   // 4. real send → real reply
-  await page.fill(".chatInput", "dalam satu kalimat, apa nama kamu?");
+  //
+  // The panel opens on a history, so "an agent message exists" proves
+  // nothing: the wait must be for a reply that came AFTER our own
+  // question. Counting bubbles does NOT work: the server keeps only the
+  // last MAX_OFFICE_MESSAGES messages (40), so an older bubble is trimmed
+  // away while the new one arrives and the COUNT stays flat — the drill
+  // then waits for a growth that can never come. The question therefore
+  // carries a marker and the reply is looked for AFTER that bubble.
+  const marker = `drill-${Date.now()}`;
+  await page.fill(".chatInput", `dalam satu kalimat, apa nama kamu? [${marker}]`);
   await page.press(".chatInput", "Enter");
-  await page.waitForSelector(".msg.agent .msgBody", { timeout: 180000 });
+  const answered = await page
+    .waitForFunction(
+      (m) => {
+        const msgs = [...document.querySelectorAll("#chatLog .msg")];
+        const at = msgs.findIndex(
+          (el) => el.classList.contains("user") && (el.textContent || "").includes(m),
+        );
+        if (at < 0) return false;
+        return msgs
+          .slice(at + 1)
+          .some(
+            (el) =>
+              el.classList.contains("agent") &&
+              !!el.querySelector(".msgBody") &&
+              (el.textContent || "").trim().length > 3,
+          );
+      },
+      marker,
+      { timeout: 180000 },
+    )
+    .then(() => true)
+    .catch(() => false);
   const reply = (await page.locator(".msg.agent .msgBody").last().textContent()) || "";
-  check("agent really answered", reply.trim().length > 3, reply.slice(0, 80));
-  check("user bubble rendered", (await page.locator(".msg.user").count()) >= 1);
-  check("composer cleared after send", (await page.inputValue(".chatInput")) === "");
+  check("agent really answered", answered, `new reply=${answered} ${reply.slice(0, 80)}`);
+  const userBubble = await page.evaluate((m) => {
+    const el = [...document.querySelectorAll("#chatLog .msg.user")].find((x) =>
+      (x.textContent || "").includes(m),
+    );
+    return !!el;
+  }, marker);
+  check("user bubble rendered", userBubble);
+  const composerCleared = await page
+    .waitForFunction(
+      () => {
+        const el = document.querySelector(".chatInput") as HTMLTextAreaElement | null;
+        return !!el && el.value === "";
+      },
+      undefined,
+      { timeout: 60000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  check("composer cleared after send", composerCleared);
 
   // 4b. an unauthenticated call must fail loudly, not silently fake a reply
   const unauth = await page.evaluate(async () => {
@@ -160,6 +345,9 @@ async function main(): Promise<void> {
   await page.waitForSelector("#chatToggle", { timeout: 60000 });
   await openPanel(page);
   await page.waitForSelector(".msg.agent .msgBody", { timeout: 20000 });
+  // The history is re-read from the server in one render; give it a tick to
+  // settle before counting.
+  await page.waitForTimeout(400);
   const after = await bubbles();
   check("history reloaded from the server", after >= before && after >= 2, `before=${before} after=${after}`);
 
@@ -170,7 +358,9 @@ async function main(): Promise<void> {
   // the dashboard proxy pins the owner user, so the drill cannot isolate a
   // session). That is a MODEL decision, not a UI failure, so it is reported as
   // a labelled skip instead of hanging the drill and killing the checks below.
-  await page.fill(".chatInput", 'Simpan catatan baru isinya "catatan dari drill sidebar", pakai tool simpan catatan.');
+  // The marker travels with the approval turn too, so the session cleanup
+  // removes it as well (the note text stays a superstring of DRILL_NOTE).
+  await page.fill(".chatInput", `Simpan catatan baru isinya "${DRILL_NOTE} [${marker}]", pakai tool simpan catatan.`);
   await page.press(".chatInput", "Enter");
   const approvalShown = await page
     .waitForSelector(".approval", { state: "visible", timeout: 90000 })
@@ -186,6 +376,11 @@ async function main(): Promise<void> {
   await page.waitForSelector('.toolState[data-state="succeeded"]', { timeout: 240000 });
   // No double execution: ground truth is the store, not the UI. One approval
   // click must produce exactly ONE note.
+  //
+  // The store is WAITED for, not sampled: the card can report "succeeded"
+  // from the turn's own frames a moment before the note file is flushed, so an
+  // instant read proves nothing (measured: the card said succeeded while the
+  // note landed on disk a second later).
   const notesWithMarker = () => {
     try {
       const file = join(ROOT, "apps/web/.data/users/naufalazhar652952/notes.json");
@@ -196,7 +391,12 @@ async function main(): Promise<void> {
       return -1;
     }
   };
-  check("one approval click executed the tool exactly once", notesWithMarker() === 1, `notes=${notesWithMarker()}`);
+  let noteCount = notesWithMarker();
+  for (let i = 0; i < 30 && noteCount === 0; i += 1) {
+    await page.waitForTimeout(500);
+    noteCount = notesWithMarker();
+  }
+  check("one approval click executed the tool exactly once", noteCount === 1, `notes=${noteCount}`);
   check("approved tool reports succeeded", (await page.locator('.toolState[data-state="succeeded"]').count()) >= 1);
   }
 

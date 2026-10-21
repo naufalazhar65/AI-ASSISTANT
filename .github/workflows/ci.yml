@@ -20,6 +20,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
+      # A key the code reads but nobody can configure is a silent feature
+      # break. The check is pure node (no deps, no network): it fails when a
+      # var is read but missing from apps/web/.env.example.
+      - name: Env vars documented
+        run: node apps/web/scripts/check-env-documented.mjs
   unit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -62,6 +67,31 @@ jobs:
       - run: npm ci
       - name: Honesty guards smoke suite
         run: npx tsx apps/web/probe-honesty-guards.mts
+  dashboard:
+    # The office dashboard has its own gates, and they were never run by CI:
+    # a broken chat panel or a broken 3D scene could merge green. Both gates
+    # are dependency-free (node built-ins + the vendored three.js), so this
+    # job needs no browser and no running server:
+    #   - chat-core.test.mjs: the chat panel's pure logic (43 node:test cases).
+    #   - probe-furniture-validate.js: renders index.html's inline scene script
+    #     in a stub browser and validates the office furniture. It proxies
+    #     /api/* read-only to the office server and falls back to the honest
+    #     offline path when the server is down, so it is safe without one.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Chat panel core tests
+        run: node --test apps/office-dashboard/chat-core.test.mjs
+      - name: Office furniture probe
+        run: node apps/office-dashboard/probe-furniture-validate.js
+      - name: Test-user cleanup (dry run)
+        run: npx tsx apps/web/scripts/cleanup-test-users.mts
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15

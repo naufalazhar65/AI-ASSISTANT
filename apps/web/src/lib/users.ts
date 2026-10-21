@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { canonicalUserKey } from "./identity";
+import { isDisposableTestUser } from "./testUserCleanup";
 
 /**
  * Per-user isolation key. `user` arrives from the client and is used to build
@@ -78,9 +79,14 @@ export function isTestUserKey(key: string): boolean {
   // Prefix-based for synthetic users; old `s$` removed (matched any user ending in 's').
   // Extended to catch defuse/cont repro probes and confirm/toolrounds temps that
   // previously leaked into broadcastDue and caused the 11× bangun spam (2026-09-11).
+  //
+  // The disposable set lives in ./testUserCleanup so the cleanup script and
+  // this guard agree on one list: a leftover test folder that the runners do
+  // not skip is a folder that can still push a notification to the owner.
   return /^(verify_|probe|monitorprobe|naufalprobe|recapprobe|remprobe|http_probe_|defuse_probe|cont_repro|empty_turn|confirm_dedup|toolrounds_|eval_|drill_)/i.test(key) ||
     /verify/i.test(key) ||
-    /^(test|bob|tztest|wtheme|greet_probe|mock_roll_probe|owner_roll_probe|owner_smoke)$/i.test(key);
+    /^(test|bob|tztest|wtheme|greet_probe|mock_roll_probe|owner_roll_probe|owner_smoke)$/i.test(key) ||
+    isDisposableTestUser(key);
 }
 
 export function allowedWorkspaces(): string[] {

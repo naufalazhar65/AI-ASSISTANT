@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { afterEach, describe, it, expect } from "vitest";
-import { resolveInSandbox, resolveWritePath, userDataRoot } from "./users";
+import { isTestUserKey, resolveInSandbox, resolveWritePath, userDataRoot } from "./users";
 
 // Regression for the 2026-09-26 wipe: a caller used the OLD 1-arg pattern
 // `rmSync(userDataRoot(user), …)` — userDataRoot ignores its argument, so the
@@ -22,6 +22,24 @@ describe("userDataRoot arg guard", () => {
 // Owner decision 2026-10-16: writes may land anywhere (registering every
 // folder in ALLOWED_WORKSPACES was too much friction). Reads + exec stay
 // sandboxed — only the WRITE resolver moves.
+// The periodic runners skip synthetic users through isTestUserKey. A leftover
+// test folder that this guard does not recognise is a folder that can still
+// push a notification to the owner — so the guard and the cleanup script
+// share one list (lib/testUserCleanup).
+describe("isTestUserKey", () => {
+  it("recognises every disposable artifact family", () => {
+    for (const key of ["verify_wf_1", "wf_test_2", "wf_life_3", "office_ui", "audit23", "t", "v"]) {
+      expect(isTestUserKey(key)).toBe(true);
+    }
+  });
+
+  it("never skips the owner, his aliases or the shared bucket", () => {
+    for (const key of ["naufalazhar652952", "naufalazhar65", "naufal", "Zigen", "shared", "U0C7RQL8KU4"]) {
+      expect(isTestUserKey(key)).toBe(false);
+    }
+  });
+});
+
 describe("resolveWritePath / WRITE_ANYWHERE", () => {
   const env = process.env.WRITE_ANYWHERE;
   afterEach(() => {

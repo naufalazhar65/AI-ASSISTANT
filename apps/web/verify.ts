@@ -9742,6 +9742,105 @@ async function verifyProactiveWorkflows(): Promise<void> {
     }
     if (!/from '\.\/chat-core\.mjs'/.test(officeUi)) throw new Error("office chat: chat.js harus memakai chat-core (sanitasi teruji), bukan logika sendiri");
     console.log("office chat sidebar (route nyata · bus lifecycle · FR-014 confirm · store existing · proxy pin user · UI tanpa operasi privileged): OK");
+
+    // --- Wave 1: the gates that were never run, the env surface nobody could
+    // configure, and the store that keeps every leftover test user alive.
+    {
+      // 1. CI must run the dashboard gates. A green CI that never touched the
+      //    dashboard proved nothing about it.
+      const ciSrc = readFileSync(join(miaRepoRoot(), ".github", "workflows", "ci.yml"), "utf8");
+      if (!/^ {2}dashboard:/m.test(ciSrc)) throw new Error("wave1: CI harus punya job dashboard");
+      if (!/node --test apps\/office-dashboard\/chat-core\.test\.mjs/.test(ciSrc)) {
+        throw new Error("wave1: job dashboard harus menjalankan chat-core.test.mjs");
+      }
+      if (!/node apps\/office-dashboard\/probe-furniture-validate\.js/.test(ciSrc)) {
+        throw new Error("wave1: job dashboard harus menjalankan probe-furniture-validate.js");
+      }
+
+      // 2. Every env var the code reads must be documented. The check itself
+      //    is the gate: it fails when a key is read but undocumented.
+      const envCheck = join(miaRepoRoot(), "apps", "web", "scripts", "check-env-documented.mjs");
+      if (!existsSync(envCheck)) throw new Error("wave1: check-env-documented.mjs hilang");
+      const exampleSrc = readFileSync(join(appRoot(), ".env.example"), "utf8");
+      const documented = new Set<string>();
+      for (const m of exampleSrc.matchAll(/^\s*#?\s*([A-Z][A-Z0-9_]*)\s*=/gm)) documented.add(m[1]);
+      for (const key of ["DASHBOARD_TOKEN", "GEMINI_API_KEY", "OFFICE_SCHEDULE_DIRS", "EVAL_GATE_MIN_SAFETY", "ORCHESTRATION_MAX_TASKS", "TTS_LOCAL_ID", "WHISPER_BIN"]) {
+        if (!documented.has(key)) throw new Error(`wave1: ${key} dipakai kode tapi tidak terdokumentasi di .env.example`);
+      }
+
+      // 3. Config doctor: per feature, not per key — and it never prints a value.
+      const { CONFIG_FEATURES, diagnoseConfig, renderConfigReport } = await import("./src/lib/configDoctor");
+      const empty = diagnoseConfig({});
+      if (empty.some((f) => f.on)) throw new Error("wave1: config doctor: env kosong tidak boleh-report fitur aktif");
+      const withLlm = diagnoseConfig({ LLM_API_BASE: "http://x", LLM_API_KEY: "k", LLM_MODEL: "m" });
+      const llm = withLlm.find((f) => f.id === "llm");
+      if (!llm?.on) throw new Error("wave1: config doctor: satu grup lengkap harus menyalakan fiturnya");
+      const report = renderConfigReport(withLlm);
+      if (/http:\/\/x|\bk\b\s*·/.test(report)) throw new Error("wave1: config doctor: laporan tidak boleh membocorkan nilai");
+      for (const f of CONFIG_FEATURES) {
+        if (!f.groups.length) throw new Error(`wave1: config doctor: fitur ${f.id} tanpa grup kunci`);
+      }
+
+      // 4. The test-user sweep: the owner's own keys are never disposable, and
+      //    the sweep is wired into the server AND the CLI from ONE module.
+      const { isDisposableTestUser } = await import("./src/lib/testUserCleanup");
+      for (const key of ["naufalazhar652952", "naufalazhar65", "Zigen", "shared", "naufalazhar652952.agnes", "naufalazhar652952.michelle"]) {
+        if (isDisposableTestUser(key)) throw new Error(`wave1: ${key} tidak boleh disposable`);
+      }
+      if (!isDisposableTestUser("verify_something")) throw new Error("wave1: folder verify_ harus disposable");
+      const sweepSrc = readFileSync(join(appRoot(), "src", "lib", "testUserSweep.ts"), "utf8");
+      const cleanupSrc = readFileSync(join(appRoot(), "scripts", "cleanup-test-users.mts"), "utf8");
+      if (!/sweepExpiredTestUsers/.test(cleanupSrc)) {
+        throw new Error("wave1: skrip cleanup harus memakai sweep yang sama dengan server (helper benar tapi kawatnya lepas)");
+      }
+      const hbSrc = readFileSync(join(appRoot(), "src", "lib", "heartbeat.ts"), "utf8");
+      if (!/runDailyTestUserSweep/.test(hbSrc)) {
+        throw new Error("wave1: sweep harian harus dijalankan dari heartbeat (helper benar tapi kawatnya lepas)");
+      }
+      // 5. The window head must be sendable: an assistant function-call turn
+      //    at the head is rejected by the gateway with 400 AND poisons the key
+      //    for ~30s (measured 2026-10-21 by probing the gateway directly).
+      const { trimToSafeWindowHead } = await import("./src/lib/messageWindow");
+      const tc = { role: "assistant", content: null, tool_calls: [{ id: "c1" }] };
+      const tr = { role: "tool", tool_call_id: "c1", content: "done" };
+      const trimmed = trimToSafeWindowHead([
+        tc,
+        tr,
+        { role: "assistant", content: "ok" },
+        { role: "user", content: "next" },
+      ] as Array<{ role?: string; content?: unknown; tool_calls?: unknown[]; tool_call_id?: string }>);
+      if (trimmed.some((m) => m.role === "assistant" && (m.tool_calls?.length ?? 0) > 0)) {
+        throw new Error("wave1: window head tidak boleh jadi assistant function-call");
+      }
+      if (trimmed.some((m) => m.role === "tool")) {
+        throw new Error("wave1: tool result yatim tidak boleh tinggal di window head");
+      }
+
+      // 6. An expired key must move the chain to the next provider, and a
+      //    free-tier quota hit must not park the default brain for a day.
+      const { isProviderRetryable, classifyAssistantError } = await import("./src/lib/assistantError");
+      const expired = new Error(
+        'LLM failed (401): {"error":{"type":"authentication_error","code":"api_key_expired","message":"This API key has expired."}}',
+      );
+      if (!isProviderRetryable(expired)) {
+        throw new Error("wave1: kunci kedaluwarsa harus pindah chain, bukan mematikan giliran");
+      }
+      if (classifyAssistantError(expired).kind !== "quota") {
+        throw new Error("wave1: kunci kedaluwarsa harus dilaporkan sebagai masalah kuota");
+      }
+      const { applyFailure } = await import("./src/lib/providerHealth");
+      const freeQuota = applyFailure(
+        { status: "ok", failCount: 0, lastCheckedAt: "" },
+        new Error("LLM failed (429): You exceeded your current quota"),
+        1_700_000_000_000,
+        5 * 60 * 1000,
+      );
+      if (Date.parse(freeQuota.cooldownUntil ?? "") !== 1_700_000_000_000 + 5 * 60 * 1000) {
+        throw new Error("wave1: kuota free tier tidak boleh=blackout 24 jam");
+      }
+
+      console.log("wave 1 (CI dashboard gate · env terdokumentasi · config doctor · sweep user uji): OK");
+    }
   }
 }
 

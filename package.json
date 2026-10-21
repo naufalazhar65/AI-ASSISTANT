@@ -16,7 +16,9 @@
     "eval:agents": "cd apps/web && npx tsx eval.ts agents",
     "eval:regression": "cd apps/web && npx tsx eval.ts regression",
     "eval:baseline": "cd apps/web && npx tsx eval.ts baseline",
-    "eval:list": "cd apps/web && npx tsx eval.ts list"
+    "eval:list": "cd apps/web && npx tsx eval.ts list",
+    "doctor": "npx tsx apps/web/scripts/config-doctor.mts",
+    "clean:test-users": "npx tsx apps/web/scripts/cleanup-test-users.mts"
   },
   "devDependencies": {
     "vitest": "^4.1.11"

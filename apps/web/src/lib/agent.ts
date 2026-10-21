@@ -93,7 +93,8 @@ import { detectDelegation } from "./delegation";
 import { applyOutputFormat, countSectionLabels, outputFormatGuidance, type FormatterOutcome } from "./outputFormat";
 import { fixAddressComma } from "./textStyle";
 import { dayRotated } from "./dayRotated";
-import { isProviderRetryable, isTransientFunctionShapeError } from "./assistantError";
+import { functionShapeResetAfterMs, isProviderRetryable, isTransientFunctionShapeError } from "./assistantError";
+import { trimToSafeWindowHead } from "./messageWindow";
 import { stripInboxList } from "./inboxText";
 import { isInternalTurn } from "./memoryNoise";
 import { approvalFingerprint } from "./recovery/policy";
@@ -912,7 +913,14 @@ export async function runOneCompletion(
       // short backoff; a real contract error still fails on the first try.
       const isShapeGlitch = isTransientFunctionShapeError(err);
       if ((!isRateLimit && !isShapeGlitch) || attempt >= 1) throw err;
-      const wait = isShapeGlitch && !isRateLimit ? 1200 : extractRetryAfterMs(err as Error);
+      // The gateway tells us its own cooldown in the message ("reset after
+      // 29s"). Waiting a fixed 1.2s guarantees a second rejection, so the
+      // wait follows the message and falls back to the short pause when the
+      // message carries no cooldown.
+      const wait =
+        isShapeGlitch && !isRateLimit
+          ? functionShapeResetAfterMs(err) || 1200
+          : extractRetryAfterMs(err as Error);
       await new Promise((r) => setTimeout(r, wait));
     }
   }

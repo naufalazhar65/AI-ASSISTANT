@@ -22,8 +22,32 @@ const STATE_FILE = join(DIR, "state.json");
 
 /** Billed quota resets slowly (Go monthly). Re-enter the chain daily after a quota hit. */
 const QUOTA_COOLDOWN_MS = 1000 * 60 * 60 * 24;
+
 /** 5xx / short rate-limit dips recover in minutes. */
 const TRANSIENT_COOLDOWN_MS = 1000 * 60 * 5;
+/**
+ * Quota cooldown PER PROVIDER — one constant for all of them was wrong.
+ *
+ * A quota hit is not one thing: OpenCode Go's monthly Go quota needs a day,
+ * Groq's TPD is daily, but 9router/openrouter sit on a FREE tier whose quota
+ * resets every minute or two. Giving a free-tier quota hit the same 24h
+ * cooldown blacked out the DEFAULT brain for a whole day (live 2026-10-21: one
+ * 429 from the free Gemini tier put 9router in "down" until the next day,
+ * while the very next request to it answered 200). The chain then fell
+ * through to a provider whose key had expired and the turn died.
+ *
+ * So: daily/monthly quotas get the long cooldown, free-tier quotas get the
+ * short one — and the free providers are probe-eligible anyway, so the
+ * watcher restores them as soon as they answer again.
+ */
+const QUOTA_COOLDOWN_BY_PROVIDER: Partial<Record<ProviderId, number>> = {
+  opencodego: QUOTA_COOLDOWN_MS, // monthly Go quota
+  groq: QUOTA_COOLDOWN_MS, // daily TPD
+  "9router": TRANSIENT_COOLDOWN_MS, // free tier, minute-scale quota
+  openrouter: TRANSIENT_COOLDOWN_MS, // free models, minute-scale quota
+  opencode: TRANSIENT_COOLDOWN_MS, // local proxy
+};
+
 /** Transient failures before a provider is marked down. */
 const FAIL_THRESHOLD = 3;
 /** Don't probe down providers more often than this (probes cost quota/latency). */
@@ -80,7 +104,12 @@ function blank(): ProviderHealth {
 
 /** Pure: apply one failure to a health record. Quota hits = long cooldown (billed
  *  reset); transient retryable failures build a failCount before going down short. */
-export function applyFailure(h: ProviderHealth, err: unknown, now = Date.now()): ProviderHealth {
+export function applyFailure(
+  h: ProviderHealth,
+  err: unknown,
+  now = Date.now(),
+  quotaCooldownMs: number = QUOTA_COOLDOWN_MS
+): ProviderHealth {
   const detail = err instanceof Error ? err.message : String(err ?? "");
   if (!isProviderRetryable(err)) return h; // code/tool errors are not provider health
   const next: ProviderHealth = { ...h, lastCheckedAt: nowIso(now), lastError: detail.slice(0, 200) };
@@ -88,7 +117,7 @@ export function applyFailure(h: ProviderHealth, err: unknown, now = Date.now()):
     next.status = "down";
     next.failCount = h.failCount + 1;
     next.quotaHitAt = nowIso(now);
-    next.cooldownUntil = nowIso(now + QUOTA_COOLDOWN_MS);
+    next.cooldownUntil = nowIso(now + quotaCooldownMs);
   } else {
     next.failCount = h.failCount + 1;
     if (next.failCount >= FAIL_THRESHOLD) {
@@ -117,7 +146,7 @@ function record(fn: (h: ProviderHealth) => ProviderHealth, id: ProviderId): Prov
 
 /** Record a failed provider attempt (only marks when the error is provider-retryable). */
 export function markProviderFailure(id: ProviderId, err: unknown, now = Date.now()): void {
-  record((h) => applyFailure(h, err, now), id);
+  record((h) => applyFailure(h, err, now, QUOTA_COOLDOWN_BY_PROVIDER[id] ?? QUOTA_COOLDOWN_MS), id);
 }
 /** Record a successful attempt (clears down/cooldown → provider re-enters the chain). */
 export function markProviderHealthy(id: ProviderId, now = Date.now()): void {

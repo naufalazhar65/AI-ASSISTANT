@@ -4,7 +4,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![Tools](https://img.shields.io/badge/tools-337-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
+[![Tools](https://img.shields.io/badge/tools-344-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![Playbooks](https://img.shields.io/badge/security%20playbooks-86-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
@@ -42,7 +42,7 @@ Defensive + **authorized** offensive work.
 - Recon / attack-surface mapping (passive + scoped active)
 - Autonomous **`security_hunt`** → LEADS, not raw dumps
 - OWASP Top 10:2025 / API Top 10:2023 / Bugcrowd VRT
-- 85 playbook packs (Strix-adapted + 10 Mia-authored: teamcity-cve-2026-63077, web-cache-poisoning, websocket-security, account-takeover, host-header-injection, idor-triage, browser-transport-tampering, authenticated-testing, authorization-matrix, reading-prover-results)
+- 86 playbook packs (Strix-adapted + 10 Mia-authored: teamcity-cve-2026-63077, web-cache-poisoning, websocket-security, account-takeover, host-header-injection, idor-triage, browser-transport-tampering, authenticated-testing, authorization-matrix, reading-prover-results)
 - Findings → CVSS/OWASP/CWE → SARIF/PDF report
 - Bug-bounty toolkit (OAST, BOLA, JWT, fuzz, evidence)
 
@@ -112,7 +112,7 @@ flowchart LR
 ```
 
 - **Core:** `lib/agent.ts` — one turn (`stream → tools → follow-up → auto-memory → reminder → mood → toolsForUrl cap`) for **every** channel.
-- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `9router` = current default brain (64-tool window); `opencodego` = full 335-tool window (quota exhausted 2026-09-21, returns after reset); `groq` = STT/TTS; `openrouter` = freeride fallback.
+- **Provider:** `lib/providers.ts` — client sends `{provider, model}` only; server resolves keys (Invariant 5). `9router` = current default brain (64-tool window); `opencodego` = full 344-tool window (quota exhausted 2026-09-21, returns after reset); `groq` = STT/TTS; `openrouter` = freeride fallback.
 - **Adapter:** `channels/{telegram,discord}.ts` + `pushTarget.ts`. Discord DM needs `partials:[Channel,Message]` + `msg.fetch()`.
 - **State:** `packages/state-machine` — `IDLE → LISTENING → PROCESSING → SPEAKING → TURN_END/INTERRUPTED` (invalid transitions impossible).
 
@@ -172,7 +172,7 @@ WAF blocks programmatic replay, tamper via the app's own request) and
 | **Ops** | `git_status/commit`, `safe_exec_list`, `auto_update*`, `freeride_*`, `learnings_*`, `send_channel` | Self-update, freeride fallback `429→next` |
 | **Superpower** | `target_brain`, `retest_list/add/run`, `auth_matrix`, `dom_taint`, `learning_ingest/query`, `coverage`, `threat_model` | Per-target memory, regression suite, N-role matrix, DOM XSS taint, disclosed patterns, **coverage ledger** (which risk class was tested + how it closed, evidence required), **threat model** (4 mandatory sections per target) |
 
-**337 tools total.** Full list derives from the registry — see
+**344 tools total.** Full list derives from the registry — see
 [`apps/web/src/lib/tools.ts`](./apps/web/src/lib/tools.ts).
 
 ---
@@ -233,9 +233,11 @@ npm run dev -w @voice/web        # http://localhost:3000
 npm run typecheck
 npm run lint
 npm run build
-npm test                         # vitest (1555 tests, 92 files)
+npm test                         # vitest (2640 tests, 136 files)
 npx tsx apps/web/verify.ts       # offline proofs (tsx, must EXIT 0)
 npx tsx packages/state-machine/verify.ts
+npm run doctor                   # config report: which feature is missing what
+npm run clean:test-users        # expire stale test users (dry run)
 ```
 
 ---
@@ -247,6 +249,36 @@ npx tsx packages/state-machine/verify.ts
 - **Rate limit:** `RATE_LIMIT_TURNS_PER_MIN` (default 30) → `429`; `freeride` auto-retries next free model.
 - **Auth:** `AUTH_TOKEN` → web PIN `/login` + `Bearer`; `TOOLS_DENY` to disable tools.
 - **Logs:** `.data/logs/APP-*.log` + `.data/audit/AUDIT-*.log` + `/tmp/mia-dev.log` (dev).
+
+### Configuration
+
+Every key the code reads is documented in `apps/web/.env.example`; a key that is
+read but not documented is a key nobody can configure. The check is a gate:
+
+```bash
+node apps/web/scripts/check-env-documented.mjs   # missing keys → exit 1
+npm run doctor                                   # which feature misses what
+```
+
+`npm run doctor` is read-only, never touches the network and never prints a
+value — only key names and whether they are set. It answers the one question
+that otherwise has no answer: *why is Mia quiet?*
+
+### Store hygiene
+
+`.data/users/<key>/` accumulates throwaway folders from drills, probes and eval
+runs. A leftover folder is not harmless — every periodic runner walks the
+store, so a stale test user can still push its own notification to the owner.
+Test folders expire after 7 untouched days; the owner's own keys (and every
+alias of them) are never disposable.
+
+```bash
+npm run clean:test-users          # dry run — prints what would go
+npm run clean:test-users -- --apply
+```
+
+The same sweep runs once a day inside the server (heartbeat pass), so it
+cannot drift from the script.
 
 ---
 
