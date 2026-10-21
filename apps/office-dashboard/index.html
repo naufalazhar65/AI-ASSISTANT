@@ -40,6 +40,8 @@
     --shadow-2:0 6px 18px rgba(92,70,44,.10);
     --ring:0 0 0 3px rgba(233,154,86,.45);
     --dur:.15s; --sbw:60px; --hudbg:rgba(255,255,255,.92); --hudw:322px;
+    /* motion — one duration, one curve; panels arrive instead of jumping */
+    --motion:.19s; --ease:cubic-bezier(.22,.61,.36,1);
     --font: "Nunito", "Avenir Next", "Segoe UI Variable Text", "Segoe UI",
       system-ui, -apple-system, "Helvetica Neue", sans-serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -82,7 +84,7 @@
   aside{flex:0 0 var(--sbw);width:var(--sbw);background:var(--panel-2);
     border-right:1px solid var(--line);display:flex;flex-direction:column;
     padding:var(--s4) var(--s3) var(--s3);gap:var(--s1);overflow-y:auto;overflow-x:hidden;
-    transition:flex-basis .2s ease,width .2s ease}
+    transition:flex-basis .2s ease,width .2s ease,transform var(--motion) var(--ease)}
   body.sbopen{--sbw:248px}
   .brand{padding:var(--s2) var(--s2) var(--s5);display:flex;align-items:center;gap:var(--s3);
     white-space:nowrap}
@@ -150,12 +152,16 @@
   main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
   header{flex:0 0 auto;min-height:56px;border-bottom:1px solid var(--line);
     display:flex;align-items:center;gap:var(--s3);padding:0 var(--s5);
+    flex-wrap:wrap;row-gap:var(--s2);
     background:var(--panel)}
-  .crumbs{display:flex;align-items:baseline;gap:var(--s2);min-width:0;overflow:hidden}
+  .crumbs{display:flex;align-items:baseline;gap:var(--s2);min-width:0;overflow:hidden;
+    flex:0 0 auto}
   .crumbA{font-size:var(--t-1);letter-spacing:.02em;color:var(--faint);white-space:nowrap}
   .crumbSep{color:var(--line-2);font-size:var(--t1)}
+  /* The view title is the one thing in the bar that never shrinks: the bar wraps
+     instead of crushing it. */
   header h1{font-size:var(--t2);font-weight:700;margin:0;letter-spacing:-.01em;
-    color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    color:var(--text);white-space:nowrap;min-width:max-content}
   header .sp{flex:1}
   header .grp{display:flex;align-items:center;gap:var(--s2)}
   /* Status is calm, small and real: one dot + one word + a timestamp. */
@@ -191,6 +197,12 @@
   .btn.ok{border-color:var(--ok-2);color:var(--ok);background:var(--ok-2)}
   .btn.ok:hover{border-color:var(--ok);background:var(--ok-2);color:var(--ok)}
   .btn.vb{padding:6px 10px;font-size:var(--t-1)}
+  /* Icon-only control: a square plate, one glyph, no text. */
+  .btn.ico{width:30px;height:30px;min-width:30px;padding:0;gap:0}
+  .btn.ico .ib{width:16px;height:16px;display:block}
+  /* Dispatch is a state toggle, not a call to action: tint, never a filled slab. */
+  #dispatchBtn[data-state="paused"]{color:var(--warn);border-color:var(--warn-2)}
+  #dispatchBtn[data-state="resumed"]{color:var(--ok);border-color:var(--ok-2)}
   .badge{display:inline-flex;align-items:center;gap:5px;font-size:var(--t-1);
     padding:2px 9px;border-radius:var(--r-full);border:1px solid var(--line-2);
     color:var(--muted);background:var(--panel);white-space:nowrap;font-weight:550}
@@ -260,17 +272,18 @@
   .vbar .lab{font-size:var(--t-2);letter-spacing:.12em;text-transform:uppercase;
     color:var(--muted);font-weight:650}
   .grid{display:grid;gap:var(--s4)}
-  .g3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
   .g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
   .stats{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
-    margin-bottom:var(--s5);align-items:start}
+    margin-bottom:var(--s5);align-items:stretch}
   .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
-    padding:var(--s4) var(--s5);box-shadow:var(--shadow-1)}
+    padding:var(--s4) var(--s5);box-shadow:var(--shadow-1);
+    display:flex;flex-direction:column}
   .stat .k{font-size:var(--t-2);letter-spacing:.1em;text-transform:uppercase;
     color:var(--muted);font-weight:650}
   .stat .v{font-size:var(--t3);font-weight:700;margin-top:var(--s2);line-height:1.1;
     font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-  .stat .s{font-size:var(--t-1);color:var(--muted);margin-top:var(--s2)}
+  .stat .s{font-size:var(--t-1);color:var(--muted);margin-top:auto;padding-top:var(--s2)}
   .big{font-size:var(--t4);font-weight:750;letter-spacing:-.02em}
   .bar{height:7px;border-radius:4px;background:var(--panel-3);overflow:hidden;margin-top:var(--s2)}
   .bar i{display:block;height:100%;border-radius:4px;background:var(--accent)}
@@ -297,13 +310,16 @@
   tr:last-child td{border-bottom:0}
   .board{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(245px,1fr))}
   .lane{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-md);
-    padding:var(--s3);min-height:140px}
+    padding:var(--s3);min-height:140px;min-width:0}
   .lane h4{margin:0 0 var(--s3);font-size:var(--t-2);letter-spacing:.1em;
     text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;
     gap:8px;font-weight:700}
   .tk{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);
-    padding:11px 13px;margin-bottom:var(--s2);font-size:var(--t-1)}
-  .tk .ttl{font-weight:650;margin-bottom:5px;color:var(--text)}
+    padding:11px 13px;margin-bottom:var(--s2);font-size:var(--t-1);min-width:0}
+  .tk .ttl{font-weight:650;margin-bottom:5px;color:var(--text);overflow-wrap:anywhere}
+  .tk .excerpt{font-size:var(--t-2);color:var(--muted);margin-top:5px;line-height:1.45;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+    overflow-wrap:anywhere}
   .tk .meta{color:var(--muted);font-size:var(--t-2);display:flex;gap:var(--s2);
     flex-wrap:wrap;align-items:center}
   .ex{display:grid;grid-template-columns:minmax(200px,300px) 1fr;gap:var(--s4);align-items:start}
@@ -331,12 +347,16 @@
   .logbox{max-height:440px;overflow:auto;background:var(--bg2);border:1px solid var(--line);
     border-radius:var(--r-md);padding:var(--s2);
     font-family:var(--mono);font-size:var(--t-1);line-height:1.6}
-  .logline{display:grid;grid-template-columns:78px 74px 1fr;gap:var(--s2);padding:3px 0;
+  .logline{display:grid;grid-template-columns:78px 74px 62px 1fr;gap:var(--s2);padding:3px 0;
     border-bottom:1px solid var(--line)}
   .logline .t{color:var(--faint);font-variant-numeric:tabular-nums}
   .logline .a{color:var(--info)}
   .logline .a.agnes{color:var(--sage)} .logline .a.michelle{color:var(--lav)}
   .logline .m{color:var(--muted);word-break:break-word}
+  .lv{font-size:var(--t-2);text-transform:uppercase;letter-spacing:.08em;
+    font-weight:650;color:var(--muted)}
+  .lv-error{color:var(--bad)} .lv-warn{color:var(--warn)}
+  .tk .mult{font-size:var(--t-2);color:var(--muted);font-weight:600}
   .acts{display:flex;gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s3)}
 
   /* ── office / 3D stage ──────────────────────────────────── */
@@ -521,15 +541,17 @@
   /* ── responsive ─────────────────────────────────────────── */
   @media (max-width:1100px){
     :root{--hudw:340px}
-    /* Below ~1100 px the breadcrumb prefix collided with the sync readout;
-       the view title alone still names the page. The timestamp goes first so
-       the title never gets squeezed out of the header. */
+  }
+  /* The rail (248) plus a docked chat (340) leaves the bar only what is left
+     over, so the breadcrumb prefix and the sync timestamp go first and the
+     view title keeps its room. The bar wraps instead of crushing the title. */
+  @media (max-width:1340px){
     .crumbA,.crumbSep{display:none}
     #lastPill{display:none}
-    /* The header shares the row with the canvas, HUD and chat: below ~1100 px
-       it wraps instead of crushing the view title into an ellipsis. */
-    header{flex-wrap:wrap;row-gap:var(--s2)}
-    .crumbs{flex:0 0 auto}
+  }
+  @media (max-width:560px){
+    #busPill{display:none}
+    #refreshBtn{display:none}
   }
   @media (max-width:900px){
     .split,.ex{grid-template-columns:1fr}
@@ -540,7 +562,12 @@
     aside{position:fixed;z-index:70;inset:0 auto 0 0;flex-basis:248px;width:248px;
       box-shadow:var(--shadow);padding:var(--s4) var(--s3)}
     body.sbopen aside{transform:none}
-    body:not(.sbopen) aside{transform:translateX(-102%);visibility:hidden;flex-basis:248px}
+    /* The rail slides. `visibility` waits for the slide to finish, so the
+       panel is still there while it travels and disappears exactly when it
+       has left the screen. */
+    body:not(.sbopen) aside{transform:translateX(-102%);visibility:hidden;flex-basis:248px;
+      transition:flex-basis var(--dur) ease,width var(--dur) ease,
+        transform var(--motion) var(--ease),visibility 0s linear var(--motion)}
     body:not(.sbopen) aside .lbl,
     body:not(.sbopen) aside .nvgroup,
     body:not(.sbopen) aside .brand span,
@@ -578,6 +605,30 @@
   }
 
   /* ── a11y: motion + forced colors ───────────────────────── */
+  /* ── motion ──────────────────────────────────────────────
+     A panel that opens should arrive, not blink into existence. Every rule
+     here moves opacity and transform only: the compositor can run them
+     without a layout pass, so the 3D canvas never reflows mid-animation.
+     `prefers-reduced-motion` (below) flattens all of it. */
+  @keyframes miaFade{from{opacity:0}to{opacity:1}}
+  @keyframes miaViewIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @keyframes miaPopIn{from{opacity:0;transform:translateY(6px) scale(.985)}
+    to{opacity:1;transform:none}}
+  @keyframes miaSheetIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+
+  /* A view fades and lifts by one step. The office view holds a WebGL canvas,
+     so it only fades — a transform there would rescale the canvas. */
+  section.view:not(.hide):not(#view-office){animation:miaViewIn var(--motion) var(--ease)}
+  #view-office:not(.hide){animation:miaFade var(--motion) var(--ease)}
+  /* The status panel is a sheet: it comes up from the bottom edge. */
+  .hud:not([hidden]){animation:miaSheetIn var(--motion) var(--ease)}
+  /* A modal dims the stage and lifts its card. */
+  .modalBg.on{animation:miaFade var(--motion) var(--ease)}
+  .modalBg.on .modal{animation:miaPopIn var(--motion) var(--ease)}
+  /* The scene menu opens from the button it belongs to. */
+  details.menu[open] > .menuList{animation:miaPopIn .14s var(--ease);
+    transform-origin:top left}
+
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;
       transition-duration:.001ms !important;scroll-behavior:auto !important}
@@ -603,6 +654,11 @@
 <symbol id="i-memory" viewBox="0 0 24 24"><rect x="7.5" y="7.5" width="9" height="9" rx="2"/><path d="M10 4v3.5M14 4v3.5M10 16.5V20M14 16.5V20M4 10h3.5M4 14h3.5M16.5 10H20M16.5 14H20"/></symbol>
 <symbol id="i-files" viewBox="0 0 24 24"><path d="M3.5 6.8a2 2 0 0 1 2-2h3.8l2 2.4h7.2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2z"/></symbol>
 <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h8M16.5 7H20M4 12h2.5M11 12h9M4 17h5.5M14 17h6"/><circle cx="14.5" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="12" cy="17" r="2"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+<symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19.6 12a7.6 7.6 0 1 1-2.3-5.4"/><path d="M19.6 3.8v3.8h-3.8"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M9.5 5.5v13M14.5 5.5v13"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.4l10 6.6-10 6.6z" fill="currentColor" stroke="none"/></symbol>
 </defs></svg>
 <div id="app">
   <aside>
@@ -621,7 +677,7 @@
 
   <main>
     <header>
-      <button class="btn vb" id="burger" aria-label="Buka / tutup menu" aria-expanded="false" title="Menu">☰</button>
+      <button class="btn vb ico" id="burger" aria-label="Buka / tutup menu" aria-expanded="false" title="Menu"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-menu"/></svg></button>
       <div class="crumbs"><span class="crumbA">AI Office</span>
         <span class="crumbSep" aria-hidden="true">/</span>
         <h1 id="viewTitle">Office</h1></div>
@@ -629,10 +685,10 @@
       <span class="sync" role="status"><i id="apiPill" title="Koneksi API"></i><span class="sr">Koneksi API: </span><span>Tersinkron</span><span id="lastPill">—</span></span>
       <span class="pill" id="busPill" aria-live="polite" title="Live Event Bus dari Mia — sumber kebenaran status agent">BUS …</span>
       <div class="grp">
-        <button class="btn vb" id="modeBtn" title="Tema terang / gelap (UI)" aria-label="Ganti tema terang atau gelap">◐</button>
-        <button class="btn vb" id="refreshBtn" title="Muat ulang sekarang" aria-label="Muat ulang data sekarang">⟳</button>
+        <button class="btn vb ico" id="modeBtn" title="Tema terang / gelap (UI)" aria-label="Ganti tema terang atau gelap"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-theme"/></svg></button>
+        <button class="btn vb ico" id="refreshBtn" title="Muat ulang sekarang" aria-label="Muat ulang data sekarang"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-refresh"/></svg></button>
       </div>
-      <button class="btn warn" id="dispatchBtn" aria-label="Jeda atau lanjutkan dispatch">…</button>
+      <button class="btn ico" id="dispatchBtn" data-state="resumed" aria-label="Jeda dispatch" title="Jeda dispatch"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use id="dispatchIcon" href="#i-pause"/></svg></button>
     </header>
 
     <section class="view" id="view-office">
@@ -804,7 +860,95 @@ function esc(s) {
   });
 }
 function na(v, note) { return '<span class="unavail">' + esc(note || 'Tidak tersedia') + '</span>'; }
-function stBadge(s) { return '<span class="badge ' + esc(s) + '">' + esc(s) + '</span>'; }
+/* The badge keeps the machine status as its colour class, but the word on
+   screen is the one a person uses. */
+var STATUS_WORD = { idle: 'siap', working: 'bekerja', paused: 'jeda', queued: 'antre',
+  started: 'berjalan', progress: 'berjalan', done: 'selesai', failed: 'gagal',
+  error: 'error', ok: 'ok', unknown: 'tak diketahui' };
+function stBadge(s) {
+  return '<span class="badge ' + esc(s) + '">' + esc(STATUS_WORD[s] || s) + '</span>';
+}
+
+/* Machine values, human words. The dashboard is read by a person, so an
+   action key, a raw user path or a device id never reaches the screen as-is. */
+function humanAction(a) {
+  var s = String(a == null ? '' : a).trim();
+  if (!s) return '';
+  s = s.replace(/^action=/, '');
+  var par = s.match(/^[^()]*?\(([^)]*)\)\s*$/);
+  if (par && par[1]) return par[1].trim();
+  var tool = s.match(/^tool:(.+)$/);
+  if (tool) return 'alat ' + tool[1].replace(/_/g, ' ');
+  var map = {
+    turn_provider: 'satu giliran assistant',
+    turn_error: 'giliran berakhir error',
+    turn_formatted: 'jawaban diformat',
+    turn_start: 'giliran dimulai',
+    turn_done: 'giliran selesai',
+    dispatch: 'kirim tugas'
+  };
+  var key = s.split(':')[0].trim();
+  if (map[key]) return map[key];
+  return key.replace(/_/g, ' ');
+}
+function humanUser(k) {
+  var s = String(k == null ? '' : k);
+  if (ROSTER[s]) return ROSTER[s].name;
+  var m = s.match(/^(.*)\.(mia|agnes|michelle)$/);
+  if (!m) return s;
+  var r = ROSTER[m[2]];
+  return m[1] + (r ? ' · ' + r.name : '');
+}
+function shortPath(p) {
+  /* Any /Users/<name> in the text becomes ~, not just a path at the start. */
+  return String(p == null ? '' : p).replace(/\/Users\/[^/\s"']+/g, '~');
+}
+function humanSource(s) {
+  var t = String(s == null ? '' : s);
+  var m = t.match(/AUDIT-(\d{4})-(\d{2})-(\d{2})/i);
+  if (!m) return t;
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  return 'audit ' + (+m[3]) + ' ' + MON[(+m[2]) - 1] + ' ' + m[1];
+}
+function logLevel(x) {
+  var raw = String((x && (x.level || x.severity)) || '').toLowerCase();
+  if (raw === 'error' || raw === 'fatal') return 'error';
+  if (raw === 'warn' || raw === 'warning') return 'warn';
+  if (raw === 'info' || raw === 'debug') return 'info';
+  var t = String(((x && x.action) || '') + ' ' + ((x && x.message) || '')).toLowerCase();
+  if (/error|gagal|fail|denied|ditolak|refus/.test(t)) return 'error';
+  if (/warn|perhatian|retry|timeout/.test(t)) return 'warn';
+  return 'info';
+}
+/* Board cards are turns, and the same turn repeats hundreds of times. Group
+   them by kind so the lane reads as work, not as a dump of ids. */
+/* The last line of a turn, as a person would write it: no machine note, no
+   absolute path, no raw identifier soup. */
+function excerptOf(d) {
+  var s = String(d == null ? '' : d)
+    .replace(/Diambil dari audit log Mia \(bukan simulasi\)\.?/g, '')
+    .replace(/\[[a-z_]+\/[a-z_]+:[0-9]+-[a-z0-9]+\]/gi, '')
+    .replace(/<@[0-9]+>/g, '')
+    .trim();
+  return s;
+}
+function boardGroups(items) {
+  var map = {}, order = [];
+  (items || []).forEach(function (x) {
+    var title = x.title || x.prompt || x.task_id || x.id || 'Tanpa judul';
+    var key = title + '|' + (x.agent || '');
+    if (!map[key]) {
+      map[key] = { title: title, agent: x.agent || '', count: 0, newest: 0, status: x.status, detail: excerptOf(x.detail) };
+      order.push(key);
+    }
+    var g = map[key];
+    g.count++;
+    var t = Date.parse(x.updated_at || x.ts || x.started_at || '') || 0;
+    if (t > g.newest) { g.newest = t; g.status = x.status; g.detail = excerptOf(x.detail); }
+  });
+  return order.map(function (k) { return map[k]; })
+    .sort(function (a, b) { return b.newest - a.newest; });
+}
 
 /* Delivery truth: a task that asked for Discord delivery must never read as a
    plain success. Mirrors the server's `deliver`/`delivered` fields — the UI
@@ -881,7 +1025,8 @@ var USAGE = { period: '24h', data: null, loading: false, err: '' };
 var MEM = { agent: 'mia', agents: [], data: null, file: null, loading: false };
 var FILES = { root: 'dashboard', roots: [{ id: 'dashboard', label: 'apps/office-dashboard' }, { id: 'web', label: 'apps/web' }],
               path: '', data: null, file: null, loading: false };
-var LOGS = { filter: '' };
+var LOGS = { filter: '', level: '' };
+var BOARD = { all: false };
 
 function json(url) { return fetch(api(url)).then(function (r) { if (r.status === 401) { needToken(); throw new Error('401 unauthorized'); } return r.json(); }); }
 
@@ -1081,9 +1226,9 @@ function vAgents() {
         '<div class="kv"><span>Peran</span><span>' + esc(a.role) + '</span></div>' +
         '<div class="kv"><span>Task aktif</span><span>' + (a.active_task ? esc(a.active_task) : '<span class="unavail">tidak ada</span>') + '</span></div>' +
         '<div class="kv"><span>Terakhir update</span><span>' + esc(hhmmss(a.last_update)) + ' · ' + esc(ago(a.last_update)) + '</span></div>' +
-        '<div class="kv"><span>Event terakhir</span><span>' + (a.last_event ? esc(a.last_event.action) : na('', 'belum ada event')) + '</span></div>' +
+        '<div class="kv"><span>Event terakhir</span><span>' + (a.last_event ? esc(humanAction(a.last_event.action)) : na('', 'belum ada event')) + '</span></div>' +
         '<div class="kv"><span>Aktivitas terukur</span><span>' + (b.turns != null
-          ? count(b.turns) + ' turn · ' + count(b.tool_calls) + ' tool call' + (b.turn_errors ? ' · ' + count(b.turn_errors) + ' error' : '')
+          ? count(b.turns) + ' giliran · ' + count(b.tool_calls) + ' pemanggilan alat' + (b.turn_errors ? ' · ' + count(b.turn_errors) + ' gagal' : '')
           : na('', b.note || 'tidak tersedia')) + '</span></div>' +
         '<div class="kv"><span>Tanggung jawab</span><span>' + esc((r.duties || []).join(' · ') || a.role) + '</span></div>' +
         '<div class="acts">' +
@@ -1099,44 +1244,49 @@ function vAgents() {
 
 function vBoard() {
   if (!STATE) return '<div class="empty">Memuat…</div>';
-  if (STATE.dispatch_paused) {
-    return '<div class="card"><h3>Dispatch dijeda</h3><div class="note">Antrekan tidak dikirim ke agent sampai dispatch dilanjutkan dari tombol header.</div></div>';
-  }
   var lanes = [
-    { k: 'queued', title: 'Antre', items: STATE.queue.filter(function (q) { return q.status === 'queued'; }) },
-    { k: 'working', title: 'Berjalan', items: STATE.tasks.filter(function (t) { return t.status === 'started' || t.status === 'progress'; }) },
-    { k: 'done', title: 'Selesai', items: STATE.tasks.filter(function (t) { return t.status === 'done'; }).slice(0, 12) },
-    { k: 'failed', title: 'Gagal', items: STATE.tasks.filter(function (t) { return t.status === 'failed'; }).slice(0, 12) }
+    { title: 'Antre', items: STATE.queue.filter(function (q) { return q.status === 'queued'; }) },
+    { title: 'Berjalan', items: STATE.tasks.filter(function (t) { return t.status === 'started' || t.status === 'progress'; }) },
+    { title: 'Selesai', items: STATE.tasks.filter(function (t) { return t.status === 'done'; }) },
+    { title: 'Gagal', items: STATE.tasks.filter(function (t) { return t.status === 'failed'; }) }
   ];
-  return '<div class="board">' + lanes.map(function (L) {
-    return '<div class="lane"><h4><span>' + esc(L.title) + '</span><span>' + L.items.length + '</span></h4>' +
-      (L.items.length ? L.items.map(function (x) {
-        var title = x.title || x.prompt || x.task_id || x.id;
-        var detail = (x.detail || '') || '';
-        return '<div class="tk"><div class="ttl">' + esc(trunc(title, 90)) + '</div><div class="meta">' +
-          stBadge(x.status) + '<span>' + esc(x.agent || '—') + '</span>' +
-          '<span>' + esc(hhmmss(x.updated_at || x.ts || x.started_at)) + '</span>' +
-          (x.deliver ? '<span>' + esc(String(x.deliver)) + '</span>' : '') +
-          (x.task_id ? '<span title="' + esc(x.task_id) + '">' + esc(trunc(x.task_id, 22)) + '</span>' : '') +
-          '</div>' + (detail ? '<div class="meta" style="margin-top:4px">' + esc(trunc(detail, 130)) + '</div>' : '') + '</div>';
-      }).join('') : emptyBox('Kosong — antrekan tugas lewat tombol + di Task Board.')) + '</div>';
-  }).join('') + '</div>';
+  var groups = lanes.map(function (L) { return { title: L.title, items: boardGroups(L.items) }; });
+  var total = groups.reduce(function (n, g) { return n + g.items.length; }, 0);
+  var bar = '<div class="vbar"><span class="lab">Task Board</span>' +
+    '<span class="note">' + count(total) + ' kelompok kerja · giliran dengan judul sama digabung</span>' +
+    '<span style="flex:1"></span>' +
+    '<button class="btn" data-boardall="1">' + (BOARD.all ? 'Ringkas' : 'Lihat semua') + '</button></div>';
+  var body = groups.map(function (g) {
+    var shown = BOARD.all ? g.items : g.items.slice(0, 6);
+    var hidden = g.items.length - shown.length;
+    return '<div class="lane"><h4><span>' + esc(g.title) + '</span><span>' + g.items.length + '</span></h4>' +
+      (shown.length ? shown.map(function (x) {
+        return '<div class="tk"><div class="ttl">' + esc(trunc(shortPath(x.title), 90)) +
+          (x.count > 1 ? ' <span class="mult">×' + x.count + '</span>' : '') + '</div><div class="meta">' +
+          stBadge(x.status) + '<span>' + esc(humanUser(x.agent) || '—') + '</span>' +
+          '<span>' + esc(x.newest ? hhmmss(new Date(x.newest).toISOString()) : '—') + '</span>' +
+          '</div>' + (x.detail ? '<div class="excerpt">' + esc(trunc(shortPath(x.detail), 110)) + '</div>' : '') + '</div>';
+      }).join('') + (hidden > 0 ? '<div class="note">' + count(hidden) + ' kelompok lain belum ditampilkan.</div>' : '')
+        : '<div class="note">Kosong.</div>') + '</div>';
+  }).join('');
+  if (STATE.dispatch_paused) {
+    return bar + '<div class="card"><h3>Dispatch dijeda</h3><div class="note">Antrekan tidak dikirim ke agent sampai dispatch dilanjutkan dari tombol header.</div></div>';
+  }
+  return bar + '<div class="board">' + body + '</div>';
 }
 
 function vCalendar() {
   var sc = (STATE && STATE.schedules) || null;
   if (!sc) return '<div class="empty">Memuat…</div>';
   var head = statGrid([
-    statCard('Status jadwal', sc.configured ? 'Configured' : 'Not configured',
+    statCard('Status jadwal', sc.configured ? 'Teratur' : 'Belum diatur',
       esc(sc.configured ? String((sc.items || []).length) + ' entri' : 'Tidak ada folder jadwal')),
-    statCard('Folder dipantau', count((sc.dirs || []).length), esc((sc.dirs || []).join('<br>') || '—')),
+    statCard('Folder dipantau', count((sc.dirs || []).length), esc((sc.dirs || []).map(shortPath).join('<br>') || '—')),
     statCard('File dilewati', count(sc.skipped_files), 'Parser frontmatter tanpa eval')
   ]);
   if (!sc.configured) {
-    return head + '<div class="card"><h3>Belum ada sumber jadwal</h3><div class="note">' +
-      esc(sc.notes && sc.notes.length ? sc.notes.join(' · ') :
-        'Folder yang dipantau belum ada di mesin ini, jadi dashboard tidak menampilkan jadwal apa pun alih-alih menebak.') +
-      '</div></div>';
+    return head + emptyBox(sc.notes && sc.notes.length ? sc.notes.join(' · ') :
+      'Folder yang dipantau belum ada di mesin ini, jadi dashboard tidak menampilkan jadwal apa pun alih-alih menebak.');
   }
   if (!(sc.items || []).length) return head + emptyBox('Folder ada tapi tidak berisi file jadwal.');
   return head + '<table><thead><tr><th>Judul</th><th>Jenis</th><th>Pemilik</th><th>Aktif</th><th>Berikutnya</th><th>Terakhir dieksekusi</th><th>Hasil</th></tr></thead><tbody>' +
@@ -1159,7 +1309,7 @@ function vRemindersBlock() {
     return '<div class="card"><h3>Reminder Mia</h3><div class="note">' +
       esc(r.note || 'Store reminder tidak ditemukan di .data/users.') + '</div></div>';
   }
-  var stores = (r.stores || []).map(function (s) { return esc(s.user); }).join(' · ');
+  var stores = (r.stores || []).map(function (s) { return esc(humanUser(s.user)); }).join(' · ');
   var items = r.items || [];
   var body = items.length
     ? '<table><thead><tr><th>Jam</th><th>Reminder</th><th>Agent</th><th>Pengulangan</th><th>Cukup dalam</th></tr></thead><tbody>' +
@@ -1197,7 +1347,9 @@ function vCalendarView() {
       nxt ? esc(trunc(nxt.text, 46)) + ' · ' + esc(nxt.agent_name) : 'Tidak ada yang terjadwal'),
     statCard('Reminder terjadwal', esc(count(r.pending)), esc(count((r.stores || []).length) + ' store agent'))
   ]);
-  return head + vRemindersBlock() + vCalendar();
+  var bar = '<div class="vbar"><span class="lab">Jadwal</span><span class="note">' +
+    count((r.stores || []).length) + ' sumber reminder \u00b7 ' + count(r.pending) + ' menunggu</span></div>';
+  return bar + head + vRemindersBlock() + vCalendar();
 }
 
 function vUsage() {
@@ -1207,10 +1359,10 @@ function vUsage() {
   var u = USAGE.data, t = u.totals || {};
   if (u.available === false) return '<div class="card"><h3>Usage tidak tersedia</h3><div class="note">' + esc(u.note || '') + '</div></div>';
   var stats = statGrid([
-    statCard('Event audit', count(t.events), esc((u.audit_files || 0) + ' file')),
-    statCard('Turn', count(t.turns), esc((u.definitions || {}).turns || '')),
-    statCard('Tool call', count(t.tool_calls), esc((u.definitions || {}).tool_calls || '')),
-    statCard('Turn error', count(t.turn_errors), esc((u.definitions || {}).turn_errors || ''))
+    statCard('Event audit', count(t.events), esc((u.audit_files || 0) + ' berkas')),
+    statCard('Giliran', count(t.turns), esc(humanAction((u.definitions || {}).turns))),
+    statCard('Pemanggilan alat', count(t.tool_calls), esc(humanAction((u.definitions || {}).tool_calls))),
+    statCard('Giliran gagal', count(t.turn_errors), esc(humanAction((u.definitions || {}).turn_errors)))
   ]);
   return '<div class="vbar"><span class="lab">Periode</span><div class="seg">' +
       Object.keys(USAGE_PERIODS).map(function (p) {
@@ -1219,9 +1371,9 @@ function vUsage() {
       esc(fmtDur((u.window_ms || 0) / 1000)) + ' · ' + count(u.window_events) + ' event dihitung</span></div>' +
     stats +
     '<div class="split"><div class="card"><h3>Event per bucket waktu</h3>' + barsOf(u.timeseries, 'events') + '</div>' +
-    '<div class="card"><h3>Per agent</h3>' + rankOf(u.per_agent) + '</div></div>' +
-    '<div class="split"><div class="card"><h3>Aksi paling sering</h3>' + rankOf((u.per_action || []).slice(0, 12)) + '</div>' +
-    '<div class="card"><h3>Sumber</h3>' + rankOf(u.per_source) + '</div></div>' +
+    '<div class="card"><h3>Per agent</h3>' + rankOf((u.per_agent || []).map(function (x) { return { key: humanUser(x.key), count: x.count }; })) + '</div></div>' +
+    '<div class="split"><div class="card"><h3>Aksi paling sering</h3>' + rankOf((u.per_action || []).slice(0, 12).map(function (x) { return { key: humanAction(x.key), count: x.count }; })) + '</div>' +
+    '<div class="card"><h3>Sumber</h3>' + rankOf((u.per_source || []).map(function (x) { return { key: humanSource(x.key), count: x.count }; })) + '</div></div>' +
     '<div class="note">Dashboard tidak punya sumber billing token, jadi angka token dan biaya sengaja tidak ditampilkan — lebih baik kosong daripada dikarang.</div>';
 }
 
@@ -1247,24 +1399,33 @@ function vActivity() {
       return '<tr><td>' + stBadgeByAgent(x.agent) + '</td><td>' + esc(hhmmss(x.started)) + '</td><td>' +
         esc(hhmmss(x.last)) + ' \u00b7 ' + esc(ago(x.last)) + '</td><td>' + count(x.events) + '</td><td>' +
         count(x.tool_calls) + '</td><td>' + (x.turn_errors ? count(x.turn_errors) : '0') + '</td><td>' +
-        esc(trunc(x.last_action, 60)) + '</td><td title="' + esc(x.source) + '">' + esc(trunc(x.source, 26)) + '</td></tr>';
+        esc(trunc(humanAction(x.last_action), 60)) + '</td><td title="' + esc(x.source) + '">' + esc(trunc(humanSource(x.source), 26)) + '</td></tr>';
     }).join('') + '</tbody></table>' : emptyBox('Belum ada sesi yang bisa diturunkan dari audit log.');
-  return stats + '<div class="note" style="margin-bottom:12px">Sesi diturunkan dari audit log nyata: satu baris audit dikelompokkan per agent, per file, per bucket 15 menit. Dashboard tidak membuat sesi sendiri.</div>' + sessions;
+  var bar = '<div class="vbar"><span class="lab">Sesi</span><span class="note">' + count(act.length) +
+    ' sesi \u00b7 ' + count(sum.events) + ' event \u00b7 ' + count(sum.tool_calls) + ' pemanggilan alat</span></div>';
+  return bar + stats + '<div class="note" style="margin-bottom:12px">Sesi diturunkan dari audit log nyata: satu baris audit dikelompokkan per agent, per file, per bucket 15 menit. Dashboard tidak membuat sesi sendiri.</div>' + sessions;
 }
 
 function vLogs() {
   var l = (STATE && STATE.log) || [];
   var filter = (LOGS.filter || '').toLowerCase();
+  var level = LOGS.level || '';
   var rows = filter ? l.filter(function (x) {
     return (x.agent + ' ' + x.action + ' ' + x.message).toLowerCase().indexOf(filter) >= 0;
   }) : l;
+  if (level) rows = rows.filter(function (x) { return logLevel(x) === level; });
   return '<div class="vbar"><span class="lab">Saring</span>' +
       '<input class="inp" id="logFilter" value="' + esc(LOGS.filter || '') + '" placeholder="agent, aksi, atau pesan…">' +
+      '<span class="lab">Level</span><div class="seg">' +
+      [{ v: '', l: 'semua' }, { v: 'error', l: 'galat' }, { v: 'warn', l: 'waspada' }, { v: 'info', l: 'info' }]
+        .map(function (o) { return '<button data-loglvl="' + o.v + '" class="' + (level === o.v ? 'on' : '') + '">' + o.l + '</button>'; }).join('') +
+      '</div>' +
       '<span class="note">' + rows.length + ' dari ' + l.length + ' baris (jendela log dibatasi server)</span></div>' +
     (rows.length ? '<div class="logbox">' + rows.map(function (x) {
       return '<div class="logline"><span class="t">' + esc(hhmmss(x.ts)) + '</span>' +
         '<span class="a ' + esc(x.agent) + '">' + esc(x.agent) + '</span>' +
-        '<span class="m">' + esc(x.action) + ' · ' + esc(x.message) + '</span></div>';
+        '<span class="lv lv-' + logLevel(x) + '">' + (logLevel(x) === 'error' ? 'galat' : logLevel(x) === 'warn' ? 'waspada' : 'info') + '</span>' +
+        '<span class="m">' + esc(humanAction(x.action)) + ' · ' + esc(x.message) + '</span></div>';
     }).join('') + '</div>' : emptyBox('Tidak ada baris yang cocok.'));
 }
 
@@ -1287,7 +1448,7 @@ function vMemory() {
 function memDoc(files) {
   var f = null, i;
   for (i = 0; i < files.length; i++) if (files[i].path === MEM.file) f = files[i];
-  if (!f) return '<div class="doc"><div class="empty">Pilih file di kiri.</div></div>';
+  if (!f) return '<div class="doc"><div class="note">Pilih file di kiri untuk membaca isinya.</div></div>';
   return '<div><div class="dochead"><span class="pill">' + esc(f.path) + '</span>' +
     '<span class="note">' + count(f.size) + ' B · ' + count(f.chars) + ' karakter · ' + esc(hhmmss(f.mtime)) +
     (f.truncated ? ' · <b>dipotong</b>' : '') + '</span></div>' +
@@ -1296,12 +1457,11 @@ function memDoc(files) {
 
 function vFiles() {
   var d = FILES.data;
-  var head = '<div class="vbar"><span class="lab">Root</span><div class="seg">' +
+  var head = '<div class="vbar"><span class="lab">Akar</span><div class="seg">' +
     FILES.roots.map(function (r) {
       return '<button data-root="' + esc(r.id) + '" class="' + (r.id === FILES.root ? 'on' : '') + '" title="' + esc(r.label) + '">' + esc(r.id) + '</button>';
     }).join('') + '</div>' +
-    '<button class="btn" data-up="1">↑ Naik</button>' +
-    '<span class="note">' + esc((d && d.path) || '(root)') + '</span></div>';
+    '<span class="note">' + esc((d && d.path) ? shortPath(d.path) : 'akar') + '</span></div>';
   if (!d) return head + '<div class="empty">Memuat file…</div>';
   if (d.error) {
     var why = d.reason ? ' (' + esc(d.reason) + ')' : '';
@@ -1321,7 +1481,7 @@ function vFiles() {
   }).join('');
   return head + '<div class="ex"><div class="tree">' +
     (d.path ? '<div class="r" data-openfile=".."><span>↑ ..</span></div>' : '') + rows + '</div>' +
-    (FILES.file ? vFilesDoc(FILES.file) : '<div class="doc"><div class="empty">Pilih file di kiri untuk membaca isinya.</div></div>') + '</div>';
+    (FILES.file ? vFilesDoc(FILES.file) : '<div class="doc"><div class="note">Pilih file di kiri untuk membaca isinya.</div></div>') + '</div>';
 }
 function vFilesDoc(f) {
   return '<div><div class="dochead"><span class="pill">' + esc(f.path) + '</span><span class="note">' + count(f.size) +
@@ -1356,7 +1516,7 @@ function vSettings() {
   ]);
   var sources = src.map(function (s) {
     return '<div class="src' + (s.available ? ' ok' : '') + '"><span class="dotm"></span><span class="lb">' + esc(s.label) + '</span>' +
-      '<span class="nt">' + (s.available ? 'Tersedia' + (s.files ? ' · ' + count(s.files) + ' file' : '') + (s.broken_lines ? ' · ' + count(s.broken_lines) + ' baris rusak (dilewati)' : '') : na('', s.note || 'tidak tersedia')) + '</span></div>';
+      '<span class="nt">' + (s.available ? 'Tersedia' + (s.files ? ' · ' + count(s.files) + ' berkas' : '') + (s.broken_lines ? ' · ' + count(s.broken_lines) + ' baris rusak (dilewati)' : '') : na('', s.note || 'tidak tersedia')) + '</span></div>';
   }).join('');
   /* only the fields the version stat card does not already show */
   var about = card('Build', [
@@ -1373,9 +1533,9 @@ function vSettings() {
   ]);
   var guards = card('Aturan tampilan', [
     ['Asal data', 'audit log Mia + ledger JSONL lokal'],
-    ['Nilai kosong', 'Not available, bukan nol'],
-    ['File browser', 'read-only, deny-list, symlink-safe'],
-    ['Redaksi', 'token / secret / password dimasking sebelum dikirim']
+    ['Nilai kosong', 'Tidak tersedia, bukan nol'],
+    ['Penjelajah berkas', 'hanya baca, daftar-larangan, aman terhadap symlink'],
+    ['Redaksi', 'token / secret / password disamarkan sebelum dikirim']
   ]);
   return '<h3 style="margin:4px 0 12px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Mesin</h3>' +
     machine +
@@ -1448,8 +1608,14 @@ function renderOvlStatus() {
 function render() {
   $('#lastPill').textContent = lastOk ? hhmmss(lastOk.toISOString()) : '—';
   var p = STATE && STATE.dispatch_paused;
-  $('#dispatchBtn').textContent = p ? '▶ Resume dispatch' : '⏸ Pause dispatch';
-  $('#dispatchBtn').className = p ? 'btn ok' : 'btn warn';
+  var db = $('#dispatchBtn');
+  if (db) {
+    db.dataset.state = p ? 'paused' : 'resumed';
+    db.setAttribute('aria-label', p ? 'Lanjutkan dispatch' : 'Jeda dispatch');
+    db.setAttribute('title', p ? 'Lanjutkan dispatch' : 'Jeda dispatch');
+    var di = $('#dispatchIcon');
+    if (di) di.setAttribute('href', p ? '#i-play' : '#i-pause');
+  }
 
   if (currentView === 'office') {
     renderOvlStatus();
@@ -5082,7 +5248,8 @@ document.addEventListener('click', function (e) {
   if ((t = hit('[data-memfile]'))) { MEM.file = t.getAttribute('data-memfile'); render(); return; }
   if ((t = hit('[data-mem]'))) { loadMemory(t.getAttribute('data-mem'), true); return; }
   if ((t = hit('[data-root]'))) { FILES.root = t.getAttribute('data-root'); openDir(''); return; }
-  if ((t = hit('[data-up]'))) { openDir(parentPath(FILES.path)); return; }
+  if ((t = hit('[data-boardall]'))) { BOARD.all = !BOARD.all; render(); return; }
+  if ((t = hit('[data-loglvl]'))) { LOGS.level = t.getAttribute('data-loglvl') || ''; render(); return; }
   if ((t = hit('[data-openfile]'))) {
     var n = t.getAttribute('data-openfile');
     if (n === '..') openDir(parentPath(FILES.path));
@@ -5153,7 +5320,7 @@ function applyTheme(mode) {
   document.documentElement.setAttribute('data-theme', mode);
   lsSet(MODE_KEY, mode);
   var b = $('#modeBtn');
-  if (b) b.textContent = mode === 'light' ? '◑' : '◐';
+  if (b) b.setAttribute('title', mode === 'light' ? 'Tema terang — ganti ke gelap' : 'Tema gelap — ganti ke terang');
 }
 $('#modeBtn').addEventListener('click', function () {
   applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');

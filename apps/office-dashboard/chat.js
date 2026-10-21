@@ -829,7 +829,11 @@ function ChatSidebar(chat, toggleBtn) {
   // Announcements live outside the log: replacing log children would otherwise
   // re-announce the whole conversation on every frame.
   const live = h('div', { class: 'sr', role: 'status', 'aria-live': 'polite' });
-  panel.replaceChildren(head, log, foot, live);
+  /* The visible surface is a wrapper: the panel is the layout column, the
+     wrapper is what the eye sees — and what the open/close motion plays on. */
+  const inner = h('div', { class: 'chatInner' });
+  inner.replaceChildren(head, log, foot, live);
+  panel.replaceChildren(inner);
 
   let headSig = null;
   let streamSig = null;
@@ -925,15 +929,72 @@ function ChatSidebar(chat, toggleBtn) {
     if (wasNearBottom && log.scrollHeight > log.clientHeight) log.scrollTo({ top: log.scrollHeight, behavior: 'auto' });
   }
 
-  function setOpen(open) {
-    panel.hidden = !open;
+  /* A close in flight: the sheet slides away, then the panel is really
+     hidden. Re-opening cancels it, so a fast toggle never hides a panel that
+     the owner just opened again. */
+  let closing = null;
+  function cancelClose() {
+    if (!closing) return;
+    clearTimeout(closing.timer);
+    inner.removeEventListener('transitionend', closing.done);
+    closing = null;
+  }
+  /* The chat moves like the rail does: the column widens or narrows while the
+     sheet slides in from the right edge. `animate:false` is for the first
+     paint, where there is nothing to slide from. */
+  function setOpen(open, opts) {
+    const animate = !opts || opts.animate !== false;
     toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (open) {
+      cancelClose();
+      panel.classList.remove('closing');
+      panel.hidden = false;
+      /* The sheet waits off the right edge and slides in, the way the nav
+         rail slides in from the left. The column starts collapsed so the
+         canvas reflows with the sheet instead of jumping. */
+      panel.classList.remove('open');
+      panel.style.flexBasis = '0px';
+      panel.style.width = '0px';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        panel.style.flexBasis = '';
+        panel.style.width = '';
+        panel.classList.add('open');
+      }));
       chat.loadAgents();
       chat.loadHistory();
       queueMicrotask(() => composer.input.focus());
     } else {
       toggleBtn.focus();
+      cancelClose();
+      panel.classList.remove('open');
+      if (!animate) {
+        panel.hidden = true;
+        panel.classList.remove('closing');
+        return;
+      }
+      panel.classList.add('closing');
+      /* The anchor collapses at once: its box is 0x0, so the panel stops
+         catching the pointer while the sheet slides out over the canvas.
+         visibility:hidden is not used here on purpose - it cancels the
+         transitions of everything inside it. */
+      panel.style.flexBasis = '0px';
+      panel.style.width = '0px';
+      panel.style.height = '0px';
+      const finish = () => {
+        cancelClose();
+        panel.hidden = true;
+        panel.classList.remove('closing');
+        panel.style.flexBasis = '';
+        panel.style.width = '';
+        panel.style.height = '';
+      };
+      const done = (ev) => {
+        if (ev && ev.target !== inner) return;
+        finish();
+      };
+      const timer = setTimeout(finish, 400);
+      closing = { timer, done };
+      inner.addEventListener('transitionend', done);
     }
   }
 
@@ -978,11 +1039,12 @@ function boot() {
   const sidebar = ChatSidebar(chat, toggleBtn);
   app.append(sidebar.panel);
   /* Wide screens start with the chat open (it is a daily surface, and the
-     office keeps enough room beside it); a phone starts closed, because there
-     the drawer would cover the whole screen. The Chat button toggles either
-     way — `hidden` now really hides the panel. */
-  const wide = window.matchMedia('(min-width:901px)');
-  sidebar.setOpen(wide.matches);
+     office keeps enough room beside it); below ~1200 px it starts closed,
+     because a docked chat next to the 248 px rail leaves the header and the
+     view title nothing. The Chat button toggles either way — `hidden` now
+     really hides the panel. */
+  const wide = window.matchMedia('(min-width:1201px)');
+  sidebar.setOpen(wide.matches, { animate: false });
   wide.addEventListener('change', (e) => sidebar.setOpen(e.matches));
 
   document.addEventListener('keydown', (e) => {

@@ -10,17 +10,40 @@
      metadata stays at 11px — this is "denser", not "smaller". */
   --t-2:11px; --t-1:11.5px; --t0:12.5px; --t1:13.5px; --t2:15px;
   flex:0 0 var(--chatw,340px);width:var(--chatw);min-width:0;
-  background:var(--panel);border-left:1px solid var(--line);
   display:flex;flex-direction:column;min-height:0;position:relative;
+}
+/* The visible surface is a wrapper inside the panel: the panel itself is the
+   layout column and stays transparent. That split lets the exit motion play
+   on the surface while the panel is already invisible to pointer and screen
+   reader — a closing chat must never wait for an animation to become gone.
+   The sheet is anchored to the viewport (fixed, not absolute) so the collapsing
+   column can never clip it, and it slides in from the right edge the way the
+   rail slides in from the left; it keeps its own width while the column
+   around it collapses, so the text never folds on the way out. */
+.chatInner{position:fixed;top:0;right:0;bottom:0;width:var(--chatw,340px);min-width:0;
+  display:flex;flex-direction:column;
+  background:var(--panel);border-left:1px solid var(--line);
   /* The stage is bright; a hard 1px seam read as a cut. A soft warm shadow
      lifts the panel off the canvas instead. */
   box-shadow:-14px 0 34px rgba(92,70,44,.16);
+  transform:translateX(100%);transition:transform var(--motion) var(--ease);
 }
 /* The panel is toggled with the `hidden` attribute. `display:flex` on the id
    outranks the UA sheet's `[hidden]{display:none}`, so without this rule the
    panel could never be closed and the Chat button looked dead. */
 #chatPanel[hidden]{display:none!important}
 #chatPanel [hidden]{display:none!important}
+
+/* The chat arrives instead of blinking into existence, and it leaves the same
+   way. The keyframes live in the dashboard stylesheet, so both files share one
+   motion system. The sheet is off the right edge until the panel carries the
+   `open` class, then it slides in — no timers, nothing to get out of sync. */
+#chatPanel.open .chatInner{transform:none}
+/* Closing: the sheet slides back out to the right edge. The anchor column
+   collapses at once (see chat.js), so the panel stops catching the pointer
+   immediately — visibility:hidden is not used here because it cancels the
+   transitions of everything inside it. */
+#chatPanel.closing .chatInner{transform:translateX(100%)}
 
 /* ── header ─────────────────────────────────────────────── */
 .chatHead{padding:var(--s3);border-bottom:1px solid var(--line);background:var(--panel);
@@ -319,9 +342,13 @@
 .chatJump:hover{border-color:var(--accent-edge);color:var(--accent-ink);background:var(--accent-2)}
 
 /* ── responsive ────────────────────────────────────────── */
-@media (max-width:900px){
-  #chatPanel{position:fixed;top:0;right:0;bottom:0;width:min(100vw,460px);z-index:65;
-    box-shadow:-18px 0 40px rgba(92,70,44,.22);border-left:1px solid var(--line)}
+/* The chat becomes a drawer well before the phone: the rail (248) plus a
+   docked chat (340) would leave the header and the canvas almost nothing, and
+   the view title would lose its room. */
+@media (max-width:1200px){
+  #chatPanel{position:fixed;top:0;right:0;bottom:0;width:min(100vw,460px);z-index:65}
+  /* A drawer is out of flow, so it only slides — nothing to reflow. */
+  .chatInner{width:min(100vw,460px);box-shadow:-18px 0 40px rgba(92,70,44,.22)}
 }
 @media (max-width:820px){
   aside{top:52px}
@@ -330,6 +357,7 @@
   /* Full width: a sliver of the 3D office behind a full-screen chat is
      noise, and the conversation needs the room. */
   #chatPanel{width:100vw}
+  .chatInner{width:100vw}
 }
 @media (max-width:420px){
   .chatInput{font-size:16px}

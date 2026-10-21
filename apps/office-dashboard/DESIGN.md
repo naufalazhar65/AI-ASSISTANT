@@ -14,12 +14,16 @@ Original to AI Office. No third-party mascot, logo, illustration or brand
 asset was copied. The only new artwork is a 26 px flat line-mark (a monitor on
 a stand) in the sidebar header, drawn inline as SVG.
 
-Navigation uses the same hand-drawn approach: one inline SVG sprite of ten
-24 × 24 stroke symbols (`#i-office`, `#i-agents`, `#i-board`, `#i-calendar`,
-`#i-usage`, `#i-activity`, `#i-logs`, `#i-memory`, `#i-files`,
-`#i-settings`), one stroke weight, `currentColor` fill so the selected state
-repaints the glyph instead of swapping a picture. Unicode dingbats are not
-used — a bare `◔` reads as a mystery, an icon reads as a destination.
+Navigation uses the same hand-drawn approach: one inline SVG sprite of fifteen
+24 × 24 stroke symbols — ten for the rail (`#i-office`, `#i-agents`,
+`#i-board`, `#i-calendar`, `#i-usage`, `#i-activity`, `#i-logs`, `#i-memory`,
+`#i-files`, `#i-settings`) and five for the header (`#i-menu`, `#i-theme`,
+`#i-refresh`, `#i-pause`, `#i-play`) — one stroke weight, `currentColor` fill
+so the selected state repaints the glyph instead of swapping a picture.
+Unicode dingbats are not used — a bare `◔` reads as a mystery, an icon reads
+as a destination. The header follows the same rule: the burger, the theme
+toggle, the refresh and the dispatch switch are icon-only buttons with a
+`title` + `aria-label`, never a glyph that renders differently per platform.
 
 ## Colour
 
@@ -76,9 +80,15 @@ Shadows are warm and low-contrast (`rgba(92,70,44,…)`), never black.
   dark ink) — a filled lamp, never an offset stripe that reads as a broken
   shape at 60 px. Group headings collapse into hairline rules so the rail
   still reads as four groups instead of ten loose glyphs.
-- The header shares its row with the canvas, HUD and chat: below ~1100 px it
-  drops the breadcrumb prefix and the sync timestamp and wraps to a second
-  row, so the view title is never squeezed into an ellipsis.
+- The header shares its row with the canvas, HUD and chat. The view title is
+  the one thing in that bar that never shrinks: the title keeps its full
+  width and the bar wraps to a second row instead of crushing the text into
+  an ellipsis. Below ~1340 px the breadcrumb prefix and the sync timestamp
+  go first, and below ~560 px the bus pill and the refresh button follow —
+  the title is what stays.
+- The dispatch switch is a tinted icon toggle, not a filled button: pausing
+  the dispatch is a state, not a warning. It carries that state in colour
+  (warn = paused, ok = running) and in its accessible name.
 - Canvas overlays wrap instead of scrolling: room chips flow onto a second
   row and the status pills stack, so nothing is cut in half by a scrollbar
   the user cannot see.
@@ -91,11 +101,13 @@ Shadows are warm and low-contrast (`rgba(92,70,44,…)`), never black.
   carries is weight on the picture.
 - The HUD (crew + agent detail) is a sibling of the canvas so the office keeps
   the bright surface; it becomes a bottom sheet under 820 px.
-- The chat is a sibling panel; under 900 px it becomes a right drawer, under
-  420 px it takes the full width.
-- The chat is **open on wide screens and closed on phones**; the Chat button
-  toggles it. Toggling must never recreate the Three.js renderer or reset the
-  camera.
+- The chat is a sibling panel; under 1200 px it becomes a right drawer, under
+  420 px it takes the full width. The breakpoint is 1200 px and not 900 px
+  because the rail (248 px) and a docked chat (340 px) together leave the
+  header and the view title nothing to work with.
+- The chat is **open on wide screens and closed below 1200 px**; the Chat
+  button toggles it. Toggling must never recreate the Three.js renderer or
+  reset the camera.
 
 ## Component rules
 
@@ -116,6 +128,16 @@ Shadows are warm and low-contrast (`rgba(92,70,44,…)`), never black.
   radius.
 - Long values (ids, URLs, tool output) truncate with an ellipsis or scroll
   inside their own box — they never widen the layout.
+- A list view gets one toolbar: a label, a count and the control that changes
+  the list (period, level, "lihat semua"). It is the same row on every view,
+  so the reader learns once where to look.
+- Grids size themselves: cards use `auto-fit` with a narrow floor, so three
+  agents fill one row instead of leaving one card alone in a half-empty
+  second row, and stat cards stretch to the same height with their subtitle
+  pinned to the bottom.
+- A card holds an object, not a paragraph. An empty preview, an empty file
+  list or a missing schedule is a plain note inside the panel that owns it —
+  never a second card nested inside the first.
 
 ## State honesty
 
@@ -131,6 +153,18 @@ Every visible indicator is wired to real state:
 - Machine-shaped values (basis, counters, provenance, scene signals) live in
   the collapsed **Diagnostics** block of the agent panel, never in the primary
   summary.
+- Machine values that do have to be shown are translated before they reach the
+  screen: an action key becomes a sentence ("satu giliran assistant"), a turn
+  id becomes a group with a count, a log source becomes "audit 20 Okt 2026",
+  an absolute path becomes `~/…`, a user key with an agent suffix becomes
+  "naufalazhar65 · Mia". The raw value stays in the `title` attribute when it
+  is worth keeping.
+- The task board groups turns that share a title, so a night of the same
+  request reads as one row with a count instead of hundreds of identical
+  cards. It shows a handful of groups per lane and offers "Lihat semua" for
+  the rest.
+- Log lines carry their level as a word plus a colour, and the level is a
+  filter. A wall of raw JSON is not a log view.
 - Counters are dot + word, and success never shares a chip with failure:
   "Berjalan 448" and "gagal 18" are separate chips with their own colour.
 - Idle is silent. The chat header shows the agent's availability and drops the
@@ -165,8 +199,44 @@ Two more rules the UI enforces:
 
 ## Motion
 
-`--dur: .15s`, colour/border/opacity only. `prefers-reduced-motion` disables
-every animation and transition. `forced-colors` keeps borders on `CanvasText`.
+Two clocks, one system: `--dur: .15s` for colour and border feedback, and
+`--motion: .19s` with `--ease` for anything that moves on screen.
+
+Anything that opens **arrives**: a view fades and lifts by one step, the status
+panel comes up from the bottom edge, the chat slides in from the right edge
+whether it is docked or a drawer, a modal dims the stage and lifts its card,
+the scene menu opens from the button it belongs to, and the mobile rail slides
+instead of snapping. Nothing blinks into existence.
+
+Anything that closes **leaves**: the chat slides out to the right on its way
+out, and it is gone from the pointer and the screen reader at once — a closing
+panel must never keep catching clicks while an animation plays. The panel is
+removed when the motion ends.
+
+The rules move **opacity and transform only**. Those are compositor properties:
+the browser never has to lay the page out again mid-animation, so the 3D canvas
+does not resize or rescale while a panel is opening. A view that holds a WebGL
+canvas only fades, because a transform would rescale the canvas.
+
+The chat moves **the way the rail moves**: a sheet that slides the whole way
+in from the right edge, and a column that gives the canvas its room back as
+the sheet leaves. The panel itself is only the anchor — it holds no visible
+surface of its own, it just keeps the space reserved while the chat is open.
+That split is deliberate: `visibility: hidden` cancels the transitions of
+everything inside it, so the surface that has to travel cannot live under it.
+The anchor collapses to nothing the moment the chat starts closing, which is
+why a closing chat is invisible to the pointer before its slide has even
+begun.
+
+Most entrances are tied to the state change itself — `hidden` becoming
+visible, `:not(.hide)` matching, `details[open]` — so they need no JavaScript
+at all. The chat is the exception: it has to slide out again, and the panel
+may only be removed after that motion, so a short `transitionend` listener
+(with a timeout as a safety net) does the last step. There is no timer that
+can drift out of sync with what the user sees.
+
+`prefers-reduced-motion` disables every animation and transition.
+`forced-colors` keeps borders on `CanvasText`.
 
 ## Files
 

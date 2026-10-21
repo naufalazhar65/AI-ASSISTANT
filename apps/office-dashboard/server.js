@@ -1746,9 +1746,9 @@ function buildUsage(query) {
     per_source: top(perSource, 14),
     timeseries: buckets.map((b) => ({ start: new Date(b.start).toISOString(), ...b })),
     definitions: {
-      turns: 'Jumlah event audit action=turn_provider (satu giliran assistant).',
-      tool_calls: 'Jumlah event audit action=tool:<nama>.',
-      turn_errors: 'Jumlah event audit action=turn_error. Kegagalan tool tidak dilog terpisah oleh sumber audit.',
+      turns: 'Jumlah event audit untuk satu giliran assistant.',
+      tool_calls: 'Jumlah event audit untuk satu pemanggilan alat.',
+      turn_errors: 'Jumlah event audit untuk giliran yang berakhir error. Kegagalan tool tidak dilog terpisah oleh sumber audit.',
     },
   };
 }
