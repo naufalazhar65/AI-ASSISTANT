@@ -11,6 +11,7 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const WEB = join(ROOT, "apps", "web");
@@ -58,7 +59,17 @@ function usedKeys(files) {
   const keys = new Set();
   for (const file of files) {
     const text = readFileSync(file, "utf8");
+    // process.env.KEY / env.KEY
     for (const m of text.matchAll(/(?:process\.env\.|env\.)([A-Z][A-Z0-9_]+)/g)) keys.add(m[1]);
+    // process.env["KEY"]
+    for (const m of text.matchAll(/(?:process\.env|env)\s*\[\s*["'`]([A-Z][A-Z0-9_]+)["'`]\s*\]/g)) keys.add(m[1]);
+    // const { KEY } = process.env
+    for (const m of text.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:process\.env|env)\b/g)) {
+      for (const part of m[1].split(",")) {
+        const name = part.split(":")[0].split("=")[0].trim().replace(/^\.\.\./, "");
+        if (/^[A-Z][A-Z0-9_]*$/.test(name)) keys.add(name);
+      }
+    }
   }
   return keys;
 }
@@ -70,11 +81,15 @@ function documentedKeys(example) {
   return keys;
 }
 
+const SELF = fileURLToPath(import.meta.url);
 const files = [
   ...walk(join(WEB, "src"), []),
   ...walk(join(WEB, "scripts"), []),
   ...walk(DASH, []),
-];
+  // The shared packages read the environment too — a key read there is just
+  // as unconfigurable as one read in the app.
+  ...walk(join(ROOT, "packages"), []),
+].filter((f) => f !== SELF); // this file holds the patterns, not real reads
 for (const name of readdirSync(WEB)) {
   const full = join(WEB, name);
   if (statSync(full).isFile() && [".ts", ".mts"].includes(extname(name))) files.push(full);

@@ -43,6 +43,23 @@ describe("isDisposableTestUser", () => {
       expect(isDisposableTestUser(key)).toBe(false);
     }
   });
+
+  it("keeps a real user whose name merely STARTS with a test stem", () => {
+    // A cleanup that deletes a person is worse than one that leaves an
+    // artifact behind: "eval_team", "prober" and "drillmaster" read like
+    // people, so the stem alone never disposes a folder.
+    for (const key of ["eval_team", "evalteam", "prober", "drillmaster", "verification_user"]) {
+      expect(isDisposableTestUser(key)).toBe(false);
+    }
+    // The bare stems are artifacts only as EXACT names.
+    for (const key of ["eval", "probe", "drill", "verify"]) {
+      expect(isDisposableTestUser(key)).toBe(true);
+    }
+    // A stem plus a machine-made remainder IS an artifact.
+    for (const key of ["verify_wf_9", "verify_retry_a5_1792", "probe_role_gate_1", "eval_probe2"]) {
+      expect(isDisposableTestUser(key)).toBe(true);
+    }
+  });
 });
 
 describe("planExpiry", () => {

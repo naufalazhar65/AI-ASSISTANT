@@ -53,8 +53,23 @@ const RETRYABLE_PROVIDER_RE =
  * ("api_key_expired"), the error was not retryable, so the chain ABORTED and
  * the turn died even though a later provider in the chain could have served
  * it. A dead key moves the chain to the next candidate, exactly like a 429.
+ *
+ * The pattern matches what the PROVIDER says about the key, not a bare "401".
+ * A tool result that quotes "HTTP 401" (an API Mia called, a page that
+ * rejected us) is our own code path failing, not the provider's key — and
+ * reading it as an expired key both wasted the failover chain and told the
+ * owner to go and replace a key that was fine.
  */
-const EXPIRED_KEY_RE = /(api_key_expired|invalid_api_key|invalid api key|authentication_error|unauthorized|\b401\b)/i;
+const EXPIRED_KEY_RE =
+  /(api_key_expired|invalid_api_key|invalid api key|expired key|key expired|key has expired|authentication_error|invalid authentication)/i;
+
+/**
+ * The provider's own HTTP 401 — the envelope Mia throws for a failed
+ * completion (`LLM failed (401): …`). Only those envelopes count: a 401
+ * inside somebody else's text (a tool output, a quoted page, a JSON body)
+ * does not match, because it is not anchored to something Mia produced.
+ */
+const PROVIDER_401_RE = /(?:LLM failed|OpenCode prompt failed|OpenCode session create failed|OpenCode event stream failed) \(401\)/i;
 
 /**
  * App-level failures. These are bugs in OUR turn handling (bad tool arguments,
@@ -135,6 +150,9 @@ export function isProviderRetryable(err: unknown): boolean {
   const detail = err instanceof Error ? err.message : String(err ?? "");
   if (CODE_ERROR_RE.test(detail)) return false;
   if (EXPIRED_KEY_RE.test(detail)) return true;
+  // The provider's own 401 envelope: that provider's key was rejected. Another
+  // provider can still serve the turn, so the chain moves on.
+  if (PROVIDER_401_RE.test(detail)) return true;
   // A gateway cooldown is NOT a failover trigger. Measured 2026-10-21: the
   // 400 blocks the KEY for ~30s, so every other model behind the same proxy
   // is blocked too — and the recovery is on the SAME provider after the
@@ -197,6 +215,17 @@ export function classifyAssistantError(err: unknown): ClassifiedError {
       detail,
       userMessage:
         "Kunci API provider-nya sudah kedaluwarsa, jadi provider itu nggak bisa kupakai. Aku otomatis pindah ke provider lain — kalau provider ini kepakai terus, ganti kuncinya ya. 🌸",
+    };
+  }
+  if (PROVIDER_401_RE.test(detail)) {
+    // The provider rejected our key, but it did not say WHY (expired, revoked,
+    // wrong account). Say what we know: the key was refused, and that needs
+    // the owner. Guessing "expired" would be a story we cannot back.
+    return {
+      kind: "quota",
+      detail,
+      userMessage:
+        "Provider AI-nya menolak kunci API Mia, jadi provider itu nggak bisa kupakai. Aku otomatis pindah ke provider lain — kalau provider ini kepakai terus, cek kuncinya ya. 🌸",
     };
   }
   if (QUOTA_RE.test(detail)) {

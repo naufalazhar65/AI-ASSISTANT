@@ -1078,6 +1078,18 @@ async function runOneCompletionOnce(
   withTools: boolean,
   extraHeaders?: Record<string, string>
 ): Promise<{ text: string; toolCalls: ToolCall[]; reasoning: string }> {
+  // The head of the window must be sendable. Every channel trims history
+  // before sending it (a cap on messages, a rolling summary), and the trim can
+  // land in the middle of a tool round — so the window may start with an
+  // assistant turn that proposes a tool. The gateway rejects exactly that
+  // shape with 400 AND poisons the key for ~30s (measured 2026-10-21 by
+  // probing the gateway directly, one shape per process). This is the ONE
+  // place every channel goes through, so the trim lives here.
+  const trimmed = trimToSafeWindowHead(messages);
+  // A window where EVERY message is unsafe is pathological; rather than send
+  // an empty conversation, ask the model to carry on from the last turn.
+  const windowMessages: ChatMessage[] =
+    trimmed.length > 0 ? trimmed : messages.length > 0 ? [{ role: "user", content: "Lanjutkan." }] : [];
   // Retry the initial connection once on a transient network failure
   // ("fetch failed" to the LLM provider) — a retry usually succeeds.
   const doFetch = () =>
@@ -1090,7 +1102,7 @@ async function runOneCompletionOnce(
       },
     body: JSON.stringify({
       model,
-      messages: [{ role: "system", content: systemPrompt }, ...messages],
+      messages: [{ role: "system", content: systemPrompt }, ...windowMessages],
       stream: true,
       // Strict OpenAI-compatible gateways (e.g. OpenCode Go) reject extra
       // fields — Mia's `risk` marker lives in the definition but must NOT be

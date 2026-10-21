@@ -75,3 +75,28 @@ describe("an expired key on one provider", () => {
     expect(classifyAssistantError(new Error(expired)).kind).toBe("quota");
   });
 });
+
+describe("a 401 that is not our provider's key", () => {
+  // The provider's key and somebody else's 401 look alike in a regex: both
+  // carry "401". But a 401 inside a TOOL result (an API Mia called, a page
+  // that rejected us) is our own code path failing — reading it as an expired
+  // key wasted the failover chain and told the owner to replace a key that
+  // was perfectly fine.
+  const toolResult = 'Error: http_request failed: HTTP 401 Unauthorized (target rejected the request)';
+
+  it("does not spend the provider chain on it", () => {
+    expect(isProviderRetryable(new Error(toolResult))).toBe(false);
+  });
+
+  it("is not reported to the owner as an expired key", () => {
+    const cls = classifyAssistantError(new Error(toolResult));
+    expect(cls.kind).not.toBe("quota");
+    expect(cls.userMessage).not.toMatch(/kunci|key/i);
+  });
+
+  it("still treats the provider's own 401 envelope as its key being refused", () => {
+    const provider401 = 'LLM failed (401): {"error":{"message":"Unauthorized"}}';
+    expect(isProviderRetryable(new Error(provider401))).toBe(true);
+    expect(classifyAssistantError(new Error(provider401)).kind).toBe("quota");
+  });
+});

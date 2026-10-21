@@ -9787,7 +9787,12 @@ async function verifyProactiveWorkflows(): Promise<void> {
       for (const key of ["naufalazhar652952", "naufalazhar65", "Zigen", "shared", "naufalazhar652952.agnes", "naufalazhar652952.michelle"]) {
         if (isDisposableTestUser(key)) throw new Error(`wave1: ${key} tidak boleh disposable`);
       }
-      if (!isDisposableTestUser("verify_something")) throw new Error("wave1: folder verify_ harus disposable");
+      if (!isDisposableTestUser("verify_wf_9")) throw new Error("wave1: folder artifact verify_ harus disposable");
+      // Deletion is irreversible, so a name that merely STARTS with a test stem
+      // is kept: "eval_team" is a person, "eval_probe2" is a folder. A wrong
+      // guess here deletes somebody's account.
+      if (isDisposableTestUser("eval_team")) throw new Error("wave1: nama yang mirip test tapi bukan artifact harus dipertahankan");
+      if (isDisposableTestUser("drillmaster")) throw new Error("wave1: nama yang mirip test tapi bukan artifact harus dipertahankan");
       const sweepSrc = readFileSync(join(appRoot(), "src", "lib", "testUserSweep.ts"), "utf8");
       const cleanupSrc = readFileSync(join(appRoot(), "scripts", "cleanup-test-users.mts"), "utf8");
       if (!/sweepExpiredTestUsers/.test(cleanupSrc)) {
@@ -9814,6 +9819,20 @@ async function verifyProactiveWorkflows(): Promise<void> {
       }
       if (trimmed.some((m) => m.role === "tool")) {
         throw new Error("wave1: tool result yatim tidak boleh tinggal di window head");
+      }
+      // The helper alone proves nothing — it has to be ON THE WIRE. The first
+      // Wave 1 commit shipped the helper with an import and no call site, and
+      // every gate stayed green while the 400 was still live.
+      const agentSrc = readFileSync(join(appRoot(), "src", "lib", "agent.ts"), "utf8");
+      if (!/trimToSafeWindowHead\(/.test(agentSrc)) {
+        throw new Error("wave1: agent harus memanggil trimToSafeWindowHead (helper benar tapi kawatnya lepas)");
+      }
+      if (!/\.\.\.windowMessages/.test(agentSrc)) {
+        throw new Error("wave1: body request harus memakai window yang sudah dipangkas");
+      }
+      const wiringTest = join(appRoot(), "src", "lib", "windowHeadWiring.test.ts");
+      if (!existsSync(wiringTest)) {
+        throw new Error("wave1: test wiring window head wajib ada (isi request yang benar-benar terkirim)");
       }
 
       // 6. An expired key must move the chain to the next provider, and a
