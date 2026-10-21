@@ -45,6 +45,9 @@ Rules that keep it warm instead of loud:
 - Orange marks **primary actions and selected states** — never decoration.
 - Status colour never carries meaning alone: a dot is always paired with a word.
 - The 3D scene keeps its own natural colours. The app palette is not pushed into it.
+- An agent has no accent colour of its own. Identity is the monogram, the name
+  and the role, so the orange accent never leaks into decoration — and no
+  per-agent hex value is invented in the markup.
 
 ## Typography
 
@@ -134,7 +137,16 @@ Shadows are warm and low-contrast (`rgba(92,70,44,…)`), never black.
 - Grids size themselves: cards use `auto-fit` with a narrow floor, so three
   agents fill one row instead of leaving one card alone in a half-empty
   second row, and stat cards stretch to the same height with their subtitle
-  pinned to the bottom.
+  right under the value — a pinned subtitle leaves a hole in the middle of
+  the card.
+- The task board is a 2 × 2 grid of four panels of the same size. Each lane
+  scrolls its own list, so a lane with three items and a lane with forty read
+  as two panels, not as one tall column and one stub.
+- An agent card opens with its identity (monogram, name, status), keeps its
+  rows tight, lists the duties as bullets, and pins its buttons to the bottom
+  — three cards side by side end on the same line.
+- One account, several agents: the account key is printed once and the agent
+  names stand beside it. Repeating the key per agent is noise.
 - A card holds an object, not a paragraph. An empty preview, an empty file
   list or a missing schedule is a plain note inside the panel that owns it —
   never a second card nested inside the first.
@@ -167,6 +179,13 @@ Every visible indicator is wired to real state:
   filter. A wall of raw JSON is not a log view.
 - Counters are dot + word, and success never shares a chip with failure:
   "Berjalan 448" and "gagal 18" are separate chips with their own colour.
+- A machine title becomes a sentence: "Turn mia via 9router" reads as "giliran
+  Mia via 9router", and a raw JSON tail in a turn excerpt is cut instead of
+  quoted.
+- A warning without a reason is not honest: the watchdog row names what it
+  could not verify and when it last looked, instead of printing "perhatian".
+- The dashboard never describes itself. A card that explains where the data
+  comes from is documentation, not a view — the rules live in this file.
 - Idle is silent. The chat header shows the agent's availability and drops the
   task line when no turn is running, instead of printing "no turn is active".
   A status that arrived from the server must reach the panel even when the

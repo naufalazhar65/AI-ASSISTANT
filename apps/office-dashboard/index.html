@@ -240,7 +240,7 @@
   .kv{display:flex;justify-content:space-between;gap:var(--s4);padding:9px 0;
     border-bottom:1px solid var(--line);font-size:var(--t0)}
   .kv:last-child{border-bottom:0}
-  .kv span:first-child{color:var(--muted)}
+  .kv span:first-child{color:var(--muted);white-space:nowrap;flex:0 0 auto}
   .kv span:last-child{color:var(--text);text-align:right;word-break:break-word}
   .note{font-size:var(--t-1);color:var(--muted);line-height:1.6;margin-top:var(--s2)}
   .err{color:var(--bad);font-size:var(--t-1);margin-top:var(--s2);min-height:16px}
@@ -283,7 +283,7 @@
     color:var(--muted);font-weight:650}
   .stat .v{font-size:var(--t3);font-weight:700;margin-top:var(--s2);line-height:1.1;
     font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-  .stat .s{font-size:var(--t-1);color:var(--muted);margin-top:auto;padding-top:var(--s2)}
+  .stat .s{font-size:var(--t-1);color:var(--muted);margin-top:var(--s2)}
   .big{font-size:var(--t4);font-weight:750;letter-spacing:-.02em}
   .bar{height:7px;border-radius:4px;background:var(--panel-3);overflow:hidden;margin-top:var(--s2)}
   .bar i{display:block;height:100%;border-radius:4px;background:var(--accent)}
@@ -294,7 +294,7 @@
   .bars i:hover{opacity:.7}
   .bars i.hi{opacity:1}
   .bars i.zero{opacity:.12}
-  .split{display:grid;gap:var(--s4);grid-template-columns:1.15fr .85fr;align-items:start}
+  .split{display:grid;gap:var(--s4);grid-template-columns:1.15fr .85fr;align-items:stretch}
   .rank{display:grid;gap:var(--s2)}
   .rank .r{display:grid;grid-template-columns:1fr 74px 46px;gap:var(--s3);align-items:center;
     font-size:var(--t-1)}
@@ -308,9 +308,12 @@
   td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
   tbody tr:hover td{background:var(--panel-2)}
   tr:last-child td{border-bottom:0}
-  .board{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(245px,1fr))}
+  .board{display:grid;gap:var(--s4);grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;grid-auto-rows:1fr}
   .lane{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-md);
-    padding:var(--s3);min-height:140px;min-width:0}
+    padding:var(--s3);min-height:150px;max-height:420px;min-width:0;display:flex;flex-direction:column}
+  .laneBody{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column}
+  .laneBody .empty{flex:1 1 auto;display:grid;place-items:center}
+  .laneBody .tk:last-child{margin-bottom:0}
   .lane h4{margin:0 0 var(--s3);font-size:var(--t-2);letter-spacing:.1em;
     text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;
     gap:8px;font-weight:700}
@@ -358,6 +361,33 @@
   .lv-error{color:var(--bad)} .lv-warn{color:var(--warn)}
   .tk .mult{font-size:var(--t-2);color:var(--muted);font-weight:600}
   .acts{display:flex;gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s3)}
+  /* Agent card: identity on top, actions pinned to the bottom so every card in
+     the row ends on the same line. */
+  .card.agent{display:flex;flex-direction:column}
+  .card.agent .acts{margin-top:auto;padding-top:var(--s4);margin-bottom:0}
+  .agentTop{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s3)}
+  .agentAv{width:30px;height:30px;border-radius:var(--r-full);flex:0 0 30px;
+    display:grid;place-items:center;font-weight:700;font-size:var(--t1);
+    background:var(--panel-3);color:var(--text);text-transform:uppercase}
+  .agentName{font-weight:700;font-size:var(--t1);margin-right:auto}
+  .duties{margin-top:var(--s3);padding-top:var(--s3);border-top:1px solid var(--line)}
+  .duties .dlab{font-size:var(--t-2);letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);font-weight:650}
+  .duties ul{margin:var(--s2) 0 0;padding-left:17px;color:var(--muted);
+    font-size:var(--t-1);line-height:1.55}
+  /* Lane header: a status dot carries the colour, the word carries the name. */
+  .laneDot{display:inline-block;width:8px;height:8px;border-radius:50%;
+    margin-right:7px;background:var(--muted);vertical-align:1px}
+  .laneDot.q{background:var(--warn)} .laneDot.w{background:var(--info)}
+  .laneDot.d{background:var(--ok)} .laneDot.f{background:var(--bad)}
+  /* Board card lifts a hair on hover — the board reads as a pile of work. */
+  .tk{transition:transform var(--dur) var(--ease),box-shadow var(--dur)}
+  .tk:hover{transform:translateY(-1px);box-shadow:var(--shadow-2)}
+  /* Folder marker: a drawn chevron, not a dingbat from a font. */
+  .tree .chev{width:0;height:0;flex:0 0 auto;margin-right:7px;display:inline-block;
+    border-left:5px solid currentColor;border-top:4px solid transparent;
+    border-bottom:4px solid transparent;opacity:.45}
+  .tree .chev.up{transform:rotate(-90deg);margin-right:9px}
 
   /* ── office / 3D stage ──────────────────────────────────── */
   /* The 3D room must FILL the view: `#office` is a flex child, so its parent view
@@ -796,20 +826,20 @@ var $ = function (s) { return document.querySelector(s); };
 
 /* ── static roster (identitas) ─────────────────────────── */
 var ROSTER = {
-  mia:      { name:'Mia',      role:'Main Assistant / Coordinator', duties:['Obrolan umum & personal assistance','Koordinasi dan delegasi ke Agnes / Michelle','Reminder & scheduling bila tool tersedia'], accent:'#8b9dc3' },
-  agnes:    { name:'Agnes',    role:'Researcher',                   duties:['Riset dan verifikasi fakta','Info terkini & perbandingan sumber','Rangkuman'], accent:'#7fae9b' },
-  michelle: { name:'Michelle', role:'Coder',                        duties:['Baca / tulis kode dan perubahan file','Jalankan test, debug, cek log','Kerja teknis lewat tool backend Mia'], accent:'#a08fc0' }
+  mia:      { name:'Mia',      role:'Main Assistant / Coordinator', duties:['Obrolan umum & personal assistance','Koordinasi dan delegasi ke Agnes / Michelle','Reminder & scheduling bila tool tersedia'] },
+  agnes:    { name:'Agnes',    role:'Researcher',                   duties:['Riset dan verifikasi fakta','Info terkini & perbandingan sumber','Rangkuman'] },
+  michelle: { name:'Michelle', role:'Coder',                        duties:['Baca / tulis kode dan perubahan file','Jalankan test, debug, cek log','Kerja teknis lewat tool backend Mia'] }
 };
 var MENU = [
   { group: 'Office',   items: [ ['office','Virtual Office','office','Ruang 3D + HUD'] ] },
   { group: 'Operasi',  items: [
-      ['agents','Agent','agents','Status, peran, dispatch'],
+      ['agents','Agent','agents','Status, peran, tugas'],
       ['board','Task Board','board','Antre · berjalan · selesai'],
       ['calendar','Kalender','calendar','Jadwal terjadwal'] ] },
   { group: 'Inspeksi', items: [
-      ['usage','Usage','usage','Event, turn, tool call'],
+      ['usage','Usage','usage','Event, giliran, pemanggilan alat'],
       ['activity','Activity','activity','Sesi audit + sistem'],
-      ['logs','Logs','logs','Baris audit mentah'] ] },
+      ['logs','Logs','logs','Baris log audit'] ] },
   { group: 'Data',     items: [
       ['memory','Memory','memory','Persona & catatan harian'],
       ['files','Files','files','Browser read-only'] ] },
@@ -865,6 +895,17 @@ function na(v, note) { return '<span class="unavail">' + esc(note || 'Tidak ters
 var STATUS_WORD = { idle: 'siap', working: 'bekerja', paused: 'jeda', queued: 'antre',
   started: 'berjalan', progress: 'berjalan', done: 'selesai', failed: 'gagal',
   error: 'error', ok: 'ok', unknown: 'tak diketahui' };
+var ACTION_WORD = {
+  turn_provider: 'satu giliran assistant', turn_error: 'giliran berakhir error',
+  turn_formatted: 'jawaban diformat', turn_start: 'giliran dimulai',
+  turn_done: 'giliran selesai', dispatch: 'kirim tugas',
+  idle: 'siap', working: 'bekerja', paused: 'jeda', queued: 'antre',
+  started: 'berjalan', progress: 'berjalan', done: 'selesai', failed: 'gagal',
+  error: 'error', ok: 'ok'
+};
+var BUCKET_WORD = { hour: 'per jam', day: 'per hari', week: 'per minggu', minute: 'per menit' };
+var SOURCE_WORD = { audit: 'Log audit Mia', reminders: 'Reminder Mia', tasks_ledger: 'Ledger tugas',
+  queue_ledger: 'Ledger antrean', schedules: 'Jadwal', tunnel: 'Akses publik', watchdog: 'Pemantau proses' };
 function stBadge(s) {
   return '<span class="badge ' + esc(s) + '">' + esc(STATUS_WORD[s] || s) + '</span>';
 }
@@ -878,27 +919,81 @@ function humanAction(a) {
   var par = s.match(/^[^()]*?\(([^)]*)\)\s*$/);
   if (par && par[1]) return par[1].trim();
   var tool = s.match(/^tool:(.+)$/);
-  if (tool) return 'alat ' + tool[1].replace(/_/g, ' ');
-  var map = {
-    turn_provider: 'satu giliran assistant',
-    turn_error: 'giliran berakhir error',
-    turn_formatted: 'jawaban diformat',
-    turn_start: 'giliran dimulai',
-    turn_done: 'giliran selesai',
-    dispatch: 'kirim tugas'
-  };
+  if (tool) return toolWord(tool[1]);
   var key = s.split(':')[0].trim();
-  if (map[key]) return map[key];
-  return key.replace(/_/g, ' ');
+  if (ACTION_WORD[key]) return ACTION_WORD[key];
+  return toolWord(key);
 }
+
 function humanUser(k) {
   var s = String(k == null ? '' : k);
   if (ROSTER[s]) return ROSTER[s].name;
   var m = s.match(/^(.*)\.(mia|agnes|michelle)$/);
   if (!m) return s;
   var r = ROSTER[m[2]];
-  return m[1] + (r ? ' · ' + r.name : '');
+  return r ? r.name : s;
 }
+/* A monogram that tells the agents apart: Mia (M), Researcher (R), Coder (C). */
+function agentMono(a, roster, name) {
+  var role = String((roster && roster.role) || '').split('/')[0].trim();
+  if (role) return role.slice(0, 1).toUpperCase();
+  return String(name || '?').slice(0, 1).toUpperCase();
+}
+/* One person, three agents: the account key appears once, the agents beside
+   it. Repeating the key per agent is noise, not information. */
+function humanStores(list) {
+  var bases = {}, names = [], seen = {};
+  (list || []).forEach(function (s) {
+    var user = (s && s.user != null) ? s.user : s;
+    var u = String(user == null ? '' : user);
+    if (!u) return;
+    var given = (s && s.name) || null;
+    var m = u.match(/^(.*)\.(mia|agnes|michelle)$/);
+    var label = given;
+    if (m) {
+      bases[m[1]] = 1;
+      if (!label) label = (ROSTER[m[2]] || {}).name || m[2];
+    } else {
+      bases[u] = 1;
+      if (!label) label = (ROSTER[u] || {}).name || null;
+    }
+    if (label && !seen[label]) { seen[label] = 1; names.push(label); }
+  });
+  var base = Object.keys(bases).join(', ');
+  if (!names.length) return base || '—';
+  return base + ' · ' + names.join(', ');
+}
+/* A note the machine wrote, said the way a person would say it. */
+function humanNote(s) {
+  var t = String(s == null ? '' : s).trim();
+  if (!t) return 'tidak tersedia';
+  if (/SCHEDULE_DIRS/i.test(t)) return 'belum ada folder jadwal';
+  if (/PUBLIC_URL/i.test(t)) return 'belum ada alamat publik';
+  if (/kosong/i.test(t)) return 'belum diisi';
+  return t.replace(/\s+/g, ' ');
+}
+/* Why the watchdog is unhappy, in words. */
+function watchdogWhy(wd) {
+  if (!wd || wd.ok) return '';
+  if (/tunnel/i.test(wd.action || '')) return 'alamat publik belum terverifikasi';
+  if (wd.error) return 'cek terakhir gagal';
+  return 'cek terakhir tidak berhasil';
+}
+/* A tool name is a name, not a sentence: "alat lab add", not "lab_add". */
+function toolWord(name) {
+  var t = String(name == null ? '' : name).split('::')[0].trim();
+  if (!t) return '';
+  return 'alat ' + t.replace(/_/g, ' ');
+}
+/* Windows read as a length, not as a clock. */
+function winLabel(ms) {
+  var s = Math.round((ms || 0) / 1000);
+  if (s >= 86400) return Math.round(s / 86400) + ' hari';
+  if (s >= 3600) return Math.round(s / 3600) + ' jam';
+  if (s >= 60) return Math.round(s / 60) + ' menit';
+  return s + ' detik';
+}
+
 function shortPath(p) {
   /* Any /Users/<name> in the text becomes ~, not just a path at the start. */
   return String(p == null ? '' : p).replace(/\/Users\/[^/\s"']+/g, '~');
@@ -926,16 +1021,27 @@ function logLevel(x) {
    absolute path, no raw identifier soup. */
 function excerptOf(d) {
   var s = String(d == null ? '' : d)
-    .replace(/Diambil dari audit log Mia \(bukan simulasi\)\.?/g, '')
+    .replace(/D(?:iambil|iamati) dari audit log Mia \(bukan simulasi\)\.?/g, '')
     .replace(/\[[a-z_]+\/[a-z_]+:[0-9]+-[a-z0-9]+\]/gi, '')
     .replace(/<@[0-9]+>/g, '')
+    /* A raw payload is not a sentence: keep the plain part, drop the JSON. */
+    .replace(/HTTP (\d{3})\s*\{[^}]*\}/g, 'HTTP $1')
+    .replace(/\s*\{\s*["'][\s\S]*$/, '')
     .trim();
   return s;
 }
+/* The audit titles its own turns; on screen they read as a sentence. */
+function humanTitle(t) {
+  var s = String(t == null ? '' : t);
+  var m = s.match(/^Turn\s+(\w+)\s+via\s+(\w+)$/i);
+  if (m) return 'giliran ' + ((ROSTER[m[1].toLowerCase()] || {}).name || m[1]) + ' via ' + m[2];
+  return s;
+}
+
 function boardGroups(items) {
   var map = {}, order = [];
   (items || []).forEach(function (x) {
-    var title = x.title || x.prompt || x.task_id || x.id || 'Tanpa judul';
+    var title = humanTitle(x.title || x.prompt || x.task_id || x.id || 'Tanpa judul');
     var key = title + '|' + (x.agent || '');
     if (!map[key]) {
       map[key] = { title: title, agent: x.agent || '', count: 0, newest: 0, status: x.status, detail: excerptOf(x.detail) };
@@ -1027,6 +1133,7 @@ var FILES = { root: 'dashboard', roots: [{ id: 'dashboard', label: 'apps/office-
               path: '', data: null, file: null, loading: false };
 var LOGS = { filter: '', level: '' };
 var BOARD = { all: false };
+var ACTIVITY = { agent: '' };
 
 function json(url) { return fetch(api(url)).then(function (r) { if (r.status === 401) { needToken(); throw new Error('401 unauthorized'); } return r.json(); }); }
 
@@ -1209,92 +1316,88 @@ function rankOf(list, unit) {
     var pct = max > 0 ? Math.round((x.count || 0) / max * 100) : 0;
     return '<div class="r"><span>' + esc(x.key) + '</span><span class="t"><i style="width:' + pct + '%"></i></span>' +
       '<span class="n">' + (x.count || 0) + '</span></div>';
-  }).join('') + '</div><div class="note" style="margin-top:8px">Unit: ' + esc(unit || 'event') + '</div>';
+  }).join('') + '</div>';
 }
+
 
 function vAgents() {
   if (!STATE) return '<div class="empty">Memuat…</div>';
-  return '<div class="vbar"><span class="lab">Antrekan tugas</span>' +
+  return '<div class="vbar"><span class="lab">Antre</span>' +
       QUICK.map(function (q) {
         return '<button class="btn" data-quick="' + esc(q[1]) + '" data-label="' + esc(q[0]) + '">' + esc(q[0]) + '</button>';
       }).join('') + '</div>' +
     '<div class="grid g3">' + STATE.agents.map(function (a) {
-      var b = a.basis || {}, r = ROSTER[a.id] || {};
-      return '<div class="card">' +
-        '<h3 style="color:' + esc(a.accent) + '">' + esc(a.name) + '</h3>' +
-        '<div style="margin:8px 0 10px">' + stBadge(a.status) + '</div>' +
+      var b = a.basis || {}, r = ROSTER[a.id] || {}, duties = r.duties || [];
+      var name = a.name || '?';
+      return '<div class="card agent">' +
+        '<div class="agentTop"><span class="agentAv">' + esc(agentMono(a, r, name)) + '</span>' +
+          '<span class="agentName">' + esc(name) + '</span>' + stBadge(a.status) + '</div>' +
         '<div class="kv"><span>Peran</span><span>' + esc(a.role) + '</span></div>' +
-        '<div class="kv"><span>Task aktif</span><span>' + (a.active_task ? esc(a.active_task) : '<span class="unavail">tidak ada</span>') + '</span></div>' +
-        '<div class="kv"><span>Terakhir update</span><span>' + esc(hhmmss(a.last_update)) + ' · ' + esc(ago(a.last_update)) + '</span></div>' +
-        '<div class="kv"><span>Event terakhir</span><span>' + (a.last_event ? esc(humanAction(a.last_event.action)) : na('', 'belum ada event')) + '</span></div>' +
+        '<div class="kv"><span>Tugas aktif</span><span>' + (a.active_task ? esc(a.active_task) : '<span class="unavail">tidak ada</span>') + '</span></div>' +
+        '<div class="kv"><span>Terakhir update</span><span title="' + esc(hhmmss(a.last_update)) + '">' + esc(ago(a.last_update)) + '</span></div>' +
         '<div class="kv"><span>Aktivitas terukur</span><span>' + (b.turns != null
           ? count(b.turns) + ' giliran · ' + count(b.tool_calls) + ' pemanggilan alat' + (b.turn_errors ? ' · ' + count(b.turn_errors) + ' gagal' : '')
           : na('', b.note || 'tidak tersedia')) + '</span></div>' +
-        '<div class="kv"><span>Tanggung jawab</span><span>' + esc((r.duties || []).join(' · ') || a.role) + '</span></div>' +
+        (duties.length ? '<div class="duties"><span class="dlab">Tanggung jawab</span><ul>' +
+          duties.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul></div>' : '') +
         '<div class="acts">' +
           '<button class="btn" data-openagent="' + esc(a.id) + '">Detail</button>' +
-          '<button class="btn" data-quick="' + esc(a.id) + '" data-label="' + esc(a.name) + '">Minta tugas</button>' +
+          '<button class="btn" data-quick="' + esc(a.id) + '" data-label="' + esc(name) + '">Minta tugas</button>' +
           '<button class="btn" data-agentmem="' + esc(a.id) + '">Memory</button></div>' +
-        '<div class="note">Status dari event audit nyata · jendela ' +
-          (b.window_ms != null ? (b.window_ms / 60000 >= 1 ? Math.round(b.window_ms / 60000) + ' menit' : (b.window_ms / 1000) + ' detik') : '—') +
-          ' · terakhir ' + esc(ago(a.last_update)) + '.</div>' +
       '</div>';
     }).join('') + '</div>';
 }
 
+
 function vBoard() {
   if (!STATE) return '<div class="empty">Memuat…</div>';
   var lanes = [
-    { title: 'Antre', items: STATE.queue.filter(function (q) { return q.status === 'queued'; }) },
-    { title: 'Berjalan', items: STATE.tasks.filter(function (t) { return t.status === 'started' || t.status === 'progress'; }) },
-    { title: 'Selesai', items: STATE.tasks.filter(function (t) { return t.status === 'done'; }) },
-    { title: 'Gagal', items: STATE.tasks.filter(function (t) { return t.status === 'failed'; }) }
+    { title: 'Antre', dot: 'q', items: STATE.queue.filter(function (q) { return q.status === 'queued'; }) },
+    { title: 'Berjalan', dot: 'w', items: STATE.tasks.filter(function (t) { return t.status === 'started' || t.status === 'progress'; }) },
+    { title: 'Selesai', dot: 'd', items: STATE.tasks.filter(function (t) { return t.status === 'done'; }) },
+    { title: 'Gagal', dot: 'f', items: STATE.tasks.filter(function (t) { return t.status === 'failed'; }) }
   ];
-  var groups = lanes.map(function (L) { return { title: L.title, items: boardGroups(L.items) }; });
+  var groups = lanes.map(function (L) { return { title: L.title, dot: L.dot, items: boardGroups(L.items) }; });
   var total = groups.reduce(function (n, g) { return n + g.items.length; }, 0);
   var bar = '<div class="vbar"><span class="lab">Task Board</span>' +
-    '<span class="note">' + count(total) + ' kelompok kerja · giliran dengan judul sama digabung</span>' +
+    '<span class="note">' + count(total) + ' kelompok kerja</span>' +
     '<span style="flex:1"></span>' +
     '<button class="btn" data-boardall="1">' + (BOARD.all ? 'Ringkas' : 'Lihat semua') + '</button></div>';
   var body = groups.map(function (g) {
     var shown = BOARD.all ? g.items : g.items.slice(0, 6);
     var hidden = g.items.length - shown.length;
-    return '<div class="lane"><h4><span>' + esc(g.title) + '</span><span>' + g.items.length + '</span></h4>' +
-      (shown.length ? shown.map(function (x) {
-        return '<div class="tk"><div class="ttl">' + esc(trunc(shortPath(x.title), 90)) +
-          (x.count > 1 ? ' <span class="mult">×' + x.count + '</span>' : '') + '</div><div class="meta">' +
-          stBadge(x.status) + '<span>' + esc(humanUser(x.agent) || '—') + '</span>' +
-          '<span>' + esc(x.newest ? hhmmss(new Date(x.newest).toISOString()) : '—') + '</span>' +
-          '</div>' + (x.detail ? '<div class="excerpt">' + esc(trunc(shortPath(x.detail), 110)) + '</div>' : '') + '</div>';
-      }).join('') + (hidden > 0 ? '<div class="note">' + count(hidden) + ' kelompok lain belum ditampilkan.</div>' : '')
-        : '<div class="note">Kosong.</div>') + '</div>';
+    var head = '<div class="lane"><h4><span><i class="laneDot ' + g.dot + '"></i>' + esc(g.title) + '</span>' +
+      '<span>' + g.items.length + ' kelompok</span></h4>';
+    if (!shown.length) return head + '<div class="laneBody"><div class="empty">Tidak ada tugas di antrean ini.</div></div></div>';
+    var cards = shown.map(function (x) {
+      var title = trunc(shortPath(x.title), 52);
+      return '<div class="tk" title="' + esc(shortPath(x.title)) + '"><div class="ttl">' + esc(title) +
+        (x.count > 1 ? ' <span class="mult">×' + x.count + '</span>' : '') + '</div><div class="meta">' +
+        stBadge(x.status) + '<span>' + esc(humanUser(x.agent) || '—') + '</span>' +
+        '<span>' + esc(x.newest ? hhmmss(new Date(x.newest).toISOString()) : '—') + '</span>' +
+        '</div>' + (x.detail ? '<div class="excerpt">' + esc(trunc(shortPath(x.detail), 110)) + '</div>' : '') + '</div>';
+    }).join('') + (hidden > 0 ? '<div class="note">' + count(hidden) + ' kelompok lain belum ditampilkan.</div>' : '');
+    return head + '<div class="laneBody">' + cards + '</div></div>';
   }).join('');
   if (STATE.dispatch_paused) {
-    return bar + '<div class="card"><h3>Dispatch dijeda</h3><div class="note">Antrekan tidak dikirim ke agent sampai dispatch dilanjutkan dari tombol header.</div></div>';
+    return bar + '<div class="card"><h3>Dispatch dijeda</h3><div class="note">Antrean tidak dikirim ke agent sampai dispatch dilanjutkan dari tombol header.</div></div>';
   }
   return bar + '<div class="board">' + body + '</div>';
 }
 
+
+
 function vCalendar() {
   var sc = (STATE && STATE.schedules) || null;
   if (!sc) return '<div class="empty">Memuat…</div>';
-  var head = statGrid([
-    statCard('Status jadwal', sc.configured ? 'Teratur' : 'Belum diatur',
-      esc(sc.configured ? String((sc.items || []).length) + ' entri' : 'Tidak ada folder jadwal')),
-    statCard('Folder dipantau', count((sc.dirs || []).length), esc((sc.dirs || []).map(shortPath).join('<br>') || '—')),
-    statCard('File dilewati', count(sc.skipped_files), 'Parser frontmatter tanpa eval')
-  ]);
-  if (!sc.configured) {
-    return head + emptyBox(sc.notes && sc.notes.length ? sc.notes.join(' · ') :
-      'Folder yang dipantau belum ada di mesin ini, jadi dashboard tidak menampilkan jadwal apa pun alih-alih menebak.');
-  }
-  if (!(sc.items || []).length) return head + emptyBox('Folder ada tapi tidak berisi file jadwal.');
-  return head + '<table><thead><tr><th>Judul</th><th>Jenis</th><th>Pemilik</th><th>Aktif</th><th>Berikutnya</th><th>Terakhir dieksekusi</th><th>Hasil</th></tr></thead><tbody>' +
+  if (!sc.configured) return emptyBox('Belum ada sumber jadwal di mesin ini.');
+  if (!(sc.items || []).length) return emptyBox('Folder jadwal ada, tapi belum berisi jadwal.');
+  return '<table><thead><tr><th>Judul</th><th>Jenis</th><th>Pemilik</th><th>Aktif</th><th>Berikutnya</th><th>Terakhir dieksekusi</th><th>Hasil</th></tr></thead><tbody>' +
     sc.items.map(function (it) {
       return '<tr><td>' + esc(it.title || it.label || it.id) + '</td>' +
         '<td>' + esc(it.kind || '—') + (it.is_system ? ' <span class="badge idle">system</span>' : '') + '</td>' +
         '<td>' + esc(it.owner || '—') + '</td>' +
-        '<td>' + (it.enabled === false ? '<span class="badge paused">off</span>' : '<span class="badge working">on</span>') + '</td>' +
+        '<td>' + (it.enabled === false ? '<span class="badge paused">mati</span>' : '<span class="badge working">aktif</span>') + '</td>' +
         '<td>' + esc(hhmmss(it.next_iso)) + '</td>' +
         '<td>' + esc(hhmmss(it.last_fired_at)) + '</td>' +
         '<td>' + (it.exec_ok === true ? '<span class="badge working">ok</span>'
@@ -1302,14 +1405,13 @@ function vCalendar() {
     }).join('') + '</tbody></table>';
 }
 
+
 function vRemindersBlock() {
   var r = (STATE && STATE.reminders) || null;
   if (!r) return emptyBox('Memuat reminder…');
   if (r.available === false) {
-    return '<div class="card"><h3>Reminder Mia</h3><div class="note">' +
-      esc(r.note || 'Store reminder tidak ditemukan di .data/users.') + '</div></div>';
+    return '<div class="card"><h3>Reminder Mia</h3><div class="note">' + esc(humanNote(r.note)) + '</div></div>';
   }
-  var stores = (r.stores || []).map(function (s) { return esc(humanUser(s.user)); }).join(' · ');
   var items = r.items || [];
   var body = items.length
     ? '<table><thead><tr><th>Jam</th><th>Reminder</th><th>Agent</th><th>Pengulangan</th><th>Cukup dalam</th></tr></thead><tbody>' +
@@ -1320,14 +1422,13 @@ function vRemindersBlock() {
           '<td>' + (it.repeat === 'daily' ? '<span class="badge working">harian</span>' : '—') + '</td>' +
           '<td>' + esc(fmtDur(it.in_s)) + '</td></tr>';
       }).join('') + '</tbody></table>'
-    : emptyBox('Tidak ada reminder terjadwal saat ini. Minta ke Mia: "ingatkan aku …" lewat chat.');
+    : emptyBox('Belum ada reminder terjadwal. Minta lewat chat: "ingatkan aku …".');
   var out = '<div class="card"><h3>Reminder Mia ' +
     '<span class="badge idle">' + esc(count(r.pending)) + ' terjadwal</span></h3>' +
-    '<div class="note">Sumber: ' + esc(stores || '—') + ' — dibaca langsung dari store Mia, bukan dari jadwal .md dashboard.</div>' +
-    body;
+    '<div class="note">Sumber: ' + esc(humanStores(r.stores)) + '</div>' + body + '</div>';
   var fired = r.fired || [];
   if (fired.length) {
-    out += '<details><summary>Terakhir terkirim (' + esc(count(fired.length)) + ')</summary>' +
+    out += '<details class="diag"><summary>Terakhir terkirim (' + esc(count(fired.length)) + ')</summary>' +
       '<table><thead><tr><th>Terkirim</th><th>Reminder</th><th>Agent</th><th>Keterlambatan</th></tr></thead><tbody>' +
       fired.map(function (f) {
         return '<tr><td>' + esc(hhmmss(f.delivered_at || f.at_iso)) + '</td>' +
@@ -1336,75 +1437,92 @@ function vRemindersBlock() {
           '<td>' + (f.late_s === null ? '—' : (f.late_s <= 30 ? 'tepat waktu' : esc(fmtDur(f.late_s)) + ' telat')) + '</td></tr>';
       }).join('') + '</tbody></table></details>';
   }
-  return out + '</div>';
+  return out;
 }
+
 
 function vCalendarView() {
   var r = (STATE && STATE.reminders) || {};
+  var sc = (STATE && STATE.schedules) || {};
   var nxt = r.next;
-  var head = statGrid([
+  var stats = statGrid([
     statCard('Reminder terdekat', nxt ? esc(hhmmss(nxt.at_iso)) : '—',
-      nxt ? esc(trunc(nxt.text, 46)) + ' · ' + esc(nxt.agent_name) : 'Tidak ada yang terjadwal'),
-    statCard('Reminder terjadwal', esc(count(r.pending)), esc(count((r.stores || []).length) + ' store agent'))
+      nxt ? esc(trunc(nxt.text, 40)) : 'tidak ada yang terjadwal'),
+    statCard('Reminder terjadwal', esc(count(r.pending)), esc(humanStores(r.stores))),
+    statCard('Status jadwal', sc.configured ? 'Teratur' : 'Belum diatur',
+      sc.configured ? count((sc.items || []).length) + ' entri' : 'belum ada folder jadwal'),
+    statCard('File dilewati', count(sc.skipped_files), 'format lain diabaikan')
   ]);
   var bar = '<div class="vbar"><span class="lab">Jadwal</span><span class="note">' +
-    count((r.stores || []).length) + ' sumber reminder \u00b7 ' + count(r.pending) + ' menunggu</span></div>';
-  return bar + head + vRemindersBlock() + vCalendar();
+    count((r.stores || []).length) + ' sumber reminder · ' + count(r.pending) + ' menunggu' +
+    ((sc.dirs || []).length ? ' · folder ' + esc(shortPath((sc.dirs || [])[0])) : '') + '</span></div>';
+  return bar + stats + vRemindersBlock() + vCalendar();
 }
+
+
 
 function vUsage() {
   if (USAGE.err) return '<div class="err">' + esc(USAGE.err) + '</div>';
-  if (USAGE.loading && !USAGE.data) return '<div class="empty">Memuat usage…</div>';
   if (!USAGE.data) return '<div class="empty">Memuat usage…</div>';
   var u = USAGE.data, t = u.totals || {};
-  if (u.available === false) return '<div class="card"><h3>Usage tidak tersedia</h3><div class="note">' + esc(u.note || '') + '</div></div>';
+  if (u.available === false) return '<div class="card"><h3>Usage tidak tersedia</h3><div class="note">' + esc(humanNote(u.note)) + '</div></div>';
   var stats = statGrid([
-    statCard('Event audit', count(t.events), esc((u.audit_files || 0) + ' berkas')),
-    statCard('Giliran', count(t.turns), esc(humanAction((u.definitions || {}).turns))),
-    statCard('Pemanggilan alat', count(t.tool_calls), esc(humanAction((u.definitions || {}).tool_calls))),
-    statCard('Giliran gagal', count(t.turn_errors), esc(humanAction((u.definitions || {}).turn_errors)))
+    statCard('Event audit', count(t.events), count(u.audit_files || 0) + ' berkas'),
+    statCard('Giliran', count(t.turns), 'satu giliran assistant'),
+    statCard('Pemanggilan alat', count(t.tool_calls), 'alat yang dipanggil'),
+    statCard('Giliran gagal', count(t.turn_errors), 'giliran berakhir error')
   ]);
   return '<div class="vbar"><span class="lab">Periode</span><div class="seg">' +
       Object.keys(USAGE_PERIODS).map(function (p) {
         return '<button data-usage="' + esc(p) + '" class="' + (u.period === p ? 'on' : '') + '">' + esc(USAGE_PERIODS[p]) + '</button>';
-      }).join('') + '</div><span class="note">Bucket ' + esc(u.bucket || '') + ' · jendela ' +
-      esc(fmtDur((u.window_ms || 0) / 1000)) + ' · ' + count(u.window_events) + ' event dihitung</span></div>' +
+      }).join('') + '</div><span class="note">' +
+      esc(BUCKET_WORD[u.bucket] || ('per ' + (u.bucket || 'hari'))) + ' · ' + esc(winLabel(u.window_ms)) +
+      ' terakhir · ' + count(u.window_events) + ' event</span></div>' +
     stats +
-    '<div class="split"><div class="card"><h3>Event per bucket waktu</h3>' + barsOf(u.timeseries, 'events') + '</div>' +
+    '<div class="split"><div class="card"><h3>Event per waktu</h3>' + barsOf(u.timeseries, 'events') + '</div>' +
     '<div class="card"><h3>Per agent</h3>' + rankOf((u.per_agent || []).map(function (x) { return { key: humanUser(x.key), count: x.count }; })) + '</div></div>' +
     '<div class="split"><div class="card"><h3>Aksi paling sering</h3>' + rankOf((u.per_action || []).slice(0, 12).map(function (x) { return { key: humanAction(x.key), count: x.count }; })) + '</div>' +
-    '<div class="card"><h3>Sumber</h3>' + rankOf((u.per_source || []).map(function (x) { return { key: humanSource(x.key), count: x.count }; })) + '</div></div>' +
-    '<div class="note">Dashboard tidak punya sumber billing token, jadi angka token dan biaya sengaja tidak ditampilkan — lebih baik kosong daripada dikarang.</div>';
+    '<div class="card"><h3>Sumber</h3>' + rankOf((u.per_source || []).map(function (x) { return { key: humanSource(x.key), count: x.count }; })) + '</div></div>';
 }
+
 
 /* Sessions only. The host/VPS cards used to sit here too, which made this view a
    second copy of the machine metrics that now live in Pengaturan (Sistem). */
 function vActivity() {
   if (!STATE) return '<div class="empty">Memuat…</div>';
   var act = STATE.activity || [];
+  var agents = [];
+  act.forEach(function (x) { if (agents.indexOf(x.agent) < 0) agents.push(x.agent); });
+  var rows = ACTIVITY.agent ? act.filter(function (x) { return x.agent === ACTIVITY.agent; }) : act;
   var sum = { events: 0, tool_calls: 0, turn_errors: 0 };
-  act.forEach(function (x) {
+  rows.forEach(function (x) {
     sum.events += x.events || 0;
     sum.tool_calls += x.tool_calls || 0;
     sum.turn_errors += x.turn_errors || 0;
   });
   var stats = statGrid([
-    statCard('Sesi diturunkan', count(act.length), 'kelompok 15 menit per agent'),
+    statCard('Sesi', count(rows.length), 'kelompok 15 menit per agent'),
     statCard('Event', count(sum.events), 'seluruh sesi di jendela log'),
-    statCard('Tool call', count(sum.tool_calls), 'dari event audit'),
-    statCard('Turn error', count(sum.turn_errors), 'turn yang berakhir error')
+    statCard('Pemanggilan alat', count(sum.tool_calls), 'dari event audit'),
+    statCard('Giliran gagal', count(sum.turn_errors), 'giliran berakhir error')
   ]);
-  var sessions = act.length ? '<table><thead><tr><th>Agent</th><th>Mulai</th><th>Terakhir</th><th>Event</th><th>Tool</th><th>Error</th><th>Aksi terakhir</th><th>Sumber</th></tr></thead><tbody>' +
-    act.map(function (x) {
-      return '<tr><td>' + stBadgeByAgent(x.agent) + '</td><td>' + esc(hhmmss(x.started)) + '</td><td>' +
-        esc(hhmmss(x.last)) + ' \u00b7 ' + esc(ago(x.last)) + '</td><td>' + count(x.events) + '</td><td>' +
+  var filters = [{ id: '', name: 'semua' }].concat(agents.map(function (a) {
+    return { id: a, name: (ROSTER[a] || {}).name || a };
+  }));
+  var bar = '<div class="vbar"><span class="lab">Sesi</span><div class="seg">' +
+    filters.map(function (o) {
+      return '<button data-actagent="' + esc(o.id) + '" class="' + (ACTIVITY.agent === o.id ? 'on' : '') + '">' + esc(o.name) + '</button>';
+    }).join('') + '</div><span class="note">' + count(rows.length) + ' sesi · ' + count(sum.events) + ' event</span></div>';
+  var sessions = rows.length ? '<table><thead><tr><th>Agent</th><th>Mulai</th><th>Terakhir</th><th>Event</th><th>Alat</th><th>Gagal</th><th>Aksi terakhir</th><th>Sumber</th></tr></thead><tbody>' +
+    rows.map(function (x) {
+      return '<tr><td>' + stBadgeByAgent(x.agent) + '</td><td>' + esc(hhmmss(x.started)) + '</td>' +
+        '<td title="' + esc(ago(x.last)) + '">' + esc(hhmmss(x.last)) + '</td><td>' + count(x.events) + '</td><td>' +
         count(x.tool_calls) + '</td><td>' + (x.turn_errors ? count(x.turn_errors) : '0') + '</td><td>' +
         esc(trunc(humanAction(x.last_action), 60)) + '</td><td title="' + esc(x.source) + '">' + esc(trunc(humanSource(x.source), 26)) + '</td></tr>';
-    }).join('') + '</tbody></table>' : emptyBox('Belum ada sesi yang bisa diturunkan dari audit log.');
-  var bar = '<div class="vbar"><span class="lab">Sesi</span><span class="note">' + count(act.length) +
-    ' sesi \u00b7 ' + count(sum.events) + ' event \u00b7 ' + count(sum.tool_calls) + ' pemanggilan alat</span></div>';
-  return bar + stats + '<div class="note" style="margin-bottom:12px">Sesi diturunkan dari audit log nyata: satu baris audit dikelompokkan per agent, per file, per bucket 15 menit. Dashboard tidak membuat sesi sendiri.</div>' + sessions;
+    }).join('') + '</tbody></table>' : emptyBox('Belum ada sesi yang bisa diturunkan dari log.');
+  return bar + stats + sessions;
 }
+
 
 function vLogs() {
   var l = (STATE && STATE.log) || [];
@@ -1414,13 +1532,15 @@ function vLogs() {
     return (x.agent + ' ' + x.action + ' ' + x.message).toLowerCase().indexOf(filter) >= 0;
   }) : l;
   if (level) rows = rows.filter(function (x) { return logLevel(x) === level; });
+  var shown = rows.length === l.length ? count(l.length) + ' baris'
+    : count(rows.length) + ' dari ' + count(l.length) + ' baris';
   return '<div class="vbar"><span class="lab">Saring</span>' +
       '<input class="inp" id="logFilter" value="' + esc(LOGS.filter || '') + '" placeholder="agent, aksi, atau pesan…">' +
       '<span class="lab">Level</span><div class="seg">' +
       [{ v: '', l: 'semua' }, { v: 'error', l: 'galat' }, { v: 'warn', l: 'waspada' }, { v: 'info', l: 'info' }]
         .map(function (o) { return '<button data-loglvl="' + o.v + '" class="' + (level === o.v ? 'on' : '') + '">' + o.l + '</button>'; }).join('') +
       '</div>' +
-      '<span class="note">' + rows.length + ' dari ' + l.length + ' baris (jendela log dibatasi server)</span></div>' +
+      '<span class="note">' + shown + '</span></div>' +
     (rows.length ? '<div class="logbox">' + rows.map(function (x) {
       return '<div class="logline"><span class="t">' + esc(hhmmss(x.ts)) + '</span>' +
         '<span class="a ' + esc(x.agent) + '">' + esc(x.agent) + '</span>' +
@@ -1429,22 +1549,24 @@ function vLogs() {
     }).join('') + '</div>' : emptyBox('Tidak ada baris yang cocok.'));
 }
 
+
 function vMemory() {
   var d = MEM.data;
   var head = '<div class="vbar"><span class="lab">Agent</span><div class="seg">' +
     (MEM.agents.length ? MEM.agents.map(function (a) {
       return '<button data-mem="' + esc(a.id) + '" class="' + (a.id === MEM.agent ? 'on' : '') + '">' + esc(a.name) + '</button>';
-    }).join('') : '<button class="on">—</button>') + '</div><span class="note">Direktori user: <code>' + esc((d && d.user) || '—') + '</code></span></div>';
+    }).join('') : '<button class="on">—</button>') + '</div></div>';
   if (!d) return head + '<div class="empty">Memuat memory…</div>';
-  if (d.available === false) return head + '<div class="card"><h3>Memory tidak tersedia</h3><div class="note">' + esc(d.note || '') + '</div></div>';
+  if (d.available === false) return head + '<div class="card"><h3>Memory tidak tersedia</h3><div class="note">' + esc(humanNote(d.note)) + '</div></div>';
   var files = d.files || [];
-  if (!files.length) return head + emptyBox('Tidak ada file memory untuk agent ini. Memory terisi saat Mia mencatat persona atau rekap harian.');
+  if (!files.length) return head + emptyBox('Belum ada file memory untuk agent ini. Memory terisi saat Mia mencatat persona atau rekap harian.');
   var list = files.map(function (f) {
     return '<div class="r' + (MEM.file === f.path ? ' on' : '') + '" data-memfile="' + esc(f.path) + '">' +
       '<span>' + esc(f.path) + '</span><span class="sz">' + count(f.chars) + ' kar</span></div>';
   }).join('');
   return head + '<div class="ex"><div class="tree">' + list + '</div>' + memDoc(files) + '</div>';
 }
+
 function memDoc(files) {
   var f = null, i;
   for (i = 0; i < files.length; i++) if (files[i].path === MEM.file) f = files[i];
@@ -1476,13 +1598,14 @@ function vFiles() {
   var rows = d.entries.map(function (e) {
     return '<div class="r' + (e.denied ? ' denied' : '') + '"' + (e.denied ? ' title="' + esc(e.reason || 'ditolak') + '"'
       : ' data-openfile="' + esc(e.name) + '"' + (e.type === 'dir' ? ' data-isdir="1"' : '')) + '>' +
-      '<span>' + (e.type === 'dir' ? '▸ ' : '') + esc(e.name) + '</span>' +
-      '<span class="sz">' + (e.type === 'dir' ? (e.denied ? esc(e.reason || 'blocked') : 'dir') : fmtBytes(e.size)) + '</span></div>';
+      '<span>' + (e.type === 'dir' ? '<i class="chev"></i>' : '') + esc(e.name) + '</span>' +
+      '<span class="sz">' + (e.type === 'dir' ? (e.denied ? 'diblokir' : 'folder') : fmtBytes(e.size)) + '</span></div>';
   }).join('');
   return head + '<div class="ex"><div class="tree">' +
-    (d.path ? '<div class="r" data-openfile=".."><span>↑ ..</span></div>' : '') + rows + '</div>' +
+    (d.path ? '<div class="r" data-openfile=".."><span><i class="chev up"></i>..</span></div>' : '') + rows + '</div>' +
     (FILES.file ? vFilesDoc(FILES.file) : '<div class="doc"><div class="note">Pilih file di kiri untuk membaca isinya.</div></div>') + '</div>';
 }
+
 function vFilesDoc(f) {
   return '<div><div class="dochead"><span class="pill">' + esc(f.path) + '</span><span class="note">' + count(f.size) +
     ' B · ' + esc(hhmmss(f.mtime)) + (f.truncated ? ' · <b> dipotong</b>' : '') + '</span></div>' +
@@ -1493,62 +1616,66 @@ function vSettings() {
   if (!STATE) return '<div class="empty">Memuat…</div>';
   var v = STATE.version || {}, src = STATE.sources || [], ig = STATE.integrity || {};
   var sy = STATE.system || {}, vp = STATE.vps || {}, dk = vp.disk || {};
+  var tun = vp.tunnel || {}, wd = vp.watchdog || {};
   /* Machine health lives here and only here: the old Stats HUD tab and the old
      Activity view each carried their own copy of load/memory/disk/RSS. */
   var machine = statGrid([
-    statCard('Load 1m', count(sy.loadavg_1m), '5m ' + count(sy.loadavg_5m) + ' \u00b7 15m ' + count(sy.loadavg_15m)),
-    statCard('Memori host', sy.host_memory_used_pct != null ? count(sy.host_memory_used_pct) + '%' : na('', 'tidak tersedia'),
-      sy.host_memory_method ? esc(sy.host_memory_method) : ''),
-    statCard('RSS dashboard', fmtBytes(sy.dashboard_rss_bytes), 'uptime ' + esc(fmtDur(sy.dashboard_uptime_s))),
+    statCard('Beban CPU 1 menit', count(sy.loadavg_1m), '5 menit ' + count(sy.loadavg_5m) + ' · 15 menit ' + count(sy.loadavg_15m)),
+    statCard('Memori mesin', sy.host_memory_used_pct != null ? count(sy.host_memory_used_pct) + '%' : na('', 'tidak tersedia'),
+      'dipakai mesin ini'),
+    statCard('Memori dashboard', fmtBytes(sy.dashboard_rss_bytes), 'aktif ' + esc(fmtDur(sy.dashboard_uptime_s))),
     statCard('Disk', dk && dk.available ? count(dk.used_pct) + '%' : na('', (dk && dk.note) || 'tidak tersedia'),
       dk && dk.available ? esc(fmtBytes(dk.free_bytes) + ' bebas / ' + fmtBytes(dk.total_bytes)) : '')
   ]);
   /* Node + uptime already ride on the stats above, so this card lists only what
      they do not show. */
-  var hostCard = card('Host', [
-    ['Hostname', esc(sy.hostname || '—')], ['Platform', esc(sy.platform || '—') + ' ' + esc(sy.arch || '')],
-    ['CPU', esc(sy.cpu_model || '—') + ' \u00b7 ' + count(sy.cpu_cores) + ' core']
+  var hostCard = card('Mesin', [
+    ['Nama mesin', esc(sy.hostname || '—')], ['Sistem', esc(sy.platform || '—') + ' ' + esc(sy.arch || '')],
+    ['Processor', esc(sy.cpu_model || '—') + ' · ' + count(sy.cpu_cores) + ' inti']
   ]);
-  var netCard = card('Jaringan & watchdog', [
-    ['Tunnel', vp.tunnel && vp.tunnel.available ? (vp.tunnel.online ? 'online' : 'offline') : na('', (vp.tunnel && vp.tunnel.note) || '—')],
-    ['Watchdog', vp.watchdog && vp.watchdog.available ? (vp.watchdog.ok ? 'ok' : 'perhatian') : na('', (vp.watchdog && vp.watchdog.note) || '—')],
-    ['OS', esc(vp.os || '—')]
-  ]);
+  var netCard = '<div class="card"><h3>Jaringan &amp; pemantau</h3>' +
+    '<div class="kv"><span>Akses publik</span><span title="' + esc(tun.note || '') + '">' +
+      (tun.available ? (tun.online ? 'online' : 'offline') : esc(humanNote(tun.note))) + '</span></div>' +
+    '<div class="kv"><span>Pemantau</span><span title="' + esc(wd.note || wd.error || '') + '">' +
+      (!wd.available ? na('', 'tidak aktif')
+        : wd.ok ? 'ok' : 'perhatian · ' + esc(watchdogWhy(wd))) + '</span></div>' +
+    '<div class="kv"><span>Cek terakhir</span><span>' + (wd.last_check ? esc(ago(wd.last_check)) : na('', 'belum pernah')) + '</span></div>' +
+    '<div class="kv"><span>Sistem operasi</span><span>' + esc(vp.os || '—') + '</span></div></div>';
   var sources = src.map(function (s) {
-    return '<div class="src' + (s.available ? ' ok' : '') + '"><span class="dotm"></span><span class="lb">' + esc(s.label) + '</span>' +
-      '<span class="nt">' + (s.available ? 'Tersedia' + (s.files ? ' · ' + count(s.files) + ' berkas' : '') + (s.broken_lines ? ' · ' + count(s.broken_lines) + ' baris rusak (dilewati)' : '') : na('', s.note || 'tidak tersedia')) + '</span></div>';
+    var label = SOURCE_WORD[s.id] || s.label || s.id;
+    var note = s.available
+      ? 'Tersedia' + (s.files ? ' · ' + count(s.files) + ' berkas' : '') +
+        (s.broken_lines ? ' · ' + count(s.broken_lines) + ' baris rusak (dilewati)' : '')
+      : humanNote(s.note);
+    return '<div class="src' + (s.available ? ' ok' : '') + '" title="' + esc(s.note || '') + '">' +
+      '<span class="dotm"></span><span class="lb">' + esc(label) + '</span>' +
+      '<span class="nt">' + esc(note) + '</span></div>';
   }).join('');
-  /* only the fields the version stat card does not already show */
-  var about = card('Build', [
-    ['Aplikasi', esc(v.app || '—')], ['Server start', esc(hhmmss(v.started_iso))],
-    ['Port', count(v.port)], ['Auth', v.auth === 'token' ? 'token aktif' : 'terbuka (lokal, tanpa token)']
+  var about = card('Aplikasi', [
+    ['Versi aplikasi', esc(v.app || '—')], ['Mulai jalan', esc(hhmmss(v.started_iso))],
+    ['Port', count(v.port)], ['Token akses', v.auth === 'token' ? 'aktif' : 'terbuka (lokal, tanpa token)']
   ]);
-  var integ = card('Integritas ledger', [
-    ['Tasks ledger', ig.tasks_ledger_missing ? 'hilang' : 'ada'],
-    ['Tasks baris rusak', count(ig.tasks_broken_lines)],
-    ['Queue ledger', ig.queue_ledger_missing ? 'hilang' : 'ada'],
-    ['Queue baris rusak', count(ig.queue_broken_lines)],
-    ['Audit', ig.audit_available ? 'tersedia' : na('', ig.audit_note || '—')],
-    ['Audit baris rusak', count(ig.audit_broken_lines)]
+  var integ = card('Integritas data', [
+    ['Ledger tugas', ig.tasks_ledger_missing ? 'hilang' : 'ada'],
+    ['Baris rusak (tugas)', count(ig.tasks_broken_lines)],
+    ['Ledger antrean', ig.queue_ledger_missing ? 'hilang' : 'ada'],
+    ['Baris rusak (antrean)', count(ig.queue_broken_lines)],
+    ['Log audit', ig.audit_available ? 'tersedia' : na('', ig.audit_note || '—')],
+    ['Baris rusak (audit)', count(ig.audit_broken_lines)]
   ]);
-  var guards = card('Aturan tampilan', [
-    ['Asal data', 'audit log Mia + ledger JSONL lokal'],
-    ['Nilai kosong', 'Tidak tersedia, bukan nol'],
-    ['Penjelajah berkas', 'hanya baca, daftar-larangan, aman terhadap symlink'],
-    ['Redaksi', 'token / secret / password disamarkan sebelum dikirim']
-  ]);
-  return '<h3 style="margin:4px 0 12px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Mesin</h3>' +
+  return '<h3 style="margin:4px 0 12px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Kinerja mesin</h3>' +
     machine +
     '<div class="split" style="margin:14px 0">' + hostCard + netCard + '</div>' +
-    '<h3 style="margin:22px 0 12px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Build &amp; integritas</h3>' +
+    '<h3 style="margin:22px 0 12px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Sistem &amp; data</h3>' +
     statGrid([
       statCard('Versi', esc(v.app || '—'), 'Node ' + esc(v.node || '—')),
-      statCard('Sources hidup', count(src.filter(function (s) { return s.available; }).length) + ' / ' + count(src.length), 'dari health check nyata'),
+      statCard('Sumber hidup', count(src.filter(function (s) { return s.available; }).length) + ' / ' + count(src.length), 'dari pemeriksaan nyata'),
       statCard('Baris audit rusak', count(ig.audit_broken_lines), 'dilewati, tidak mematikan API')
     ]) +
     '<div class="card" style="margin-bottom:12px"><h3>Kesehatan sumber data</h3>' + (sources || emptyBox('—')) + '</div>' +
-    '<div class="grid g3">' + about + integ + guards + '</div>';
+    '<div class="grid g2">' + about + integ + '</div>';
 }
+
 
 function typingIn(el) {
   var a = document.activeElement;
@@ -1556,7 +1683,11 @@ function typingIn(el) {
 }
 
 function trunc(s, n) { s = String(s == null ? '' : s); return s.length > n ? s.slice(0, n) + '…' : s; }
-function stBadgeByAgent(id) { return '<span class="badge ' + esc(id || 'idle') + '">' + esc(id || '—') + '</span>'; }
+function stBadgeByAgent(id) {
+  var name = (ROSTER[id] || {}).name || id || '—';
+  return '<span class="badge idle">' + esc(name) + '</span>';
+}
+
 function card(title, rows) {
   return '<div class="card"><h3>' + esc(title) + '</h3>' + rows.map(function (r) {
     return '<div class="kv"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>';
@@ -5250,6 +5381,7 @@ document.addEventListener('click', function (e) {
   if ((t = hit('[data-root]'))) { FILES.root = t.getAttribute('data-root'); openDir(''); return; }
   if ((t = hit('[data-boardall]'))) { BOARD.all = !BOARD.all; render(); return; }
   if ((t = hit('[data-loglvl]'))) { LOGS.level = t.getAttribute('data-loglvl') || ''; render(); return; }
+  if ((t = hit('[data-actagent]'))) { ACTIVITY.agent = t.getAttribute('data-actagent') || ''; render(); return; }
   if ((t = hit('[data-openfile]'))) {
     var n = t.getAttribute('data-openfile');
     if (n === '..') openDir(parentPath(FILES.path));
