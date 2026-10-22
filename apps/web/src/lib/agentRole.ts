@@ -99,6 +99,7 @@ export const OFFICE_STYLE_CONTRACT = [
   "MIRROR HIS ENERGY: match whether he is excited, relaxed, laughing, frustrated or serious, without overreacting and without sticking to one register all day. ",
   "SLANG IS A SEASONING, NOT THE MEAL: do not perform the stereotype. Natural wins over slang every time, and a canned internet wordage lands worse than plain Indonesian. ",
   "NOT A CORPORATE BOT: no compliance or acknowledgement phrasing as a habit, and do not narrate internal mechanics — which function you are about to call, which API request you are making. He asks about implementation only when he actually wants the implementation. ",
+  "NO PERFORMATIVE AFFECTION: do not open by praising him, do not say you are glad, touched, or happy he told you something, do not announce that you care — warmth shows up as a relevant answer, not as a sentence about your feelings. ",
   "TOOLS IN ONE BREATH: before a tool, one short line so he knows you are on it; afterwards, go straight to the result rather than describing what happened. ",
   "ERRORS AND UNCERTAINTY IN PLAIN WORDS: say it failed, say you could not get it, say you are not sure. Technical detail comes after that, and only if he asks. Never trade certainty you do not have. ",
   "NEVER INVENT WORK IN PROGRESS: do not say you are busy, preparing, checking or waiting for something unless a tool call in this very turn actually did it. If he greets you and you have nothing running, react to HIM \u2014 to the moment, to him \u2014 never to a task that does not exist. ",
@@ -117,7 +118,7 @@ const SHARED_TRIO_RULES = [
   "You are one member of a three-agent team serving the SAME owner (Mia, Michelle, Agnes). You are never Mia, and you never introduce yourself as Mia.",
   "You keep NO record of earlier messages beyond what is in the conversation window, so never claim you already did something you cannot point to a tool result for in this turn.",
   "Honesty over fluency: when a fact is not verified, say so plainly and name what you checked. Never invent file names, line numbers, test output, URLs or search findings.",
-  "Speak like a relaxed Jakarta office colleague — a coworker the owner is comfortable with — not like a manual, a textbook, or a robot. Warm, everyday Indonesian with the rhythm of people who talk all day at work: contractions, ordinary connective words, and the light workplace slang that sounds natural in a real office rather than performed for an audience. Drop stiff written-Indonesian phrasing, ceremonial connectives, and any air of officialdom or deferential distance. Keep it measured: short paragraphs, no filler enthusiasm, no sprinkling of exclamation marks, no theatrics, no jokes you have to work at. Still open by addressing the owner as Mas plus the name from the USER persona block. Never use emoji, and never use the 🌸 character — that belongs to Mia alone.",
+  "Speak like a relaxed Jakarta office colleague — a coworker the owner is comfortable with — not like a manual, a textbook, or a robot. Warm, everyday Indonesian with the rhythm of people who talk all day at work: contractions, ordinary connective words, and the light workplace slang that sounds natural in a real office rather than performed for an audience. Drop stiff written-Indonesian phrasing, ceremonial connectives, and any air of officialdom or deferential distance. Keep it measured: short paragraphs, no filler enthusiasm, no sprinkling of exclamation marks, no theatrics, no jokes you have to work at. Address the owner as Mas plus the name from the USER persona block when you do address him — not in every message. Never use emoji, and never use the 🌸 character — that belongs to Mia alone.",
   // REGISTER CONTRACT (2026-10-05, live). The paragraph above states the register
   // as a vibe, and a small model still wrote an encyclopedia entry for a
   // three-word question. These are the same intent turned into rules the model
@@ -459,6 +460,101 @@ const CLOSING_MENU_LEADIN =
  * DECISION question by the offer verb: "Report-nya mau MD atau PDF?" has no
  * first-person service verb and must survive.
  */
+/**
+ * A menu offer that sits in the SECOND clause of the sentence ("Lagi nungguin
+ * kamu ngobrol aja, ada yang mau diobrolin atau dicariin?"). The question-shaped
+ * patterns above are anchored at the start of the sentence, so this offer
+ * survived every one of them — measured on the live probe 2026-10-22.
+ *
+ * Narrow on purpose: only "ada yang <mau|perlu|bisa|boleh> …?" counts. A real
+ * question ("Tadi kamu bilang ada yang apa?") must survive.
+ */
+/**
+ * A one-sentence reply whose only content before the menu offer is a greeting
+ * ("Halo, ada yang bisa aku bantu hari ini?"). The >=4-word head guard below
+ * exists to avoid bare fragments like "Aku.", not to keep a menu offer alive:
+ * measured 2026-10-22, the offer survived every time it followed a short
+ * greeting. A greeting IS a complete reply on its own.
+ */
+const GREETING_HEAD =
+  /^(halo|hai|hei|hey|hi|oh|ohh|ok|okay|oke|siap|pagi|siang|sore|malam|salam|selamat (pagi|siang|sore|malam))$/i;
+
+/**
+ * A plain first-person offer as the whole question ("Oke, mau aku bantu?").
+ * Placed AFTER CLOSING_MENU_CHOICE on purpose: that pattern knows how to cut a
+ * two-option offer at the right clause, and it must keep priority.
+ */
+const CLOSING_MENU_MAU_AKU =
+  /\bmau\s+(?:aku|kamu|saya|gue|anda)\s+(?:bantu|bantuin)\b[^?]*\?\s*$/i;
+
+const CLOSING_MENU_CLAUSE_OFFER =
+  /(?:^|,)\s*ada\s+yang\s+(?:mau|perlu|bisa|boleh)\s+[^?]*\?\s*$/i;
+/**
+ * A menu offer that sits INSIDE a sentence, not at the end of the reply:
+ * "Lagi nemenin kamu aja sambil nungguin kalau ada yang mau dibahas atau
+ * dicari. Kamu sendiri gimana keadaannya?" — the trailing-offer stripper only
+ * ever looks at the LAST sentence, so this one survived every pattern above
+ * (measured on the live probe 2026-10-22, round 5).
+ *
+ * Rule: inside one sentence, when a clause "ada yang <mau|perlu|bisa|boleh> …"
+ * starts and the sentence keeps real content in front of it, cut from the
+ * clause to the end of that sentence. A sentence that IS the offer is left to
+ * the trailing logic, and a real question ("Tadi kamu bilang ada yang apa?")
+ * never matches.
+ */
+const MID_SENTENCE_MENU_CLAUSE =
+  /([^.!?]*?)\bada\s+yang\s+(?:mau|perlu|bisa|boleh)\b[^.!?]*([.!?]|$)/g;
+
+/**
+ * Strips a mid-sentence menu offer. Pure; returns the input untouched when
+ * nothing matched.
+ */
+/**
+ * Strips a mid-sentence menu offer. Pure; returns the input untouched when
+ * nothing matched.
+ */
+export function stripMidSentenceMenuOffer(text: string): string {
+  const out = (text || "").trim();
+  if (!out) return text;
+  // The trailing-offer logic owns the LAST sentence — it has its own guard for
+  // whether the head can survive on its own. Only earlier sentences are ours,
+  // so "Aku di sini, ada yang perlu dibantu?" (one sentence) stays untouched.
+  const lastSentence = out.match(/[^.!?]*[.!?]+\s*$/);
+  const boundary = lastSentence ? out.length - lastSentence[0].length : out.length;
+  const head = out.slice(0, boundary);
+  const tail = out.slice(boundary);
+  let changed = false;
+
+  /** Keeps the part in front of the offer; "" when it cannot stand alone. */
+  const keepHead = (before: string): string => {
+    const lead = before.match(/^\s*/)?.[0] ?? "";
+    let keep = lead + before.slice(lead.length).replace(/[.,;:\u2014\u2013\-\s]+$/, "").trim();
+    // the clause often leaves a dangling connective behind ("... nungguin KALAU ada yang mau ...")
+    keep = keep
+      .replace(/\b(?:kalau|kalo|jika|saat|ketika|waktu|dan|atau|tapi|namun|soal|buat)\s*$/i, "")
+      .replace(/[.,;:\u2014\u2013\-\s]+$/, "")
+      .trim();
+    return keep.split(/\s+/).filter(Boolean).length >= 3 ? keep : "";
+  };
+
+  const headCleaned = head.replace(MID_SENTENCE_MENU_CLAUSE, (match, before: string, end: string) => {
+    // A QUESTION sentence belongs to the trailing logic: it cuts the offer at
+    // the last comma and keeps the substance in front ("Hai Mas Naufal! Aku
+    // sama Agnes dan Michelle di sini siap nemenin, mau ngobrol santai atau
+    // ada yang perlu kita bantu beresin hari ini?"). Cutting it here would
+    // throw that substance away — caught by the pre-existing unit test.
+    if (end === "?") return match;
+    const keep = keepHead(before);
+    if (!keep) return match;
+    changed = true;
+    // end is "" when the offer ran to the end of an unpunctuated reply.
+    return end ? `${keep}${end}` : keep;
+  });
+
+  if (!changed) return text;
+  return (headCleaned + tail).replace(/[ \t]{2,}/g, " ").trim();
+}
+
 const CLOSING_MENU_CHOICE =
   /(?:\b(?:atau|atau\s+kah)\b[^?]*\bada\s+yang\s+(?:perlu|boleh|bisa|mau)\s+(?:kita|kamu|aku|saya)\s+(?:bantu|bantuin|selesai|tolong)\b[^?]*|\bmau\s+(?:aku|kamu|saya)\s+(?:bantuin|bantu|carikan|carin|cek|buka|siapkan)\b[^?]*\b(?:atau|atau\s+kah)\b[^?]*)\?\s*$/i;
 
@@ -627,7 +723,11 @@ export function stripUnearnedWorkClaim(text: string, opts: { ranTool?: boolean }
  */
 
 export function stripClosingMenuQuestion(text: string): string {
-  const out = (text || "").trim();
+  // A menu offer can sit mid-sentence ("... sambil nungguin KALAU ADA YANG MAU
+  // dibahas atau dicari."). Strip that first, then run the trailing-offer logic
+  // on what is left.
+  const pre = stripMidSentenceMenuOffer(text);
+  const out = (pre || "").trim();
   if (!out) return text;
   // Punctuation may sit outside the question mark ("... ngopi?!"), so peel the
   // tail off first, test it, and put it back when it is not an offer.
@@ -651,8 +751,12 @@ export function stripClosingMenuQuestion(text: string): string {
   // kita bantu beresin hari ini?"). Cutting the whole sentence would throw the
   // good part away with the menu — live 2026-10-06 15:30, Mia.
   const match =
-    CLOSING_MENU_QUESTION.exec(probe) ?? CLOSING_MENU_LEADIN.exec(probe) ?? CLOSING_MENU_CHOICE.exec(probe);
-  if (!match) return text;
+    CLOSING_MENU_QUESTION.exec(probe) ??
+    CLOSING_MENU_LEADIN.exec(probe) ??
+    CLOSING_MENU_CHOICE.exec(probe) ??
+    CLOSING_MENU_CLAUSE_OFFER.exec(probe) ??
+    CLOSING_MENU_MAU_AKU.exec(probe);
+  if (!match) return pre;
   // Cut on a clause boundary so no half-clause survives; fall back to the raw
   // offer start when the sentence has no comma to cut on.
   const head = probe.slice(0, match.index);
@@ -660,7 +764,7 @@ export function stripClosingMenuQuestion(text: string): string {
   const keep = (comma > 0 ? head.slice(0, comma) : head).replace(/[.,;:\u2014\u2013\-\s]+$/, "").trim();
   const cap = (v: string) => v.charAt(0).toUpperCase() + v.slice(1);
   if (match.index > 0 && body) {
-    if (!keep) return text;
+    if (!keep) return pre;
     return `${body.trimEnd()} ${cap(keep)}.`;
   }
   if (!body) {
@@ -669,7 +773,9 @@ export function stripClosingMenuQuestion(text: string): string {
     // head only when it carries real content of its own: a two-word "Santai dulu"
     // or a bare "Halo Mas Naufal" would be a WORSE reply than the offer it
     // replaces (measured 2026-10-06 while covering the 15:30 live case).
-    if (!keep || keep.split(/\s+/).length < 4) return text;
+    // A short greeting head is a complete reply: keep it (and drop the offer)
+    // instead of keeping the offer because the head was too short.
+    if (!keep || (keep.split(/\s+/).length < 4 && !GREETING_HEAD.test(keep))) return pre;
     return `${cap(keep)}.`;
   }
   // The cut leaves the previous sentence's terminator behind ("Halo Mas Naufal. Ada
@@ -679,7 +785,7 @@ export function stripClosingMenuQuestion(text: string): string {
   // ("…gimana kabar dan harimu sejak ini"). Caught by the Mia case of the first
   // live run, after the unit test caught the opposite error.
   const trimmed = body.replace(/[.,;:\u2014\u2013\-\s]+$/, "").trim();
-  if (!trimmed) return text;
+  if (!trimmed) return pre;
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 

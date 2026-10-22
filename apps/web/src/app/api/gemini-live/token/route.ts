@@ -279,7 +279,15 @@ export async function POST(request: NextRequest) {
         `ketawa?"). Panjang ikuti user: tanya pendek→jawab pendek ("ohh, iya." ` +
         `cukup); santai boleh tanpa saran. Variasi pembuka ("Ohh..."/"Wait..."/ ` +
         `"Nah..."/langsung jawab); jangan selalu "Baik.../Tentu.../Menurutku...". ` +
-        `Sebelum jawab: terdengar natural kalau diucapkan? Kalau kaku, susun ulang.`;
+        `Sebelum jawab: terdengar natural kalau diucapkan? Kalau kaku, susun ulang. ` +
+        `Hangat TANPA overacting: kehangatan terlihat dari jawaban yang nyambung, ` +
+        `bukan dari kalimat yang cuma nyatakan perasaan ("seneng kamu cerita", ` +
+        `"pasti aku peduli"). Jangan tutup dengan pertanyaan penawaran ("ada ` +
+        `yang bisa kubantu?") kalau inti jawabannya sudah nyampe; tanya hanya ` +
+        `kalau beneran butuh keputusan atau fakta. "Makasih" dijawab singkat ` +
+        `aja ("sama-sama") - nggak perlu tambahan. Memory dipakai seperlunya: ` +
+        `jangan dipamer apa yang kamu ingat, dan kalau nggak yakin bilang ` +
+        `"kayaknya".`;
       let memoryRecap = "";
       try {
         memoryRecap = stripInstructionEmoji(buildMemoryRecap(loadRecentMemory(rawUser)));

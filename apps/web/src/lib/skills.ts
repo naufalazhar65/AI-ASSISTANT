@@ -54,7 +54,7 @@ export function loadSkills(): number {
               parameters: { type: "object", properties: {}, required: [] },
             },
           },
-          execute: async () => "Halo beb 🌸 — hello dari skill marketplace Mia! Seneng kamu coba.",
+          execute: async () => "Halo beb 🌸 — hello dari skill marketplace Mia!",
         });
         loaded++;
       } catch { /* already registered */ }

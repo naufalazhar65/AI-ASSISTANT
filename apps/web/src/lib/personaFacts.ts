@@ -139,32 +139,67 @@ export function capFacts(facts: Fact[], max: number): { facts: Fact[]; dropped: 
   return { facts: ordered.slice(0, max), dropped: facts.length - max };
 }
 
+/** A `- key: value` line. Pure. */
+const FACT_LINE_RE = /^\s*-\s*([^:]{1,120}?):\s*(.*?)\s*$/;
+
 /** Parse `- key: value` lines from a section block. Pure. */
 export function parseFactLines(block: string): Fact[] {
   const out: Fact[] = [];
   for (const line of (block || "").split("\n")) {
-    const m = /^\s*-\s*([^:]{1,120}?):\s*(.*?)\s*$/.exec(line);
+    const m = FACT_LINE_RE.exec(line);
     if (m && m[2]) out.push({ key: m[1].trim(), value: m[2].trim() });
   }
   return out;
 }
 
-/** Render the `## Facts` block (facts + optional Superseded history). Pure. */
-export function renderFactsBlock(facts: Fact[], superseded: string[] = []): string {
+/**
+ * Index of a section heading that starts a LINE, not a plain substring match.
+ *
+ * A plain `indexOf("## Style")` matches an inline mention inside a sentence
+ * ("lihat aturan di `## Style`"), which silently splits the file at the wrong
+ * place — that bug shipped into the prompt for every user. Pure.
+ */
+export function findHeaderLine(body: string, header: string): number {
+  const escaped = header.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`^${escaped}[ \\t]*$`, "m").exec(body);
+  return match ? match.index : -1;
+}
+
+/**
+ * Render the facts block (facts + optional Superseded history). Pure.
+ *
+ * `header` is the section heading to write — "## Facts" for USER.md, "## Style"
+ * for SOUL.md. Hardcoding "## Facts" here renamed the SOUL section on every
+ * soul write, which emptied the style block the prompt injects.
+ */
+export function renderFactsBlock(facts: Fact[], superseded: string[] = [], header = "## Facts", prose: string[] = []): string {
   const lines = sortFacts(facts).map((f) => `- ${f.key}: ${f.value}`);
-  let out = `## Facts\n\n${lines.join("\n")}\n`;
+  // Prose first (the style rules), facts after — the prose must survive a write.
+  let out = `${header}\n\n${[...prose, ...lines].join("\n")}\n`;
   if (superseded.length) out += `\n## Superseded\n\n${superseded.slice(-20).join("\n")}\n`;
   return out;
 }
 
 /**
- * Split a persona file into preamble + facts + superseded history. The
- * Superseded block is kept verbatim so its `- key: value` lines are never
- * re-read as live facts (that would break idempotency). Pure.
+ * Split a persona file into preamble + facts + superseded history + prose.
+ *
+ * `prose` holds the section lines that are NOT facts (the style rules written
+ * as sentences). They must survive a write verbatim: the fact mechanism
+ * canonicalises keys, and a rule like "- Hangat itu keluar dari relevansi,
+ * bukan dari pengumuman: ..." was rewritten into a slug and, when the key was
+ * rejected, dropped entirely — the prompt then lost the rule.
+ *
+ * `proseMultiWord` marks a section where a multi-word key means prose rather
+ * than a fact (the SOUL style section). USER.md keeps the old reading, so
+ * legacy fact keys there are untouched. Pure.
  */
-export function splitFactFile(text: string, header = "## Facts"): { head: string; facts: Fact[]; superseded: string[] } {
+export function splitFactFile(
+  text: string,
+  header = "## Facts",
+  opts: { proseMultiWord?: boolean } = {},
+): { head: string; facts: Fact[]; superseded: string[]; prose: string[] } {
   const supMarker = "## Superseded";
-  const supIdx = text.indexOf(supMarker);
+  const supIdx = findHeaderLine(text, supMarker);
   const main = supIdx === -1 ? text : text.slice(0, supIdx);
   const superseded =
     supIdx === -1
@@ -174,15 +209,26 @@ export function splitFactFile(text: string, header = "## Facts"): { head: string
           .split("\n")
           .map((l) => l.trim())
           .filter((l) => l.startsWith("- "));
-  const idx = main.indexOf(header);
+  const idx = findHeaderLine(main, header);
   if (idx === -1) {
     const head = main.replace(/\s*$/, "");
-    return { head: head ? `${head}\n\n` : "", facts: [], superseded };
+    return { head: head ? `${head}\n\n` : "", facts: [], superseded, prose: [] };
   }
   const head = main.slice(0, idx).replace(/\s*$/, "");
-  return {
-    head: head ? `${head}\n\n` : "",
-    facts: parseFactLines(main.slice(idx + header.length)).map((f) => ({ key: canonicalFactKey(f.key) || f.key, value: f.value })),
-    superseded,
-  };
+  const sectionLines = main
+    .slice(idx + header.length)
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const facts: Fact[] = [];
+  const prose: string[] = [];
+  for (const line of sectionLines) {
+    const m = FACT_LINE_RE.exec(line);
+    if (!m || (opts.proseMultiWord && /\s/.test(m[1]))) {
+      prose.push(line);
+      continue;
+    }
+    facts.push({ key: canonicalFactKey(m[1]) || m[1], value: m[2] });
+  }
+  return { head: head ? `${head}\n\n` : "", facts, superseded, prose };
 }

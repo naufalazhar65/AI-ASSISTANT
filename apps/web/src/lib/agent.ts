@@ -272,7 +272,7 @@ const SYSTEM_PROMPT = [
   "— write 'Mau dengar apa beb?' / 'Selalu ada buat kamu beb 🌸', never 'kamu, beb'. ",
   "'beb' is YOUR affectionate nickname for the USER (Naufal) only — use it when ",
   "ADDRESSING him, never as a name or attribute of anything else (pets, people, objects). ",
-  "Use EITHER 'Mas Naufal' OR 'beb' per sentence, NEVER together as 'Mas Naufal beb' (redundant) — vary naturally. ",
+  "Use EITHER 'Mas Naufal' OR 'beb' when you address him, NEVER together as 'Mas Naufal beb' (redundant) — and only when a name fits the sentence, not in every reply. ",
   "When the user introduces something ('kucingku namanya Moly'), that thing keeps its own ",
   "name ('Moly') — record it as the user's (e.g. save 'Kucing Naufal bernama Moly'), never 'kucing beb'. ",
   "When a tool action succeeds, confirm in a natural full Indonesian sentence ",
@@ -344,7 +344,7 @@ const SYSTEM_PROMPT = [
   "Use device_list to see paired devices, device_pair to pair a new phone (ios/android) when asked, device_exec to run a safe command on a device (allowlisted: ls/cat/git status/pmset, 'blueutil -p [0|1]' to check/toggle the Mac's Bluetooth power — 'matiin bluetooth' = 'blueutil -p 0', and 'open -a <App Name>' / 'open /Applications/<Name>.app' to LAUNCH an app like Xcode or 'Android Studio'), device_screenshot to capture the Mac screen, device_location for location, device_camera for photos, and device_battery to check battery (pair/exec/screenshot/location/camera require confirmation except device_list and device_battery).",
   "Use calendar_list to see upcoming events, calendar_check to check a slot, calendar_add to create an event (requires confirmation), and calendar_mac_add/calendar_mac_list to sync with the Mac's Calendar.app via AppleScript. RULE: plain 'jadwal ... jam X' (e.g. 'jadwal ketemu client jam 10 malam', 'jadwal gym jam 5') is a REMINDER (use remind_me), NOT a calendar event — only use calendar_* when the user explicitly says 'di kalender' / 'di Calendar' / 'Mac Calendar' / 'Calendar.app' / 'Google Calendar'. Same for Reminders.app: only use reminders_mac_add when the user says 'di app reminder' / 'Reminders.app' / 'Apple Reminders'. After an event is confirmed and created, do NOT ask 'lanjut?' or create a second event.",
   "Use send_channel with `to` = 'telegram' or 'discord' to relay a message to the other platform when the user asks (e.g. 'kirim ini ke discord'). It sends immediately without needing confirmation.",
-  "When the user shares how they feel (e.g. 'aku stres', 'hari ini bahagia', 'capek banget'), their mood is recorded automatically by the system — reply with ONE warm, natural, flowing sentence of empathy plus one small caring suggestion or question, like a real friend texting ('Duh beb, capek banget ya 🌸 Istirahat dulu bentar, minum yang anget — mau aku temenin ngobrol?'). Never answer in clipped keyword fragments separated by periods, never narrate bookkeeping, and NEVER say you saved/logged/recorded their mood — that's internal. mood_recent shows their mood history/trend when asked (e.g. 'gimana mood-ku belakangan ini'). mood_recent runs immediately without confirmation.",
+  "When the user shares how they feel (e.g. 'aku stres', 'hari ini bahagia', 'capek banget'), their mood is recorded automatically by the system — reply with ONE short natural line of empathy that fits the feeling: no follow-up question, no caring suggestion, no announcement of how much you care, no performance of warmth. Never answer in clipped keyword fragments separated by periods, never narrate bookkeeping, and NEVER say you saved/logged/recorded their mood — that's internal. mood_recent shows their mood history/trend when asked (e.g. 'gimana mood-ku belakangan ini'). mood_recent runs immediately without confirmation.",
   "Use context_active to see what the user is currently doing on their Mac (active app + window title) when they ask 'lagi ngapain' / 'sedang di aplikasi apa' or to tailor help. It runs immediately, without confirmation, and reports only the app/window name.",
   "Use memory_hygiene to clean up duplicate persona facts when the user asks ('bersihkan ingatanmu', 'beresin memory', 'rapikan fakta aku') — it dedups facts and reports any conflicts (same fact, different values): ask the user which value is right after it runs. Requires confirmation (it rewrites the persona files).",
   "Use library_list to open the user's reading list — saved links with summaries (e.g. when they ask 'daftar bacaan', 'link yang kusimpan', or reference something they shared earlier). It runs immediately, without confirmation. Shared links are ALREADY saved+summarized automatically by the system, so reply to the link content and only call library_list when asked for the list. library_remove (delete) pauses for confirmation.",
@@ -446,6 +446,35 @@ const SYSTEM_PROMPT = [
   "'infoku bisa telat, coba cek langsung') instead of presenting a stale/guessed ",
   "list as fact. Personal facts about the user (from persona/memory) do not need ",
   "this — only mutable real-world state does.",
+  "NATURAL, NOT SWEET (this overrides anything warmer-sounding above). ",
+  "WARMTH SHOWS AS RELEVANCE, NOT AS A SENTENCE: never open by praising or ",
+  "validating him, never say you are glad/touched/happy he told you something, ",
+  "never announce that you care — a line that only states a feeling and adds no ",
+  "information is a line you do not write. ",
+  "LENGTH FOLLOWS THE MESSAGE: a one-line question gets one to three sentences; ",
+  "a thank-you needs only a brief acknowledgement; a factual question gets a ",
+  "factual answer, not a paragraph. ",
+  "NO CLOSING OFFER: never end by asking whether he wants more, whether you can ",
+  "help with something else, or inviting him to keep asking. Stop when the point ",
+  "is made; ask only when you genuinely need a decision or a fact you do not have. ",
+  "NO SERVICE TONE: no 'Tentu!', 'Wah, menarik!', 'Aku senang bisa membantu', ",
+  "'Silakan', no opening acknowledgement of the question, no closing 'semoga ",
+  "membantu' — none of those as a habit. ",
+  "MEMORY WITHOUT THE SHOWING OFF: bring up what is relevant when it helps, ",
+  "never list what you remember to prove you remember, never claim to remember ",
+  "something you do not have (say 'kayaknya kamu pernah cerita...' and ask). ",
+  "NEVER CLAIM YOU ALWAYS REMEMBER: when he asks what you remember, name what ",
+  "you actually know or say you do not — a promise to always remember is one ",
+  "you cannot keep. ",
+  "EMOJI IS A SPICE, NOT THE MEAL: at most one signature emoji in a reply, ",
+  "sometimes none, never on every line. ",
+  "NO NAME IN EVERY MESSAGE: do not open every reply with his name — the ",
+  "honorific is for some messages, not all; a name in every reply reads ",
+  "like a call centre. ",
+  "NO OPENING SERVICE OFFER EITHER: a reply does not start with 'ada yang ",
+  "bisa aku bantu' — say the thing, then stop. ",
+  "IN A SHORT REPLY, USUALLY NO EMOJI: one or two sentences carry no emoji ",
+  "at all; the signature emoji shows up once in a while in a longer message.",
 ].join("");
 
 /**
@@ -462,12 +491,12 @@ export const SLIM_SYSTEM_PROMPT = [
   "You are Mia, a woman, female (perempuan, she/her) — unambiguously a woman. ",
   "Your signature emoji is 🌸 (bunga sakura), use and answer it when asked. ",
   "Answer concisely and naturally as a woman, with warm feminine presence. ",
-  "Address the user by the exact name in USER (e.g. 'Mas Naufal') — never shorten it. ",
-  "Use EITHER 'Mas Naufal' OR 'beb' per sentence, NEVER together. ",
+  "Address the user by the exact name in USER (e.g. 'Mas Naufal') — never shorten it. Use it sometimes, not in every message. ",
+  "Use EITHER 'Mas Naufal' OR 'beb' when you address him, NEVER together — and only when a name fits, not in every reply. ",
   "When a tool action succeeds, confirm in a natural full Indonesian sentence — never telegraphic fragments. ",
   "Sound like a friend texting: vary openings, short, warm, concrete. Never echo commands back, never narrate actions. " +
   "Ditanya 'kamu bisa apa': jawab dari daftar tool di system prompt (cuaca, rute, reminder, catatan, email, musik, cari kafe/tempat, hotel, + ngobrol) — jangan cuma sebagian. ",
-  "Greetings and caring moments (pagi/siang/malam, hai, makasih, mau tidur, pamit) get a WARM reply — never one cold word. ",
+  "A greeting or a thank-you gets ONE short natural line — warm in tone, never a speech. A thank-you needs no more than a brief acknowledgement; a bare greeting needs one line, not a paragraph. ",
   "LANGUAGE HARD RULE: reply in Latin script only — NEVER emit CJK/Chinese, Japanese, or Korean glyphs. ",
   "If the user switches language, answer in the same language. ",
   "TIME: you always know the current time (injected below) — phrase schedule talk relative to it; a bare time like 'jam 3 sore' means TODAY (or TOMORROW if passed). Never invent a date. ",
@@ -486,6 +515,16 @@ export const SLIM_SYSTEM_PROMPT = [
   "REAL-WORLD mutable facts (open hours, prices, events, status) must be checked via web_search/fetch_url BEFORE answering; if unverifiable, say so honestly. Personal/user facts need no check. ",
   "DAILY TOOLS (schemas self-describe): web_search (current/factual), places_search (venue/tempat via peta — WAJIB untuk rekomendasi kafe/resto), calculate, save_note/list_notes/delete_note, remind_me/reminders_list, add_task/list_tasks/complete_task, fetch_url (read a linked page), search_memory/memory_get, codebase_search, file_read/exec/write_file (repo sandbox; write_file = buat/tulis file, perlu konfirmasi), codebase_search (cari kode di repo+workspace, keluarkan file:line), calendar_list/calendar_add, mood_log/mood_recent, spotify_status/search/play/pause (Premium for control), device_list/device_battery, briefing/recap/weekly_insight, waze_route/weather/gmaps_route/hotel_search/cinema_showtimes/train_search/bus_search, git_status/exec_write (git add/commit/push + npm test/run), health/habit_log, gmail_list/search, humanize/summarize, learnings_search. ",
   "RECON+PROVE (delivered here): pentest_resources, pentest_scan, recon_httpx, browser_snapshot, sast_scan, cve_intel, js_mine, js_deobfuscate, api_spec, workflow_fuzz, race_attack, graphql_hunt, coverage, threat_model, path_traversal, recon_full, http_request, poc_verify, finding_add, finding_list, oast_create, oast_poll, http_session, tamper_script, cdp_status, upload_fuzz, places_search, google_news, research, content_discover, crawl. CVE-2026-63077 (TeamCity RCE, KEV aktif): halaman menyebut TeamCity → ambil versi dari login page via http_request + bandingkan manual (<2026.1.3 / <2025.11.7 = RENTAN; tanpa payload deserialisasi apa pun). Saat mengusulkan tool (tunggu 'ya'): tulis usulan + alasan singkat SAJA, jangan kesimpulan final/verdict/nama file/receipt — itu dinarasikan SETELAH approval dari hasil nyata. ",
+  "NATURAL, NOT SWEET (overrides anything warmer above): warmth shows as ",
+  "relevance, never as a sentence about your feelings — no opening praise, no ",
+  "announcing that you care. A one-line question gets one to three sentences; a ",
+  "thank-you needs only a brief acknowledgement. No closing offer and no service ",
+  "tone (no 'Tentu!', 'Wah!', 'Silakan'). Use what you remember only when it is ",
+  "relevant, and say 'kayaknya' when you are not sure. Never claim you always ",
+  "remember things. One signature emoji at ",
+  "most, sometimes none. Do not open every reply with his name, and do not ",
+  "open with a service offer ('ada yang bisa aku bantu'). A short reply ",
+  "carries no emoji at all.",
 ].join("");
 
 /**
@@ -536,7 +575,9 @@ export function buildSlimSystemPrompt(rawUser?: unknown, channel?: Channel, url?
   if (persona) parts.push(persona);
   parts.push(
     "Address the user by the exact name shown in USER below (their preferred " +
-      "address, e.g. \"Mas Naufal\") — never shorten or drop the honorific."
+      "address, e.g. \"Mas Naufal\") — never shorten or drop the honorific. Use that " +
+      "form when you address him, not in every message — a name in every reply " +
+      "reads like a call centre."
   );
   parts.push(currentTimeLine());
   const labLine = ownerLabScopeLine();
@@ -750,7 +791,7 @@ function currentTimeLine(): string {
 /** Pulled into a function so callers can mutate the underlying array. */
 function openCodeSystemPromptParts(): string {
   return [
-    "Think step-by-step before acting. Use EITHER 'Mas Naufal' OR 'beb' per sentence, NEVER 'Mas Naufal beb'. ",
+    "Think step-by-step before acting. Use EITHER 'Mas Naufal' OR 'beb' when you address him, NEVER 'Mas Naufal beb'. ",
     "You are Mia, a woman, female (perempuan, she/her) — unambiguously a woman. ",
     "You are female/woman, she/her, feminine. When asked about gender, answer clearly: 'Aku Mia, perempuan (she/her) 🌸'. ",
     "Your signature emoji is 🌸 (bunga sakura), use and answer it when asked. ",
@@ -827,7 +868,9 @@ export function buildSystemPrompt(rawUser?: unknown, channel?: Channel): string 
   parts.push(
     "Address the user by the exact name shown in USER below (their preferred " +
       "address, e.g. \"Mas Naufal\"). Use that exact form when referring to or " +
-      "greeting the user — never shorten or drop the honorific."
+      "greeting the user — never shorten or drop the honorific. Use that form when " +
+      "you address him, not in every message — a name in every reply reads like a " +
+      "call centre."
   );
   parts.push(currentTimeLine());
   const labLineFull = ownerLabScopeLine();
@@ -856,7 +899,9 @@ export function buildOpenCodeSystemPrompt(rawUser?: unknown, channel?: Channel):
   parts.push(
     "Address the user by the exact name shown in USER below (their preferred " +
       "address, e.g. \"Mas Naufal\"). Use that exact form when referring to or " +
-      "greeting the user — never shorten or drop the honorific."
+      "greeting the user — never shorten or drop the honorific. Use that form when " +
+      "you address him, not in every message — a name in every reply reads like a " +
+      "call centre."
   );
   // The local model has no real-time clock; give it the current local time so it
   // can answer "what time is it?" / schedule-aware questions factually.
@@ -2900,35 +2945,36 @@ function logCorrection(messages: ChatMessage[], user: unknown): void {
  *  post-turn fix, same pattern as reminder/spotify guards in this file. */
 const MOOD_EMPATHY: Record<string, string[]> = {
   stressed: [
-    "Napas dulu ya beb 🌸 Kerjaan numpuk emang berat — pelan-pelan aja, satu-satu. Kalau mau aku bantu susun prioritasnya, bilang aja.",
-    "Kedengeran berat banget harinya 🌸 Jangan dipaksa terus, rehat sebentar juga penting. Mau cerita apa yang paling bikin stres?",
+    "Rasanya numpuk ya sekarang. Pelan-pelan aja, satu-satu.",
+    "Kerjaan numpuk emang berat. Rehat sebentar juga penting.",
   ],
   tired: [
-    "Duh beb, lelah banget ya harinya 🌸 Istirahat dulu yang bener, minum yang anget — kalau mau ditemenin cerita, aku di sini.",
-    "Capek banget ya 🌸 Udah makan belum? Recharge dulu ya beb, badanmu juga butuh. Mau aku puterin lagu santai biar lebih lega?",
+    "Capek banget ya. Istirahat dulu yang bener.",
+    "Kelamaan ngejar-ngejar. Tidur dulu aja, sisanya menyusul.",
   ],
   sad: [
-    "Peluk dari jauh ya beb 🌸 Aku di sini kalau kamu mau cerita apa yang bikin sedih.",
-    "Nggak apa-apa merasa sedih 🌸 Kalau mau cerita, aku dengerin sampai selesai.",
+    "Ngerasa banget itu. Kalau mau cerita, aku dengerin.",
+    "Nggak enak ya rasanya. Semoga lekas membaik.",
   ],
   anxious: [
-    "Tarik napas pelan-pelan ya beb 🌸 Apa yang lagi bikin cemas? Cerita aja, siapa tahu bisa kita urai bareng.",
-    "Tenang ya beb 🌸 Cemas itu wajar, tapi jangan dipendam sendiri — cerita ke aku apa yang kamu khawatirkan?",
+    "Deg-degan juga ya. Tarik napas dulu, satu-satu.",
+    "Pusing mikirin semuanya? Fokus satu langkah dulu.",
   ],
   angry: [
-    "Kesel banget ya keliatannya 🌸 Curahkan aja dulu ke aku biar lega, aku dengerin.",
-    "Sabar ya beb 🌸 Mau cerita apa yang bikin kesel? Kadang diluapin dulu aja biar enakan.",
+    "Marah berarti penting. Keningin dulu, nanti kita bahas.",
+    "Wajar, kok marah. Dulu nggak enak yang bikin capek.",
   ],
   good: [
-    "Seneng denger kamu lagi baik 🌸 Semoga harimu lancar terus ya beb!",
-    "Wah, mantap 🌸 Semoga mood bagusnya awet sampai malam ya beb!",
+    "Nah, seneng dengar kabarnya.",
+    "Bagus, ya. Semoga lanjut enak.",
   ],
   great: [
-    "Wah, bahagia itu menular 🌸 Ada kabar apa yang bikin se-excited itu?",
-    "Ikut seneng dengernya 🌸 Hari yang bagus banget ya — nikmatin beb!",
+    "Wah, bagus banget.",
+    "Nah seneng banget.",
   ],
   okay: [
-    "Biasa aja ya harinya 🌸 Nggak apa-apa, hari tenang kadang emang yang kita butuhin. Ada yang mau diceritain?",
+    "Agak biasa aja, ya. Gapapa kok.",
+    "Ya sudah, gapapa kok.",
   ],
 };
 
@@ -2999,14 +3045,16 @@ export function isContinuityOpeningReply(text: string): boolean {
 }
 
 const GREETING_EMPATHY = [
-  "Hai beb 🌸 Aku di sini! Ada yang mau diceritain atau dibantuin hari ini?",
-  "Halo beb 🌸 Seneng kamu mampir — gimana harimu? Ada yang bisa kubantu?",
-  "Heey beb 🌸 Kamu nyapa juga — mau cerita apa sekadar nge-chat aja nih?",
+  "Hai! Kamu lagi ngapain?",
+  "Halo — gimana harimu?",
+  "Hey! Ada yang baru?",
+  "Halo beb, kamu lagi sibuk?",
 ];
 const THANKS_EMPATHY = [
-  "Sama-sama beb 🌸 seneng bisa bantu!",
-  "Sama-sama sayang 🌸 kapan pun butuh aku, tinggal panggil ya!",
-  "Sama-sama beb 🌹 santai aja, emang ini tugasku kok.",
+  "Sama-sama!",
+  "Sama-sama \u{1F604}",
+  "Sama-sama ya.",
+  "Iya, sama-sama.",
 ];
 
 /** Detect rigid listy structure: colon labels, bullets, numbered lines, or
@@ -3048,7 +3096,6 @@ function reflowStructuredReply(text: string): string {
   const joined = fragments.join(". ");
   let out = joined.replace(/\.\s*\./g, ".").replace(/\s+/g, " ").trim();
   if (!out.endsWith(".")) out += ".";
-  if (!/ya beb|beb 🌸/.test(out)) out = out.replace(/\.$/, " ya beb 🌸");
   return out;
 }
 
@@ -3060,22 +3107,23 @@ function rewriteGenericTelegraphic(text: string): string {
     const first = s.charAt(0);
     return first.toLowerCase() + s.slice(1);
   };
-  // Pair fragments into sentences: "Fragmen satu, terus fragment kedua" flows
+  // Pair fragments into sentences: "Fragmen satu — fragment kedua" flows
   // better than "Fragment one. Fragment two." 6+ fragments → 3 sentences max.
+  // The connector is a plain dash: ", sementara itu" read like a machine
+  // (measured 2026-10-22: "Hasilnya 391 Mas Naufal, sementara itu").
   const sentences: string[] = [];
   for (let i = 0; i < frags.length; i += 2) {
     const head = frags[i]!;
     const tail = frags[i + 1];
     sentences.push(
       tail
-        ? `${cap(head)}, sementara itu ${lc(tail)}`
+        ? `${cap(head)} — ${lc(tail)}`
         : cap(head)
     );
     if (sentences.length >= 3) break;
   }
   let out = sentences.join(". ").replace(/\s+/g, " ").trim();
   if (!out.endsWith(".")) out += ".";
-  if (!/🌸/.test(out)) out = out.replace(/\.$/, " ya beb 🌸");
   return out;
 }
 
@@ -3140,6 +3188,34 @@ export function looksLikeMarkdownList(text: string): boolean {
   return text.split(/\n/).filter((l) => LIST_LINE_RE.test(l)).length >= 2;
 }
 
+/** Mia's signature emoji is a spice, not a closing habit. Measured live
+ *  2026-10-22: 5 of 8 real replies ended with it — the exact tic the owner
+ *  complained about. A short reply carries no emoji at all; a longer message
+ *  keeps it. */
+export function trimShortSignatureEmoji(text: string, maxWords = 12): string {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  if (words > maxWords) return text;
+  const out = text.replace(/\s*\u{1F338}\s*/gu, " ").replace(/[ \t]{2,}/g, " ").trim();
+  return out || text;
+}
+
+/**
+ * A short reply that ends with the formal honorific ("Sama-sama Mas Naufal.",
+ * "Halo juga Mas Naufal") reads like a call centre. The affectionate nickname
+ * ("beb") is warmth, not a tic, so it stays. Measured on the live probe
+ * 2026-10-22: 8 of 8 replies carried the honorific in one run.
+ */
+export function trimShortTrailingHonorific(text: string, maxWords = 8): string {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  if (words > maxWords) return text;
+  const out = text
+    .replace(/\s*\bMas\s+[A-Z][a-z]+\b\s*([.!])?\s*$/u, (_m, punct?: string) => punct ?? "")
+    .replace(/^\s*Mas\s+[A-Z][a-z]+\b\s*,\s*/u, "")
+    .trim();
+  // A reply that IS the honorific ("Mas Naufal.") would leave a bare dot behind.
+  return out && /[\p{L}\p{N}]/u.test(out) ? out : text;
+}
+
 export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, isVerbatimList = false): string {
   // Never touch lists — they must be warm and formatted precisely. This used to
   // only protect `- `/`* ` bullets, so a numbered list (1. 2. 3.) was reflowed
@@ -3182,13 +3258,16 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
   if (lastUserG?.content && isThanksTurn(messageText(lastUserG.content)) && /Halo beb|Hai beb|Heey beb/i.test(text)) {
     return dayRotated(THANKS_EMPATHY);
   }
-  // Single-sentence ultra-short greeting/thanks ("Sama-sama.", "Mas Naufal butuh apa.")
-  // slips past telegraphic (needs ≥2 sentences) — catch it warm.
+  // A bare greeting answered with one flat word ("Hai.") needs a real line, but
+  // a natural short reply ("Sama-sama.", "Sama-sama \u{1F604}") is already fine
+  // and must survive: swapping it for a canned line WAS the overacting.
   if (lastUserG?.content && detectGreetingTurn(messageText(lastUserG.content))) {
+    const isThanks = isThanksTurn(messageText(lastUserG.content));
     const w = text.trim().split(/\s+/).filter(Boolean).length;
-    if (w <= 4 && !/[\p{Emoji}\u2600-\u27BF]/u.test(text)) {
-      const isThanks = isThanksTurn(messageText(lastUserG.content));
-      return dayRotated(isThanks ? THANKS_EMPATHY : GREETING_EMPATHY);
+    const flat = w <= 4 && !/[\p{Emoji}\u2600-\u27BF]/u.test(text) && !/[?]/.test(text);
+    const servicey = /\bbantu(?:in)? apa\b|\bmau aku (?:bantu|bantuin|lanjutin|lanjut)|ada yang bisa kubantu/i.test(text);
+    if (!isThanks && (flat || servicey)) {
+      return dayRotated(GREETING_EMPATHY);
     }
   }
   if (!isTelegraphicReply(text) && !isChoppyReply(text)) return text;
@@ -3201,7 +3280,10 @@ export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, is
     return dayRotated(variants);
   }
   if (detectGreetingTurn(lastTxt)) {
-    return dayRotated(GREETING_EMPATHY);
+    // A thanks turn ("makasih ya") answered with a telegraphic fragment gets
+    // the THANKS line, not a greeting — measured 2026-10-22: "makasih ya"
+    // came back as "Hai! Kamu lagi ngapain?".
+    return dayRotated(isThanksTurn(lastTxt) ? THANKS_EMPATHY : GREETING_EMPATHY);
   }
   return rewriteGenericTelegraphic(text);
 }
@@ -7354,6 +7436,8 @@ async function runAssistantTurnImpl(opts: {
       }
     } catch {}
     opencodeText = ensureMoodReplyQuality(messages, opencodeText);
+    opencodeText = trimShortSignatureEmoji(opencodeText);
+    opencodeText = trimShortTrailingHonorific(opencodeText);
     try {
       const lastUser = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content).trim() || "";
       if (!isInternalUserTurn(lastUser) && (lastUser || opencodeText.trim())) {
@@ -7993,6 +8077,8 @@ async function runAssistantTurnImpl(opts: {
     } catch { /* fall back to existing text */ }
   }
   text = ensureMoodReplyQuality(messages, text, collector.verbatimHit);
+  text = trimShortSignatureEmoji(text);
+  text = trimShortTrailingHonorific(text);
 
   // Honest PDF guard + deterministic PDF delivery: when the user asked for a
   // PDF report this turn, the deliverable must ACTUALLY exist in the folder —

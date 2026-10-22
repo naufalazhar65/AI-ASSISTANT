@@ -9,8 +9,12 @@ import {
   capFacts,
   renderFactsBlock,
   splitFactFile,
+  findHeaderLine,
   type Fact,
 } from "./personaFacts";
+
+// Re-exported so callers can keep importing it from this module.
+export { findHeaderLine };
 
 /** Max live facts kept per file (core keys survive the cap first). */
 export const MAX_FACTS = 80;
@@ -58,6 +62,16 @@ const FACT_SECTIONS: Record<string, string[]> = {
   "USER.md": ["## Facts"],
   "SOUL.md": ["## Style"],
 };
+
+/**
+ * Sections where a multi-word key is PROSE (a style rule written as a
+ * sentence), not a fact. The fact mechanism canonicalises keys, so a rule
+ * like "- Hangat itu keluar dari relevansi, bukan dari pengumuman: ..."
+ * was rewritten into a slug — and dropped outright when the key was
+ * rejected — which lost the rule from the prompt. USER.md keeps the old
+ * reading so legacy fact keys there are untouched.
+ */
+const PROSE_MULTIWORD_FILES = new Set(["SOUL.md"]);
 
 /** Persona dir for a (already-sanitized) user; null falls back to template. */
 function personaDir(userKey: string | null): string {
@@ -130,7 +144,7 @@ function extractInjectableBody(file: string, body: string): string {
   const headers = FACT_SECTIONS[file];
   if (headers?.length) {
     const header = headers[0];
-    const idx = body.indexOf(header);
+    const idx = findHeaderLine(body, header);
     if (idx !== -1) {
       // Never inject the superseded history: old values would look like live
       // facts (e.g. a replaced food preference).
@@ -145,6 +159,9 @@ function extractInjectableBody(file: string, body: string): string {
         .trim();
       if (toneLines) return `${header}\n\n${toneLines}`;
     }
+    // The heading is missing: this file has no injectable block. Inject
+    // nothing instead of the whole file.
+    return "";
   }
   return body.trim();
 }
@@ -227,14 +244,16 @@ export function upsertPersonaFact(
 
   const header = headers[0];
   const text = readFileSync(path, "utf8");
-  const { head, facts, superseded } = splitFactFile(text, header);
+  const { head, facts, superseded, prose } = splitFactFile(text, header, {
+    proseMultiWord: PROSE_MULTIWORD_FILES.has(fileName),
+  });
   const merged = mergeFact(facts, canon, valueTrim);
   const sup = [...superseded];
   if (merged.superseded) {
     sup.push(`- [superseded] ${canon}: ${merged.superseded.from} → ${merged.superseded.to} (${wibDay()})`);
   }
   const capped = capFacts(merged.facts, MAX_FACTS);
-  writeAtomic(path, `${head}${renderFactsBlock(capped.facts, sup)}`);
+  writeAtomic(path, `${head}${renderFactsBlock(capped.facts, sup, header, prose)}`);
 
   // Continuous hygiene: collapse anything a parallel capture pass left behind.
   try {
@@ -306,7 +325,7 @@ function hygienizeUserFile(path: string): HygieneResult {
   const result: HygieneResult = { file: "USER.md", removed: 0, changed: false, conflicts: [] };
   const original = readFileSync(path, "utf8");
   const header = FACT_SECTIONS["USER.md"][0];
-  const { head, superseded } = splitFactFile(original, header);
+  const { head, superseded, prose } = splitFactFile(original, header);
   const supIdx = original.indexOf("## Superseded");
   const main = supIdx === -1 ? original : original.slice(0, supIdx);
 
@@ -348,7 +367,7 @@ function hygienizeUserFile(path: string): HygieneResult {
   for (const c of result.conflicts) supLines.push(`- [superseded] ${c.key}: ${c.superseded} → ${c.kept} (${wibDay()})`);
 
   const headText = collapseBlanks(nonFact).replace(/\s*$/, "");
-  const rebuilt = `${headText ? `${headText}\n\n` : ""}${renderFactsBlock(capped.facts, supLines)}`;
+  const rebuilt = `${headText ? `${headText}\n\n` : ""}${renderFactsBlock(capped.facts, supLines, header, prose)}`;
   void head;
   if (rebuilt.replace(/\s+$/, "") !== original.replace(/\s+$/, "")) {
     writeAtomic(path, rebuilt);
@@ -440,13 +459,21 @@ export function truncateWithMarker(text: string, maxChars: number): string {
 // --- User-facing persona control (show / set / forget) -----------------------
 
 /** Read the user's persona files into a structured view (facts + superseded). */
-function readFactFile(rawUser: unknown, file: "USER.md" | "SOUL.md"): { path: string; head: string; facts: Fact[]; superseded: string[] } | null {
+function readFactFile(rawUser: unknown, file: "USER.md" | "SOUL.md"): {
+  path: string;
+  head: string;
+  facts: Fact[];
+  superseded: string[];
+  prose: string[];
+} | null {
   const userKey = sanitizeUser(rawUser);
   if (userKey) ensureUserPersona(userKey);
   const path = file === "USER.md" ? (userKey ? factsPath(userKey) : null) : join(personaDir(userKey), file);
   if (!path || !existsSync(path)) return null;
-  const { head, facts, superseded } = splitFactFile(readFileSync(path, "utf8"), FACT_SECTIONS[file][0]);
-  return { path, head, facts, superseded };
+  const { head, facts, superseded, prose } = splitFactFile(readFileSync(path, "utf8"), FACT_SECTIONS[file][0], {
+    proseMultiWord: PROSE_MULTIWORD_FILES.has(file),
+  });
+  return { path, head, facts, superseded, prose };
 }
 
 /** Human-readable "what Mia remembers about you" (USER facts + SOUL style). */
@@ -485,7 +512,7 @@ export function forgetPersonaFact(rawUser: unknown, queryRaw: string): string {
     const removedSup = view.superseded.length - supKeep.length;
     removed += removedSup;
     if (keep.length === view.facts.length && removedSup === 0) continue;
-    writeAtomic(view.path, `${view.head}${renderFactsBlock(keep, supKeep)}`);
+    writeAtomic(view.path, `${view.head}${renderFactsBlock(keep, supKeep, FACT_SECTIONS[file][0], view.prose)}`);
   }
   if (!removed) return `Tidak ada yang cocok dengan "${queryRaw}" — tak ada yang kuhapus.`;
   return `🧽 Kuhapus ${removed} entri yang cocok dengan "${queryRaw}". Sisa: ${keptKeys.length ? keptKeys.join(", ") : "lihat persona_show"}.`;

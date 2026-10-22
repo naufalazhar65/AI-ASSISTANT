@@ -10,7 +10,7 @@ import {
   firstUrlInText,
   scheduleLinkCapture,
 } from "./src/lib/library";
-import { hygienizePersona } from "./src/lib/persona";
+import { hygienizePersona, loadPersonaPrompt, upsertPersonaFact } from "./src/lib/persona";
 import { detectPlaceIntent, placeNudge } from "./src/lib/placeIntent";
 import { appendDailyMemory } from "./src/lib/dailyMemory";
 import { buildEveningRecap, readLastRecapDay, saveLastRecapDay } from "./src/lib/recap";
@@ -3055,25 +3055,42 @@ async function main() {
   const moodMsgs = [{ role: "user" as const, content: "capek banget hari ini duhh" }];
   const rewritten = ensureMoodReplyQuality(moodMsgs, "Beb lelah. Hari berat. Istirahat dulu.");
   if (rewritten === "Beb lelah. Hari berat. Istirahat dulu.") throw new Error("telegraphic mood reply not rewritten");
-  if (!/🌸/.test(rewritten)) throw new Error("rewritten mood reply lacks warmth/emoji");
+  // The rewrite is ONE short natural line: no forced follow-up question, no
+  // service menu, and no signature suffix bolted on at the end.
+  const performsAffection = /ya beb|beb 🌸|seneng bisa bantu|ada yang bisa kubantu|tinggal panggil/i;
+  if (/\?\s*$/.test(rewritten)) throw new Error(`rewritten mood reply forces a trailing question: ${rewritten}`);
+  if (performsAffection.test(rewritten)) throw new Error(`rewritten mood reply performs affection: ${rewritten}`);
+  if (rewritten.trim().split(/\s+/).length > 14) throw new Error(`rewritten mood reply is not short: ${rewritten}`);
   const warm = "Duh beb, capek banget ya 🌸 Istirahat dulu bentar ya.";
   if (ensureMoodReplyQuality(moodMsgs, warm) !== warm) throw new Error("warm mood reply got rewritten");
   if (ensureMoodReplyQuality([{ role: "user" as const, content: "berapa 2+2?" }], "4.") !== "4.") throw new Error("non-mood turn altered");
-  console.log("mood reply quality: OK (telegraphic rewritten, warm passes through)");
+  // The hard-coded " ya beb 🌸" suffix is gone (it was the deterministic tic).
+  const reflowed = ensureMoodReplyQuality([{ role: "user" as const, content: "ringkas ya" }], "Bentar ya.\nAku cek dulu.\nSudah kelar.");
+  if (/ya beb 🌸/.test(reflowed)) throw new Error(`reflowed reply still gets the bolted-on suffix: ${reflowed}`);
+  console.log("mood reply quality: OK (telegraphic rewritten short, no forced question, warm passes through)");
 
   // Greeting turns get the same telegraphic guard ("Sapa terima. Beb panggil.").
   const greet = ensureMoodReplyQuality([{ role: "user" as const, content: "hai mia ku sayang" }], "Sapa terima. Beb panggil. Bantu apa?");
-  if (!/🌸/.test(greet) || greet === "Sapa terima. Beb panggil. Bantu apa?") throw new Error(`greeting not rewritten: ${greet}`);
+  if (greet === "Sapa terima. Beb panggil. Bantu apa?") throw new Error(`greeting not rewritten: ${greet}`);
+  if (performsAffection.test(greet)) throw new Error(`greeting rewrite performs affection: ${greet}`);
+  // A flat one-word greeting still earns a real line.
+  const flatGreet = ensureMoodReplyQuality([{ role: "user" as const, content: "halo" }], "Hai.");
+  if (flatGreet === "Hai.") throw new Error("flat greeting reply was left as one word");
+  // A thanks turn keeps the model's OWN short reply: swapping it for a canned
+  // line WAS the overacting ("Sama-sama." must survive).
+  const thanksMsgs = [{ role: "user" as const, content: "makasih ya" }];
+  if (ensureMoodReplyQuality(thanksMsgs, "Sama-sama.") !== "Sama-sama.") throw new Error("thanks reply replaced by a canned line");
+  if (ensureMoodReplyQuality(thanksMsgs, "Sama-sama 😄") !== "Sama-sama 😄") throw new Error("thanks reply replaced by a canned line");
   // Reminder asks that mention a clock are NOT greetings.
   if (ensureMoodReplyQuality([{ role: "user" as const, content: "ingetin aku ya jam 1 siang makan" }], "Siap, nanti kuingetin.") !== "Siap, nanti kuingetin.") throw new Error("reminder ask treated as greeting");
   // Greeting MUST never be answered with a stale reminder list (9router called
-  // reminders_list on "halo mia"). The greeting-shortlist guard replaces it warm.
+  // reminders_list on "halo mia"). The greeting-shortlist guard replaces it.
   const greetList = ensureMoodReplyQuality(
     [{ role: "user" as const, content: "halo mia" }],
     "Daftar reminder kamu beb — 2 total 🌸\n• 11/09, 16.00 — \"Makan siang Mas Naufal 🍛\" — siap aku ingetin ⏰ (terjadwal)"
   );
-  if (greetList.includes("Daftar reminder") || !/🌸/.test(greetList)) throw new Error(`greeting answered with reminder list: ${greetList}`);
-  console.log("greeting reply quality: OK (telegraphic rewritten, reminder asks untouched)");
+  if (greetList.includes("Daftar reminder")) throw new Error(`greeting answered with reminder list: ${greetList}`);
+  console.log("greeting reply quality: OK (telegraphic rewritten, thanks keeps own reply, reminder asks untouched)");
 
   // --- Indonesian clock parsing: "jam 1 siang" = 13:00 (NOT 12:00), 12 siang
   // stays noon, pagi/malam unchanged. ---
@@ -10137,6 +10154,154 @@ async function verifyProactiveWorkflows(): Promise<void> {
       }
 
       console.log("wave 1 (CI dashboard gate · env terdokumentasi · config doctor · sweep user uji): OK");
+    }
+
+    // --- Natural style (2026-10-22): Mia (and Agnes, and Michelle) must sound
+    // like a friend, not a customer-service bot. The proof is not "we added
+    // rules" but: the old drivers are GONE from the injected persona, both
+    // prompt variants carry the new rules, and the deterministic layer no
+    // longer pastes a canned warm line or a " ya beb 🌸" suffix.
+    {
+      const { findHeaderLine, loadPersonaPrompt } = await import("./src/lib/persona");
+      const { OFFICE_STYLE_CONTRACT } = await import("./src/lib/agentRole");
+      const { buildSystemPrompt, buildSlimSystemPrompt } = await import("./src/lib/agent");
+
+      // 1. The persona heading is anchored at a LINE START. The old substring
+      //    search matched an inline "## Style" mention and injected the whole
+      //    SOUL file — every overacting driver included.
+      const personaSrc = readFileSync(join(appRoot(), "src", "lib", "persona.ts"), "utf8");
+      if (!/findHeaderLine\(body, header\)/.test(personaSrc)) {
+        throw new Error("style: persona.ts harus memakai findHeaderLine(body, header)");
+      }
+      if (/body\.indexOf\(header\)/.test(personaSrc)) {
+        throw new Error("style: persona.ts tak boleh lagi memakai indexOf(header) — inline '## Style' jadi trigger");
+      }
+      const inline = "lihat aturan di `## Style`\n- a\n## Style\n- b";
+      if (findHeaderLine(inline, "## Style") !== inline.indexOf("\n## Style") + 1) {
+        throw new Error("style: findHeaderLine harus menunjuk heading line-start, bukan sebutan inline");
+      }
+
+      // 2. The injected persona carries the NEW rules and none of the old drivers.
+      const persona = loadPersonaPrompt("naufalazhar652952") ?? "";
+      if (!/Hangat itu keluar dari relevansi/.test(persona)) {
+        throw new Error("style: persona owner harus membawa aturan ## Style yang baru");
+      }
+      for (const driver of [
+        "balas HANGAT dan penuh perasaan",
+        "SATU pertanyaan singkat saja",
+        "Acknowledge briefly before answering",
+      ]) {
+        if (persona.includes(driver)) {
+          throw new Error(`style: prompt persona masih membawa driver overacting: ${driver}`);
+        }
+      }
+
+      // 3. Both prompt variants carry the rules (runtime, not source).
+      const full = buildSystemPrompt("naufalazhar652952", "discord");
+      const slim = buildSlimSystemPrompt("naufalazhar652952", "discord");
+      for (const [name, prompt] of [["full", full], ["slim", slim]] as const) {
+        if (!/NATURAL, NOT SWEET/.test(prompt)) {
+          throw new Error(`style: prompt ${name} harus membawa blok NATURAL, NOT SWEET`);
+        }
+        if (!/NO CLOSING OFFER|No closing offer/.test(prompt)) {
+          throw new Error(`style: prompt ${name} harus melarang closing offer`);
+        }
+        if (/teme.nin ngobrol/.test(prompt)) {
+          throw new Error(`style: prompt ${name} tak boleh memuat contoh mood yang memaksa pertanyaan`);
+        }
+      }
+      if (!/LENGTH FOLLOWS THE MESSAGE/.test(full)) {
+        throw new Error("style: prompt full harus punya LENGTH FOLLOWS THE MESSAGE");
+      }
+      if (!/MEMORY WITHOUT THE SHOWING OFF/.test(full)) {
+        throw new Error("style: prompt full harus punya MEMORY WITHOUT THE SHOWING OFF");
+      }
+
+      // 4. The shared contract (Mia + Agnes + Michelle) forbids performative affection.
+      if (!/NO PERFORMATIVE AFFECTION/.test(OFFICE_STYLE_CONTRACT)) {
+        throw new Error("style: OFFICE_STYLE_CONTRACT harus melarang performative affection");
+      }
+
+      // 5. The hard-coded " ya beb 🌸" suffix is gone from the deterministic layer.
+      const agentSrc = readFileSync(join(appRoot(), "src", "lib", "agent.ts"), "utf8");
+      if (/out\.replace\(\/\.\$\/, " ya beb/.test(agentSrc)) {
+        throw new Error("style: suffix ' ya beb 🌸' tak boleh ditempel otomatis ke balasan");
+      }
+
+      // 6. The Live voice path carries the same rules.
+      const liveSrc = readFileSync(
+        join(appRoot(), "src", "app", "api", "gemini-live", "token", "route.ts"),
+        "utf8",
+      );
+      if (!/Hangat TANPA overacting/.test(liveSrc)) {
+        throw new Error("style: voiceRule Live harus membawa aturan anti-overacting");
+      }
+
+      // 7. The persona WRITE path keeps the heading and the prose rules.
+      //    A soul write used to rename "## Style" to "## Facts" (the prompt then
+      //    injected nothing) and to rewrite prose rules into canonical slugs.
+      const pfSrc = readFileSync(join(appRoot(), "src", "lib", "personaFacts.ts"), "utf8");
+      if (!/findHeaderLine\(main, header\)/.test(pfSrc)) {
+        throw new Error("style: personaFacts harus anchor header di awal baris (bukan indexOf)");
+      }
+      if (!/renderFactsBlock\(facts: Fact\[\], superseded: string\[\] = \[\], header = "## Facts", prose: string\[\] = \[\]\)/.test(pfSrc)) {
+        throw new Error("style: renderFactsBlock harus menulis heading + prose yang diteruskan");
+      }
+      const personaWriteSrc = readFileSync(join(appRoot(), "src", "lib", "persona.ts"), "utf8");
+      if (!/renderFactsBlock\(capped\.facts, sup, header, prose\)/.test(personaWriteSrc)) {
+        throw new Error("style: upsertPersonaFact harus menulis heading + prose");
+      }
+      const probeUser = `verify_naturalstyle_${Date.now()}`;
+      try {
+        upsertPersonaFact("SOUL", "tone", "kasual", probeUser);
+        const soulFile = readFileSync(join(userDataRoot(), probeUser, "persona", "SOUL.md"), "utf8");
+        if (!/^## Style$/m.test(soulFile)) {
+          throw new Error("style: soul write harus mempertahankan heading ## Style");
+        }
+        if (/^## Facts$/m.test(soulFile)) {
+          throw new Error("style: soul write tak boleh mengganti ## Style jadi ## Facts");
+        }
+        const injected = loadPersonaPrompt(probeUser);
+        if (!/Hangat itu keluar dari relevansi/.test(injected)) {
+          throw new Error("style: soul write harus mempertahankan aturan prose di prompt");
+        }
+      } finally {
+        rmSync(join(userDataRoot(), probeUser), { recursive: true, force: true });
+      }
+
+      // 8. The mid-sentence menu stripper is wired into the shared stripper.
+      //    Probe round 5 measured the model putting "ada yang mau dibahas atau
+      //    dicari" inside the FIRST sentence, where the trailing-only logic
+      //    never looked — so the offer survived.
+      const roleSrc = readFileSync(join(appRoot(), "src", "lib", "agentRole.ts"), "utf8");
+      if (!/stripMidSentenceMenuOffer\(text\)/.test(roleSrc)) {
+        throw new Error("style: stripClosingMenuQuestion harus memanggil stripMidSentenceMenuOffer(text)");
+      }
+
+      // 9. The greeting-head allowance and the "mau aku bantu?" pattern are
+      //    wired into the shared stripper: probe round 7 measured the offer
+      //    "Halo, ada yang bisa aku bantu hari ini?" surviving the cut because
+      //    the one-word head guard rejected "Halo".
+      if (!/GREETING_HEAD\.test\(keep\)/.test(roleSrc)) {
+        throw new Error("style: stripClosingMenuQuestion harus memakai GREETING_HEAD.test(keep)");
+      }
+      if (!/CLOSING_MENU_MAU_AKU\.exec\(probe\)/.test(roleSrc)) {
+        throw new Error("style: stripClosingMenuQuestion harus memakai CLOSING_MENU_MAU_AKU");
+      }
+
+      // 10. The short-reply honorific trim is wired into BOTH reply paths.
+      //     Probe round 8 measured 8 of 8 replies carrying "Mas Naufal" — the
+      //     prompt rule alone does not bind, so the deterministic trim runs.
+      const agentStyleSrc = readFileSync(join(appRoot(), "src", "lib", "agent.ts"), "utf8");
+      if (!/text = trimShortTrailingHonorific\(text\)/.test(agentStyleSrc)) {
+        throw new Error("style: agent.ts harus memanggil trimShortTrailingHonorific(text) di jalur utama");
+      }
+      if (!/opencodeText = trimShortTrailingHonorific\(opencodeText\)/.test(agentStyleSrc)) {
+        throw new Error("style: agent.ts harus memanggil trimShortTrailingHonorific(opencodeText) di jalur opencode");
+      }
+      console.log(
+        "natural style (anchor persona · driver lama hilang · prompt full+slim · kontrak trio · suffix dibuang): OK",
+      );
     }
   }
 }
