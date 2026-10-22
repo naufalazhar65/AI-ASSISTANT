@@ -33,6 +33,17 @@ export const ROUTING_NAMES: { label: AgentLabel; displayName: string }[] = [
 ];
 
 /**
+ * Display name of the agent that is speaking. One owner for the trio's names,
+ * so a transcript written by Agnes is never labelled "Mia" (measured
+ * 2026-10-22: 190 "Mia:" lines in Agnes's own memory file, 189 in Michelle's).
+ * Unknown/undefined agent = Mia (the default persona).
+ */
+export function agentDisplayName(agent: unknown): string {
+  const spec = ROUTING_NAMES.find((r) => r.label === agent);
+  return spec ? spec.displayName : "Mia";
+}
+
+/**
  * Which single agent a message addresses BY TYPED NAME.
  *
  * Owner 2026-10-06: "kalau aku sapa 'halo michelle' pasti semuanya akan

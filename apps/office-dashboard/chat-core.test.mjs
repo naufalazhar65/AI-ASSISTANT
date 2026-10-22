@@ -8,6 +8,7 @@ import {
   dateTimeLabel,
   agentAvailability, taskStateFor,
   toolStateMeta, humanError, humanGenerationError, avatarUrl,
+  liveStripModel,
 } from './chat-core.mjs';
 
 test('escapeHtml neutralises every HTML-significant char', () => {
@@ -391,4 +392,40 @@ test('dateTimeLabel renders the configured timezone and never fabricates a date'
   assert.equal(dateTimeLabel(null, 'Asia/Jakarta', 'WIB'), '');
   assert.equal(dateTimeLabel('bukan tanggal', 'Asia/Jakarta', 'WIB'), '');
   assert.equal(dateTimeLabel('', 'Asia/Jakarta', 'WIB'), '');
+});
+
+test('the live strip is silent while nothing happened', () => {
+  const m = liveStripModel({});
+  assert.equal(m.hidden, true, 'an idle session says nothing');
+  assert.equal(m.label, 'Idle');
+  assert.equal(m.note, '');
+  assert.equal(m.heard, '');
+  assert.equal(m.said, '');
+});
+
+test('the live strip names the state it is really in', () => {
+  assert.equal(liveStripModel({ status: 'ready' }).label, 'Siap');
+  assert.equal(liveStripModel({ status: 'ready', speaking: true }).label, 'Berbicara');
+  assert.equal(liveStripModel({ status: 'connecting' }).label, 'Menyambung…');
+  assert.equal(liveStripModel({ status: 'error' }).label, 'Gagal');
+  assert.equal(liveStripModel({ status: 'closed' }).label, 'Tutup');
+});
+
+test('the live strip shows the transcript only when there is one', () => {
+  const m = liveStripModel({ status: 'ready', heard: 'halo', said: 'hai', agentName: 'Mia' });
+  assert.equal(m.heard, 'Kamu: halo');
+  assert.equal(m.said, 'Mia: hai');
+  assert.equal(m.agent, '— Mia');
+  assert.equal(m.hidden, false);
+});
+
+test('the live strip prefers the error over any other note', () => {
+  const m = liveStripModel({ status: 'error', error: 'boom', note: 'bundle hilang', toolNote: 'kirim' });
+  assert.equal(m.note, 'boom');
+  assert.equal(m.hidden, false, 'an error must never be silent');
+});
+
+test('the live strip never invents an agent name', () => {
+  assert.equal(liveStripModel({ said: 'hai' }).said, 'Agent: hai');
+  assert.equal(liveStripModel({}).agent, '');
 });

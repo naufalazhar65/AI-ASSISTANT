@@ -689,6 +689,8 @@
 <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19.6 12a7.6 7.6 0 1 1-2.3-5.4"/><path d="M19.6 3.8v3.8h-3.8"/></symbol>
 <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9.5 5.5v13M14.5 5.5v13"/></symbol>
 <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.4l10 6.6-10 6.6z" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19.5V5"/><path d="M6.5 11.5 12 5.5l5.5 6"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9.2" y="3" width="5.6" height="11" rx="2.8"/><path d="M5.6 11.5a6.4 6.4 0 0 0 12.8 0"/><path d="M12 18v3"/></symbol>
 </defs></svg>
 <div id="app">
   <aside>
@@ -818,6 +820,9 @@
 
 <link rel="stylesheet" href="/chat.css">
 <script src="/vendor/three.min.js"></script>
+<!-- Gemini Live client, bundled from apps/web (esbuild). Classic script on
+     purpose: it publishes the global `MiaLive` that live.js reads. -->
+<script src="/vendor/live.bundle.js"></script>
 <script type="module" src="/chat.js"></script>
 <script>
 (function () {

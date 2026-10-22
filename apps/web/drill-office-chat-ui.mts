@@ -261,6 +261,40 @@ async function main(): Promise<void> {
   const tabs = await page.locator('.chatTabs [role="tab"]').allTextContents();
   check("agent tabs = Mia/Agnes/Michelle", JSON.stringify(tabs) === JSON.stringify(["Mia", "Agnes", "Michelle"]), tabs.join(","));
 
+  // 3b. the composer: a MIC button next to an ICON send button (the voice is
+  // the same conversation, spoken — so it lives in the chat panel, not in a
+  // panel of its own).
+  const micBtn = page.locator(".chatMic");
+  check("the composer has a mic button", (await micBtn.count()) === 1);
+  const sendLabel = (await page.locator(".chatSend").getAttribute("aria-label")) || "";
+  check("the send button is labelled for screen readers", sendLabel.length > 0, sendLabel);
+  const sendText = ((await page.locator(".chatSend").textContent()) || "").trim();
+  check("the send button carries an icon, not the word", sendText === "", `text=${sendText}`);
+  const composerRow = await page.evaluate(() => {
+    const form = document.querySelector(".chatForm");
+    if (!form) return null;
+    const kids = Array.from(form.children).map((c) => c.className || c.tagName);
+    const input = form.querySelector(".chatInput");
+    const mic = form.querySelector(".chatMic");
+    const send = form.querySelector(".chatSend");
+    if (!input || !mic || !send) return null;
+    const ri = input.getBoundingClientRect();
+    const rm = mic.getBoundingClientRect();
+    const rs = send.getBoundingClientRect();
+    return {
+      kids,
+      sameRow: Math.abs(ri.top - rm.top) < 4 && Math.abs(ri.top - rs.top) < 4,
+      micLeftOfSend: rm.left < rs.left,
+      micIcon: !!mic.querySelector("svg use"),
+      sendIcon: !!send.querySelector("svg use"),
+    };
+  });
+  check("the composer is one row: input, mic, send", !!composerRow && composerRow.sameRow, JSON.stringify(composerRow?.kids));
+  check("the mic sits next to the send button", !!composerRow && composerRow.micLeftOfSend);
+  check("mic and send both show an icon", !!composerRow && composerRow.micIcon && composerRow.sendIcon);
+  // The live strip is silent while nothing happened (no fake "live" panel).
+  check("the live strip stays hidden until a session exists", await page.locator(".chatLive").isHidden());
+
   // 4. real send → real reply
   //
   // The panel opens on a history, so "an agent message exists" proves

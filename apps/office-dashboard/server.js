@@ -178,6 +178,12 @@ function readEnvFile(file) {
 const MIA_ENV = readEnvFile(path.join(MIA_WEB_DIR, '.env.local'));
 const AUTH_TOKEN = process.env.DASHBOARD_TOKEN || MIA_ENV.AUTH_TOKEN || '';
 const AUTH_ENABLED = AUTH_TOKEN.length > 0;
+/**
+ * The token Mia itself expects. The dashboard may use its own DASHBOARD_TOKEN
+ * for its own gate; when it does, that token is NOT Mia's, so upstream calls
+ * must use Mia's own AUTH_TOKEN instead.
+ */
+const UPSTREAM_TOKEN = MIA_ENV.AUTH_TOKEN || AUTH_TOKEN;
 
 function parseCookies(header) {
   const out = {};
@@ -1873,6 +1879,73 @@ function proxyOfficeChat(req, res, url) {
 }
 
 /**
+ * Gemini Live → Mia `/api/gemini-live/*`.
+ *
+ * The dashboard page is served from port 3001, not Mia's origin, so the
+ * browser cannot call Mia's Live routes directly. This proxy forwards the
+ * four Live calls (token, tool, memory, tool-ping) to Mia.
+ *
+ * Identity is pinned SERVER-SIDE, like every other proxy here:
+ *   - `x-mia-user` comes from the AGENTS table for the chosen agent, never
+ *     from the browser. The browser picks only WHICH of the three known
+ *     agents answers; it can never claim to be somebody else.
+ *   - `x-mia-agent` is the same agent id, pinned the same way.
+ *   - The upstream bearer is Mia's own token, so no secret reaches the page.
+ *
+ * The browser's `agent` parameter is validated against AGENT_IDS; anything
+ * unknown is rejected instead of silently falling back to Mia.
+ */
+const LIVE_SUBROUTES = new Set(['token', 'tool', 'memory', 'tool-ping']);
+
+function proxyGeminiLive(req, res, url) {
+  const sub = url.pathname.slice('/api/gemini-live/'.length);
+  if (!LIVE_SUBROUTES.has(sub)) {
+    sendJson(res, 404, { error: 'unknown_live_route' });
+    return;
+  }
+  const agentId = url.searchParams.get('agent') || 'mia';
+  const agent = AGENTS.find((a) => a.id === agentId);
+  if (!agent) {
+    sendJson(res, 400, { error: 'unknown_agent', detail: redact(agentId) });
+    return;
+  }
+
+  const target = new URL(`/api/gemini-live/${sub}`, MIA_WEB_BASE);
+  const headers = { accept: 'application/json' };
+  if (UPSTREAM_TOKEN) headers.authorization = `Bearer ${UPSTREAM_TOKEN}`;
+  // Pinned identity — anything the browser sent under these headers is ignored.
+  headers['x-mia-user'] = agent.user;
+  headers['x-mia-agent'] = agent.id;
+
+  readBodyLimited(req, MAX_BODY_BYTES).then(
+    (buf) => {
+      if (buf.length) {
+        headers['content-type'] = 'application/json';
+        headers['content-length'] = String(buf.length);
+      }
+      const up = http.request(
+        { hostname: target.hostname, port: target.port || 80, path: target.pathname + target.search, method: req.method, headers },
+        (r) => {
+          res.writeHead(r.statusCode || 502, {
+            'content-type': r.headers['content-type'] || 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+          });
+          r.pipe(res);
+        },
+      );
+      up.on('error', () => {
+        if (!res.headersSent) sendJson(res, 502, { error: 'gemini_live_unreachable', hint: `is Mia running on ${MIA_WEB_BASE}?` });
+        else res.end();
+      });
+      req.on('close', () => { try { up.destroy(); } catch { /* already gone */ } });
+      if (buf.length) up.write(buf);
+      up.end();
+    },
+    (err) => sendJson(res, err.statusCode || 400, { error: String(err.message || err) }),
+  );
+}
+
+/**
  * Portraits of the trio, proxied from Mia's `public/` folder.
  *
  * The files live in ONE place (`apps/web/public/*.webp`, the same ones the
@@ -2041,6 +2114,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (p === '/api/office/chat' && (req.method === 'GET' || req.method === 'POST')) {
       proxyOfficeChat(req, res, url);
+      return;
+    }
+    if (p.startsWith('/api/gemini-live/') && req.method === 'POST') {
+      proxyGeminiLive(req, res, url);
       return;
     }
     if (p === '/api/state' && req.method === 'GET') {

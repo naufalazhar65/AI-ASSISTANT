@@ -127,8 +127,12 @@ Shadows are warm and low-contrast (`rgba(92,70,44,…)`), never black.
   (name, role, avatar). It starts the conversation instead: one honest
   sentence, then an even stack of starting points, anchored under the header
   instead of floating in the middle of the panel.
-- The composer is one row: the input and the send button share height and
-  radius.
+- The composer is one row: the input, the mic button and the send button share
+  height and radius. The send button is an ICON (never the word "Kirim"), and
+  the mic sits directly next to it — voice is the same conversation, spoken,
+  so it lives in the chat panel instead of a panel of its own.
+- The live strip (voice session) is separate from the chat history and hidden
+  while nothing happened: idle is silent.
 - Long values (ids, URLs, tool output) truncate with an ellipsis or scroll
   inside their own box — they never widen the layout.
 - A list view gets one toolbar: a label, a count and the control that changes

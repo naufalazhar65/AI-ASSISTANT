@@ -18,9 +18,11 @@
     "eval:baseline": "cd apps/web && npx tsx eval.ts baseline",
     "eval:list": "cd apps/web && npx tsx eval.ts list",
     "doctor": "npx tsx apps/web/scripts/config-doctor.mts",
-    "clean:test-users": "npx tsx apps/web/scripts/cleanup-test-users.mts"
+    "clean:test-users": "npx tsx apps/web/scripts/cleanup-test-users.mts",
+    "build:dashboard-live": "node apps/office-dashboard/build-live.mjs"
   },
   "devDependencies": {
+    "esbuild": "0.27.7",
     "vitest": "^4.1.11"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { sanitizeUser, appRoot, userDataRoot } from "./users";
-import { OWNER_KEY } from "./identity";
+import { OWNER_KEY, resolveUserFactsKey } from "./identity";
 import {
   canonicalFactKey,
   looksLikeSecret,
@@ -64,6 +64,29 @@ function personaDir(userKey: string | null): string {
   return userKey ? join(USER_DATA_DIR, userKey, "persona") : TEMPLATE_DIR;
 }
 
+/**
+ * Where the FACTS about the human live (`USER.md`). ONE scope — the owner's.
+ *
+ * The trio agents (Mia, Agnes, Michelle) talk to the SAME human, so their
+ * facts must be ONE copy. Per-agent copies drifted: the agent scopes still
+ * said `city: Jakarta` and `plan: free` (the known-false fact from the
+ * 2026-09-30 self-capture loop) while the owner's own file said
+ * `city: Tangerang Selatan` — so a different agent quoted a different city.
+ *
+ * The VOICE (IDENTITY/SOUL/DREAMS) stays per agent; that part is a feature
+ * (2026-10-07 rule). The facts are not.
+ */
+function factsScope(userKey: string | null): string | null {
+  if (!userKey) return null;
+  return resolveUserFactsKey(userKey);
+}
+
+/** Path of the facts file for a user, or null when there is no known user. */
+function factsPath(userKey: string | null): string | null {
+  const scope = factsScope(userKey);
+  return scope ? join(USER_DATA_DIR, scope, "persona", "USER.md") : null;
+}
+
 /** Seed a user's persona from the shared template if it doesn't exist yet. */
 export function ensureUserPersona(rawUser: unknown): string | null {
   const userKey = sanitizeUser(rawUser);
@@ -71,16 +94,24 @@ export function ensureUserPersona(rawUser: unknown): string | null {
   const dir = personaDir(userKey);
   mkdirSync(dir, { recursive: true });
   for (const file of PERSONA_ORDER) {
+    // USER.md is NOT per agent — it is seeded in the facts scope below.
+    if (file === "USER.md") continue;
     const target = join(dir, file);
     if (!existsSync(target) && existsSync(join(TEMPLATE_DIR, file))) {
-      // The shared template holds the OWNER's real facts (`- name: Naufal` in
-      // persona/USER.md), so seeding any other key copied the owner's identity
-      // into that user — measured live 2026-10-16: a scheduled run for a
-      // throwaway user still answered "Mas Naufal". The owner's own directory is
-      // already seeded, so this never touches them.
-      if (file === "USER.md" && userKey !== OWNER_KEY)
-        writeFileSync(target, "# User\n\n## Facts\n- name: (belum diisi)\n");
-      else copyFileSync(join(TEMPLATE_DIR, file), target);
+      copyFileSync(join(TEMPLATE_DIR, file), target);
+    }
+  }
+  // Facts: one scope (the owner's). A different person gets an empty stub —
+  // never the owner's facts (measured live 2026-10-16: a scheduled run for a
+  // throwaway user still answered "Mas Naufal").
+  const scope = factsScope(userKey);
+  if (scope) {
+    const factsDir = join(USER_DATA_DIR, scope, "persona");
+    mkdirSync(factsDir, { recursive: true });
+    const target = join(factsDir, "USER.md");
+    if (!existsSync(target) && existsSync(join(TEMPLATE_DIR, "USER.md"))) {
+      if (scope === OWNER_KEY) copyFileSync(join(TEMPLATE_DIR, "USER.md"), target);
+      else writeFileSync(target, "# User\n\n## Facts\n- name: (belum diisi)\n");
     }
   }
   return userKey;
@@ -124,8 +155,13 @@ export function loadPersonaPrompt(rawUser?: unknown): string {
   const dir = personaDir(userKey);
   const sections: string[] = [];
   for (const file of PERSONA_ORDER) {
-    const path = join(dir, file);
-    if (!existsSync(path)) continue;
+    // Facts about the human live in ONE scope (the owner's) — the trio
+    // agents share it, so they cannot quote a different city each. An
+    // UNIDENTIFIED user (no key) gets no facts at all: the template's
+    // USER.md holds the owner's identity, and injecting it into a prompt
+    // for somebody else is the leak this closes.
+    const path = file === "USER.md" ? (userKey ? factsPath(userKey) : null) : join(dir, file);
+    if (!path || !existsSync(path)) continue;
     try {
       const raw = readFileSync(path, "utf8").trim();
       if (!raw) continue;
@@ -176,9 +212,11 @@ export function upsertPersonaFact(
   const fileName = target === "USER" ? "USER.md" : "SOUL.md";
   const headers = FACT_SECTIONS[fileName];
   if (!headers?.length) return;
-  const dir = personaDir(userKey);
-  mkdirSync(dir, { recursive: true });
-  const path = join(dir, fileName);
+  // USER facts go to the ONE facts scope (the owner's); SOUL (the voice)
+  // stays per agent.
+  const path = fileName === "USER.md" ? (userKey ? factsPath(userKey) : null) : join(personaDir(userKey), fileName);
+  if (!path) return;
+  mkdirSync(dirname(path), { recursive: true });
   if (!existsSync(path)) return;
 
   const canon = canonicalFactKey(key);
@@ -350,11 +388,13 @@ function hygienizeSoulFile(path: string): HygieneResult {
 export function hygienizePersona(rawUser: unknown): HygieneResult[] {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) return [];
-  const dir = personaDir(userKey);
   const results: HygieneResult[] = [];
-  for (const file of ["USER.md", "SOUL.md"] as const) {
-    const path = join(dir, file);
-    if (!existsSync(path)) continue;
+  const files: { file: "USER.md" | "SOUL.md"; path: string }[] = [
+    { file: "USER.md", path: factsPath(userKey) ?? "" },
+    { file: "SOUL.md", path: join(personaDir(userKey), "SOUL.md") },
+  ];
+  for (const { file, path } of files) {
+    if (!path || !existsSync(path)) continue;
     try {
       results.push(file === "USER.md" ? hygienizeUserFile(path) : hygienizeSoulFile(path));
     } catch {
@@ -403,8 +443,8 @@ export function truncateWithMarker(text: string, maxChars: number): string {
 function readFactFile(rawUser: unknown, file: "USER.md" | "SOUL.md"): { path: string; head: string; facts: Fact[]; superseded: string[] } | null {
   const userKey = sanitizeUser(rawUser);
   if (userKey) ensureUserPersona(userKey);
-  const path = join(personaDir(userKey), file);
-  if (!existsSync(path)) return null;
+  const path = file === "USER.md" ? (userKey ? factsPath(userKey) : null) : join(personaDir(userKey), file);
+  if (!path || !existsSync(path)) return null;
   const { head, facts, superseded } = splitFactFile(readFileSync(path, "utf8"), FACT_SECTIONS[file][0]);
   return { path, head, facts, superseded };
 }

@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, readdirSync, writeFileSync, renameSync, mkdirSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
+import { resolveUserFactsKey } from "./identity";
 import { readTasks } from "./tasks";
 import { readReminders } from "./reminders";
 import { readAutomations } from "./automations";
@@ -96,7 +97,13 @@ function collectDocs(rawUser?: unknown): DocChunk[] {
   const personaFiles = ["USER.md", "SOUL.md", "IDENTITY.md", "DREAMS.md"];
   for (const pf of personaFiles) {
     try {
-      const f = join(root, userKey, "persona", pf);
+      // USER.md holds the facts about the human, and the trio agents share
+      // ONE copy of them (the owner's) — a per-agent copy went stale and made
+      // two agents quote a different city. The voice files stay per agent.
+      const f =
+        pf === "USER.md"
+          ? join(root, resolveUserFactsKey(userKey) ?? userKey, "persona", pf)
+          : join(root, userKey, "persona", pf);
       if (existsSync(f)) {
         const txt = readFileSync(f, "utf8");
         if (txt.trim()) docs.push({ id: `persona:${pf}`, source: "persona", text: txt.slice(0, 3000) });

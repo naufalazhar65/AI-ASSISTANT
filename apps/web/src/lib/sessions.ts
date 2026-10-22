@@ -38,16 +38,45 @@ export interface Session extends SessionMeta {
 
 const sortById = (a: SessionMeta, b: SessionMeta) => b.updatedAt - a.updatedAt;
 
-function sessionsDir(userKey: string): string {
-  return join(userDataRoot(), userKey, "sessions");
+/**
+ * Session COLLECTIONS. One user key can hold several independent collections
+ * of conversations, each with its own directory, its own index and its own
+ * cap — so two surfaces can never list, cap, prune or restore each other's
+ * transcripts.
+ *
+ * Why this exists (2026-10-22, measured): the office chat persisted under the
+ * OWNER scope with ids `office-<agent>`, i.e. all three agents AND the web app
+ * shared ONE `sessions/` dir, ONE index and ONE 12-slot cap. The web app
+ * restores the NEWEST session on mount, so it could pick an agent's office
+ * transcript — and then autosave Mia's web words INTO that file, which the
+ * dashboard then showed under that agent. Shared index = shared transcript.
+ */
+export const SESSION_COLLECTION_WEB = "web";
+
+/** Collection for one office agent's chat: `office-mia`, `office-agnes`, … */
+export function officeSessionCollection(agent: string): string {
+  return `office-${agent}`;
 }
 
-function indexPath(userKey: string): string {
-  return join(sessionsDir(userKey), "index.json");
+function safeCollection(collection: unknown): string {
+  if (typeof collection !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(collection)) {
+    return SESSION_COLLECTION_WEB;
+  }
+  return collection;
 }
 
-function sessionPath(userKey: string, id: string): string {
-  return join(sessionsDir(userKey), `${id}.json`);
+function sessionsDir(userKey: string, collection: string = SESSION_COLLECTION_WEB): string {
+  return collection === SESSION_COLLECTION_WEB
+    ? join(userDataRoot(), userKey, "sessions")
+    : join(userDataRoot(), userKey, `sessions-${collection}`);
+}
+
+function indexPath(userKey: string, collection: string = SESSION_COLLECTION_WEB): string {
+  return join(sessionsDir(userKey, collection), "index.json");
+}
+
+function sessionPath(userKey: string, id: string, collection: string = SESSION_COLLECTION_WEB): string {
+  return join(sessionsDir(userKey, collection), `${id}.json`);
 }
 
 function sanitizeId(id: unknown): string | null {
@@ -67,10 +96,10 @@ function writeJson(file: string, data: unknown): void {
  * Remove session files missing from the index, so capping/pruning does not
  * leave orphan .json files on disk forever. Errors are swallowed (best-effort).
  */
-function pruneOrphans(userKey: string, keep: string[]): void {
+function pruneOrphans(userKey: string, keep: string[], collection: string = SESSION_COLLECTION_WEB): void {
   let names: string[] = [];
   try {
-    names = readdirSync(sessionsDir(userKey)).filter((n) => n.endsWith(".json") && n !== "index.json");
+    names = readdirSync(sessionsDir(userKey, collection)).filter((n) => n.endsWith(".json") && n !== "index.json");
   } catch {
     return;
   }
@@ -88,11 +117,11 @@ function pruneOrphans(userKey: string, keep: string[]): void {
 }
 
 /** Read the saved sessions index for a user (empty/missing → nothing). */
-export function listSessions(rawUser?: unknown): SessionMeta[] {
+export function listSessions(rawUser?: unknown, collection?: string): SessionMeta[] {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) return [];
   try {
-    const parsed = JSON.parse(readFileSync(indexPath(userKey), "utf8")) as unknown;
+    const parsed = JSON.parse(readFileSync(indexPath(userKey, safeCollection(collection)), "utf8")) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((s): s is SessionMeta => !!s && typeof (s as SessionMeta).id === "string")
@@ -106,12 +135,12 @@ export function listSessions(rawUser?: unknown): SessionMeta[] {
  * Load one session's full conversation by id. Returns null if it does not
  * exist or is corrupt.
  */
-export function loadSession(rawUser?: unknown, id?: unknown): Session | null {
+export function loadSession(rawUser?: unknown, id?: unknown, collection?: string): Session | null {
   const userKey = sanitizeUser(rawUser);
   const sessionId = sanitizeId(id);
   if (!userKey || !sessionId) return null;
   try {
-    const parsed = JSON.parse(readFileSync(sessionPath(userKey, sessionId), "utf8")) as unknown;
+    const parsed = JSON.parse(readFileSync(sessionPath(userKey, sessionId, safeCollection(collection)), "utf8")) as unknown;
     const conv = (parsed as Session)?.conversation;
     if (!conv || typeof conv !== "object" || !Array.isArray((conv as SerializedConversation).transcripts)) {
       return null;
@@ -130,13 +159,15 @@ export function upsertSession(
   rawUser: unknown,
   id: string | null,
   conversation: SerializedConversation,
-  title?: string
+  title?: string,
+  collection?: string
 ): { id: string } {
   const userKey = sanitizeUser(rawUser);
   if (!userKey) throw new Error("invalid user");
+  const col = safeCollection(collection);
   const sessionId = (id && sanitizeId(id)) || `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const sessionTitle = (title || "Untitled").trim().slice(0, 60) || "Untitled";
-  const dir = sessionsDir(userKey);
+  const dir = sessionsDir(userKey, col);
   mkdirSync(dir, { recursive: true });
 
   const now = Date.now();
@@ -147,31 +178,32 @@ export function upsertSession(
     : 0;
 
   writeJson(
-    sessionPath(userKey, sessionId),
+    sessionPath(userKey, sessionId, col),
     { id: sessionId, title: sessionTitle, updatedAt: now, turns, conversation }
   );
 
-  const index = listSessions(rawUser).filter((s) => s.id !== sessionId);
+  const index = listSessions(rawUser, col).filter((s) => s.id !== sessionId);
   index.push({ id: sessionId, title: sessionTitle, updatedAt: now, turns });
   index.sort(sortById);
   const trimmed = index.slice(0, MAX_SESSIONS);
-  writeJson(indexPath(userKey), trimmed);
-  pruneOrphans(userKey, trimmed.map((s) => s.id));
+  writeJson(indexPath(userKey, col), trimmed);
+  pruneOrphans(userKey, trimmed.map((s) => s.id), col);
   return { id: sessionId };
 }
 
 /** Delete a session (and its file) for a user. Returns false if it did not exist. */
-export function deleteSession(rawUser?: unknown, id?: unknown): boolean {
+export function deleteSession(rawUser?: unknown, id?: unknown, collection?: string): boolean {
   const userKey = sanitizeUser(rawUser);
   const sessionId = sanitizeId(id);
+  const col = safeCollection(collection);
   if (!userKey || !sessionId) return false;
   try {
-    rmSync(sessionPath(userKey, sessionId), { force: true });
+    rmSync(sessionPath(userKey, sessionId, col), { force: true });
   } catch {
     /* file may not exist */
   }
-  const index = listSessions(rawUser).filter((s) => s.id !== sessionId);
-  writeJson(indexPath(userKey), index);
+  const index = listSessions(rawUser, col).filter((s) => s.id !== sessionId);
+  writeJson(indexPath(userKey, col), index);
   return true;
 }
 

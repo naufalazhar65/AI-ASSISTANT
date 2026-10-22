@@ -17,7 +17,7 @@
 import { NextRequest } from "next/server";
 import { runAssistantTurn, type ChatMessage } from "@/lib/agent";
 import type { ToolCall } from "@/lib/tools";
-import { loadSession, upsertSession } from "@/lib/sessions";
+import { loadSession, upsertSession, deleteSession, officeSessionCollection } from "@/lib/sessions";
 import { tzLabel, userTimeZone } from "@/lib/time";
 import { sanitizeUser } from "@/lib/users";
 import { agentTurnUserKey } from "@/lib/identity";
@@ -28,6 +28,41 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_CONFIRM_CALLS = 8;
+
+/**
+ * Each agent's office transcript lives in its OWN session COLLECTION
+ * (`sessions-office-<agent>/`), never in the web app's `sessions/` dir. Before
+ * that, all three agents and the web app shared one index and one 12-slot
+ * cap: the web app restores the NEWEST session on mount, so it could pick an
+ * agent's transcript — and then autosave Mia's web words into that agent's
+ * file, which the dashboard then showed under that agent.
+ *
+ * The legacy owner-scope `office-<agent>` file is migrated on first read (kept,
+ * not lost) and then removed from the web collection.
+ */
+function loadOfficeSession(rawUser: unknown, agent: OfficeAgent): ReturnType<typeof loadSession> {
+  const user = sanitizeUser(rawUser);
+  if (!user) return null;
+  const collection = officeSessionCollection(agent);
+  const id = officeSessionId(agent);
+  const current = loadSession(user, id, collection);
+  if (current) return current;
+  const legacy = loadSession(user, id);
+  if (!legacy) return null;
+  // Migrate once: copy into the agent's own collection, then drop the legacy
+  // entry from the web collection so the web app can never restore it.
+  try {
+    upsertSession(user, id, legacy.conversation, legacy.title, collection);
+  } catch {
+    return legacy;
+  }
+  try {
+    deleteSession(user, id);
+  } catch {
+    /* legacy copy stays; the agent's own copy is already written */
+  }
+  return loadSession(user, id, collection) ?? legacy;
+}
 
 function confirmCallsFrom(raw: unknown): { call: ToolCall; allow: boolean }[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -44,7 +79,7 @@ export async function GET(request: NextRequest) {
   const agentParam = request.nextUrl.searchParams.get("agent");
   const agent: OfficeAgent = isOfficeAgent(agentParam) ? agentParam : "mia";
   const user = request.nextUrl.searchParams.get("user") ?? undefined;
-  const session = loadSession(user, officeSessionId(agent));
+  const session = loadOfficeSession(user, agent);
   const messages = Array.isArray(session?.conversation?.messages)
     ? (session.conversation.messages as ChatMessage[])
     : [];
@@ -99,10 +134,11 @@ export async function POST(request: NextRequest) {
     : [];
   const confirm_calls = confirmCallsFrom(body.confirm_calls);
   const sessionId = officeSessionId(agent);
+  const collection = officeSessionCollection(agent);
   // The previous session's stamps, so history the browser re-sends keeps the
   // time it was actually sent (the browser's own stamps win over these).
   const prevStamps: (number | null)[] = (() => {
-    const prev = loadSession(user, sessionId);
+    const prev = loadOfficeSession(user, agent);
     return Array.isArray(prev?.conversation?.stamps) ? prev.conversation.stamps : [];
   })();
 
@@ -167,7 +203,7 @@ export async function POST(request: NextRequest) {
             return now;
           });
           try {
-            upsertSession(user, sessionId, { messages: nextMessages, transcripts: [], stamps }, `${agent} — office chat`);
+            upsertSession(user, sessionId, { messages: nextMessages, transcripts: [], stamps }, `${agent} — office chat`, collection);
           } catch {
             /* history is best-effort; the turn itself already succeeded */
           }

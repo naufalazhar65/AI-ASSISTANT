@@ -146,6 +146,13 @@ export interface GeminiLiveOptions {
    * localStorage that does not exist here.
    */
   userHeader?: Record<string, string>;
+  /**
+   * `fetch` used for the token request. Omitted in the browser (the global one
+   * is fine); a caller on another origin (the office dashboard, whose page
+   * origin is not Mia's) injects one that carries its own bearer token and
+   * pins the agent, because the default relative URL would leave the origin.
+   */
+  fetchImpl?: typeof fetch;
 }
 
 export interface StartResult {
@@ -318,7 +325,8 @@ export class GeminiLiveSession {
       // Node has no origin for a relative URL to resolve against, hence the
       // caller's absolute `tokenUrl` (default stays the browser's own path).
       const tokenUrl = this.options.tokenUrl || "/api/gemini-live/token";
-      const res = await fetch(tokenUrl, { method: "POST", headers });
+      const doFetch = this.options.fetchImpl || fetch;
+      const res = await doFetch(tokenUrl, { method: "POST", headers });
       const json = (await res.json().catch(() => ({}))) as {
         token?: string;
         model?: string;

@@ -45,8 +45,25 @@ Token tidak pernah ditampilkan di response, UI, maupun log.
 | GET | `/api/memory?agent=mia\|agnes\|michelle` | ya | file persona + memory harian agent, read-only |
 | GET | `/api/files?root=web\|dashboard&path=…` | ya | browser file read-only dengan deny-list |
 | GET | `/api/bus/stream?since=` | ya | proxy SSE Event Bus Mia |
+| POST | `/api/gemini-live/{token,tool,memory,tool-ping}?agent=mia\|agnes\|michelle` | ya | proxy Gemini Live ke Mia; **identitas di-pin server-side** (`x-mia-user` dari tabel agent, `x-mia-agent` dari `?agent=`), browser tidak pernah menentukan user |
 | POST | `/api/queue` | ya | `{prompt, agent}` → 201, agent wajib `mia\|agnes\|michelle` |
 | POST | `/api/dispatch` | ya | `{paused: true\|false}` → menulis `data/dispatch.json` |
+
+### Live di dalam panel chat
+
+Panel chat punya **tombol mikrofon di sebelah tombol kirim** (kirim = ikon, bukan
+teks "Kirim"). Mikrofon membuka sesi Gemini Live untuk agent yang sedang aktif
+di panel — satu pemilih, satu percakapan.
+
+- Klien Live (`vendor/live.bundle.js`) adalah hasil build dari `apps/web`
+  (`npm run build:dashboard-live`), jadi loop-nya **satu** dengan aplikasi web —
+  tidak ada salinan kedua yang bisa melenceng.
+- `live.mjs` hanya transport: pedir mikrofon, kirim bearer dashboard, sebut
+  agent (`?agent=`). Identitas tidak pernah diklaim di browser.
+- Strip live (status + transkrip) terpisah dari riwayat chat dan tersembunyi
+  saat idle — tidak ada panel kedua yangclaim "live".
+- Batasan API Live (audio harus lewat `realtimeInput`, `responseModalities` di
+  dalam `generationConfig`, jeda senyap > `silenceDurationMs`) tetap berlaku.
 
 Semuanya di-validasi: prompt non-kosong & ≤4000 karakter, agent harus dikenal,
 `paused` harus boolean, body dibatasi 64 KB, tidak ada shell yang dijalankan dari input HTTP.

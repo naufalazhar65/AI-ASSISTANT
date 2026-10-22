@@ -417,6 +417,46 @@ export function avatarUrl(id) {
   return id === 'mia' || id === 'agnes' || id === 'michelle' ? `/avatars/${id}.webp` : null;
 }
 
+/**
+ * The voice strip inside the chat panel, as a pure view model.
+ *
+ * The strip is NOT the chat history: the text log is the persisted office
+ * session, this is the transient voice session. They sit in one panel but
+ * never pretend to be the same record.
+ *
+ * Every field here is something the Live client actually reported — the
+ * status from the Live state, the transcript from the Live transcript, the
+ * note from whatever the client last complained about. Nothing is invented,
+ * and an idle session says nothing at all.
+ */
+export function liveStripModel(s) {
+  const state = s || {};
+  const status = state.status || 'idle';
+  const active = status === 'ready' || status === 'connecting';
+  const label =
+    status === 'ready' ? (state.speaking ? 'Berbicara' : 'Siap')
+    : status === 'connecting' ? 'Menyambung…'
+    : status === 'error' ? 'Gagal'
+    : status === 'closed' ? 'Tutup'
+    : 'Idle';
+  /* One honest line: the error first, else what the client is doing. */
+  const note = state.error || state.note || state.stalled || state.toolNote || state.verifyNote || '';
+  const heard = state.heard ? `Kamu: ${state.heard}` : '';
+  const said = state.said ? `${state.agentName || 'Agent'}: ${state.said}` : '';
+  return {
+    status,
+    active,
+    label,
+    pillClass: 'chatLivePill chatLivePill_' + status,
+    agent: state.agentName ? `— ${state.agentName}` : '',
+    heard,
+    said,
+    note,
+    /* Idle is silent: the strip exists only while there is something to say. */
+    hidden: !(active || note || state.heard || state.said),
+  };
+}
+
 /** Honest connection copy — never claims "live" when the stream is gone. */
 export function connectionLabel(state) {
   switch (state) {

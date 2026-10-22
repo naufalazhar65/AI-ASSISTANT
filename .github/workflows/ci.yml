@@ -88,6 +88,15 @@ jobs:
       - run: npm ci
       - name: Chat panel core tests
         run: node --test apps/office-dashboard/chat-core.test.mjs
+      - name: Dashboard Live transport tests
+        run: node --test apps/office-dashboard/live.test.mjs
+      - name: Live bundle is in sync with the source
+        # The committed vendor/live.bundle.js must match what the source
+        # builds to — otherwise the dashboard runs an older Live client than
+        # the app does, and nobody notices until a voice bug.
+        run: |
+          npm run build:dashboard-live
+          git diff --exit-code -- apps/office-dashboard/vendor/live.bundle.js
       - name: Office furniture probe
         run: node apps/office-dashboard/probe-furniture-validate.js
       - name: Test-user cleanup (dry run)
@@ -126,6 +135,10 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
       - run: npx tsx apps/web/verify.ts
+      # The office-chat transcript isolation: each agent keeps its OWN session
+      # collection, and the web app must never restore an office transcript.
+      # Hermetic (throwaway user, cleaned up) — no provider call.
+      - run: npx tsx apps/web/drill-office-isolation.mts
 
   # Stage B of the evaluation plan: the deterministic eval suite runs on every
   # push/PR. No model calls, no credentials — cases that need a provider stay

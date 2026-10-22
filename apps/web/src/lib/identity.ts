@@ -152,6 +152,31 @@ export function resolveOwnerScopedKey(user: unknown): string | null {
 }
 
 /**
+ * Which scope holds the FACTS about the human (`persona/USER.md`).
+ *
+ * The trio agents (Mia, Agnes, Michelle) talk to the SAME human — so their
+ * facts must be ONE copy, not one per agent. Before this, each agent scope
+ * carried its own `USER.md`, seeded from the shared template: the agent
+ * scopes still said `city: Jakarta` and `plan: free` (the known-false fact
+ * from the 2026-09-30 self-capture loop) while the owner's own file said
+ * `city: Tangerang Selatan`. Two copies of the same human's facts, and the
+ * copies disagreed — so a different agent quoted a different city.
+ *
+ * So: facts are OWNER-scoped (one fact, one home), while the VOICE
+ * (IDENTITY/SOUL/DREAMS) stays per agent — that part IS a feature, per the
+ * 2026-10-07 rule.
+ *
+ * A genuinely different person keeps their own facts: only a key that folds
+ * to the owner (aliases included) is folded here.
+ */
+export function resolveUserFactsKey(user: unknown): string | null {
+  const key = validateUserKey(user);
+  if (!key) return null;
+  const owner = resolveOwnerScopedKey(key);
+  return owner === OWNER_KEY ? OWNER_KEY : key;
+}
+
+/**
  * The BROWSER's identity resolution, and deliberately stronger than a fold.
  *
  * Why this exists (2026-09-30, after the fold shipped and the owner tested it in

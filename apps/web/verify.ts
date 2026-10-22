@@ -7060,17 +7060,60 @@ async function main() {
       function: { name: "write_file", arguments: JSON.stringify({ path: "verify_tmp_dec.txt", content: "x" }) },
     });
     const b3 = busCursor();
+    // The decline path needs a provider chain that RESOLVES: otherwise the
+    // turn dies before the confirm executor and the event is never emitted —
+    // and on a machine whose providers are all down/cooldown the block would
+    // fail for the wrong reason (a gate that goes red when nothing is broken
+    // teaches people to ignore it). The chain is therefore pointed at a dead
+    // local endpoint (fast, offline, no real provider touched) and the
+    // provider-health state is restored afterwards so the test cannot poison
+    // production health.
+    const healthFile = join(appRoot(), ".data", "provider-health", "state.json");
+    const healthBefore = existsSync(healthFile) ? readFileSync(healthFile, "utf8") : null;
+    const prevLlmKey = process.env.LLM_API_KEY;
+    const prevLlmBase = process.env.LLM_API_BASE;
+    const prevOpenBase = process.env.OPENCODE_LLM_BASE;
+    process.env.LLM_API_KEY = "verify-fixture-key";
+    process.env.LLM_API_BASE = "http://127.0.0.1:9/v1/chat/completions";
+    process.env.OPENCODE_LLM_BASE = "http://127.0.0.1:9/v1/chat/completions";
     try {
-      await runAssistantTurn({
-        messages: [
-          { role: "user", content: "tulis file test" },
-          { role: "assistant", content: null, tool_calls: [mkCall("t-dec2")] },
-        ],
-        provider: "9router",
-        confirm_calls: [{ call: mkCall("t-dec2"), allow: false }],
-        user: "verify_busd2",
-      });
-    } catch { /* completion lanjutan boleh gagal — event sudah tercatat */ }
+      // Only the fixture provider may be tried: every OTHER provider is
+      // parked with a far-future cooldown, so the gate never calls a real
+      // brain (and never poisons its health).
+      const parked = { status: "down", failCount: 99, cooldownUntil: new Date(Date.now() + 3650 * 86400_000).toISOString() };
+      writeFileSync(
+        healthFile,
+        JSON.stringify({
+          providers: {
+            "9router": { status: "ok", failCount: 0, lastCheckedAt: new Date().toISOString() },
+            opencodego: parked,
+            opencode: parked,
+            groq: parked,
+            openrouter: parked,
+          },
+          updatedAt: new Date().toISOString(),
+        }),
+      );
+      try {
+        await runAssistantTurn({
+          messages: [
+            { role: "user", content: "tulis file test" },
+            { role: "assistant", content: null, tool_calls: [mkCall("t-dec2")] },
+          ],
+          provider: "9router",
+          confirm_calls: [{ call: mkCall("t-dec2"), allow: false }],
+          user: "verify_busd2",
+        });
+      } catch { /* completion lanjutan boleh gagal — event sudah tercatat */ }
+    } finally {
+      if (prevLlmKey === undefined) delete process.env.LLM_API_KEY; else process.env.LLM_API_KEY = prevLlmKey;
+      if (prevLlmBase === undefined) delete process.env.LLM_API_BASE; else process.env.LLM_API_BASE = prevLlmBase;
+      if (prevOpenBase === undefined) delete process.env.OPENCODE_LLM_BASE; else process.env.OPENCODE_LLM_BASE = prevOpenBase;
+      try {
+        if (healthBefore === null) rmSync(healthFile, { force: true });
+        else writeFileSync(healthFile, healthBefore);
+      } catch { /* best-effort restore */ }
+    }
     const evs3 = busEventsSince(b3, "verify_busd2").events;
     if (!evs3.some((e) => e.type === "task_cancelled" && e.data?.name === "write_file")) {
       throw new Error("task_cancelled on explicit decline");
@@ -8937,6 +8980,7 @@ async function main() {
     const { join } = await import("node:path");
     const player = readFileSync(join(import.meta.dirname, "src", "audio", "AudioPlayer.ts"), "utf8");
     const hook = readFileSync(join(import.meta.dirname, "src", "hooks", "useGeminiLive.ts"), "utf8");
+    const liveClientSrc = readFileSync(join(import.meta.dirname, "src", "lib", "liveClient.ts"), "utf8");
     if (!/private outputBus\(/.test(player)) {
       throw new Error("live telephone voice: outputBus() is gone - the chain has no single owner");
     }
@@ -8949,10 +8993,15 @@ async function main() {
     if (!/\b300\b/.test(player) || !/\b3400\b/.test(player)) {
       throw new Error("live telephone voice: band edges must stay 300-3400 Hz (telephone band), not wideband");
     }
-    if (!/readTelephonePref/.test(hook) || !/setTelephoneVoice/.test(hook)) {
+    // The preference lives in the ONE orchestrator now (LiveClient); the hook
+    // only forwards the toggle. Both halves must stay wired.
+    if (!/readTelephonePref/.test(liveClientSrc) || !/setTelephoneVoice/.test(liveClientSrc)) {
+      throw new Error("live telephone voice: the Live client lost its preference read/toggle");
+    }
+    if (!/setTelephoneVoice/.test(hook)) {
       throw new Error("live telephone voice: the Live hook lost its preference read/toggle");
     }
-    console.log("live telephone voice (output bus in pump(), 300-3400 Hz band + compressor + makeup gain, hook pref wired): OK");
+    console.log("live telephone voice (output bus in pump(), 300-3400 Hz band + compressor + makeup gain, client pref wired): OK");
   }
 
   // LIVE 19:48 DEFECT (owner: "kenapa dia bilang 'Sore'? padahal sekarang jam
@@ -9742,6 +9791,172 @@ async function verifyProactiveWorkflows(): Promise<void> {
     }
     if (!/from '\.\/chat-core\.mjs'/.test(officeUi)) throw new Error("office chat: chat.js harus memakai chat-core (sanitasi teruji), bukan logika sendiri");
     console.log("office chat sidebar (route nyata · bus lifecycle · FR-014 confirm · store existing · proxy pin user · UI tanpa operasi privileged): OK");
+
+    // --- Office transcript isolation (2026-10-22). The office chat used to
+    // persist under the OWNER scope with ids `office-<agent>`, so all three
+    // agents AND the web app shared ONE sessions dir, ONE index and ONE
+    // 12-slot cap. The web app restored the NEWEST session — which could be
+    // another agent's office transcript — and then autosaved Mia's web words
+    // back into it. Helper-correct but wired wrong, so every layer is asserted.
+    {
+      const sessionsSrc = readFileSync(join(appRoot(), "src", "lib", "sessions.ts"), "utf8");
+      if (!/export function officeSessionCollection\(/.test(sessionsSrc)) {
+        throw new Error("office isolation: sessions.ts harus punya officeSessionCollection (koleksi per agen)");
+      }
+      if (!/sessions-\$\{collection\}/.test(sessionsSrc)) {
+        throw new Error("office isolation: koleksi non-web harus memakai dir sendiri (sessions-<collection>), bukan dir web bersama");
+      }
+      if (!/export function listSessions\(rawUser\?: unknown, collection\?: string\)/.test(sessionsSrc)) {
+        throw new Error("office isolation: listSessions harus menerima koleksi (satu index per koleksi)");
+      }
+      if (!/export function loadSession\(rawUser\?: unknown, id\?: unknown, collection\?: string\)/.test(sessionsSrc)) {
+        throw new Error("office isolation: loadSession harus menerima koleksi");
+      }
+      if (!/export function upsertSession\([\s\S]*collection\?: string\s*\)/.test(sessionsSrc)) {
+        throw new Error("office isolation: upsertSession harus menerima koleksi");
+      }
+      if (!/export function deleteSession\(rawUser\?: unknown, id\?: unknown, collection\?: string\)/.test(sessionsSrc)) {
+        throw new Error("office isolation: deleteSession harus menerima koleksi (migrasi legacy)");
+      }
+      // The office route must use the per-agent collection AND migrate the
+      // legacy owner-scope file (today's transcripts would otherwise vanish).
+      if (!/officeSessionCollection\(agent\)/.test(officeRoute)) {
+        throw new Error("office isolation: route harus memakai koleksi per agen (officeSessionCollection)");
+      }
+      if (!/loadOfficeSession/.test(officeRoute)) {
+        throw new Error("office isolation: route harus punya loadOfficeSession (fallback+migrasi legacy)");
+      }
+      if (!/deleteSession\(/.test(officeRoute)) {
+        throw new Error("office isolation: route harus menghapus entri legacy dari koleksi web (index web jadi bersih)");
+      }
+      // The web app must never restore or write an office session id.
+      const useVoiceSrc = readFileSync(join(appRoot(), "src", "hooks", "useVoice.ts"), "utf8");
+      if (!/!s\.id\.startsWith\("office-"\)/.test(useVoiceSrc)) {
+        throw new Error("office isolation: web app tidak boleh restore sesi office (transkrip agen lain bocor ke web)");
+      }
+      if (!/startsWith\("office-"\) \? null : sessionId/.test(useVoiceSrc)) {
+        throw new Error("office isolation: autosave web tidak boleh menulis ke id office");
+      }
+      // Daily-memory label: the speaking agent, not a hardcoded "Mia:".
+      const agentSrc = readFileSync(join(appRoot(), "src", "lib", "agent.ts"), "utf8");
+      if (!/agentDisplayName\(opts\.agent\)/.test(agentSrc)) {
+        throw new Error("office isolation: label memory harian harus pakai nama agen yang bicara (agentDisplayName)");
+      }
+      if (/`Mia: /.test(agentSrc)) {
+        throw new Error("office isolation: label 'Mia:' hardcoded masih ada — transkrip Agnes/Michelle tercatat atas nama Mia");
+      }
+      // One copy of the owner's facts (the trio agents are the same human).
+      const identitySrc = readFileSync(join(appRoot(), "src", "lib", "identity.ts"), "utf8");
+      if (!/export function resolveUserFactsKey\(/.test(identitySrc)) {
+        throw new Error("office isolation: identity.ts harus punya resolveUserFactsKey (satu salinan fakta untuk trio)");
+      }
+      const personaSrc = readFileSync(join(appRoot(), "src", "lib", "persona.ts"), "utf8");
+      if (!/factsPath/.test(personaSrc)) {
+        throw new Error("office isolation: persona.ts harusresolve USER.md lewat factsPath (scope fakta bersama)");
+      }
+      if (!/resolveUserFactsKey/.test(personaSrc)) {
+        throw new Error("office isolation: persona.ts harus memakai resolveUserFactsKey");
+      }
+      const ragSrc = readFileSync(join(appRoot(), "src", "lib", "rag.ts"), "utf8");
+      if (!/resolveUserFactsKey/.test(ragSrc)) {
+        throw new Error("office isolation: rag.ts harus membaca USER.md dari scope fakta bersama (recall mengulang fakta basi)");
+      }
+      const templateFacts = readFileSync(join(appRoot(), "persona", "USER.md"), "utf8");
+      if (/plan: free/.test(templateFacts)) {
+        throw new Error("office isolation: template persona masih punya fakta palsu 'plan: free'");
+      }
+      if (/city: Jakarta/.test(templateFacts)) {
+        throw new Error("office isolation: template persona masih punya kota basi 'Jakarta'");
+      }
+      // The panel-wide render signature must include the agent, or a tab
+      // switch can leave the previous agent's bubbles on screen.
+      if (!/sSig\s*=\s*state\.selected/.test(officeUi)) {
+        throw new Error("office isolation: signature render chat.js harus memuat agent (streamSig satu untuk semua agen)");
+      }
+      if (!existsSync(join(appRoot(), "drill-office-isolation.mts"))) {
+        throw new Error("office isolation: drill-office-isolation.mts harus ada (regresi store)");
+      }
+      console.log("office transcript isolation (koleksi sesi per agen · web app tak restore office · label memory pakai nama agen · satu salinan fakta owner): OK");
+    }
+
+    // --- Gemini Live in the dashboard: one orchestrator, one bundle, one
+    // identity-pinned proxy. The React hook and the dashboard must share the
+    // SAME loop, or the two copies drift silently.
+    {
+      const clientSrc = readFileSync(join(appRoot(), "src", "lib", "liveClient.ts"), "utf8");
+      const hookSrc = readFileSync(join(appRoot(), "src", "hooks", "useGeminiLive.ts"), "utf8");
+      const dashSrc = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "server.js"), "utf8");
+      const dashHtml = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "index.html"), "utf8");
+      const dashLiveJs = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "live.mjs"), "utf8");
+      const dashChatJs = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "chat.js"), "utf8");
+
+      // 1. The orchestrator lives in ONE place and the hook is a thin adapter.
+      if (!/class LiveClient/.test(clientSrc)) throw new Error("live dashboard: LiveClient tidak ada di lib");
+      if (!/from ["'](@\/lib\/liveClient|\.\/lib\/liveClient|\.\.\/lib\/liveClient)["']/.test(hookSrc)) {
+        throw new Error("live dashboard: hook harus memakai LiveClient (satu loop untuk dua UI)");
+      }
+      // The barge-in rules must exist in exactly one place: a copy in the hook
+      // would drift from the copy the dashboard runs.
+      if (/BARGE_RMS/.test(hookSrc)) throw new Error("live dashboard: aturan barge-in jangan diduplikasi di hook");
+      if (!/BARGE_RMS/.test(clientSrc)) throw new Error("live dashboard: aturan barge-in harus ada di LiveClient");
+      const panelSrc = readFileSync(join(appRoot(), "src", "components", "ui", "voice", "LiveVoicePanel.tsx"), "utf8");
+      if (!/useGeminiLive/.test(panelSrc)) throw new Error("live dashboard: panel React harus tetap memakai hook yang sama");
+
+      // 2. The bundle must exist, be browser-safe, and be loaded by the page.
+      const bundle = join(miaRepoRoot(), "apps", "office-dashboard", "vendor", "live.bundle.js");
+      if (!existsSync(bundle)) throw new Error("live dashboard: vendor/live.bundle.js belum di-build (npm run build:dashboard-live)");
+      const bundleSrc = readFileSync(bundle, "utf8");
+      if (/from\s*["']node:|require\(["']node:/.test(bundleSrc)) throw new Error("live dashboard: bundle tidak boleh punya node builtin");
+      if (!/MiaLive/.test(bundleSrc)) throw new Error("live dashboard: bundle harus mempublikasikan global MiaLive");
+      if (!/vendor\/live\.bundle\.js/.test(dashHtml)) throw new Error("live dashboard: index.html harus memuat vendor/live.bundle.js");
+      // Live lives INSIDE the chat panel: the transport is imported by chat.js,
+      // not loaded as a second panel of its own.
+      if (!/from '\.\/live\.mjs'/.test(dashChatJs)) throw new Error("live dashboard: chat.js harus mengimpor transport live");
+      if (/src="\/live\.js"|src="\/live\.mjs"|href="\/live\.css"/.test(dashHtml)) {
+        throw new Error("live dashboard: Live harus menyatu dengan panel chat, bukan panel terpisah");
+      }
+      // The composer: mic next to send, and the send button is an ICON.
+      if (!/chatMic/.test(dashChatJs)) throw new Error("live dashboard: tombol mikrofon harus ada di panel chat");
+      if (!/#i-mic/.test(dashChatJs) || !/#i-send/.test(dashChatJs)) throw new Error("live dashboard: ikon mikrofon dan kirim harus dipakai");
+      if (/textContent = 'Kirim'/.test(dashChatJs)) throw new Error("live dashboard: tombol kirim harus ikon, bukan teks");
+      if (!/id="i-send"/.test(dashHtml) || !/id="i-mic"/.test(dashHtml)) {
+        throw new Error("live dashboard: index.html harus punya simbol sprite i-send dan i-mic");
+      }
+
+      // 3. The proxy must pin the identity server-side — the browser may pick
+      //    the agent, never the user.
+      if (!/p\.startsWith\('\/api\/gemini-live\/'\)/.test(dashSrc)) throw new Error("live dashboard: proxy live tidak terdaftar");
+      if (!/headers\['x-mia-user'\] = agent\.user/.test(dashSrc)) throw new Error("live dashboard: proxy harus pin x-mia-user dari tabel agent");
+      if (!/headers\['x-mia-agent'\] = agent\.id/.test(dashSrc)) throw new Error("live dashboard: proxy harus pin x-mia-agent");
+      if (!/AGENT_IDS|AGENTS\.find/.test(dashSrc)) throw new Error("live dashboard: agent harus divalidasi");
+      if (!/authorization = `Bearer \$\{UPSTREAM_TOKEN\}`/.test(dashSrc)) throw new Error("live dashboard: proxy harus memakai bearer Mia sendiri ke upstream");
+      // The browser side must never name a user key.
+      if (/headers\[['"`]x-mia-user|['"`]x-mia-user['"`]\s*:/.test(dashLiveJs)) {
+        throw new Error("live dashboard: UI tidak boleh menentukan user (proxy yang mem-pin)");
+      }
+
+      // 4. The build must be reproducible: esbuild is a DECLARED dependency and
+      //    the script that produces the committed bundle exists.
+      const rootPkg = JSON.parse(readFileSync(join(miaRepoRoot(), "package.json"), "utf8")) as {
+        devDependencies?: Record<string, string>;
+        scripts?: Record<string, string>;
+      };
+      if (!rootPkg.devDependencies?.esbuild) throw new Error("live dashboard: esbuild harus jadi devDependency eksplisit");
+      if (!rootPkg.scripts?.["build:dashboard-live"]) throw new Error("live dashboard: script build:dashboard-live wajib ada");
+      if (!existsSync(join(miaRepoRoot(), "apps", "office-dashboard", "build-live.mjs"))) {
+        throw new Error("live dashboard: build-live.mjs hilang");
+      }
+
+      // 5. The gates for this feature: unit test + durable drill.
+      if (!existsSync(join(appRoot(), "src", "lib", "liveClient.test.ts"))) {
+        throw new Error("live dashboard: unit test LiveClient wajib ada");
+      }
+      if (!existsSync(join(appRoot(), "drill-dashboard-live.mts"))) {
+        throw new Error("live dashboard: drill proxy live wajib ada");
+      }
+
+      console.log("dashboard gemini live (satu orchestrator · bundle browser-safe · proxy pin identitas · UI tanpa user key): OK");
+    }
 
     // --- Wave 1: the gates that were never run, the env surface nobody could
     // configure, and the store that keeps every leftover test user alive.

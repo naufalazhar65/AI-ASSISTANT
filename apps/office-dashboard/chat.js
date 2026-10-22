@@ -12,8 +12,9 @@ import {
   visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
   dateTimeLabel, agentAvailability,
   taskStateFor, toolStateMeta, humanError, humanGenerationError,
-  avatarUrl,
+  avatarUrl, liveStripModel,
 } from './chat-core.mjs';
+import { createLive } from './live.mjs';
 
 const CHAT_AGENTS = ['mia', 'agnes', 'michelle'];
 const FALLBACK_AGENT_META = {
@@ -643,7 +644,7 @@ function streamNodes(chat, c, agentMeta) {
   return nodes;
 }
 
-function ChatComposer(chat) {
+function ChatComposer(chat, live) {
   const input = h('textarea', {
     class: 'chatInput',
     'data-fk': 'composer',
@@ -667,7 +668,21 @@ function ChatComposer(chat) {
     type: 'submit',
     'data-fk': 'send',
     'aria-label': 'Kirim pesan',
-    text: 'Kirim',
+    title: 'Kirim pesan',
+    html: '<svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-send"/></svg>',
+  });
+  /* The mic sits right next to send: voice is the same conversation, just
+     spoken. It carries the live state, so the owner can see at a glance that
+     the session is open (and that it is NOT when the button is idle). */
+  const micBtn = h('button', {
+    class: 'btn chatMic',
+    type: 'button',
+    'data-fk': 'mic',
+    'aria-pressed': 'false',
+    'aria-label': 'Bicara dengan agent (Live)',
+    title: 'Bicara dengan agent (Live)',
+    html: '<svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-mic"/></svg>',
+    onclick: () => live.toggle(),
   });
   const submit = async () => {
     const text = input.value;
@@ -681,17 +696,20 @@ function ChatComposer(chat) {
     }
     input.focus();
   };
-  const form = h('form', { class: 'chatForm', onsubmit: (e) => { e.preventDefault(); submit(); } }, [input, sendBtn]);
+  const form = h('form', { class: 'chatForm', onsubmit: (e) => { e.preventDefault(); submit(); } }, [input, micBtn, sendBtn]);
   const update = (state, agentMeta) => {
     const name = agentMeta.name || 'agent';
     input.placeholder = `Tulis pesan ke ${name}…`;
     input.setAttribute('aria-label', `Pesan untuk ${name}`);
     const busy = chat.busy;
+    /* The send button is an icon now, so the busy state is carried by the
+       button being disabled plus the footer's own status line — never by a
+       word that replaced the glyph. */
     sendBtn.disabled = busy;
-    sendBtn.textContent = busy ? 'Mengirim…' : 'Kirim';
+    sendBtn.setAttribute('aria-busy', busy ? 'true' : 'false');
   };
   queueMicrotask(autosize);
-  return { form, input, update };
+  return { form, input, update, micBtn };
 }
 
 function ChatHeader(chat, state, agentMeta, onClose) {
@@ -773,6 +791,46 @@ function ChatHeader(chat, state, agentMeta, onClose) {
 }
 
 /**
+ * The live strip: the voice session, shown inside the chat panel.
+ *
+ * It is NOT the chat history — the text log is the persisted office session,
+ * this is the transient voice session. They sit in one panel but never pretend
+ * to be the same record.
+ *
+ * Every line here is something the client actually reported: the status from
+ * the Live state, the transcript from the Live transcript, the note from
+ * whatever the client last complained about. Nothing is invented. The mapping
+ * itself lives in chat-core (pure, unit-tested); this only puts it on screen.
+ */
+function LiveRegion() {
+  const pill = h('span', { class: 'chatLivePill', role: 'status', 'aria-live': 'polite' }, 'Idle');
+  const agent = h('span', { class: 'chatLiveAgent' }, '');
+  const heard = h('div', { class: 'chatLiveLine chatLiveHeard' }, '');
+  const said = h('div', { class: 'chatLiveLine chatLiveSaid' }, '');
+  const note = h('div', { class: 'chatLiveNote' }, '');
+  const el = h('div', { class: 'chatLive', hidden: true, 'aria-label': 'Sesi suara live' }, [
+    h('div', { class: 'chatLiveHead' }, [pill, agent]),
+    heard,
+    said,
+    note,
+  ]);
+
+  const update = (s) => {
+    const m = liveStripModel(s);
+    pill.textContent = m.label;
+    pill.className = m.pillClass;
+    agent.textContent = m.agent;
+    heard.textContent = m.heard;
+    said.textContent = m.said;
+    note.textContent = m.note;
+    note.classList.toggle('chatLiveNoteOn', !!m.note);
+    el.hidden = m.hidden;
+  };
+
+  return { el, update };
+}
+
+/**
  * The sidebar: header + conversation + composer, built ONCE and updated in place.
  *
  * Every state emission (each bus frame, each message) used to replace the whole
@@ -806,7 +864,13 @@ function ChatSidebar(chat, toggleBtn) {
   ]);
   const status = h('span', { class: 'chatStatus', role: 'status', 'aria-live': 'polite' });
   const hint = h('span', { class: 'chatHint' });
-  const composer = ChatComposer(chat);
+  /* The voice lives INSIDE the chat panel: one conversation, two transports.
+     The live transcript is a separate region (not mixed into the persisted
+     chat history) — the text log is the office session, the live strip is
+     the voice session, and they never pretend to be the same thing. */
+  const voice = createLive();
+  const voiceRegion = LiveRegion();
+  const composer = ChatComposer(chat, voice);
   const foot = h('div', { class: 'chatFoot' }, [
     h('div', { class: 'chatFootTop' }, [status, hint]),
     composer.form,
@@ -832,13 +896,31 @@ function ChatSidebar(chat, toggleBtn) {
   /* The visible surface is a wrapper: the panel is the layout column, the
      wrapper is what the eye sees — and what the open/close motion plays on. */
   const inner = h('div', { class: 'chatInner' });
-  inner.replaceChildren(head, log, foot, live);
+  inner.replaceChildren(head, log, voiceRegion.el, foot, live);
   panel.replaceChildren(inner);
 
   let headSig = null;
   let streamSig = null;
   let tailSig = null;
   let announced = null;
+  let voiceAgent = null;
+
+  const agentNameFor = (id) => {
+    const meta = chat.snapshot().agents.find((a) => a.id === id);
+    return (meta && meta.name) || (id === 'agnes' ? 'Agnes' : id === 'michelle' ? 'Michelle' : 'Mia');
+  };
+
+  /* The voice follows the agent the panel is talking to: one picker, one
+     conversation. The Live persona and voice are pinned when the token is
+     minted, so a switch closes an open session and says so — never the old
+     agent's voice under the new name. */
+  voice.subscribe((s) => {
+    voiceRegion.update({ ...s, agentName: agentNameFor(s.agent) });
+    const on = s.status === 'ready' || s.status === 'connecting';
+    composer.micBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    composer.micBtn.classList.toggle('on', on);
+    composer.micBtn.title = on ? 'Tutup sesi live' : 'Bicara dengan agent (Live)';
+  });
 
   const nearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   /* The jump button is a "there is something new below" affordance, not a
@@ -856,6 +938,12 @@ function ChatSidebar(chat, toggleBtn) {
   function render(state) {
     const agentMeta = state.agents.find((a) => a.id === state.selected) || FALLBACK_AGENT_META[state.selected];
     const c = state.conv;
+    /* One agent picker for the whole panel: the voice follows whoever the
+       text conversation is with. */
+    if (state.selected && state.selected !== voiceAgent) {
+      voiceAgent = state.selected;
+      voice.setAgent(state.selected);
+    }
     const wasNearBottom = nearBottom();
     const count = (c.messages || []).length;
     if (count > lastCount && !wasNearBottom) unseen = true;
@@ -880,7 +968,13 @@ function ChatSidebar(chat, toggleBtn) {
     }
 
     const msgs = visibleMessages(c.messages);
+    // The agent id is PART of the signature: one variable serves every tab, so
+    // two agents whose visible messages share the same shape (same positions,
+    // roles and first 48 chars) would otherwise leave the previous agent's
+    // bubbles on screen after a tab switch.
     const sSig =
+      state.selected +
+      '\u0000' +
       msgs.map((m) => m.key).join('\u0001') +
       '\u0002' +
       (c.cards || []).map((x) => `${x.id}:${x.state}:${x.at || ''}:${x.summary || ''}:${x.result || ''}`).join('\u0001');

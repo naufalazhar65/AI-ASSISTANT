@@ -6,6 +6,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeUser, userDataRoot } from "./users";
+import { resolveUserFactsKey } from "./identity";
 import { readFindings } from "./security";
 
 type Store = { label: string; rel: string; what: string; count: string };
@@ -35,7 +36,9 @@ export function memoryWhere(rawUser: unknown): string {
   const personaDir = join(root, "persona");
   if (existsSync(personaDir)) {
     const files = readdirSync(personaDir).filter((f) => f.endsWith(".md"));
-    const userMd = join(personaDir, "USER.md");
+    // The facts about the human live in ONE scope (the owner's) — the trio
+    // agents read the same file, so the count must be read from there too.
+    const userMd = join(userDataRoot(), resolveUserFactsKey(user) ?? user, "persona", "USER.md");
     let facts = 0;
     try {
       facts = (readFileSync(userMd, "utf8").match(/^-\s+\S+/gm) || []).length;

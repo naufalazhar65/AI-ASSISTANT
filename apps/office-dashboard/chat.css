@@ -288,8 +288,38 @@
 .chatInput:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring);
   background:var(--panel)}
 .chatInput::placeholder{color:var(--faint)}
-/* The input and the send button sit in one row: same height, same radius. */
-.chatSend{flex:0 0 auto;min-width:78px;min-height:36px;border-radius:var(--r-md)}
+/* The input, the mic and the send button sit in one row: same height, same
+   radius. The two trailing buttons are icons — a glyph, not a word. */
+.chatSend{flex:0 0 auto;width:36px;min-height:36px;padding:0;border-radius:var(--r-md)}
+.chatMic{flex:0 0 auto;width:36px;min-height:36px;padding:0;border-radius:var(--r-md)}
+.chatSend .ib,.chatMic .ib{width:16px;height:16px;display:block}
+/* The mic is neutral until the session is open; then it wears the accent so
+   "the mic is live" is visible without reading a label. */
+.chatMic[aria-pressed="true"]{background:var(--accent-2);border-color:var(--accent-edge);
+  color:var(--accent-ink)}
+
+/* ── live voice strip (inside the chat panel) ──────────────────────────
+   The voice session lives in the chat panel, above the composer. It is NOT
+   the chat history: the text log is the persisted office session, this is
+   the transient voice session, and the strip never pretends otherwise. */
+.chatLive{flex:0 0 auto;display:flex;flex-direction:column;gap:var(--s1);
+  padding:var(--s2) var(--s3);border-top:1px solid var(--line);
+  background:var(--panel-2)}
+.chatLive[hidden]{display:none}
+.chatLiveHead{display:flex;align-items:center;gap:var(--s2);min-width:0}
+.chatLivePill{font-size:var(--t-2);letter-spacing:.02em;color:var(--muted);
+  padding:2px 8px;border-radius:var(--r-full);background:var(--panel-3);
+  border:1px solid transparent;flex:0 0 auto}
+.chatLivePill_ready{color:var(--ok);background:var(--ok-2)}
+.chatLivePill_connecting{color:var(--warn);background:var(--warn-2)}
+.chatLivePill_error{color:var(--bad);background:var(--bad-2)}
+.chatLiveAgent{font-size:var(--t-2);color:var(--muted);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chatLiveLine{font-size:var(--t-1);line-height:1.45;overflow-wrap:anywhere}
+.chatLiveHeard{color:var(--muted)}
+.chatLiveSaid{color:var(--text)}
+.chatLiveNote{font-size:var(--t-2);line-height:1.45;color:var(--muted);display:none}
+.chatLiveNoteOn{display:block;color:var(--warn)}
 
 /* ── inbox result (gmail_list / gmail_search) ──────────────────────────
    The card shows a real list: subject, sender display name, converted time

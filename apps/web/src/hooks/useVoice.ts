@@ -397,13 +397,19 @@ export function useVoice(): UseVoiceResult {
 
   // Load the user's saved multi-sessions on mount, restoring the most recent
   // one so they resume where they left off (OpenClaw multi-session).
+  //
+  // The office chat (Mia/Agnes/Michelle in the AI Office dashboard) keeps its
+  // own session COLLECTION, but its legacy files may still sit in the web
+  // collection. Restoring one of those would put ANOTHER agent's transcript
+  // into this conversation — and the autosave below would then write this
+  // app's words back into that agent's file. Skip every `office-*` id here.
   useEffect(() => {
     const user = historyUser();
     if (!user) return;
     void (async () => {
       const list = await apiListSessions(user);
       setSessions(list);
-      const latest = list[0];
+      const latest = list.find((s) => !s.id.startsWith("office-"));
       if (latest) {
         const conv = await apiLoadSession(user, latest.id);
         setCurrentSessionId(latest.id);
@@ -475,7 +481,10 @@ export function useVoice(): UseVoiceResult {
     async (sessionId: string | null): Promise<string | null> => {
       const user = historyUser();
       if (!user) return sessionId;
-      const saved = await apiUpsertSession(user, sessionId, manager.serialize());
+      // Never write into an office agent's transcript (see the mount-restore
+      // note): an `office-*` id would put this app's words in that agent's file.
+      const target = sessionId && sessionId.startsWith("office-") ? null : sessionId;
+      const saved = await apiUpsertSession(user, target, manager.serialize());
       if (saved && saved !== sessionId) setCurrentSessionId(saved);
       return saved;
     },

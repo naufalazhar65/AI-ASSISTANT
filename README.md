@@ -233,11 +233,12 @@ npm run dev -w @voice/web        # http://localhost:3000
 npm run typecheck
 npm run lint
 npm run build
-npm test                         # vitest (2640 tests, 136 files)
+npm test                         # vitest (2669 tests, 139 files)
 npx tsx apps/web/verify.ts       # offline proofs (tsx, must EXIT 0)
 npx tsx packages/state-machine/verify.ts
 npm run doctor                   # config report: which feature is missing what
 npm run clean:test-users        # expire stale test users (dry run)
+npm run build:dashboard-live     # rebuild the dashboard's Live bundle (committed artifact)
 ```
 
 ---
@@ -301,6 +302,8 @@ Private personal project.
 *Built with 🌸 — Mia is a woman, she/her, always.*
 
 **Orkestrasi multi-agent (Mia koordinator):** permintaan kompleks dipecah jadi subtugas dan didelegasikan ke agent terdaftar (Agnes = riset, Michelle = kode/keamanan) lewat `apps/web/src/lib/orchestrator*.ts` + `agentRegistry.ts`; status task otoritatif di `.data/users/<user>/orchestration.json`, dibaca dashboard & `/api/orchestration`. Detail di `MIA_FEATURES.md` §21.19. Setiap task berjalan di loop `PLAN→EXECUTE→OBSERVE→VERIFY→DIAGNOSE→RECOVER|STOP` dengan kriteria penerimaan terverifikasi (bukti wajib; `UNKNOWN` tak pernah jadi `SUCCEEDED`), 11 kelas kegagalan + policy pemulihan per kelas, deteksi loop via fingerprint, budget keras (percobaan/wall-clock/tool-call), dan rekonsiliasi restart (`apps/web/src/lib/recovery/`).
+
+**Gemini Live di dashboard AI Office:** panel chat punya **tombol mikrofon di sebelah tombol kirim** (kirim = ikon). Satu orchestrator (`apps/web/src/lib/liveClient.ts`) dipakai bersama oleh web React dan dashboard — dashboard memakai hasil build-nya (`vendor/live.bundle.js`, `npm run build:dashboard-live`), jadi tidak ada salinan loop kedua. Proxy dashboard (`/api/gemini-live/*`) **mem-pin identitas server-side** (`x-mia-user` dari tabel agent, `x-mia-agent` dari `?agent=`); browser hanya memilih agent mana yang menjawab, tak pernah menentukan user.
 
 ## Evaluasi agent (deterministik + baseline regresi)
 

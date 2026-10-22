@@ -52,6 +52,7 @@ import {
   trioTeamLine,
   type AgentLabel,
 } from "./agentRole";
+import { agentDisplayName } from "./agentRouting";
 import { allowedWorkspaces, sanitizeUser } from "./users";
 // Reports are WRITTEN owner-scoped (security.ts resolves the agent suffix before
 // touching disk), so the file-existence checks that decide whether a receipt may
@@ -7323,7 +7324,8 @@ async function runAssistantTurnImpl(opts: {
     try {
       const lastUser = messageText([...messages].reverse().find((m) => m.role === "user" && m.content)?.content).trim() || "";
       if (!isInternalUserTurn(lastUser) && (lastUser || opencodeText.trim())) {
-        const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", opencodeText.trim() ? `Mia: ${opencodeText.trim().slice(0, 800)}` : ""].filter(Boolean).join("\n");
+        const speaker = agentDisplayName(opts.agent);
+        const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", opencodeText.trim() ? `${speaker}: ${opencodeText.trim().slice(0, 800)}` : ""].filter(Boolean).join("\n");
         appendDailyMemory(opts.user, snippet);
       }
     } catch { /* best-effort */ }
@@ -8572,7 +8574,8 @@ async function runAssistantTurnImpl(opts: {
     // models imitate what gets recalled) and eats the 800-char snippet budget.
     const lastAssistant = stripReceiptBlock(text).trim();
     if (!isInternalUserTurn(lastUser) && (lastUser || lastAssistant)) {
-      const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", lastAssistant ? `Mia: ${lastAssistant.slice(0, 800)}` : ""].filter(Boolean).join("\n");
+      const speaker = agentDisplayName(opts.agent);
+      const snippet = [lastUser ? `User: ${lastUser.slice(0, 800)}` : "", lastAssistant ? `${speaker}: ${lastAssistant.slice(0, 800)}` : ""].filter(Boolean).join("\n");
       appendDailyMemory(opts.user, snippet);
     }
   } catch {
