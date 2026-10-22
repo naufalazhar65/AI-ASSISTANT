@@ -62,6 +62,10 @@ di panel — satu pemilih, satu percakapan.
   agent (`?agent=`). Identitas tidak pernah diklaim di browser.
 - Strip live (status + transkrip) terpisah dari riwayat chat dan tersembunyi
   saat idle — tidak ada panel kedua yangclaim "live".
+- Baris typing (foto agent + titik-titik) duduk **persis di bawah pesan
+  terakhir** dan memakai **foto agent yang sama** seperti pesan — stream pesan
+  tidak boleh membesar (`.chatStream{flex:0 0 auto}`), kalau tidak baris itu
+  terdorong ke dasar panel.
 - Batasan API Live (audio harus lewat `realtimeInput`, `responseModalities` di
   dalam `generationConfig`, jeda senyap > `silenceDurationMs`) tetap berlaku.
 

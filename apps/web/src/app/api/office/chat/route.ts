@@ -178,6 +178,10 @@ export async function POST(request: NextRequest) {
             user: turnUser,
             agent,
             channel: "text",
+            // This surface renders tool results as CARDS (the panel's tool
+            // cards). A list must never also be pasted into the reply — the
+            // user would read it twice (live 2026-10-22: "cek email").
+            renderToolCards: true,
             ...(confirm_calls ? { confirm_calls } : {}),
           });
           // `runAssistantTurn` returns the BUFFERED text; a no-tool turn does not carry an

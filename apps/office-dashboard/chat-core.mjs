@@ -472,3 +472,16 @@ export function connectionLabel(state) {
       return 'Belum terhubung';
   }
 }
+
+/**
+ * The one-line result shown under a tool card's summary row.
+ *
+ * An inbox card renders its OWN head ("📬 Ringkasan Inbox — N email terbaru
+ * · range") plus the list, so the generic first-line result would repeat that
+ * head — live 2026-10-22 the header appeared twice. Pure.
+ */
+export function cardResultLine(card) {
+  if (!card) return '';
+  if (card.inbox) return '';
+  return card.result || '';
+}

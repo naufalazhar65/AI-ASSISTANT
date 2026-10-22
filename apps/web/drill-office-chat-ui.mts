@@ -295,6 +295,43 @@ async function main(): Promise<void> {
   // The live strip is silent while nothing happened (no fake "live" panel).
   check("the live strip stays hidden until a session exists", await page.locator(".chatLive").isHidden());
 
+  // 3c. the typing row: it belongs to the CONVERSATION, not to the bottom of
+  // the log, and it wears the agent's PHOTO (a letter looked broken).
+  //
+  // The row only shows while a turn is working, so it is forced visible here
+  // (DOM only, no server call) and measured. The gap to the last message is
+  // the contract: a growing message stream pushed the row to the very bottom
+  // of the panel, hundreds of pixels below the last bubble.
+  const typing = await page.evaluate(() => {
+    const log = document.querySelector(".chatLog");
+    const row = document.querySelector(".msg.typing");
+    if (!log || !row) return null;
+    row.removeAttribute("hidden");
+    const rows = [...log.querySelectorAll(".chatStream .msg")];
+    const last = rows[rows.length - 1];
+    const t = row.getBoundingClientRect();
+    const l = last ? last.getBoundingClientRect() : null;
+    const av = row.querySelector(".msgAvatar");
+    const msgAv = log.querySelector(".chatStream .msg.agent .msgAvatar");
+    const img = av ? av.querySelector("img") : null;
+    return {
+      gapToLast: l ? Math.round(t.top - l.bottom) : null,
+      avatarLeft: av ? Math.round(av.getBoundingClientRect().left) : null,
+      msgAvatarLeft: msgAv ? Math.round(msgAv.getBoundingClientRect().left) : null,
+      imgSrc: img ? img.getAttribute("src") : null,
+      imgLoaded: !!img && img.complete && img.naturalWidth > 0,
+    };
+  });
+  check("the typing row sits with the last message", !!typing && typing.gapToLast !== null && typing.gapToLast <= 24, `gap=${typing?.gapToLast}`);
+  check("the typing row shows the agent's photo", !!typing && !!typing.imgSrc && typing.imgLoaded, `src=${typing?.imgSrc} loaded=${typing?.imgLoaded}`);
+  check(
+    "the typing portrait lines up with the message portraits",
+    !!typing && typing.avatarLeft !== null && typing.msgAvatarLeft !== null && Math.abs(typing.avatarLeft - typing.msgAvatarLeft) <= 2,
+    `typing=${typing?.avatarLeft} messages=${typing?.msgAvatarLeft}`,
+  );
+  // A picture of the fixed row, so the fix can be SEEN and not only measured.
+  await page.screenshot({ path: "/tmp/office-chat-typing.png", fullPage: false });
+
   // 4. real send → real reply
   //
   // The panel opens on a history, so "an agent message exists" proves

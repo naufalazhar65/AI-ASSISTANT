@@ -96,7 +96,7 @@ import { fixAddressComma } from "./textStyle";
 import { dayRotated } from "./dayRotated";
 import { functionShapeResetAfterMs, isProviderRetryable, isTransientFunctionShapeError } from "./assistantError";
 import { trimToSafeWindowHead } from "./messageWindow";
-import { stripInboxList } from "./inboxText";
+import { stripInboxList, stripInboxBlock } from "./inboxText";
 import { isInternalTurn } from "./memoryNoise";
 import { approvalFingerprint } from "./recovery/policy";
 import { isEndpointTestAsk, isListAsk } from "./turnGate";
@@ -413,7 +413,7 @@ const SYSTEM_PROMPT = [
   "Report tool results as a natural, complete Indonesian sentence in your own ",
   "voice — NEVER as terse fragments. The words 'Progress', 'Progres', 'Device', ",
   "'Status', 'play', 'paused', 'status:' and '▶/⏸' are FORBIDDEN in your reply. ",
-  "For list tools (list_tasks, reminders_list, automation_list, plan_list, calendar_list, skill_list, gmail_list, gmail_search, device_list, library_list) keep the returned list structure — one item per line, keep each item's own details — and just add a warm opening like 'Nih beb — ' if needed. NEVER collapse a list into a single comma-run sentence, don't rephrase to raw sentences, and don't hallucinate counts. E.g. for emails show one email per line ('1. Gojek — diskon GoFood 9.9 s.d. 99rb') instead of one long sentence listing all of them. ",
+  "For list tools (list_tasks, reminders_list, automation_list, plan_list, calendar_list, skill_list, device_list, library_list) keep the returned list structure — one item per line, keep each item's own details — and just add a warm opening like 'Nih beb — ' if needed. NEVER collapse a list into a single comma-run sentence, don't rephrase to raw sentences, and don't hallucinate counts. The INBOX is NOT one of these lists: gmail_list/gmail_search are rendered as a CARD beside your reply, so summarise them in 1-2 warm sentences and never paste the list (or its '📬 Ringkasan Inbox' header) into your message. ",
   "Spotify/calendar/task/reminder results already read as natural sentences — ",
   "just forward them warmly in your own voice (e.g. 'Lagi muter Just Take My Heart ",
   "dari Mr. Big. Udah jalan 3 menit dari 4 menit 23 detik, di MacBook Air kamu.'). ",
@@ -2841,6 +2841,25 @@ export function gmailDigestSubjects(digest: string): string[] {
     .split("\n")
     .map((l) => /^(\d+)\.\s+(.*)$/.exec(l.trim())?.[2] ?? "")
     .filter((s) => s.length > 12);
+}
+
+/**
+ * Should the deterministic inbox digest be appended to the reply? Pure.
+ *
+ * - a card-rendering surface already SHOWS the list → never paste it again;
+ * - a pending approval means the turn is not a list answer yet;
+ * - prose that already carries the subjects needs no digest.
+ */
+export function inboxDigestGate(args: {
+  renderToolCards?: boolean;
+  pendingApproval?: number;
+  gmailRan: boolean;
+  coveredSubjects: number;
+}): boolean {
+  if (args.renderToolCards) return false;
+  if ((args.pendingApproval ?? 0) > 0) return false;
+  if (!args.gmailRan) return false;
+  return args.coveredSubjects < 2;
 }
 
 /**
@@ -6959,6 +6978,13 @@ export async function runAssistantTurn(opts: {
   /** Voice (default) keeps replies plain for TTS; "text"/"discord"/"slack" allow markdown. */
   channel?: Channel;
   /**
+   * The caller renders tool results as CARDS next to the reply (office panel).
+   * Then a list must NOT also be pasted into the reply: the user would read
+   * the same emails twice (card + prose). Live 2026-10-22: "cek email" showed
+   * the inbox header twice and the list twice.
+   */
+  renderToolCards?: boolean;
+  /**
    * Trio member this turn runs as (Discord Michelle/Agnes). Omitted on every
    * non-trio path, in which case the prompt stays Mia's byte-for-byte.
    */
@@ -7134,6 +7160,13 @@ async function runAssistantTurnImpl(opts: {
   autoDenyRisky?: boolean;
   /** Voice (default) keeps replies plain for TTS; "text"/"discord"/"slack" allow markdown. */
   channel?: Channel;
+  /**
+   * The caller renders tool results as CARDS next to the reply (office panel).
+   * Then a list must NOT also be pasted into the reply: the user would read
+   * the same emails twice (card + prose). Live 2026-10-22: "cek email" showed
+   * the inbox header twice and the list twice.
+   */
+  renderToolCards?: boolean;
   /**
    * Trio member this turn runs as (Discord Michelle/Agnes). Omitted on every
    * non-trio path, in which case the prompt stays Mia's byte-for-byte.
@@ -7688,7 +7721,9 @@ async function runAssistantTurnImpl(opts: {
   // reminder suffix must be decided on the CLEANED text — otherwise the prose
   // (containing "remind") suppresses the suffix, the strip then removes the
   // line, and the user gets a bare "…" even though the reminder was scheduled.
-  text = collapseHtmlDumps(stripToolCallProse(text));
+  // Gmail ids never belong in user-facing prose (the card keeps the full
+  // result behind "Detail teknis"). Same cleanup as the opencode path.
+  text = collapseHtmlDumps(stripGmailIds(stripToolCallProse(text)));
 
   // Automatic memory capture in the background (never delays the turn).
   void captureFactsFromTurn({
@@ -8219,11 +8254,29 @@ async function runAssistantTurnImpl(opts: {
     // ringkasan 2 kalimat tanpa subjek/tanggal — detail hilang/ada tergantung
     // mood model). Parsed from this turn's gmail_list/search results; skipped
     // when the prose already carries the list (no duplication).
-    if (!needsConfirmation?.length && (turnRanTool(messages, "gmail_list") || turnRanTool(messages, "gmail_search"))) {
+    //
+    // A CARD-rendering surface (office panel) shows the very same list as a
+    // card, so pasting it into the reply too made the user read every email
+    // twice (live 2026-10-22: "cek email" → header twice, list twice). Such a
+    // surface gets NO digest, and any inbox block the model pasted is dropped
+    // from the prose.
+    if (turnRanTool(messages, "gmail_list") || turnRanTool(messages, "gmail_search")) {
       const digest = gmailDigest(messages, 6);
-      if (digest) {
-        const covered = gmailDigestSubjects(digest).filter((s) => text.includes(s)).length;
-        if (covered < 2) text = `${text}\n\n${digest}`;
+      const covered = digest ? gmailDigestSubjects(digest).filter((s) => text.includes(s)).length : 0;
+      if (
+        digest &&
+        inboxDigestGate({
+          renderToolCards: opts.renderToolCards,
+          pendingApproval: needsConfirmation?.length ?? 0,
+          gmailRan: true,
+          coveredSubjects: covered,
+        })
+      ) {
+        text = `${text}\n\n${digest}`;
+      }
+      if (opts.renderToolCards) {
+        const stripped = stripInboxBlock(text);
+        if (stripped !== text) text = stripped || "Inbox terbaru sudah kubuka di kartu di atas 🌸";
       }
     }
   }

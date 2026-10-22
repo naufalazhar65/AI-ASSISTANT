@@ -194,6 +194,12 @@ Every visible indicator is wired to real state:
   task line when no turn is running, instead of printing "no turn is active".
   A status that arrived from the server must reach the panel even when the
   panel has no other news to render.
+- The typing row belongs to the CONVERSATION, not to the bottom of the panel.
+  It sits directly under the last message — the message stream must not grow
+  to fill the log, or the row drifts hundreds of pixels away from the bubble
+  it belongs to.
+- The typing row wears the agent's PHOTO, exactly like the messages do. A
+  letter in a circle is the fallback for a failed image, never the default.
 
 ## Tool cards & execution truth
 

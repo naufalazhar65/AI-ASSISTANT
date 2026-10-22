@@ -50,6 +50,37 @@ export function stripInboxList(text: string): string {
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+/**
+ * Remove the WHOLE inbox block (header + items) from a reply.
+ *
+ * For a surface that renders the inbox as a CARD (office panel): the card
+ * already shows the header AND the list, so even the header line is a
+ * duplicate. Live 2026-10-22: "cek email" showed "📬 Ringkasan Inbox — …"
+ * twice (card result line + inbox head) and the list twice (card + prose).
+ *
+ * Pure; text without an inbox block is returned unchanged.
+ */
+export function stripInboxBlock(text: string): string {
+  const raw = String(text ?? "");
+  if (!INBOX_HEAD_RE.test(raw)) return raw;
+  const out: string[] = [];
+  let inBlock = false;
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (INBOX_HEAD_RE.test(line)) {
+      inBlock = true;
+      continue;
+    }
+    if (inBlock) {
+      if (INBOX_ITEM_RE.test(trimmed)) continue;
+      if (trimmed === "") continue;
+      inBlock = false;
+    }
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** True when the text still contains inbox ITEMS (a duplicated list). */
 export function hasInboxItems(text: string): boolean {
   return String(text ?? "")

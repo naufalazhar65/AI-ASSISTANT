@@ -12,7 +12,7 @@ import {
   visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
   dateTimeLabel, agentAvailability,
   taskStateFor, toolStateMeta, humanError, humanGenerationError,
-  avatarUrl, liveStripModel,
+  avatarUrl, liveStripModel, cardResultLine,
 } from './chat-core.mjs';
 import { createLive } from './live.mjs';
 
@@ -388,7 +388,7 @@ function clockOf(ts, zone, label) {
  * Portrait box: the agent's photo when it loads, the initials over the accent
  * colour as the fallback (the image is removed on error, never a broken icon).
  */
-function avatarBox(agentMeta, cls, text) {
+function avatarBox(agentMeta, cls, text, opts = {}) {
   const box = h('div', {
     class: cls,
     style: `background:${agentMeta.accent || '#8b9dc3'}`,
@@ -397,7 +397,17 @@ function avatarBox(agentMeta, cls, text) {
   box.append(document.createTextNode(text));
   const url = avatarUrl(agentMeta.id);
   if (url) {
-    const img = h('img', { class: 'avImg', src: url, alt: '', loading: 'lazy', decoding: 'async' });
+    /* A lazy photo inside a hidden node (the typing row) would only start
+       loading once the row appears — the initials would flash first. An
+       eager photo is asked for when the row must look right the moment it
+       shows. */
+    const img = h('img', {
+      class: 'avImg',
+      src: url,
+      alt: '',
+      loading: opts.eager ? 'eager' : 'lazy',
+      decoding: 'async',
+    });
     img.addEventListener('error', () => img.remove());
     box.append(img);
   }
@@ -466,6 +476,7 @@ function ToolCard(card, zone, zoneLabel) {
   const open = state === 'queued' || state === 'running' || state === 'awaiting_approval'
     || state === 'failed' || state === 'timed_out' || !!card.inbox;
   const summary = card.summary || meta.label;
+  const resultLine = cardResultLine(card);
   return h(
     'details',
     { class: 'tool', 'data-state': state, ...(open ? { open: true } : {}) },
@@ -479,7 +490,7 @@ function ToolCard(card, zone, zoneLabel) {
         h('span', { class: 'toolArgs', text: card.args || '' }),
         card.at ? h('span', { class: 'toolAt', text: clockOf(card.at, zone, zoneLabel) }) : null,
       ]),
-      card.result ? h('p', { class: 'toolResult', text: card.result }) : null,
+      resultLine ? h('p', { class: 'toolResult', text: resultLine }) : null,
       /* An inbox result renders as a REAL list — subject, sender display
          name, converted time, short snippet. No bodies, no full addresses:
          the provider text stays behind "Detail teknis". */
@@ -850,7 +861,9 @@ function ChatSidebar(chat, toggleBtn) {
     'div',
     { class: 'msg agent typing', hidden: true },
     [
-      h('div', { class: 'msgAvatar typingAvatar', 'aria-hidden': 'true', text: '·' }),
+      /* The portrait is a placeholder until the render knows WHICH agent is
+         typing — the photo belongs to the agent, so it is (re)built there. */
+      h('div', { class: 'msgAvatar typingAvatar', 'aria-hidden': 'true' }),
       h('div', { class: 'msgCol typingCol' }, [
         h('span', { class: 'dots', 'aria-label': 'Agent sedang bekerja' }, [h('i'), h('i'), h('i')]),
       ]),
@@ -871,6 +884,9 @@ function ChatSidebar(chat, toggleBtn) {
   const voice = createLive();
   const voiceRegion = LiveRegion();
   const composer = ChatComposer(chat, voice);
+  /* Which agent the typing portrait belongs to. Empty until the first render,
+     so the first render always builds the portrait. */
+  let typingAgent = '';
   const foot = h('div', { class: 'chatFoot' }, [
     h('div', { class: 'chatFootTop' }, [status, hint]),
     composer.form,
@@ -1011,8 +1027,14 @@ function ChatSidebar(chat, toggleBtn) {
     // claims the agent is working before the server has taken the turn.
     const working = !!state.busyForSelected && !!c.live && !!c.accepted && !showing;
     typing.hidden = !working;
-    const av = typing.querySelector('.msgAvatar');
-    if (av) av.textContent = working ? initials(agentMeta.name) : '·';
+    /* The typing row wears the SAME portrait as the agent's messages: the
+       photo over the accent colour, with the initials only as the fallback.
+       The node is rebuilt when the agent changes, never per frame. */
+    if (typingAgent !== agentMeta.id) {
+      typingAgent = agentMeta.id;
+      const fresh = avatarBox(agentMeta, 'msgAvatar typingAvatar', initials(agentMeta.name), { eager: true });
+      typing.querySelector('.msgAvatar')?.replaceWith(fresh);
+    }
 
     status.setAttribute('data-state', state.connection);
     status.textContent = connectionLabel(state.connection);

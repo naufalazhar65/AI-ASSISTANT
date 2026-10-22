@@ -8,7 +8,7 @@ import {
   dateTimeLabel,
   agentAvailability, taskStateFor,
   toolStateMeta, humanError, humanGenerationError, avatarUrl,
-  liveStripModel,
+  liveStripModel, cardResultLine,
 } from './chat-core.mjs';
 
 test('escapeHtml neutralises every HTML-significant char', () => {
@@ -428,4 +428,22 @@ test('the live strip prefers the error over any other note', () => {
 test('the live strip never invents an agent name', () => {
   assert.equal(liveStripModel({ said: 'hai' }).said, 'Agent: hai');
   assert.equal(liveStripModel({}).agent, '');
+});
+
+test('an inbox card shows the inbox head ONCE (no duplicated result line)', () => {
+  const card = {
+    id: 'c1',
+    name: 'gmail_list',
+    state: 'succeeded',
+    summary: 'Selesai',
+    result: '\ud83d\udce6 Ringkasan Inbox \u2014 5 email terbaru \u00b7 22 Okt 2026',
+    inbox: { count: 5, range: '22 Okt 2026', emails: [] },
+  };
+  assert.equal(cardResultLine(card), '');
+});
+
+test('a normal tool card keeps its one-line result', () => {
+  const card = { id: 'c2', name: 'web_search', state: 'succeeded', result: '3 hasil' };
+  assert.equal(cardResultLine(card), '3 hasil');
+  assert.equal(cardResultLine(null), '');
 });

@@ -9879,6 +9879,31 @@ async function verifyProactiveWorkflows(): Promise<void> {
       console.log("office transcript isolation (koleksi sesi per agen · web app tak restore office · label memory pakai nama agen · satu salinan fakta owner): OK");
     }
 
+    // --- Inbox de-duplication: a card-rendering surface shows the list ONCE.
+    // Live 2026-10-22: "cek email" showed the inbox header TWICE (the card's
+    // generic result line + the inbox head) and the list TWICE (the card +
+    // the deterministic digest pasted into Mia's reply).
+    {
+      const agentSrc = readFileSync(join(appRoot(), "src", "lib", "agent.ts"), "utf8");
+      const inboxSrc = readFileSync(join(appRoot(), "src", "lib", "inboxText.ts"), "utf8");
+      const officeRouteSrc = readFileSync(join(appRoot(), "src", "app", "api", "office", "chat", "route.ts"), "utf8");
+      const dashChatJs = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "chat.js"), "utf8");
+      const dashCoreSrc = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "chat-core.mjs"), "utf8");
+      // 1. The agent knows a card surface: the digest gate + the pasted-block strip.
+      if (!/renderToolCards\?: boolean/.test(agentSrc)) throw new Error("inbox dedup: opsi renderToolCards tidak ada di agent");
+      if (!/inboxDigestGate/.test(agentSrc)) throw new Error("inbox dedup: agent harus memakai gerbang digest");
+      if (!/stripInboxBlock/.test(agentSrc)) throw new Error("inbox dedup: agent harus membuang blok inbox yang ditempel model");
+      if (!/export function stripInboxBlock/.test(inboxSrc)) throw new Error("inbox dedup: stripInboxBlock tidak ada di inboxText");
+      // 2. The office route declares that it renders cards.
+      if (!/renderToolCards:\s*true/.test(officeRouteSrc)) throw new Error("inbox dedup: route office harus menyatakan renderToolCards: true");
+      // 3. The card renders the inbox head once (no generic result line on top).
+      if (!/export function cardResultLine/.test(dashCoreSrc)) throw new Error("inbox dedup: cardResultLine tidak ada di chat-core");
+      if (!/cardResultLine\(card\)/.test(dashChatJs)) throw new Error("inbox dedup: chat.js harus memakai cardResultLine");
+      if (/card\.result \? h\('p'/.test(dashChatJs)) throw new Error("inbox dedup: chat.js tak boleh merender card.result mentah (header dobel)");
+      if (!existsSync(join(miaRepoRoot(), "apps", "web", "drill-office-gmail-dedup.mts"))) throw new Error("inbox dedup: drill gmail dedup hilang");
+      console.log("inbox dedup (satu salinan daftar di panel: kartu saja, tanpa digest): OK");
+    }
+
     // --- Gemini Live in the dashboard: one orchestrator, one bundle, one
     // identity-pinned proxy. The React hook and the dashboard must share the
     // SAME loop, or the two copies drift silently.
@@ -9921,6 +9946,22 @@ async function verifyProactiveWorkflows(): Promise<void> {
       if (/textContent = 'Kirim'/.test(dashChatJs)) throw new Error("live dashboard: tombol kirim harus ikon, bukan teks");
       if (!/id="i-send"/.test(dashHtml) || !/id="i-mic"/.test(dashHtml)) {
         throw new Error("live dashboard: index.html harus punya simbol sprite i-send dan i-mic");
+      }
+
+      // 3b. The typing row belongs to the CONVERSATION and wears the agent's
+      //     PHOTO. Two real defects (2026-10-22, owner screenshot): a GROWING
+      //     message stream pushed the row to the bottom of the panel, hundreds
+      //     of pixels below the last bubble, and the portrait was a plain div
+      //     with a letter — no <img>, so the photo never appeared.
+      const dashCss = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "chat.css"), "utf8");
+      if (!/\.chatStream\{[^}]*flex:0 0 auto/.test(dashCss)) {
+        throw new Error("live dashboard: stream pesan tidak boleh membesar (baris typing terdorong ke dasar log)");
+      }
+      if (!/avatarBox\(agentMeta, 'msgAvatar typingAvatar'/.test(dashChatJs)) {
+        throw new Error("live dashboard: baris typing harus memakai foto agent (avatarBox), bukan teks inisial");
+      }
+      if (!/avatarBox\(agentMeta, cls, text, opts = \{\}\)/.test(dashChatJs)) {
+        throw new Error("live dashboard: avatarBox harus menerima opsi (eager) untuk foto di baris typing");
       }
 
       // 3. The proxy must pin the identity server-side — the browser may pick

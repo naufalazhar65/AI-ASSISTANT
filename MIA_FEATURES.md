@@ -607,3 +607,18 @@ Owner melaporkan: "saya habis ngobrol dengan Mia, masih bocor ke agen yang lain"
 **Verifikasi.** typecheck 0 · lint 0 (baseline) · `npm test` **2669/2669** (139 file) · verify.ts **EXIT=0** (228 blok; blok baru "office transcript isolation (koleksi sesi per agen · web app tak restore office · label memory pakai nama agen · satu salinan fakta owner): OK") · `node --test apps/office-dashboard/*.test.mjs` **53/53** · drill isolasi **13/13** (CI e2e job) · drill proxy Live **19/19** · drill browser (chromium nyata) **37/37** · bundle drift 0.
 
 **Sisa yang jujur.** Baris `Mia:` lama di file memory historis `.agnes`/`.michelle` **tidak** ditulis ulang (kosmetik; label baru berlaku untuk turn berikutnya). Store clawic `.memory/` itu **global** lintas agen secara desain (tool `memory` = ingatan bersama, bukan transkrip percakapan). Mia (web app) dan dashboard tetap berbagi memory scope OWNER — itu **scope Mia sendiri**, sesuai desain.
+
+## 21.27 Satu daftar, satu tampilan — "cek email" tidak lagi dua kali (2026-10-22)
+
+Owner: *"cek email"* → daftar email tampil **dua kali** (kartu tool + teks balasan) dan header "📬 Ringkasan Inbox" **dua kali** di dalam kartu itu sendiri. Akarnya **empat**, bukan satu:
+
+| Akar | Gejala | Perbaikan |
+|---|---|---|
+| **Kartu** | `card.result` = baris pertama hasil tool (= header inbox) + `card.inbox` = daftar ringkas yang membawa head sendiri → header sama tampil 2× | `cardResultLine()` (pure, `chat-core.mjs`): kartu inbox tak lagi merender baris hasil generik |
+| **Balasan vs kartu** | `agent.ts` menempel digest inbox deterministik ("**📧 Email terbaru (N)**") padahal kartu sudah menampilkan daftar yang sama | Opsi turn **`renderToolCards`** + gerbang pure **`inboxDigestGate()`**: surface berkartu tak pernah mendapat digest (Telegram/Discord tetap dapat) |
+| **Model** | Model menempel blok inbox sendiri; `stripInboxList` yang ada hanya jalan di jalur opencode, bukan jalur utama (9router) → id internal pun bocor | `stripInboxBlock()` (baru) membuang seluruh blok (header + item) di surface berkartu; jalur utama kini juga `stripGmailIds` |
+| **Prompt** | Dua aturan bertentangan di prompt yang sama: "never paste the list again" vs "for list tools (…, gmail_list, …) keep the returned list structure — one item per line" | gmail_list/gmail_search dikeluarkan dari aturan daftar umum; inbox dinyatakan sebagai kartu ⇒ ringkas saja |
+
+**Verifikasi.** Drill baru `apps/web/drill-office-gmail-dedup.mts` (lokal — butuh provider + Gmail asli): turn "cek email" sungguhan lewat proxy dashboard → balasan **satu kalimat hangat** tanpa "Ringkasan Inbox"/"Email terbaru"; kartu membawa inbox (count 10); Chromium nyata → **head "Ringkasan Inbox" TEPAT SATU kali** + tiap email satu kali (items == card.inbox.count) → **6/6 ok**. Unit: `inboxDigest.test.ts` (8 tes) + `chat-core.test.mjs` (+2). verify.ts += blok "inbox dedup (satu salinan daftar di panel: kartu saja, tanpa digest): OK".
+
+**Sisa yang jujur.** Digest inbox tetap menempel di kanal tanpa kartu (Telegram/Discord) — itu memang satu-satunya tampilan daftar di sana. Turn live "cek email" menambah satu giliran nyata di transkrip office Mia (dipulihkan oleh drill lewat snapshot/restore).
