@@ -133,6 +133,17 @@
 /* ── messages ──────────────────────────────────────────── */
 .msg{display:flex;gap:var(--s2);align-items:flex-start}
 .msg + .msg{margin-top:var(--s3)}
+/* The day separator is a NODE between two messages, so it breaks the
+   ".msg + .msg" adjacency: the message right below it would lose its top
+   margin. The separator carries the space itself. */
+.msgSep{text-align:center;font-size:var(--t-2);color:var(--faint);
+  margin:var(--s4) 0 var(--s2);letter-spacing:.02em}
+.msgSep + .msg{margin-top:0}
+/* A row that just arrived rises into place. Opacity + transform only (the
+   panel's motion rule), and the global prefers-reduced-motion block in
+   index.html disables it for anyone who asked for less movement. */
+@keyframes chatBubbleIn{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}
+.msgEnter{animation:chatBubbleIn var(--motion) var(--ease) both}
 .msg.user{flex-direction:row-reverse}
 .msgCol{max-width:min(100%,62ch);min-width:0}
 .msg.proposal{align-items:center}

@@ -344,6 +344,28 @@ async function main(): Promise<void> {
   const marker = `drill-${Date.now()}`;
   await page.fill(".chatInput", `dalam satu kalimat, apa nama kamu? [${marker}]`);
   await page.press(".chatInput", "Enter");
+
+  // 4a. the dots appear the moment the message is sent — not only while tools
+  // run — and the new bubble rises into place.
+  //
+  // The typing row used to wait for the backend's `start` frame, so a fast
+  // turn showed nothing at all; and the log is rebuilt from scratch, so the
+  // entrance animation has to be decided by the rows that just arrived.
+  const justSent = await page
+    .waitForFunction(
+      () => {
+        const row = document.querySelector(".msg.typing");
+        const visible = !!row && !row.hasAttribute("hidden");
+        const fresh = document.querySelector(".chatStream .msg.msgEnter");
+        return visible && !!fresh ? { visible, fresh: fresh.className } : null;
+      },
+      undefined,
+      { timeout: 15000 },
+    )
+    .then((h) => h.jsonValue())
+    .catch(() => null);
+  check("the typing dots show right after sending", !!justSent && justSent.visible);
+  check("the new bubble gets the entrance animation", !!justSent && !!justSent.fresh, `class=${justSent?.fresh}`);
   const answered = await page
     .waitForFunction(
       (m) => {
@@ -375,6 +397,29 @@ async function main(): Promise<void> {
     return !!el;
   }, marker);
   check("user bubble rendered", userBubble);
+
+  // 4b. the timestamp is a CLOCK; the date is a separator that appears once
+  // per day and stands in the middle of the log.
+  const stamp = await page.evaluate(() => {
+    const times = [...document.querySelectorAll("#chatLog .msgTime")].map((el) => (el.textContent || "").trim());
+    const seps = [...document.querySelectorAll("#chatLog .msgSep")].map((el) => ({
+      text: (el.textContent || "").trim(),
+      align: getComputedStyle(el).textAlign,
+    }));
+    return { times, seps };
+  });
+  check(
+    "the message stamp shows the clock only (no date, no zone label)",
+    stamp.times.length > 0 && stamp.times.every((t) => /^\d{1,2}\.\d{2}$/.test(t)),
+    JSON.stringify(stamp.times.slice(0, 4)),
+  );
+  check(
+    "the day separator appears once per day, centred",
+    stamp.seps.length > 0 &&
+      stamp.seps.every((s) => s.align === "center" && /\d{1,2} [A-Za-z]{3} \d{4}/.test(s.text)) &&
+      new Set(stamp.seps.map((s) => s.text)).size === stamp.seps.length,
+    JSON.stringify(stamp.seps),
+  );
   const composerCleared = await page
     .waitForFunction(
       () => {

@@ -200,6 +200,15 @@ Every visible indicator is wired to real state:
   it belongs to.
 - The typing row wears the agent's PHOTO, exactly like the messages do. A
   letter in a circle is the fallback for a failed image, never the default.
+- A message stamp is a CLOCK ("11.55"). The date appears only when the day
+  changes — one centred separator per day, like WhatsApp. A message whose time
+  is unknown gets no time and no separator: a date is never invented.
+- A message that just arrived rises into place (opacity + a short lift). The
+  history that loads does NOT animate — only rows that arrived after the last
+  render move.
+- The typing row shows on EVERY send. It means "a turn is in flight", so it
+  appears the moment the message is sent and disappears when the turn ends; it
+  must not wait for the backend to answer before it shows anything.
 
 ## Tool cards & execution truth
 

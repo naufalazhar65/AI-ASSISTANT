@@ -276,6 +276,112 @@ export function dateTimeLabel(at, zone, label) {
 }
 
 /**
+ * "11.55" — the time ALONE.
+ *
+ * The chat shows the date only when the day changes (a WhatsApp-style
+ * separator), so a per-message stamp carries no date. The zone comes from the
+ * SERVER (`tz`), so a non-Jakarta deployment shows its own clock; a
+ * missing/invalid time yields "" — a time is never invented.
+ */
+export function timeOnly(at, zone) {
+  if (at === null || at === undefined || at === '') return '';
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('id-ID', {
+      timeZone: zone || 'Asia/Jakarta',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(d);
+    const get = (t) => {
+      const p = parts.find((x) => x.type === t);
+      return p ? p.value : '';
+    };
+    const hour = get('hour') === '24' ? '00' : get('hour');
+    const minute = get('minute');
+    if (!hour || !minute) return '';
+    return `${hour}.${minute}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * "2026-10-22" — the calendar day in the app's timezone. Two stamps belong to
+ * the same conversation day when their keys match, so the day separator is
+ * decided by the SERVER's clock, not by the browser's.
+ */
+export function dayKey(at, zone) {
+  if (at === null || at === undefined || at === '') return '';
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: zone || 'Asia/Jakarta',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(d);
+    const get = (t) => {
+      const p = parts.find((x) => x.type === t);
+      return p ? p.value : '';
+    };
+    const year = get('year');
+    const month = get('month');
+    const day = get('day');
+    if (!year || !month || !day) return '';
+    return `${year}-${month}-${day}`;
+  } catch {
+    return '';
+  }
+}
+
+/** "22 Okt 2026" — the label of the day separator. */
+export function dayLabel(at, zone) {
+  if (at === null || at === undefined || at === '') return '';
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('id-ID', {
+      timeZone: zone || 'Asia/Jakarta',
+      day: 'numeric', month: 'short', year: 'numeric',
+    }).formatToParts(d);
+    const get = (t) => {
+      const p = parts.find((x) => x.type === t);
+      return p ? p.value : '';
+    };
+    const day = get('day');
+    const month = get('month');
+    const year = get('year');
+    if (!day || !month || !year) return '';
+    return `${day} ${month} ${year}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The keys of the rows that arrived AFTER the previous render.
+ *
+ * The log is rebuilt from scratch on every change, so "new" cannot be read
+ * from the DOM — it is the rows whose index is beyond the message count the
+ * last render saw.
+ *
+ * `seenCount` is that count. `null`/`undefined` means "this conversation was
+ * never rendered before" (a history that just loaded): nothing is new, so a
+ * loaded history never animates. A count of 0 means the panel was empty, so
+ * the first arriving message IS new.
+ */
+export function freshMessageKeys(seenCount, rows) {
+  const out = new Set();
+  if (seenCount === null || seenCount === undefined) return out;
+  const from = Number.isFinite(seenCount) && seenCount > 0 ? seenCount : 0;
+  (Array.isArray(rows) ? rows : []).forEach((r) => {
+    if (!r || typeof r !== 'object') return;
+    const idx = Number.isFinite(r.index) ? r.index : -1;
+    if (idx >= from && r.key) out.add(r.key);
+  });
+  return out;
+}
+
+/**
  * Cards a given assistant turn owns. The card id IS the provider's
  * tool_call id, so this is an exact join — never a name match.
  */

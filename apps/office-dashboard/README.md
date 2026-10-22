@@ -65,7 +65,14 @@ di panel — satu pemilih, satu percakapan.
 - Baris typing (foto agent + titik-titik) duduk **persis di bawah pesan
   terakhir** dan memakai **foto agent yang sama** seperti pesan — stream pesan
   tidak boleh membesar (`.chatStream{flex:0 0 auto}`), kalau tidak baris itu
-  terdorong ke dasar panel.
+  terdorong ke dasar panel. Titik-titik muncul **setiap kali pesan dikirim**
+  (artinya "ada giliran berjalan"), bukan hanya saat tool dipanggil.
+- Cap waktu di pesan = **jam saja** ("11.55"). Tanggal/bulan/tahun hanya
+  muncul sebagai **pemisah ganti hari** yang berdiri di tengah log, satu kali
+  per hari (gaya WhatsApp). Pesan tanpa waktu yang diketahui tidak mendapat
+  jam maupun pemisah — tanggal tidak pernah dikarang.
+- Pesan yang baru datang **naik pelan** (opacity + lift pendek). Riwayat yang
+  dimuat tidak beranimasi.
 - Batasan API Live (audio harus lewat `realtimeInput`, `responseModalities` di
   dalam `generationConfig`, jeda senyap > `silenceDurationMs`) tetap berlaku.
 

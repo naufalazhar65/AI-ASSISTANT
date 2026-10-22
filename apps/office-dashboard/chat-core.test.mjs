@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {
   sanitizeMarkdown, escapeHtml, parseNdjsonLine, applyBusEvent, turnIsLive, connectionLabel,
   visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
-  dateTimeLabel,
+  dateTimeLabel, timeOnly, dayKey, dayLabel, freshMessageKeys,
   agentAvailability, taskStateFor,
   toolStateMeta, humanError, humanGenerationError, avatarUrl,
   liveStripModel, cardResultLine,
@@ -392,6 +392,36 @@ test('dateTimeLabel renders the configured timezone and never fabricates a date'
   assert.equal(dateTimeLabel(null, 'Asia/Jakarta', 'WIB'), '');
   assert.equal(dateTimeLabel('bukan tanggal', 'Asia/Jakarta', 'WIB'), '');
   assert.equal(dateTimeLabel('', 'Asia/Jakarta', 'WIB'), '');
+});
+
+test('timeOnly shows the clock alone and never fabricates a time', () => {
+  assert.equal(timeOnly(new Date('2026-10-20T07:45:38Z'), 'Asia/Jakarta'), '14.45');
+  assert.equal(timeOnly(new Date('2026-10-20T07:45:38Z'), 'Asia/Jayapura'), '16.45');
+  assert.equal(timeOnly(null, 'Asia/Jakarta'), '');
+  assert.equal(timeOnly('bukan tanggal', 'Asia/Jakarta'), '');
+  assert.equal(timeOnly('', 'Asia/Jakarta'), '');
+});
+
+test('the day is a key and a label, both in the configured timezone', () => {
+  assert.equal(dayKey(new Date('2026-10-20T07:45:38Z'), 'Asia/Jakarta'), '2026-10-20');
+  assert.equal(dayLabel(new Date('2026-10-20T07:45:38Z'), 'Asia/Jakarta'), '20 Okt 2026');
+  /* 23:30 UTC is already the next day in Jakarta — the separator follows the
+     SERVER's clock, not the browser's. */
+  assert.equal(dayKey(new Date('2026-10-20T23:30:00Z'), 'Asia/Jakarta'), '2026-10-21');
+  assert.equal(dayKey(null, 'Asia/Jakarta'), '');
+  assert.equal(dayLabel(null, 'Asia/Jakarta'), '');
+});
+
+test('only the rows that arrived after the last render are fresh', () => {
+  const rows = [
+    { key: 'a', index: 0 },
+    { key: 'b', index: 1 },
+    { key: 'c', index: 2 },
+  ];
+  assert.deepEqual([...freshMessageKeys(2, rows)], ['c'], 'only the newest row just arrived');
+  assert.deepEqual([...freshMessageKeys(0, rows)], ['a', 'b', 'c'], 'an empty panel: everything is new');
+  assert.deepEqual([...freshMessageKeys(null, rows)], [], 'a history that just loaded never animates');
+  assert.deepEqual([...freshMessageKeys(1, [{ key: 'x' }])], [], 'a row without an index is never fresh');
 });
 
 test('the live strip is silent while nothing happened', () => {

@@ -10,7 +10,7 @@
 import {
   sanitizeMarkdown, parseNdjsonLine, applyBusEvent, turnIsLive, connectionLabel,
   visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
-  dateTimeLabel, agentAvailability,
+  dateTimeLabel, timeOnly, dayKey, dayLabel, freshMessageKeys, agentAvailability,
   taskStateFor, toolStateMeta, humanError, humanGenerationError,
   avatarUrl, liveStripModel, cardResultLine,
 } from './chat-core.mjs';
@@ -73,7 +73,7 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
   const blankConv = () => ({
     messages: [], cards: [], pending: null, error: null, retryText: '', live: false, failed: false,
     // Send times, aligned with `messages` by index. A null = unknown time.
-    frames: [], stamps: [], accepted: false,
+    frames: [], stamps: [],
     // True while the history is still being fetched. Sending before it lands
     // would POST a one-message conversation and REPLACE the stored history —
     // a silent wipe of everything the owner had.
@@ -296,7 +296,6 @@ function createChat({ endpoint = '/api/office/chat', fetchImpl = fetch } = {}) {
     seen.add(key);
     if (frame.type === 'start') {
       connection = 'open';
-      c.accepted = true;
     } else if (frame.type === 'bus' && frame.event) {
       c.frames.push(frame.event);
       c.cards = applyBusEvent(c.cards, frame.event);
@@ -375,13 +374,16 @@ function initials(name) {
 }
 
 /**
- * The time, in the app's configured timezone: "20 Okt 2026, 14.45 WIB".
- * The zone AND its label come from the server (`tz` / `tz_label`), so a
- * non-Jakarta deployment shows its own zone — "WIB" is never hardcoded.
- * A missing/invalid time renders NOTHING (a date is never invented).
+ * The time, in the app's configured timezone: "11.55".
+ *
+ * The chat shows the DATE only when the day changes (a WhatsApp-style
+ * separator), so a message stamp carries the clock alone. The zone comes from
+ * the server (`tz`), so a non-Jakarta deployment shows its own clock — "WIB"
+ * is never hardcoded. A missing/invalid time renders NOTHING (a time is
+ * never invented).
  */
-function clockOf(ts, zone, label) {
-  return dateTimeLabel(ts, zone, label);
+function clockOf(ts, zone) {
+  return timeOnly(ts, zone);
 }
 
 /**
@@ -420,7 +422,7 @@ function avatarBox(agentMeta, cls, text, opts = {}) {
  * the start of a run of consecutive agent messages (so a 5-part answer carries
  * one avatar, not five).
  */
-function MessageRow(m, { agentMeta, showMeta, time }) {
+function MessageRow(m, { agentMeta, showMeta, time, fresh }) {
   /* A backend nudge ("[email-gate] …") is not the owner speaking. It gets a
      quiet note, never the beige user bubble — otherwise a long internal
      message fills the panel and looks like something the owner said. */
@@ -435,12 +437,14 @@ function MessageRow(m, { agentMeta, showMeta, time }) {
      happened and the tool card below carries the details. */
   if (m.role === 'assistant' && !m.content) {
     const n = Array.isArray(m.callIds) ? m.callIds.length : 0;
-    return h('div', { class: 'msg agent proposal' }, [
+    const proposal = h('div', { class: 'msg agent proposal' }, [
       !isUser && showMeta ? avatarBox(agentMeta, 'msgAvatar', initials(agentMeta.name)) : null,
       h('div', { class: 'msgCol' }, [
         h('div', { class: 'msgProposal', text: n > 1 ? `Mengusulkan ${n} tindakan` : 'Mengusulkan tindakan' }),
       ]),
     ]);
+    if (fresh) proposal.classList.add('msgEnter');
+    return proposal;
   }
   const col = h('div', { class: 'msgCol' });
   if (showMeta) {
@@ -452,10 +456,15 @@ function MessageRow(m, { agentMeta, showMeta, time }) {
     );
   }
   col.append(h('div', { class: 'msgBody', html: sanitizeMarkdown(m.content || '') }));
-  return h('div', { class: `msg ${isUser ? 'user' : 'agent'}` }, [
+  const row = h('div', { class: `msg ${isUser ? 'user' : 'agent'}` }, [
     !isUser && showMeta ? avatarBox(agentMeta, 'msgAvatar', initials(agentMeta.name)) : null,
     col,
   ]);
+  /* A row that just arrived gets the entrance animation. The log is rebuilt
+     from scratch on every change, so "just arrived" is decided by the caller
+     (freshMessageKeys) — never by whatever the DOM happens to hold. */
+  if (fresh) row.classList.add('msgEnter');
+  return row;
 }
 
 /**
@@ -488,7 +497,10 @@ function ToolCard(card, zone, zoneLabel) {
         ]),
         h('span', { class: 'toolName', text: card.name || 'tool' }),
         h('span', { class: 'toolArgs', text: card.args || '' }),
-        card.at ? h('span', { class: 'toolAt', text: clockOf(card.at, zone, zoneLabel) }) : null,
+        /* A tool run is stamped with the FULL date: it can belong to another
+           day than the message next to it, and the chat's own day separator
+           only covers messages. */
+        card.at ? h('span', { class: 'toolAt', text: dateTimeLabel(card.at, zone, zoneLabel) }) : null,
       ]),
       resultLine ? h('p', { class: 'toolResult', text: resultLine }) : null,
       /* An inbox result renders as a REAL list — subject, sender display
@@ -593,7 +605,7 @@ const EMPTY_HINT = {
 };
 
 /** Messages + tool cards in one pass, grouped, chronologically. */
-function streamNodes(chat, c, agentMeta) {
+function streamNodes(chat, c, agentMeta, freshKeys) {
   const msgs = visibleMessages(c.messages);
   if (!msgs.length && !c.cards.length) {
     /* No identity block: the header already shows name + role. The empty
@@ -614,14 +626,25 @@ function streamNodes(chat, c, agentMeta) {
   const nodes = [];
   let prevRole = null;
   let declineNote = null;
+  let prevDay = null;
   for (const m of msgs) {
     const showMeta = m.role !== prevRole;
     prevRole = m.role;
+    const ts = Array.isArray(c.stamps) ? c.stamps[m.index] : null;
+    /* The date shows ONLY when the day changes — one centred separator per
+       day, like WhatsApp. A message whose time is unknown gets no separator:
+       a date is never invented for it, and it never closes a day either. */
+    const dk = dayKey(ts, c.tz);
+    if (dk && dk !== prevDay) {
+      prevDay = dk;
+      nodes.push(h('div', { class: 'msgSep', text: dayLabel(ts, c.tz) }));
+    }
     nodes.push(
       MessageRow(m, {
         agentMeta,
         showMeta,
-        time: clockOf(Array.isArray(c.stamps) ? c.stamps[m.index] : null, c.tz, c.tzLabel),
+        time: clockOf(ts, c.tz),
+        fresh: freshKeys ? freshKeys.has(m.key) : false,
       }),
     );
     /* A pending correction belongs AFTER the reply it corrects. */
@@ -917,6 +940,9 @@ function ChatSidebar(chat, toggleBtn) {
 
   let headSig = null;
   let streamSig = null;
+  /* How many messages each agent had on screen at the last render — the base
+     for "which rows just arrived" (the entrance animation). */
+  const seenCounts = {};
   let tailSig = null;
   let announced = null;
   let voiceAgent = null;
@@ -994,8 +1020,14 @@ function ChatSidebar(chat, toggleBtn) {
       msgs.map((m) => m.key).join('\u0001') +
       '\u0002' +
       (c.cards || []).map((x) => `${x.id}:${x.state}:${x.at || ''}:${x.summary || ''}:${x.result || ''}`).join('\u0001');
+    // Freshness: the log is rebuilt from scratch on every change, so "new" is
+    // the rows whose index is beyond the message count the LAST render saw —
+    // per agent, so a tab switch never animates a history. The first render
+    // of an agent shows nothing new: a loaded history must not animate.
+    const known = Object.prototype.hasOwnProperty.call(seenCounts, state.selected);
+    const freshKeys = known ? freshMessageKeys(seenCounts[state.selected], msgs) : new Set();
     if (sSig !== streamSig) {
-      stream.replaceChildren(...streamNodes(chat, c, agentMeta));
+      stream.replaceChildren(...streamNodes(chat, c, agentMeta, freshKeys));
       streamSig = sSig;
       const lastAgent = [...msgs].reverse().find((m) => m.role !== 'user');
       if (lastAgent && lastAgent.key !== announced) {
@@ -1003,6 +1035,7 @@ function ChatSidebar(chat, toggleBtn) {
         live.textContent = `${agentMeta.name || 'Agent'}: ${lastAgent.content.slice(0, 240)}`;
       }
     }
+    seenCounts[state.selected] = (c.messages || []).length;
 
     const showing = !!(c.pending && (c.pending.calls || []).length);
     const tSig = `${showing}|${c.pending?.decided || ''}|${c.error || ''}|${!!c.failed}|${c.messages.length}`;
@@ -1023,9 +1056,12 @@ function ChatSidebar(chat, toggleBtn) {
 
     // Typing indicator: a persistent node toggled by the turn's real lifecycle,
     // so it never restarts its animation (flicker) nor sticks after an error.
-    // `accepted` gates the indicator on the backend's own `start` frame, so it never
-    // claims the agent is working before the server has taken the turn.
-    const working = !!state.busyForSelected && !!c.live && !!c.accepted && !showing;
+    // The dots mean "a turn is in flight" — they appear the moment Enter is
+    // pressed (`c.live` is set synchronously in send) and vanish when the turn
+    // ends. They used to wait for the backend's `start` frame, which meant a
+    // fast turn never showed them at all — they only appeared while tools ran.
+    // The status pill still says "Menyambung…" until the server took the turn.
+    const working = !!state.busyForSelected && !!c.live && !showing;
     typing.hidden = !working;
     /* The typing row wears the SAME portrait as the agent's messages: the
        photo over the accent colour, with the initials only as the fallback.

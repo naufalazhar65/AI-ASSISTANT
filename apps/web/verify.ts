@@ -9964,6 +9964,28 @@ async function verifyProactiveWorkflows(): Promise<void> {
         throw new Error("live dashboard: avatarBox harus menerima opsi (eager) untuk foto di baris typing");
       }
 
+      // 3c. The stamp is a CLOCK, the date is a WhatsApp-style separator that
+      //     appears once per day, new bubbles rise into place, and the dots
+      //     show on EVERY send (2026-10-22, owner request).
+      const dashCore = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "chat-core.mjs"), "utf8");
+      if (!/export function timeOnly/.test(dashCore)) throw new Error("chat stamp: timeOnly tidak ada di chat-core");
+      if (!/export function dayKey/.test(dashCore)) throw new Error("chat stamp: dayKey tidak ada di chat-core");
+      if (!/export function dayLabel/.test(dashCore)) throw new Error("chat stamp: dayLabel tidak ada di chat-core");
+      if (!/export function freshMessageKeys/.test(dashCore)) throw new Error("chat animasi: freshMessageKeys tidak ada di chat-core");
+      if (!/return timeOnly\(ts, zone\)/.test(dashChatJs)) throw new Error("chat stamp: jam pesan harus pakai timeOnly (tanpa tanggal)");
+      if (!/class: 'msgSep'/.test(dashChatJs)) throw new Error("chat stamp: pemisah ganti hari (msgSep) tidak ada");
+      if (!/freshMessageKeys\(seenCounts/.test(dashChatJs)) throw new Error("chat animasi: baris baru harus dihitung lewat freshMessageKeys");
+      if (!/classList\.add\('msgEnter'\)/.test(dashChatJs)) throw new Error("chat animasi: baris baru harus dapat kelas msgEnter");
+      /* The dots must NOT wait for the backend's `start` frame: that made a
+         fast turn show nothing at all. */
+      if (/c\.live && !!c\.accepted/.test(dashChatJs)) {
+        throw new Error("chat typing: titik-titik tak boleh menunggu frame 'start' (balasan cepat tak pernah menampilkannya)");
+      }
+      if (!/c\.live && !showing/.test(dashChatJs)) throw new Error("chat typing: titik-titik harus tampil setiap kali ada giliran berjalan");
+      if (!/\.msgSep\{/.test(dashCss)) throw new Error("chat stamp: gaya .msgSep tidak ada");
+      if (!/@keyframes chatBubbleIn/.test(dashCss)) throw new Error("chat animasi: keyframes chatBubbleIn tidak ada");
+      if (!/\.msgEnter\{/.test(dashCss)) throw new Error("chat animasi: gaya .msgEnter tidak ada");
+
       // 3. The proxy must pin the identity server-side — the browser may pick
       //    the agent, never the user.
       if (!/p\.startsWith\('\/api\/gemini-live\/'\)/.test(dashSrc)) throw new Error("live dashboard: proxy live tidak terdaftar");
