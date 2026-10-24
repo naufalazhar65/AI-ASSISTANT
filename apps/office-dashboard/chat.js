@@ -12,7 +12,7 @@ import {
   visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
   dateTimeLabel, timeOnly, dayKey, dayLabel, freshMessageKeys, agentAvailability,
   taskStateFor, toolStateMeta, humanError, humanGenerationError,
-  avatarUrl, liveStripModel, cardResultLine,
+  avatarUrl, liveStripModel, cardResultLine, announceExcerpt,
 } from './chat-core.mjs';
 import { createLive } from './live.mjs';
 
@@ -486,9 +486,14 @@ function ToolCard(card, zone, zoneLabel) {
     || state === 'failed' || state === 'timed_out' || !!card.inbox;
   const summary = card.summary || meta.label;
   const resultLine = cardResultLine(card);
+  // Only terminal states announce themselves: a running/queued card would
+  // spam the screen reader on every bus frame. Failed/cancelled/timed_out
+  // need the user's attention; succeeded is polite.
+  const terminal = state === 'succeeded' || state === 'failed' || state === 'cancelled' || state === 'timed_out';
+  const liveMode = state === 'failed' || state === 'cancelled' || state === 'timed_out' ? 'assertive' : (terminal ? 'polite' : 'off');
   return h(
     'details',
-    { class: 'tool', 'data-state': state, ...(open ? { open: true } : {}) },
+    { class: 'tool', 'data-state': state, 'aria-live': liveMode, ...(open ? { open: true } : {}) },
     [
       h('summary', { class: 'toolSum' }, [
         h('span', { class: 'toolState', 'data-state': state, 'data-tone': meta.tone }, [
@@ -552,10 +557,10 @@ function ApprovalCard(pending, agentName, cards, onDecide) {
       ]);
     }),
   );
-  return h('div', { class: 'approval' }, [
+  return h('div', { class: 'approval', role: 'group', 'aria-labelledby': 'approvalHead' }, [
     h('div', { class: 'approvalHead' }, [
       h('span', { class: 'approvalGlyph', 'aria-hidden': 'true', text: '?' }),
-      h('h4', { text: `${agentName} minta izin` }),
+      h('h4', { id: 'approvalHead', text: `${agentName} minta izin` }),
     ]),
     h('p', {
       text: `${calls.length} aksi menunggu keputusanmu. Approve = jalankan di server; Reject = jangan jalankan.`,
@@ -931,7 +936,7 @@ function ChatSidebar(chat, toggleBtn) {
   log.appendChild(jump);
   // Announcements live outside the log: replacing log children would otherwise
   // re-announce the whole conversation on every frame.
-  const live = h('div', { class: 'sr', role: 'status', 'aria-live': 'polite' });
+  const live = h('div', { class: 'sr', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true', 'aria-relevant': 'additions text' });
   /* The visible surface is a wrapper: the panel is the layout column, the
      wrapper is what the eye sees — and what the open/close motion plays on. */
   const inner = h('div', { class: 'chatInner' });
@@ -1032,7 +1037,10 @@ function ChatSidebar(chat, toggleBtn) {
       const lastAgent = [...msgs].reverse().find((m) => m.role !== 'user');
       if (lastAgent && lastAgent.key !== announced) {
         announced = lastAgent.key;
-        live.textContent = `${agentMeta.name || 'Agent'}: ${lastAgent.content.slice(0, 240)}`;
+        const excerpt = announceExcerpt(lastAgent.content, 240);
+        live.textContent = excerpt
+          ? `${agentMeta.name || 'Agent'}: ${excerpt}`
+          : `${agentMeta.name || 'Agent'}: (balasan tanpa teks)`;
       }
     }
     seenCounts[state.selected] = (c.messages || []).length;
@@ -1042,6 +1050,10 @@ function ChatSidebar(chat, toggleBtn) {
     if (tSig !== tailSig) {
       const fk = panel.contains(document.activeElement) ? document.activeElement?.dataset?.fk : undefined;
       approval.hidden = !showing;
+      /* The approval prompt is the most important thing on screen when it
+         appears — announce it assertively so a screen reader user is not left
+         staring at a list they do not know has changed. */
+      approval.setAttribute('aria-live', showing ? 'assertive' : 'polite');
       if (showing) approval.replaceChildren(ApprovalCard(c.pending, agentMeta.name, c.cards, (allow) => chat.decide(allow)));
       errBox.hidden = !c.error;
       if (c.error) {

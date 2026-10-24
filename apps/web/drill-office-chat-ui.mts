@@ -270,6 +270,26 @@ async function main(): Promise<void> {
   check("the send button is labelled for screen readers", sendLabel.length > 0, sendLabel);
   const sendText = ((await page.locator(".chatSend").textContent()) || "").trim();
   check("the send button carries an icon, not the word", sendText === "", `text=${sendText}`);
+
+  // a11y: live region announces replies with atomic + relevant attrs
+  const liveAria = await page.evaluate(() => {
+    const el = document.querySelector('.sr[role="status"][aria-live="polite"]');
+    if (!el) return null;
+    return { atomic: el.getAttribute('aria-atomic'), relevant: el.getAttribute('aria-relevant') };
+  });
+  check("live region is atomic + relevant for screen readers", !!liveAria && liveAria.atomic === 'true' && liveAria.relevant === 'additions text', JSON.stringify(liveAria));
+
+  // a11y: approval prompt is a labelled group
+  const approvalGroup = await page.evaluate(() => {
+    const el = document.querySelector('.approval');
+    if (!el) return null;
+    return { role: el.getAttribute('role'), labelledBy: el.getAttribute('aria-labelledby') };
+  });
+  // Approval may not be visible on first paint (no pending turn), so only
+  // assert the wiring when the element exists; otherwise treat as not-applicable.
+  if (approvalGroup) {
+    check("approval prompt is a labelled group", approvalGroup.role === 'group' && approvalGroup.labelledBy === 'approvalHead', JSON.stringify(approvalGroup));
+  }
   const composerRow = await page.evaluate(() => {
     const form = document.querySelector(".chatForm");
     if (!form) return null;

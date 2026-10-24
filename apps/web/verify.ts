@@ -9809,6 +9809,36 @@ async function verifyProactiveWorkflows(): Promise<void> {
     if (!/from '\.\/chat-core\.mjs'/.test(officeUi)) throw new Error("office chat: chat.js harus memakai chat-core (sanitasi teruji), bukan logika sendiri");
     console.log("office chat sidebar (route nyata · bus lifecycle · FR-014 confirm · store existing · proxy pin user · UI tanpa operasi privileged): OK");
 
+    // --- Office chat a11y (live region + approval + tool card announcements).
+    // The live region must be atomic and relevant so a screen reader announces
+    // the whole reply, not a fragment; the approval prompt is assertive; tool
+    // cards announce terminal states. Pure helper lives in chat-core so it is
+    // unit-tested, and the wiring must actually call it (helper-correct-but-
+    // never-called is the recurring failure mode in this repo).
+    const officeCoreSrc = readFileSync(join(miaRepoRoot(), "apps", "office-dashboard", "chat-core.mjs"), "utf8");
+    if (!/export function announceExcerpt/.test(officeCoreSrc)) {
+      throw new Error("office a11y: announceExcerpt tidak ada di chat-core.mjs");
+    }
+    if (!/announceExcerpt\(lastAgent\.content/.test(officeUi)) {
+      throw new Error("office a11y: chat.js harus memakai announceExcerpt untuk live region");
+    }
+    if (!/'aria-atomic': 'true'/.test(officeUi)) {
+      throw new Error("office a11y: live region harus aria-atomic=true");
+    }
+    if (!/'aria-relevant': 'additions text'/.test(officeUi)) {
+      throw new Error("office a11y: live region harus aria-relevant='additions text'");
+    }
+    if (!/role: 'group'/.test(officeUi)) {
+      throw new Error("office a11y: approval card harus role=group");
+    }
+    if (!/aria-labelledby': 'approvalHead'/.test(officeUi)) {
+      throw new Error("office a11y: approval card harus aria-labelledby=approvalHead");
+    }
+    if (!/'aria-live': liveMode/.test(officeUi)) {
+      throw new Error("office a11y: tool card harus memakai aria-live berdasarkan state terminal");
+    }
+    console.log("office chat a11y (announceExcerpt · aria-atomic/relevant · approval group · tool-card terminal announce): OK");
+
     // --- Office transcript isolation (2026-10-22). The office chat used to
     // persist under the OWNER scope with ids `office-<agent>`, so all three
     // agents AND the web app shared ONE sessions dir, ONE index and ONE

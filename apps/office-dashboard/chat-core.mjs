@@ -591,3 +591,39 @@ export function cardResultLine(card) {
   if (card.inbox) return '';
   return card.result || '';
 }
+
+/**
+ * A screen-reader-friendly excerpt of a message body.
+ *
+ * Pure helper: the live region in chat.js announces the latest agent reply,
+ * and raw markdown (fences, bold markers, newlines) is noise to a screen
+ * reader. This strips the markup, collapses whitespace, and truncates to a
+ * sensible length so the announcement stays short and clean. Empty/missing
+ * input yields an empty string (the caller decides whether to announce).
+ */
+export function announceExcerpt(text, maxLen = 240) {
+  const raw = String(text ?? '');
+  if (!raw.trim()) return '';
+  // Drop fenced code blocks entirely — a screen reader reading 40 lines of
+  // code is worse than saying nothing about that part.
+  let body = raw.replace(/```[\s\S]*?```/g, ' ');
+  // Strip common inline markdown markers.
+  body = body
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\*\*([^*]*)\*\*/g, '$1')
+    .replace(/\*([^*]*)\*/g, '$1')
+    .replace(/__([^_]*)__/g, '$1')
+    .replace(/_([^_]*)_/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^>\s?/gm, '')
+    .replace(/^[-*+]\s+/gm, '');
+  // Collapse all whitespace (newlines, tabs, runs) into single spaces.
+  body = body.replace(/\s+/g, ' ').trim();
+  if (!body) return '';
+  if (body.length <= maxLen) return body;
+  // Truncate on a word boundary when possible.
+  const cut = body.slice(0, maxLen);
+  const lastSpace = cut.lastIndexOf(' ');
+  if (lastSpace > maxLen * 0.6) return cut.slice(0, lastSpace).trim() + '…';
+  return cut.trim() + '…';
+}

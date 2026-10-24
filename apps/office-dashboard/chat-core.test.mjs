@@ -8,7 +8,7 @@ import {
   dateTimeLabel, timeOnly, dayKey, dayLabel, freshMessageKeys,
   agentAvailability, taskStateFor,
   toolStateMeta, humanError, humanGenerationError, avatarUrl,
-  liveStripModel, cardResultLine,
+  liveStripModel, cardResultLine, announceExcerpt,
 } from './chat-core.mjs';
 
 test('escapeHtml neutralises every HTML-significant char', () => {
@@ -476,4 +476,36 @@ test('a normal tool card keeps its one-line result', () => {
   const card = { id: 'c2', name: 'web_search', state: 'succeeded', result: '3 hasil' };
   assert.equal(cardResultLine(card), '3 hasil');
   assert.equal(cardResultLine(null), '');
+});
+
+test('announceExcerpt: null/empty/whitespace yields empty string', () => {
+  assert.equal(announceExcerpt(null), '');
+  assert.equal(announceExcerpt(undefined), '');
+  assert.equal(announceExcerpt(''), '');
+  assert.equal(announceExcerpt('   \n\t  '), '');
+});
+
+test('announceExcerpt: strips markdown markers and collapses whitespace', () => {
+  const out = announceExcerpt('Halo **Naufal**!\n\nIni *balasan* dengan `kode` dan [link](https://x).\n\nBaris kedua.');
+  assert.ok(!out.includes('**'));
+  assert.ok(!out.includes('*'));
+  assert.ok(!out.includes('`'));
+  assert.ok(!out.includes('\n'));
+  assert.ok(out.includes('Halo Naufal!'));
+  assert.ok(out.includes('Baris kedua.'));
+});
+
+test('announceExcerpt: strips fenced code blocks', () => {
+  const out = announceExcerpt('Sebelum.\n```js\nconst x = 1;\n```\nSesudah.');
+  assert.ok(!out.includes('const x'));
+  assert.ok(out.includes('Sebelum.'));
+  assert.ok(out.includes('Sesudah.'));
+});
+
+test('announceExcerpt: truncates to maxLen with ellipsis on word boundary', () => {
+  const long = 'kata '.repeat(80).trim();
+  const out = announceExcerpt(long, 40);
+  assert.ok(out.length <= 41, `len=${out.length}`);
+  assert.ok(out.endsWith('…'));
+  assert.ok(!out.includes('  '));
 });
