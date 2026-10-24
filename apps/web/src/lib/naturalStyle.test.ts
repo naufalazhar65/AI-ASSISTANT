@@ -236,6 +236,14 @@ describe("a short reply keeps no call-centre honorific", () => {
     ).toContain("Mas Naufal");
     expect(trimShortTrailingHonorific("Mas Naufal.")).toBe("Mas Naufal.");
   });
+  it("leaves no orphan punctuation when the honorific is cut", () => {
+    expect(trimShortTrailingHonorific("Iya, aku di sini, Mas Naufal.")).toBe("Iya, aku di sini.");
+    expect(trimShortTrailingHonorific("Iya, aku di sini, Mas Naufal")).toBe("Iya, aku di sini");
+  });
+  it("leaves a comma inside a sentence alone", () => {
+    expect(trimShortTrailingHonorific("Di sini, nemenin.")).toBe("Di sini, nemenin.");
+    expect(trimShortTrailingHonorific("Hai Mas Naufal, aku di sini.")).toBe("Hai Mas Naufal, aku di sini.");
+  });
 });
 
 describe("a menu offer at the very end of an unpunctuated reply is stripped", () => {

@@ -3211,9 +3211,17 @@ export function trimShortTrailingHonorific(text: string, maxWords = 8): string {
   const out = text
     .replace(/\s*\bMas\s+[A-Z][a-z]+\b\s*([.!])?\s*$/u, (_m, punct?: string) => punct ?? "")
     .replace(/^\s*Mas\s+[A-Z][a-z]+\b\s*,\s*/u, "")
+    // Dropping the honorific can leave its separator behind: "di sini, Mas Naufal." -> "di sini,."
+    .replace(/([,;:])\s*([.!?])/gu, "$2")
+    .replace(/[,;:]\s*$/u, "")
     .trim();
   // A reply that IS the honorific ("Mas Naufal.") would leave a bare dot behind.
-  return out && /[\p{L}\p{N}]/u.test(out) ? out : text;
+  return fixed(out) ? out : text;
+}
+
+/** Letters/numbers and no orphan punctuation — the invariant this trim must not break. */
+function fixed(out: string): boolean {
+  return /[\p{L}\p{N}]/u.test(out) && !/[,;:]\s*[.!?]?\s*$/u.test(out);
 }
 
 export function ensureMoodReplyQuality(messages: ChatMessage[], text: string, isVerbatimList = false): string {
