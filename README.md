@@ -6,6 +6,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
 [![Tools](https://img.shields.io/badge/tools-344-ff69b4?style=flat-square)](./apps/web/src/lib/tools.ts)
 [![Playbooks](https://img.shields.io/badge/security%20playbooks-86-8b5cf6?style=flat-square)](./apps/web/security-playbooks)
+[![Pentest Skills](https://img.shields.io/badge/pentest%20skills-12-22c55e?style=flat-square)](./apps/web/skills)
 [![License](https://img.shields.io/badge/license-private-lightgrey?style=flat-square)](#license)
 
 Mia (*she/her* 🌸) is a proactive personal assistant **and** an authorized
@@ -147,6 +148,13 @@ authorization + scope) → recon → `security_hunt` /
 `fix-verification` before any report, plus `browser-transport-tampering` (when a
 WAF blocks programmatic replay, tamper via the app's own request) and
 `idor-triage` (two-account verification, real field names, anti-false-positive).
+
+**Modular Pentest Skills System:** 12 core skills (recon, web, api, auth, access,
+injection, logic, client, infra, reporting, verification, scope) in
+`apps/web/skills/*/SKILL.md`, each with a standardized finding schema
+(`findingSchema.ts`), discovery (`pentest_skill_discover`), and intelligent routing
+(`pentest_skill_route`) based on target context. Use `pentest_skill_route` to
+determine which skills to activate for a new engagement.
 
 > ⚖️ **Scope:** only test what you own or are **authorized** for. Public
 > third-party sites are out of scope; bug-bounty programs are honored per their

@@ -110,6 +110,14 @@ Semua fitur yang sudah berjalan di production. Update: Vision, habit tracker, wi
 
 - Auth PIN/Bearer, allow-list owner per channel, TOOLS_DENY, SafeExec (CRITICAL/HIGH pending + audit), audit log, rate limit, sandbox exec, backup otomatis, app log per-day
 
+## 14.1 Modular Pentest Skills System
+
+- **12 core skills** in `apps/web/skills/*/SKILL.md`: recon, web, api, auth, access, injection, logic, client, infra, reporting, verification, scope
+- **Shared finding schema** (`findingSchema.ts`): canonical `PentestFinding` type + `SkillRouteContext` + `SkillRouteResult` + `SKILL_REGISTRY` with metadata
+- **Discovery** (`pentest_skill_discover`): list/search skills by keyword with tools and when-to-use guidance
+- **Routing** (`pentest_skill_route`): intelligent skill routing based on target context (hasApi, hasAuth, hasClientSide, hasCloud, surface, techStack, scope)
+- **Skills marketplace** (`skills.ts`): enhanced with `discoverPentestSkills`, `searchPentestSkills`, `routePentestSkills`, `formatSkillRoute`
+
 ## 15. Knowledge — ByteRover (2026-09-13, maksimal mandiri)
 
 - **CLI** `byterover-cli@3.16.1` `node_modules/.bin/brv`, storage `.brv/context-tree` (VC git terpisah, bukan `~/.openclaw`), provider `9router ngoding` (`openai-compatible localhost:20128/v1` weekly-unlimited)

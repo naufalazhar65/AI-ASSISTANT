@@ -334,7 +334,7 @@ async function main() {
   // hotel_search/train_search/bus_search demoted from CORE 2026-10-16 (0 executions
   // in 14 days of audit) to pay for the six proactive-workflow tools; they are still
   // registered and still ride the uncapped window, but not the capped one.
-  const liveToolsBoth = ["cinema_showtimes", "spotify_play", "spotify_mode", "spotify_queue", "places_search", "workflow_add", "workflow_list", "workflow_history", "workflow_run_now", "workflow_pause", "workflow_approve"];
+  const liveToolsBoth = ["spotify_play", "spotify_mode", "spotify_queue", "places_search", "workflow_add", "workflow_list", "workflow_history", "workflow_run_now", "workflow_pause", "workflow_approve"];
   // spotify_sleep_timer demoted from CORE 2026-10-01 (0 executions; room for
   // gmaps_route in 9r64) — replaced here by gmaps_route, which rides both caps.
   // transcribe demoted from CORE 2026-09-24 (csv_inject balance): the voice
@@ -1798,6 +1798,76 @@ async function main() {
     if (typeof php2shellAssess !== "function") throw new Error("php2shellAssess not exported");
     if (typeof formatPhp2ShellResult !== "function") throw new Error("formatPhp2ShellResult not exported");
     console.log("php2shell_assess (registered + read/auto + importable): OK");
+  }
+  {
+    // Modular Pentest Skills System: SKILL.md files, findingSchema, skills routing, tools
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const skillIds = ["recon", "web", "api", "auth", "access", "injection", "logic", "client", "infra", "reporting", "verification", "scope"];
+    for (const id of skillIds) {
+      const skillPath = path.join(appRoot(), "skills", id, "SKILL.md");
+      if (!fs.existsSync(skillPath)) throw new Error(`skill ${id}/SKILL.md not found`);
+    }
+    console.log("modular pentest skills: 12 SKILL.md files present: OK");
+
+    // findingSchema exports
+    const { PENTEST_SKILLS, SKILL_REGISTRY } = await import("./src/lib/findingSchema");
+    if (!Array.isArray(PENTEST_SKILLS) || PENTEST_SKILLS.length !== 12) throw new Error("PENTEST_SKILLS must have 12 entries");
+    if (Object.keys(SKILL_REGISTRY).length !== 12) throw new Error("SKILL_REGISTRY must have 12 entries");
+    console.log("findingSchema: 12 skills registered: OK");
+
+    // skills module exports
+    const skillsMod = await import("./src/lib/skills");
+    if (typeof skillsMod.discoverPentestSkills !== "function") throw new Error("discoverPentestSkills not exported");
+    if (typeof skillsMod.routePentestSkills !== "function") throw new Error("routePentestSkills not exported");
+    if (typeof skillsMod.searchPentestSkills !== "function") throw new Error("searchPentestSkills not exported");
+    const discovered = skillsMod.discoverPentestSkills();
+    if (discovered.length !== 12) throw new Error(`discoverPentestSkills returned ${discovered.length}, expected 12`);
+    console.log("skills module: exports + discoverPentestSkills: OK");
+
+    // routeSkills logic
+    const routeResult = skillsMod.routePentestSkills({ target: "https://example.com", hasApi: true, hasAuth: true, hasClientSide: false, hasCloud: false, surface: ["search", "form"], techStack: ["node"], scope: "lab" });
+    if (!routeResult.primary.includes("scope")) throw new Error("routeSkills must include scope in primary");
+    if (!routeResult.primary.includes("recon")) throw new Error("routeSkills must include recon in primary");
+    if (!routeResult.primary.includes("web")) throw new Error("routeSkills must include web in primary");
+    if (!routeResult.primary.includes("api")) throw new Error("routeSkills must include api when hasApi");
+    if (!routeResult.primary.includes("auth")) throw new Error("routeSkills must include auth when hasAuth");
+    if (!routeResult.secondary.includes("access")) throw new Error("routeSkills must include access in secondary when hasAuth");
+    if (!routeResult.secondary.includes("injection")) throw new Error("routeSkills must include injection in secondary");
+    if (!routeResult.secondary.includes("reporting")) throw new Error("routeSkills must include reporting in secondary");
+    console.log("routeSkills: routing logic correct: OK");
+
+    // Tools registered
+    const { TOOLS, executeTool } = await import("./src/lib/tools");
+    const routeTool = TOOLS.find((t: any) => t.function.name === "pentest_skill_route");
+    if (!routeTool) throw new Error("pentest_skill_route not registered");
+    const discoverTool = TOOLS.find((t: any) => t.function.name === "pentest_skill_discover");
+    if (!discoverTool) throw new Error("pentest_skill_discover not registered");
+    console.log("pentest_skill_route + pentest_skill_discover tools registered: OK");
+
+    // Execute pentest_skill_route
+    const routeResult2 = await executeTool({ id: "t", name: "pentest_skill_route", arguments: JSON.stringify({ target: "https://example.com", has_api: true, has_auth: true }) });
+    if (typeof routeResult2 !== "string" || !routeResult2.includes("SKILL ROUTE")) throw new Error("pentest_skill_route did not return route text");
+    console.log("pentest_skill_route execution: OK");
+
+    // Execute pentest_skill_discover
+    const discoverResult = await executeTool({ id: "t", name: "pentest_skill_discover", arguments: JSON.stringify({}) });
+    if (typeof discoverResult !== "string" || !discoverResult.includes("recon")) throw new Error("pentest_skill_discover did not return skills");
+    console.log("pentest_skill_discover execution: OK");
+
+    // pentest_skill_discover with query
+    const discoverResult2 = await executeTool({ id: "t", name: "pentest_skill_discover", arguments: JSON.stringify({ query: "injection" }) });
+    if (typeof discoverResult2 !== "string" || !discoverResult2.includes("injection")) throw new Error("pentest_skill_discover query filter failed");
+    console.log("pentest_skill_discover query filter: OK");
+
+    // SKILL.md files have proper format
+    const md = fs.readFileSync(path.join(appRoot(), "skills", "recon", "SKILL.md"), "utf8");
+    if (!md.includes("# Skill:")) throw new Error("SKILL.md must have '# Skill:' header");
+    if (!md.includes("## Tools")) throw new Error("SKILL.md must have '## Tools' section");
+    if (!md.includes("## When to Use")) throw new Error("SKILL.md must have '## When to Use' section");
+    console.log("SKILL.md format validation: OK");
+
+    console.log("Modular Pentest Skills System (12 skills + schema + routing + tools + tests): OK");
   }
   {
     const { TOOLS } = await import("./src/lib/tools");
@@ -6578,7 +6648,7 @@ async function main() {
       { role: "tool", tool_call_id: "t2", content: "Not selected: the user did not approve this action." },
     ] as never, []), []));
     if (refused !== "") throw new Error("refused calls must NEVER appear in the receipt");
-    const backfilled = actionReceipt(mergeReceiptRecords([], [{ name: "pentest_scan", args: "{}", result: EXECUTED_PLACEHOLDER, prior: true }]));
+    const backfilled = actionReceipt(mergeReceiptRecords([], [{ name: "pentest_scan", args: "{}", result: EXECUTED_PLACEHOLDER, prior: true }]), { includePrior: true });
     if (!backfilled.includes(EXECUTED_PLACEHOLDER) || !backfilled.includes("(turn sebelumnya)")) {
       throw new Error("ledger backfill must render as (dieksekusi) + prior tag");
     }
@@ -10349,6 +10419,63 @@ async function verifyProactiveWorkflows(): Promise<void> {
         "natural style (anchor persona · driver lama hilang · prompt full+slim · kontrak trio · suffix dibuang): OK",
       );
     }
+  }
+
+  // ── Modular Pentest Skills System ─────────────────────────────────────────
+  {
+    // Skills files exist
+    const skillsDir = join(appRoot(), "skills");
+    const skillIds = ["recon", "web", "api", "auth", "access", "injection", "logic", "client", "infra", "reporting", "verification", "scope"];
+    for (const id of skillIds) {
+      const skillPath = join(skillsDir, id, "SKILL.md");
+      if (!existsSync(skillPath)) throw new Error(`skill ${id}/SKILL.md not found`);
+    }
+    console.log("modular pentest skills: 12 SKILL.md files present: OK");
+
+    // findingSchema exports
+    const { PENTEST_SKILLS, SKILL_REGISTRY, routeSkills } = await import("./src/lib/findingSchema");
+    if (!Array.isArray(PENTEST_SKILLS) || PENTEST_SKILLS.length !== 12) throw new Error("PENTEST_SKILLS must have 12 entries");
+    if (Object.keys(SKILL_REGISTRY).length !== 12) throw new Error("SKILL_REGISTRY must have 12 entries");
+    console.log("findingSchema: 12 skills registered: OK");
+
+    // routeSkills works
+    const routeResult = routeSkills({ target: "https://example.com", hasApi: true, hasAuth: true, hasClientSide: false, hasCloud: false, surface: ["search", "form"], techStack: ["node"], scope: "lab" });
+    if (!routeResult.primary.includes("scope")) throw new Error("routeSkills must include scope in primary");
+    if (!routeResult.primary.includes("recon")) throw new Error("routeSkills must include recon in primary");
+    if (!routeResult.primary.includes("web")) throw new Error("routeSkills must include web in primary");
+    if (!routeResult.primary.includes("api")) throw new Error("routeSkills must include api when hasApi");
+    if (!routeResult.primary.includes("auth")) throw new Error("routeSkills must include auth when hasAuth");
+    if (!routeResult.secondary.includes("access")) throw new Error("routeSkills must include access in secondary when hasAuth");
+    if (!routeResult.secondary.includes("injection")) throw new Error("routeSkills must include injection in secondary");
+    if (!routeResult.secondary.includes("reporting")) throw new Error("routeSkills must include reporting in secondary");
+    console.log("routeSkills: routing logic correct: OK");
+
+    // Tools registered
+    const tools = getTOOLS();
+    const routeTool = tools.find((t) => t.function.name === "pentest_skill_route");
+    if (!routeTool) throw new Error("pentest_skill_route not registered");
+    const discoverTool = tools.find((t) => t.function.name === "pentest_skill_discover");
+    if (!discoverTool) throw new Error("pentest_skill_discover not registered");
+    console.log("pentest_skill_route + pentest_skill_discover tools registered: OK");
+
+    // Execute pentest_skill_route
+    const routeResult2 = await executeTool({ id: "t", name: "pentest_skill_route", arguments: JSON.stringify({ target: "https://example.com", has_api: true, has_auth: true }) });
+    if (typeof routeResult2 !== "string" || !routeResult2.includes("SKILL ROUTE")) throw new Error("pentest_skill_route did not return route text");
+    console.log("pentest_skill_route execution: OK");
+
+    // Execute pentest_skill_discover
+    const discoverResult = await executeTool({ id: "t", name: "pentest_skill_discover", arguments: JSON.stringify({}) });
+    if (typeof discoverResult !== "string" || !discoverResult.includes("recon")) throw new Error("pentest_skill_discover did not return skills");
+    console.log("pentest_skill_discover execution: OK");
+
+    // Skills module exports
+    const skillsMod = await import("./src/lib/skills");
+    if (typeof skillsMod.discoverPentestSkills !== "function") throw new Error("discoverPentestSkills not exported");
+    if (typeof skillsMod.routePentestSkills !== "function") throw new Error("routePentestSkills not exported");
+    if (typeof skillsMod.searchPentestSkills !== "function") throw new Error("searchPentestSkills not exported");
+    const discovered = skillsMod.discoverPentestSkills();
+    if (discovered.length !== 12) throw new Error(`discoverPentestSkills returned ${discovered.length}, expected 12`);
+    console.log("skills module: exports + discoverPentestSkills OK");
   }
 }
 

@@ -85,7 +85,7 @@ describe("actionReceipt", () => {
   });
 
   it("tags prior-turn records", () => {
-    const out = actionReceipt([{ name: "pentest_scan", args: "{}", result: "done", prior: true }]);
+    const out = actionReceipt([{ name: "pentest_scan", args: "{}", result: "done", prior: true }], { includePrior: true });
     expect(out).toContain("(turn sebelumnya)");
   });
 
@@ -229,7 +229,7 @@ describe("compactReceiptUrl (tidiness 2026-09-26: same lab URL 4× per receipt �
       { name: "http_request", args: JSON.stringify({ url: `${LAB}/cek-nik` }), result: "(dieksekusi)", prior: true },
       { name: "web_audit", args: JSON.stringify({ url: `${LAB}/cek-nik` }), result: "(dieksekusi)", prior: true },
       { name: "js_mine", args: JSON.stringify({ url: `${LAB}/cek-nik` }), result: "(dieksekusi)", prior: true },
-    ]);
+    ], { includePrior: true });
     expect((out.match(/cozy-kangaroo/g) || []).length).toBe(0); // host gone entirely — every arg carried a path, the PDF result is a bare filename
     expect(out).toContain("⚙️ report_pdf → /cek-nik: report-2026-09-26T03-10-16-897Z.pdf");
     expect(out).toContain("⚙️ http_request → /cek-nik (turn sebelumnya)");

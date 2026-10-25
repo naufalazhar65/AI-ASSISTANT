@@ -213,10 +213,14 @@ function compactUrlsInText(text: string): string {
  * (name+args) pairs. Returns "" when nothing executed — never decorative.
  * Pure. Tested.
  */
-export function actionReceipt(records: ReceiptRecord[]): string {
+export function actionReceipt(records: ReceiptRecord[], opts?: { includePrior?: boolean }): string {
+  const includePrior = opts?.includePrior ?? false;
   const lines: string[] = [];
   const seen = new Set<string>();
   for (const r of records || []) {
+    // By default only current-turn actions are shown; prior-turn (replay ledger)
+    // lines are hidden to avoid noisy duplicates. Opt-in via includePrior.
+    if (r.prior && !includePrior) continue;
     // Receipt lines are the SYSTEM's monopoly: only well-formed tool names
     // render (live 19:30: the model imitated the receipt shape in prose,
     // including a degenerate "⚙️ : (dieksekusi)" line).

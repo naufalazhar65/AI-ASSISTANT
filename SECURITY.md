@@ -124,6 +124,13 @@ refused.
 
 ---
 
+### 2.9.5 Modular Pentest Skills System (read, auto)
+
+- **pentest_skill_discover** — list all 12 core skills (recon, web, api, auth, access, injection, logic, client, infra, reporting, verification, scope) with tools and when-to-use
+- **pentest_skill_route** — route target context to primary/secondary/skipped skills based on surface detection
+
+Each skill has a SKILL.md in `apps/web/skills/<id>/SKILL.md` with tools, rules, workflow, and output format. Shared finding schema in `findingSchema.ts`.
+
 ### 2.10 Playbooks & methodology (read, auto)
 | Tool | What |
 |---|---|

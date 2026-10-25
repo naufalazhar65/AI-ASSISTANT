@@ -2338,6 +2338,87 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "read",
       function: {
+        name: "pentest_skill_route",
+        description:
+          "Route a pentest target context to the appropriate skills from the Modular Pentest Skills System (12 core skills: recon, web, api, auth, access, injection, logic, client, infra, reporting, verification, scope). Returns primary/secondary/skipped skills with reasoning. Use when starting a new pentest engagement to determine which skills to activate.",
+        parameters: {
+          type: "object",
+          properties: {
+            target: { type: "string", description: "Target URL or host" },
+            has_api: { type: "boolean", description: "Whether the target exposes an API surface" },
+            has_auth: { type: "boolean", description: "Whether the target has authentication" },
+            has_client_side: { type: "boolean", description: "Whether the target has heavy client-side JS" },
+            has_cloud: { type: "boolean", description: "Whether the target uses cloud infrastructure" },
+            surface: { type: "array", description: "Surface types detected (e.g. search, form, input, checkout, transfer, payment, cart)" },
+            tech_stack: { type: "array", description: "Detected tech stack (e.g. php, node, python, mysql)" },
+            scope: { type: "string", enum: ["lab", "engagement", "bug-bounty", "public"], description: "Scope type" },
+          },
+          required: ["target"],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { routePentestSkills, formatSkillRoute, discoverPentestSkills } = require("./skills") as typeof import("./skills");
+        const ctx2 = {
+          target: String(args.target || ""),
+          hasApi: Boolean(args.has_api),
+          hasAuth: Boolean(args.has_auth),
+          hasClientSide: Boolean(args.has_client_side),
+          hasCloud: Boolean(args.has_cloud),
+          surface: Array.isArray(args.surface) ? args.surface.map(String) : [],
+          techStack: Array.isArray(args.tech_stack) ? args.tech_stack.map(String) : [],
+          scope: (["lab", "engagement", "bug-bounty", "public"].includes(String(args.scope)) ? String(args.scope) : "lab") as "lab" | "engagement" | "bug-bounty" | "public",
+        };
+        const result = routePentestSkills(ctx2);
+        const skills = discoverPentestSkills();
+        const lines = [formatSkillRoute(result), "", "## Skill Details"];
+        for (const skillId of [...result.primary, ...result.secondary]) {
+          const meta = skills.find((s) => s.id === skillId);
+          if (meta) {
+            lines.push(`• ${meta.id} — ${meta.title}: ${meta.description} (tools: ${meta.tools.join(", ") || "none"})`);
+          }
+        }
+        return lines.join("\n");
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot route skills"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
+        name: "pentest_skill_discover",
+        description:
+          "Discover and list all 12 core pentest skills from the Modular Pentest Skills System with their tools, descriptions, and when-to-use guidance. Use when the user asks 'what skills are available', 'list pentest skills', or 'what can Mia do for pentesting'.",
+        parameters: { type: "object", properties: { query: { type: "string", description: "Optional search keyword to filter skills" } }, required: [] },
+      },
+    },
+    execute: (args) => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { searchPentestSkills, discoverPentestSkills } = require("./skills") as typeof import("./skills");
+        const q = typeof args.query === "string" ? args.query : "";
+        const skills = q ? searchPentestSkills(q) : discoverPentestSkills();
+        if (!skills.length) return "No pentest skills found.";
+        return skills
+          .map((s) => `• ${s.id} — ${s.title}: ${s.description}\n  When: ${s.whenToUse}\n  Tools: ${s.tools.join(", ") || "none"}`)
+          .join("\n\n")
+          .slice(0, 8000);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "cannot discover skills"}`;
+      }
+    },
+  },
+
+  {
+    definition: {
+      type: "function",
+      risk: "read",
+      function: {
         name: "send_channel",
         description:
           "Forward a message to another registered channel (e.g. Telegram or Discord). Use when the user asks to relay a message to a different platform than the one they are chatting on.",
