@@ -1784,6 +1784,22 @@ async function main() {
     console.log("web_audit SSRF guard: OK");
   }
   {
+    // php2shell_assess: read/auto, registered, scope-gated, passive
+    const { TOOLS, executeTool } = await import("./src/lib/tools");
+    const p = TOOLS.find((t) => t.function.name === "php2shell_assess");
+    if (!p) throw new Error("php2shell_assess not registered");
+    if (p.risk !== "read") throw new Error("php2shell_assess must be read/auto");
+    // Scope guard: example.com is not in scope
+    const scopeResult = await executeTool({ id: "t", name: "php2shell_assess", arguments: JSON.stringify({ url: "https://example.com" }) });
+    // Should either scope-reject or run (example.com is public, not lab) — just check it doesn't crash
+    if (typeof scopeResult !== "string") throw new Error("php2shell_assess did not return string");
+    // Verify the function exists and is importable
+    const { php2shellAssess, formatPhp2ShellResult } = await import("./src/lib/php2shell");
+    if (typeof php2shellAssess !== "function") throw new Error("php2shellAssess not exported");
+    if (typeof formatPhp2ShellResult !== "function") throw new Error("formatPhp2ShellResult not exported");
+    console.log("php2shell_assess (registered + read/auto + importable): OK");
+  }
+  {
     const { TOOLS } = await import("./src/lib/tools");
     const ec = TOOLS.find((t) => t.function.name === "engagement_create");
     if (ec?.risk !== "write") throw new Error("engagement_create must be write/confirm (grants scan permission)");

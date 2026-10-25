@@ -4131,6 +4131,10 @@ const toolRegistry: ToolPlugin[] = [
     execute: async (args) => { try { const { webAudit } = await import("./security"); return await webAudit(String(args.url || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "web_audit failed"}`; } },
   },
   {
+    definition: { type: "function", risk: "read", function: { name: "php2shell_assess", description: "Assessment PHP2Shell (CVE-2026-109618/109619): passive reconnaissance — cek header (X-Powered-By, Server), body (phpinfo, PHP Version), probe path umum (.php, composer.json, .env, vendor/autoload.php, php.ini), bandingkan versi PHP vs patched versions (8.2.35/8.3.36/8.4.27/8.5.12), klasifikasi (CONFIRMED_PATCHED/LIKELY_AFFECTED/POTENTIALLY_EXPOSED/INCONCLUSIVE/NOT_APPLICABLE). Read, auto. Pakai untuk 'cek PHP2Shell di X' atau 'apakah target ini terdampak PHP2Shell'.", parameters: { type: "object", properties: { url: { type: "string", description: "URL http(s) target" } }, required: ["url"] } } },
+    execute: async (args, ctx) => { try { const { php2shellAssess, formatPhp2ShellResult } = await import("./php2shell"); const r = await php2shellAssess(String(args.url || "")); return formatPhp2ShellResult(r); } catch (e) { return `Error: ${e instanceof Error ? e.message : "php2shell_assess failed"}`; } },
+  },
+  {
     definition: { type: "function", risk: "read", function: { name: "domain_audit", description: "Audit email/DNS domain (passive): SPF, DMARC, DKIM (selector umum), CAA, MX, NS. Read, auto. Untuk 'cek SPF/DMARC domainku'.", parameters: { type: "object", properties: { domain: { type: "string", description: "mis. example.com" } }, required: ["domain"] } } },
     execute: async (args) => { try { const { domainAudit } = await import("./security"); return await domainAudit(String(args.domain || "")); } catch (e) { return `Error: ${e instanceof Error ? e.message : "domain_audit failed"}`; } },
   },
