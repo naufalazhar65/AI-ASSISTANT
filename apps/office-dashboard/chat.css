@@ -4,6 +4,15 @@
    primitives it needs (.btn) without fighting the dashboard cascade.
    ══════════════════════════════════════════════════════════════════════════ */
 
+/* Skip link: visible only on keyboard focus, so it does not clutter the panel
+   for mouse users but is the first thing a keyboard user reaches. */
+.skipLink{
+  position: absolute; left: -9999px; top: 0; z-index: 100;
+  padding: 6px 10px; background: var(--card, #1a1a1a); color: var(--fg, #fff);
+  border-radius: 0 0 6px 0; font-size: 12px; text-decoration: none;
+}
+.skipLink:focus{ left: 0; outline: 2px solid var(--accent, #8b9dc3); }
+
 #chatPanel{
   /* The chat column is much narrower than the dashboard: a type scale of its
      own, one step down. The body stays comfortably readable (12.5px) and the

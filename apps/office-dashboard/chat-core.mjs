@@ -593,6 +593,25 @@ export function cardResultLine(card) {
 }
 
 /**
+ * A short, screen-reader-friendly status line for a tool card's terminal state.
+ *
+ * Pure helper: chat.js announces tool-card outcomes through a dedicated live
+ * region, and the raw result text (often a long digest) is noise. Returns
+ * "<name>: <label>" for terminal states, empty string otherwise. The caller
+ * decides whether to announce (only newly-terminal cards).
+ */
+export function announceToolCard(card) {
+  if (!card) return '';
+  const state = card.state || 'unknown';
+  const meta = toolStateMeta(state);
+  const label = (meta && meta.label) || state;
+  const terminal = state === 'succeeded' || state === 'failed' || state === 'cancelled' || state === 'timed_out';
+  if (!terminal) return '';
+  const name = card.name || card.summary || 'tool';
+  return `${name}: ${label}`;
+}
+
+/**
  * A screen-reader-friendly excerpt of a message body.
  *
  * Pure helper: the live region in chat.js announces the latest agent reply,

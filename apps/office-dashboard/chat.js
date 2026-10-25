@@ -12,7 +12,7 @@ import {
   visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
   dateTimeLabel, timeOnly, dayKey, dayLabel, freshMessageKeys, agentAvailability,
   taskStateFor, toolStateMeta, humanError, humanGenerationError,
-  avatarUrl, liveStripModel, cardResultLine, announceExcerpt,
+  avatarUrl, liveStripModel, cardResultLine, announceExcerpt, announceToolCard,
 } from './chat-core.mjs';
 import { createLive } from './live.mjs';
 
@@ -427,7 +427,15 @@ function MessageRow(m, { agentMeta, showMeta, time, fresh }) {
      quiet note, never the beige user bubble — otherwise a long internal
      message fills the panel and looks like something the owner said. */
   if (m.internal) {
-    return h('div', { class: 'msgNote' }, [
+    return h('div', { class: 'msgNote', role: 'alert' }, [
+      h('span', { class: 'msgNoteText', html: sanitizeMarkdown(m.content) }),
+    ]);
+  }
+  /* An assistant turn that carries an internal note (e.g. "[email-gate] …")
+     is a system-level alert, not a normal reply — announce it and style it
+     distinctly so a screen reader user hears it. */
+  if (m.role === 'assistant' && isInternalNote(m.content)) {
+    return h('div', { class: 'msgNote warn', role: 'alert' }, [
       h('span', { class: 'msgNoteText', html: sanitizeMarkdown(m.content) }),
     ]);
   }
@@ -690,6 +698,7 @@ function ChatComposer(chat, live) {
     id: 'chatInput',
     rows: '1',
     'aria-label': 'Pesan',
+    'aria-describedby': 'chatHint',
     onkeydown: (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -884,10 +893,10 @@ function ChatSidebar(chat, toggleBtn) {
   const head = h('div', { class: 'chatHead' });
   const stream = h('div', { class: 'chatStream' });
   const approval = h('div', { class: 'approvalWrap', hidden: true });
-  const errBox = h('div', { class: 'chatErr', hidden: true, role: 'alert' });
+  const errBox = h('div', { class: 'chatErr', hidden: true, role: 'alert', 'aria-live': 'assertive', 'aria-atomic': 'true' });
   const typing = h(
     'div',
-    { class: 'msg agent typing', hidden: true },
+    { class: 'msg agent typing', hidden: true, role: 'status', 'aria-live': 'polite' },
     [
       /* The portrait is a placeholder until the render knows WHICH agent is
          typing — the photo belongs to the agent, so it is (re)built there. */
@@ -897,14 +906,17 @@ function ChatSidebar(chat, toggleBtn) {
       ]),
     ],
   );
-  const log = h('div', { class: 'chatLog', id: 'chatLog', role: 'log', 'aria-live': 'off', 'aria-label': 'Percakapan dengan agent' }, [
+  const log = h('div', { class: 'chatLog', id: 'chatLog', role: 'log', 'aria-live': 'off', 'aria-label': 'Percakapan dengan agent', tabindex: '-1' }, [
     stream,
     approval,
     errBox,
     typing,
   ]);
-  const status = h('span', { class: 'chatStatus', role: 'status', 'aria-live': 'polite' });
-  const hint = h('span', { class: 'chatHint' });
+  // Loading announcement: a polite live region that only speaks while history
+  // is being fetched, so a screen reader user knows the panel is not empty.
+  const loadingLive = h('div', { class: 'sr', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' });
+  const status = h('span', { class: 'chatStatus', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' });
+  const hint = h('span', { class: 'chatHint', id: 'chatHint' });
   /* The voice lives INSIDE the chat panel: one conversation, two transports.
      The live transcript is a separate region (not mixed into the persisted
      chat history) — the text log is the office session, the live strip is
@@ -937,10 +949,16 @@ function ChatSidebar(chat, toggleBtn) {
   // Announcements live outside the log: replacing log children would otherwise
   // re-announce the whole conversation on every frame.
   const live = h('div', { class: 'sr', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true', 'aria-relevant': 'additions text' });
+  /* A second live region dedicated to tool-card outcomes: a <details> with
+     aria-live does not announce state changes reliably, so a plain text node
+     that we rewrite on each terminal transition is the dependable channel. */
+  const toolLive = h('div', { class: 'sr', role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' });
+  /* Skip link: keyboard users can jump straight to the conversation. */
+  const skipLink = h('a', { class: 'skipLink', href: '#chatLog', text: 'Lompat ke percakapan' });
   /* The visible surface is a wrapper: the panel is the layout column, the
      wrapper is what the eye sees — and what the open/close motion plays on. */
   const inner = h('div', { class: 'chatInner' });
-  inner.replaceChildren(head, log, voiceRegion.el, foot, live);
+  inner.replaceChildren(skipLink, head, log, voiceRegion.el, foot, live, toolLive, loadingLive);
   panel.replaceChildren(inner);
 
   let headSig = null;
@@ -951,6 +969,9 @@ function ChatSidebar(chat, toggleBtn) {
   let tailSig = null;
   let announced = null;
   let voiceAgent = null;
+  /* Which tool-card ids have already been announced as terminal, so a
+     re-render does not re-announce a card the screen reader already heard. */
+  const announcedTools = new Set();
 
   const agentNameFor = (id) => {
     const meta = chat.snapshot().agents.find((a) => a.id === id);
@@ -1014,6 +1035,10 @@ function ChatSidebar(chat, toggleBtn) {
       taskEl.className = `chatTask ${task.tone}`;
     }
 
+    /* Loading state: tell the screen reader the conversation is being fetched
+       so it does not announce a half-empty log. */
+    log.setAttribute('aria-busy', c.loading ? 'true' : 'false');
+    loadingLive.textContent = c.loading ? 'Memuat riwayat percakapan…' : '';
     const msgs = visibleMessages(c.messages);
     // The agent id is PART of the signature: one variable serves every tab, so
     // two agents whose visible messages share the same shape (same positions,
@@ -1042,6 +1067,19 @@ function ChatSidebar(chat, toggleBtn) {
           ? `${agentMeta.name || 'Agent'}: ${excerpt}`
           : `${agentMeta.name || 'Agent'}: (balasan tanpa teks)`;
       }
+      // Announce newly-terminal tool cards through the dedicated live region.
+      // Only the FIRST time a card reaches a terminal state is announced, so
+      // a re-render never repeats an announcement the reader already heard.
+      let toolAnnouncement = '';
+      for (const card of c.cards || []) {
+        const state = card.state || 'unknown';
+        const terminal = state === 'succeeded' || state === 'failed' || state === 'cancelled' || state === 'timed_out';
+        if (!terminal || announcedTools.has(card.id)) continue;
+        announcedTools.add(card.id);
+        const line = announceToolCard(card);
+        if (line) toolAnnouncement = line;
+      }
+      if (toolAnnouncement) toolLive.textContent = toolAnnouncement;
     }
     seenCounts[state.selected] = (c.messages || []).length;
 
