@@ -247,7 +247,9 @@ const TOOL_DOMAIN: Record<string, ToolDomain> = {
   reminders_mac_list: "assistant",
   reschedule_task: "assistant",
   add_task: "assistant",
-  list_tasks: "assistant",
+  // list_tasks is readable by any agent (read-only lookup). Only Mia can
+  // modify tasks (add/complete/cancel/delete/clear) — those stay gated.
+  // Classified as unlisted so the gate fails open (rule 1).
   complete_task: "assistant",
   cancel_task: "assistant",
   save_note: "assistant",
