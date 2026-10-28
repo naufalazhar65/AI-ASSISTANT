@@ -146,3 +146,28 @@ export function rescheduleTask(sel: { number?: unknown; match?: unknown }, dueAt
   addReminder(`[task] ${tasks[idx].text}`, dueAt, rawUser);
   return `Task #${idx + 1} rescheduled to ${new Date(dueAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}.`;
 }
+
+/** Delete a single task by number or match. */
+export function deleteTask(sel: { number?: unknown; match?: unknown }, rawUser?: unknown): string {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  const tasks = readTasks(rawUser);
+  const idx = resolveTaskIndex(tasks, sel);
+  const removed = tasks[idx];
+  tasks.splice(idx, 1);
+  writeTasks(tasks, userKey);
+  return `Task #${idx + 1} "${removed.text}" dihapus.`;
+}
+
+/** Delete ALL completed (done) and cancelled tasks. Returns count removed. */
+export function clearCompletedTasks(rawUser?: unknown): string {
+  const userKey = sanitizeUser(rawUser);
+  if (!userKey) throw new Error("invalid user");
+  const tasks = readTasks(rawUser);
+  const before = tasks.length;
+  const kept = tasks.filter((t) => t.status === "active");
+  const removed = before - kept.length;
+  if (removed === 0) return "Tidak ada tugas yang kelar/batal — semua masih aktif beb.";
+  writeTasks(kept, userKey);
+  return `Dihapus ${removed} tugas yang sudah kelar/batal. Sisa ${kept.length} tugas aktif.`;
+}

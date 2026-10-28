@@ -1164,6 +1164,59 @@ const toolRegistry: ToolPlugin[] = [
       type: "function",
       risk: "write",
       function: {
+        name: "delete_task",
+        description:
+          "Delete a single task permanently. Pass `number` (1-based from list_tasks) OR `match` (text substring of the task). Use when the user says 'hapus tugas X' or 'delete task X'.",
+        parameters: {
+          type: "object",
+          properties: {
+            number: {
+              type: "string",
+              description: "The task index to delete (1-based)",
+            },
+            match: {
+              type: "string",
+              description: "Delete the single task whose text contains this (case-insensitive)",
+            },
+          },
+          required: [],
+        },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const { deleteTask } = require("./tasks") as typeof import("./tasks");
+        return deleteTask({ number: args.number, match: args.match }, ctx.rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "invalid task number"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
+        name: "clear_completed_tasks",
+        description:
+          "Delete ALL completed (done) and cancelled tasks at once. Use when the user says 'hapus yang udah kelar', 'bersihkan tugas selesai', or 'clear completed tasks'.",
+        parameters: { type: "object", properties: {}, required: [] },
+      },
+    },
+    execute: (args, ctx) => {
+      try {
+        const { clearCompletedTasks } = require("./tasks") as typeof import("./tasks");
+        return clearCompletedTasks(ctx.rawUser);
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : "clear failed"}`;
+      }
+    },
+  },
+  {
+    definition: {
+      type: "function",
+      risk: "write",
+      function: {
         name: "reschedule_task",
         description:
           "Change a task's due date. Pass `number` (1-based from list_tasks) OR `match` (text substring of the task), plus `dueAt`.",
