@@ -418,8 +418,8 @@ async function main(): Promise<void> {
   }, marker);
   check("user bubble rendered", userBubble);
 
-  // 4b. the timestamp is a CLOCK; the date is a separator that appears once
-  // per day and stands in the middle of the log.
+  // 4b. timestamps are clocks only. Dates appear only on day transitions,
+  // which the pure core tests; this real-history drill checks their display.
   const stamp = await page.evaluate(() => {
     const times = [...document.querySelectorAll("#chatLog .msgTime")].map((el) => (el.textContent || "").trim());
     const seps = [...document.querySelectorAll("#chatLog .msgSep")].map((el) => ({
@@ -433,13 +433,78 @@ async function main(): Promise<void> {
     stamp.times.length > 0 && stamp.times.every((t) => /^\d{1,2}\.\d{2}$/.test(t)),
     JSON.stringify(stamp.times.slice(0, 4)),
   );
+  const renderedDates = stamp.seps.map((s) => s.text);
   check(
-    "the day separator appears once per day, centred",
-    stamp.seps.length > 0 &&
-      stamp.seps.every((s) => s.align === "center" && /\d{1,2} [A-Za-z]{3} \d{4}/.test(s.text)) &&
-      new Set(stamp.seps.map((s) => s.text)).size === stamp.seps.length,
+    "day separators are centred date labels and each rendered date appears only once",
+    stamp.seps.every((s) => s.align === "center" && /\d{1,2} [A-Za-z]{3} \d{4}/.test(s.text)) &&
+      new Set(renderedDates).size === renderedDates.length,
     JSON.stringify(stamp.seps),
   );
+
+  // Exercise the actual dashboard renderer in Chromium with a deterministic
+  // server history: day A, day B, then a late-arriving message from day A.
+  // The pure helper has its own unit test; this catches a disconnected helper,
+  // stale browser bundle, or duplicate separators in the rendered DOM.
+  const datedHistory = [
+    { role: "user", content: "fixture day A first" },
+    { role: "assistant", content: "fixture day A reply" },
+    { role: "user", content: "fixture day B" },
+    { role: "assistant", content: "fixture late day A" },
+    { role: "user", content: "fixture day A again" },
+    { role: "assistant", content: "fixture day C" },
+  ];
+  const datedStamps = [
+    Date.parse("2026-10-20T07:45:00Z"),
+    Date.parse("2026-10-20T08:00:00Z"),
+    Date.parse("2026-10-21T07:45:00Z"),
+    Date.parse("2026-10-20T08:45:00Z"),
+    Date.parse("2026-10-20T09:00:00Z"),
+    Date.parse("2026-10-22T07:45:00Z"),
+  ];
+  let datedHistoryServed = false;
+  const datedPage = await ctx.newPage();
+  await datedPage.route("**/api/office/chat**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (route.request().method() === "GET" && requestUrl.searchParams.get("agent") === "mia") {
+      datedHistoryServed = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          agent: "mia",
+          session_id: "browser-date-separator-fixture",
+          messages: datedHistory,
+          stamps: datedStamps,
+          tz: "Asia/Jakarta",
+          tz_label: "WIB",
+          cards: [],
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await datedPage.goto(`${DASH}/?token=${encodeURIComponent(auth)}`, { waitUntil: "commit" });
+  await datedPage.evaluate((value) => localStorage.setItem("mia_token", value), auth);
+  await datedPage.reload({ waitUntil: "commit" });
+  await datedPage.waitForSelector("#chatToggle", { timeout: 60000 });
+  await openPanel(datedPage);
+  await datedPage.waitForFunction(
+    () => document.querySelectorAll("#chatLog .msgSep").length === 3,
+    undefined,
+    { timeout: 20000 },
+  ).catch(() => undefined);
+  const fixtureDates = await datedPage.locator("#chatLog .msgSep").allTextContents();
+  const normalizedFixtureDates = fixtureDates.map((text) => text.trim());
+  check("browser served the deterministic date-order history", datedHistoryServed);
+  check(
+    "browser renders exactly one date label per day despite out-of-order messages",
+    normalizedFixtureDates.length === 3 &&
+      new Set(normalizedFixtureDates).size === 3 &&
+      normalizedFixtureDates.join("|") === "20 Okt 2026|21 Okt 2026|22 Okt 2026",
+    JSON.stringify(normalizedFixtureDates),
+  );
+  await datedPage.close();
   const composerCleared = await page
     .waitForFunction(
       () => {

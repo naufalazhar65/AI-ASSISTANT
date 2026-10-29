@@ -22,7 +22,7 @@ import { tzLabel, userTimeZone } from "@/lib/time";
 import { sanitizeUser } from "@/lib/users";
 import { agentTurnUserKey } from "@/lib/identity";
 import { subscribeBus, type BusEvent } from "@/lib/bus";
-import { isOfficeAgent, officeSessionId, sanitizeIncomingMessages, toolCardsFromMessages, type OfficeAgent } from "@/lib/officeChat";
+import { isOfficeAgent, officeSessionId, sanitizeIncomingMessagesWithIndices, toolCardsFromMessages, type OfficeAgent } from "@/lib/officeChat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -125,12 +125,18 @@ export async function POST(request: NextRequest) {
   // Mia's — passing the owner key for all three made every tab answer as the PM
   // (measured 2026-10-19: `agent:agnes` replied "PM dari trio kita").
   const turnUser = agentTurnUserKey(user, agent);
-  const messages = sanitizeIncomingMessages(body.messages);
+  const sanitized = sanitizeIncomingMessagesWithIndices(body.messages);
+  const messages = sanitized.map(({ message }) => message);
   if (!messages.length) return new Response("messages is required", { status: 400 });
-  // The browser's own stamps are the authority for what it already sent: the
-  // server keeps them, and only fills a time for a message nobody timed.
-  const incomingStamps: (number | null)[] = Array.isArray(body.stamps)
-    ? body.stamps.map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null))
+  // Stamp metadata follows each message's original client index through
+  // sanitization. A filtered/capped message must not shift the next message's
+  // date onto the wrong bubble.
+  const rawStamps = body.stamps;
+  const incomingStamps: (number | null)[] = Array.isArray(rawStamps)
+    ? sanitized.map(({ sourceIndex }) => {
+        const value = rawStamps[sourceIndex];
+        return typeof value === "number" && Number.isFinite(value) ? value : null;
+      })
     : [];
   const confirm_calls = confirmCallsFrom(body.confirm_calls);
   const sessionId = officeSessionId(agent);
@@ -197,14 +203,15 @@ export async function POST(request: NextRequest) {
             result.needsConfirmation?.length || hasAssistantText
               ? base
               : [...base, { role: "assistant", content: result.text ?? "" }];
-          // One stamp per PERSISTED message, aligned with `nextMessages`: the
-          // browser's own value where it has one, the previous session's value
-          // for history it re-sent, and THIS turn's time for everything the
-          // agent just produced.
+          // One stamp per PERSISTED message, aligned with `nextMessages`: map
+          // the sanitized client history back to its original indices, then use
+          // previous saved stamps as a fallback. A genuine timestamp of 0 is
+          // valid and must not be replaced by a later fallback.
           const now = Date.now();
           const stamps: (number | null)[] = nextMessages.map((_m, i) => {
-            if (i < messages.length) return incomingStamps[i] ?? prevStamps[i] ?? null;
-            return now;
+            if (i >= messages.length) return now;
+            if (incomingStamps[i] !== null && incomingStamps[i] !== undefined) return incomingStamps[i];
+            return prevStamps[i] ?? null;
           });
           try {
             upsertSession(user, sessionId, { messages: nextMessages, transcripts: [], stamps }, `${agent} — office chat`, collection);

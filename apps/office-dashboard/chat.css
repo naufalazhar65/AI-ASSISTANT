@@ -217,10 +217,14 @@
 .tool:hover{border-color:var(--line-2)}
 .tool[data-state="failed"]{border-color:var(--bad-2)}
 .tool[data-state="awaiting_approval"]{border-color:var(--warn-2)}
-.toolSum{display:flex;align-items:center;gap:var(--s2);cursor:pointer;list-style:none;
-  padding:9px 11px;font-size:var(--t-1);color:var(--text);flex-wrap:wrap}
+.toolSum{display:block;cursor:pointer;list-style:none;padding:10px 12px;
+  font-size:var(--t-1);color:var(--text);transition:background var(--dur)}
 .toolSum::-webkit-details-marker{display:none}
 .toolSum:hover{background:var(--panel-3)}
+.toolSumTop{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);min-width:0}
+.toolState{min-width:0}
+.toolLabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toolSumInfo{display:flex;align-items:baseline;gap:var(--s2);min-width:0;margin-top:5px}
 .toolState{display:inline-flex;align-items:center;gap:5px;font-size:var(--t-2);
   font-weight:650;color:var(--muted);white-space:nowrap}
 .toolGlyph{width:16px;height:16px;flex:0 0 16px;border-radius:50%;display:inline-flex;
@@ -232,22 +236,29 @@
 .toolState[data-tone="bad"] .toolGlyph{background:var(--bad-2);color:var(--bad)}
 .toolState[data-tone="warn"]{color:var(--warn)}
 .toolState[data-tone="warn"] .toolGlyph{background:var(--warn-2);color:var(--warn)}
-.toolName{font-weight:650;color:var(--text);overflow-wrap:anywhere}
+.toolName{font-weight:650;color:var(--text);flex:0 0 auto}
 .toolArgs{color:var(--muted);font-family:var(--mono);font-size:var(--t-2);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38%;
-  flex:1 1 60px}
-.toolAt{margin-left:auto;color:var(--faint);font-size:var(--t-2);
-  font-variant-numeric:tabular-nums;white-space:nowrap}
-.toolResult{margin:var(--s2) 0 0;padding:0 11px;font-size:var(--t-1);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
+.toolAt{color:var(--faint);font-size:var(--t-2);font-variant-numeric:tabular-nums;
+  white-space:nowrap;flex:0 0 auto}
+.toolResult{margin:0;padding:0 12px 10px;font-size:var(--t-1);line-height:1.5;
   color:var(--muted);overflow-wrap:anywhere}
+.toolResult:empty{display:none}
+.tool[data-state="failed"] .toolResult,.tool[data-state="timed_out"] .toolResult{color:var(--bad)}
 /* Raw output is DIAGNOSTICS: it lives behind its own disclosure, never in
    the primary card body, so a model-facing placeholder can never be read
    as the user-facing outcome. */
-.toolDiag{margin:var(--s2) 0 0;border-top:1px solid var(--line)}
-.toolDiagHead{cursor:pointer;list-style:none;padding:7px 11px;font-size:var(--t-2);
+.toolDiag{margin:0;border-top:1px solid var(--line)}
+.toolDiagHead{cursor:pointer;list-style:none;padding:8px 12px;font-size:var(--t-2);
   color:var(--faint);letter-spacing:.06em;text-transform:uppercase;font-weight:650}
 .toolDiagHead::-webkit-details-marker{display:none}
 .toolDiagHead:hover{color:var(--accent-ink)}
+@media (max-width:420px){
+  .toolSumTop{align-items:flex-start}
+  .toolAt{white-space:normal;text-align:right;max-width:44%}
+  .toolSumInfo{align-items:flex-start;flex-direction:column;gap:2px}
+  .toolArgs{white-space:normal;overflow-wrap:anywhere;max-width:100%;line-height:1.45}
+}
 .toolOut{font-family:var(--mono);font-size:var(--t-2);line-height:1.6;margin:0;
   padding:var(--s3);background:var(--bg2);border-top:1px solid var(--line);
   color:var(--muted);max-height:240px;overflow:auto;white-space:pre-wrap;

@@ -358,6 +358,43 @@ export function dayLabel(at, zone) {
 }
 
 /**
+ * Place one separator at the start of each known calendar day. When a legacy
+ * history starts with undated messages, anchor its first known day at the start
+ * of the transcript so the date does not appear to shift onto a later chat.
+ * Out-of-order messages cannot make a date appear twice.
+ */
+export function daySeparatorLabels(messages, stamps, zone) {
+  const rows = Array.isArray(messages) ? messages : [];
+  const labels = new Array(rows.length).fill('');
+  const shownDays = new Set();
+  const stampAt = (index) => {
+    const stampIndex = Number.isInteger(rows[index]?.index) ? rows[index].index : index;
+    return Array.isArray(stamps) ? stamps[stampIndex] : null;
+  };
+
+  // Existing office histories predate per-message timestamps. Their opening
+  // messages can be undated while a later message is stamped; anchor the first
+  // known day separator at the start of the conversation instead of letting it
+  // appear to "move" onto the second chat. The message clock remains blank.
+  const firstDatedIndex = rows.findIndex((_, index) => !!dayKey(stampAt(index), zone));
+  if (firstDatedIndex > 0) {
+    const firstStamp = stampAt(firstDatedIndex);
+    const firstKey = dayKey(firstStamp, zone);
+    labels[0] = dayLabel(firstStamp, zone);
+    shownDays.add(firstKey);
+  }
+
+  rows.forEach((_, index) => {
+    const stamp = stampAt(index);
+    const key = dayKey(stamp, zone);
+    if (!key || shownDays.has(key)) return;
+    labels[index] = dayLabel(stamp, zone);
+    shownDays.add(key);
+  });
+  return labels;
+}
+
+/**
  * The keys of the rows that arrived AFTER the previous render.
  *
  * The log is rebuilt from scratch on every change, so "new" cannot be read

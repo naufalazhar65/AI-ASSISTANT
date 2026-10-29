@@ -3,6 +3,7 @@ import {
   isOfficeAgent,
   officeSessionId,
   sanitizeIncomingMessages,
+  sanitizeIncomingMessagesWithIndices,
   toolCardsFromMessages,
   toolResultState,
   sanitizeToolOutput,
@@ -46,6 +47,22 @@ describe("officeChat — incoming message validation", () => {
     const many = Array.from({ length: 120 }, () => ({ role: "user", content: "x" }));
     expect(sanitizeIncomingMessages(many).length).toBe(40);
     expect(sanitizeIncomingMessages([{ role: "user", content: "y".repeat(9000) }])[0].content).toHaveLength(8000);
+  });
+
+  it("keeps original indices when filtering or tail-capping messages", () => {
+    const input = [
+      { role: "root", content: "discard" },
+      { role: "user", content: "keep" },
+    ];
+    expect(sanitizeIncomingMessagesWithIndices(input)).toEqual([
+      { message: { role: "user", content: "keep" }, sourceIndex: 1 },
+    ]);
+
+    const many = Array.from({ length: 42 }, (_, i) => ({ role: "user", content: String(i) }));
+    const capped = sanitizeIncomingMessagesWithIndices(many);
+    expect(capped).toHaveLength(40);
+    expect(capped[0].sourceIndex).toBe(2);
+    expect(capped.at(-1)?.sourceIndex).toBe(41);
   });
 
   it("is total: garbage in, empty list out", () => {

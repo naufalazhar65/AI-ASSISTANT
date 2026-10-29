@@ -44,9 +44,20 @@ const MAX_TOOL_ARGS_SUMMARY = 160;
  * than forwarded, so the browser cannot inject structure the agent never sent.
  */
 export function sanitizeIncomingMessages(raw: unknown): ChatMessage[] {
+  return sanitizeIncomingMessagesWithIndices(raw).map(({ message }) => message);
+}
+
+/** Keep each sanitized message tied to its original position for parallel data
+ * such as message timestamps; filtering or tail-capping messages must never
+ * shift metadata onto a different message. */
+export function sanitizeIncomingMessagesWithIndices(
+  raw: unknown,
+): { message: ChatMessage; sourceIndex: number }[] {
   if (!Array.isArray(raw)) return [];
-  const out: ChatMessage[] = [];
-  for (const m of raw.slice(-MAX_OFFICE_MESSAGES)) {
+  const out: { message: ChatMessage; sourceIndex: number }[] = [];
+  const firstIndex = Math.max(0, raw.length - MAX_OFFICE_MESSAGES);
+  for (let sourceIndex = firstIndex; sourceIndex < raw.length; sourceIndex += 1) {
+    const m = raw[sourceIndex];
     if (!m || typeof m !== "object") continue;
     const msg = m as Record<string, unknown>;
     const role = typeof msg.role === "string" ? msg.role : "";
@@ -69,7 +80,7 @@ export function sanitizeIncomingMessages(raw: unknown): ChatMessage[] {
       if (!next.tool_calls.length) delete next.tool_calls;
     }
     if (typeof msg.reasoning_content === "string") next.reasoning_content = msg.reasoning_content.slice(0, MAX_OFFICE_TEXT);
-    out.push(next);
+    out.push({ message: next, sourceIndex });
   }
   return out;
 }

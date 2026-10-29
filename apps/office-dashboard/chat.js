@@ -10,7 +10,7 @@
 import {
   sanitizeMarkdown, parseNdjsonLine, applyBusEvent, turnIsLive, connectionLabel,
   visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
-  dateTimeLabel, timeOnly, dayKey, dayLabel, freshMessageKeys, agentAvailability,
+  timeOnly, daySeparatorLabels, freshMessageKeys, agentAvailability,
   taskStateFor, toolStateMeta, humanError, humanGenerationError,
   avatarUrl, liveStripModel, cardResultLine, announceExcerpt, announceToolCard,
 } from './chat-core.mjs';
@@ -480,7 +480,7 @@ function MessageRow(m, { agentMeta, showMeta, time, fresh }) {
  * alone); long output stays collapsed until the owner opens it. Nothing here is
  * inferred — the card only shows what the backend reported.
  */
-function ToolCard(card, zone, zoneLabel) {
+function ToolCard(card, zone) {
   const meta = toolStateMeta(card.state);
   const state = card.state || 'unknown';
   /* The card header states the OUTCOME; the raw output is diagnostics and
@@ -494,6 +494,7 @@ function ToolCard(card, zone, zoneLabel) {
     || state === 'failed' || state === 'timed_out' || !!card.inbox;
   const summary = card.summary || meta.label;
   const resultLine = cardResultLine(card);
+  const detailText = additionalToolDetail(card);
   // Only terminal states announce themselves: a running/queued card would
   // spam the screen reader on every bus frame. Failed/cancelled/timed_out
   // need the user's attention; succeeded is polite.
@@ -504,16 +505,19 @@ function ToolCard(card, zone, zoneLabel) {
     { class: 'tool', 'data-state': state, 'aria-live': liveMode, ...(open ? { open: true } : {}) },
     [
       h('summary', { class: 'toolSum' }, [
-        h('span', { class: 'toolState', 'data-state': state, 'data-tone': meta.tone }, [
-          h('span', { class: 'toolGlyph', 'aria-hidden': 'true', text: meta.icon }),
-          h('span', { class: 'toolLabel', text: summary }),
+        h('span', { class: 'toolSumTop' }, [
+          h('span', { class: 'toolState', 'data-state': state, 'data-tone': meta.tone }, [
+            h('span', { class: 'toolGlyph', 'aria-hidden': 'true', text: meta.icon }),
+            h('span', { class: 'toolLabel', text: summary }),
+          ]),
+          /* The conversation's day separator owns the date; tool cards show
+             only a clock so the same calendar date is not repeated per call. */
+          card.at ? h('span', { class: 'toolAt', text: timeOnly(card.at, zone) }) : null,
         ]),
-        h('span', { class: 'toolName', text: card.name || 'tool' }),
-        h('span', { class: 'toolArgs', text: card.args || '' }),
-        /* A tool run is stamped with the FULL date: it can belong to another
-           day than the message next to it, and the chat's own day separator
-           only covers messages. */
-        card.at ? h('span', { class: 'toolAt', text: dateTimeLabel(card.at, zone, zoneLabel) }) : null,
+        h('span', { class: 'toolSumInfo' }, [
+          h('span', { class: 'toolName', text: card.name || 'tool' }),
+          card.args ? h('span', { class: 'toolArgs', text: card.args }) : null,
+        ]),
       ]),
       resultLine ? h('p', { class: 'toolResult', text: resultLine }) : null,
       /* An inbox result renders as a REAL list — subject, sender display
@@ -538,14 +542,26 @@ function ToolCard(card, zone, zoneLabel) {
             )),
           ])
         : null,
-      card.detail
+      detailText
         ? h('details', { class: 'toolDiag' }, [
             h('summary', { class: 'toolDiagHead', text: 'Detail teknis' }),
-            h('pre', { class: 'toolOut', text: card.detail }),
+            h('pre', { class: 'toolOut', text: detailText }),
           ])
         : null,
     ],
   );
+}
+
+/** FR-014 pause: the actual operations + their scope, decided once. */
+function additionalToolDetail(card) {
+  const raw = String(card && card.detail || '').trim();
+  if (!raw) return '';
+  const first = raw.split(/\r?\n/).find((line) => line.trim())?.trim() || '';
+  const result = String(card && card.result || '').trim();
+  if (!first || !result) return raw;
+  const sameLine = first === result || (result.endsWith('…') && first.startsWith(result.slice(0, -1)));
+  if (!sameLine) return raw;
+  return raw.replace(first, '').trim();
 }
 
 /** FR-014 pause: the actual operations + their scope, decided once. */
@@ -639,19 +655,16 @@ function streamNodes(chat, c, agentMeta, freshKeys) {
   const nodes = [];
   let prevRole = null;
   let declineNote = null;
-  let prevDay = null;
-  for (const m of msgs) {
+  const separatorLabels = daySeparatorLabels(msgs, c.stamps, c.tz);
+  for (const [index, m] of msgs.entries()) {
     const showMeta = m.role !== prevRole;
     prevRole = m.role;
     const ts = Array.isArray(c.stamps) ? c.stamps[m.index] : null;
     /* The date shows ONLY when the day changes — one centred separator per
        day, like WhatsApp. A message whose time is unknown gets no separator:
        a date is never invented for it, and it never closes a day either. */
-    const dk = dayKey(ts, c.tz);
-    if (dk && dk !== prevDay) {
-      prevDay = dk;
-      nodes.push(h('div', { class: 'msgSep', text: dayLabel(ts, c.tz) }));
-    }
+    const separator = separatorLabels[index];
+    if (separator) nodes.push(h('div', { class: 'msgSep', text: separator }));
     nodes.push(
       MessageRow(m, {
         agentMeta,
@@ -669,7 +682,7 @@ function streamNodes(chat, c, agentMeta, freshKeys) {
        at the end of the conversation made an old tool result look like the
        outcome of the newest reply. */
     const owned = cardsForCallIds(c.cards, m.callIds);
-    for (const card of owned) nodes.push(ToolCard(card, c.tz, c.tzLabel));
+    for (const card of owned) nodes.push(ToolCard(card, c.tz));
     /* A declined call is the one case where the agent's own words can say
        the opposite of what happened ("udah aku simpan" for a tool the owner
        just rejected). The truth is stated AFTER that reply, so the last
@@ -684,7 +697,7 @@ function streamNodes(chat, c, agentMeta, freshKeys) {
   /* Cards no turn claims yet: a live turn whose assistant message has not
      arrived. They are real, so they are shown — at the end, where the turn
      being read actually is. */
-  for (const card of unclaimedCards(c.cards, msgs)) nodes.push(ToolCard(card, c.tz, c.tzLabel));
+  for (const card of unclaimedCards(c.cards, msgs)) nodes.push(ToolCard(card, c.tz));
   /* The turn ended on the proposal itself — the correction still has to be
      shown, otherwise the decline would be visible only as a card. */
   if (declineNote) nodes.push(declineNote);

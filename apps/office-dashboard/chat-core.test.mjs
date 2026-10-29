@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {
   sanitizeMarkdown, escapeHtml, parseNdjsonLine, applyBusEvent, turnIsLive, connectionLabel,
   visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
-  dateTimeLabel, timeOnly, dayKey, dayLabel, freshMessageKeys,
+  dateTimeLabel, timeOnly, dayKey, dayLabel, daySeparatorLabels, freshMessageKeys,
   agentAvailability, taskStateFor,
   toolStateMeta, humanError, humanGenerationError, avatarUrl,
   liveStripModel, cardResultLine, announceExcerpt,
@@ -410,6 +410,73 @@ test('the day is a key and a label, both in the configured timezone', () => {
   assert.equal(dayKey(new Date('2026-10-20T23:30:00Z'), 'Asia/Jakarta'), '2026-10-21');
   assert.equal(dayKey(null, 'Asia/Jakarta'), '');
   assert.equal(dayLabel(null, 'Asia/Jakarta'), '');
+});
+
+test('day separators show one date per calendar day even when messages are out of order', () => {
+  const messages = Array.from({ length: 7 }, (_, index) => ({ index }));
+  const stamps = [
+    null,
+    Date.parse('2026-10-20T07:45:00Z'),
+    null,
+    Date.parse('2026-10-21T07:45:00Z'),
+    Date.parse('2026-10-20T08:45:00Z'), // same calendar day is not labelled twice
+    Date.parse('2026-10-20T09:45:00Z'), // same consecutive day: no duplicate
+    Date.parse('2026-10-22T07:45:00Z'),
+  ];
+  assert.deepEqual(daySeparatorLabels(messages, stamps, 'Asia/Jakarta'), [
+    '20 Okt 2026',
+    '',
+    '',
+    '21 Okt 2026',
+    '',
+    '',
+    '22 Okt 2026',
+  ]);
+  assert.deepEqual(daySeparatorLabels([{ index: 0 }], [null], 'Asia/Jakarta'), ['']);
+  assert.deepEqual(
+    daySeparatorLabels(
+      [{ index: 0 }, { index: 1 }, { index: 2 }, { index: 3 }],
+      [null, null, Date.parse('2026-10-20T07:45:00Z'), Date.parse('2026-10-20T08:45:00Z')],
+      'Asia/Jakarta',
+    ),
+    ['20 Okt 2026', '', '', ''],
+    'a legacy history with no timestamps on its first messages anchors the first known date at the top',
+  );
+  assert.deepEqual(
+    daySeparatorLabels([{ index: 0 }, { index: 1 }], [
+      Date.parse('2026-10-20T07:45:00Z'),
+      Date.parse('2026-10-20T08:45:00Z'),
+    ], 'Asia/Jakarta'),
+    ['20 Okt 2026', ''],
+    'one date label on the first message, none on later same-day messages',
+  );
+  assert.deepEqual(
+    daySeparatorLabels(
+      [{ index: 0 }, { index: 1 }, { index: 2 }],
+      [
+        Date.parse('2026-10-20T07:45:00Z'),
+        Date.parse('2026-10-20T08:45:00Z'),
+        Date.parse('2026-10-20T09:45:00Z'),
+      ],
+      'Asia/Jakarta',
+    ),
+    ['20 Okt 2026', '', ''],
+    'same-day messages do not repeat the date on a rerender',
+  );
+  assert.deepEqual(
+    daySeparatorLabels(
+      [{ index: 0 }, { index: 1 }, { index: 2 }, { index: 3 }],
+      [
+        Date.parse('2026-10-20T07:45:00Z'),
+        Date.parse('2026-10-21T07:45:00Z'),
+        Date.parse('2026-10-20T08:45:00Z'),
+        Date.parse('2026-10-22T07:45:00Z'),
+      ],
+      'Asia/Jakarta',
+    ),
+    ['20 Okt 2026', '21 Okt 2026', '', '22 Okt 2026'],
+    'a late-arriving message cannot repeat a date separator already shown',
+  );
 });
 
 test('only the rows that arrived after the last render are fresh', () => {
