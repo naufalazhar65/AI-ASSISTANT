@@ -78,8 +78,21 @@ export function addTask(text: string, rawUser?: unknown, dueAt?: number): Task {
 
 /** Human-readable summary of the user's tasks, in insertion order (newest last). */
 export function listTasks(rawUser?: unknown): string {
-  const tasks = readTasks(rawUser);
+  const userKey = sanitizeUser(rawUser);
+  let tasks = readTasks(rawUser);
   if (!tasks.length) return "Belum ada tugas beb — santai dulu, mau buat apa? 🌸";
+  // Auto-complete tasks whose due time has passed: a deadline is a commitment,
+  // and once it passes the task is considered done unless the user cancels it.
+  // This keeps the list honest — past-due tasks don't linger as "active".
+  const now = Date.now();
+  let changed = false;
+  for (const t of tasks) {
+    if (t.status === "active" && t.dueAt && t.dueAt < now) {
+      t.status = "done";
+      changed = true;
+    }
+  }
+  if (changed && userKey) writeTasks(tasks, userKey);
   const active = tasks.filter((t) => t.status === "active").length;
   const done = tasks.filter((t) => t.status === "done").length;
   const header = `Daftar tugasmu beb — ${tasks.length} tugas (${active} aktif${done ? `, ${done} kelar ✨` : ""}) 🌸`;

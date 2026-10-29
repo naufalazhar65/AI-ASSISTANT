@@ -54,6 +54,7 @@ import {
 } from "./agentRole";
 import { agentDisplayName } from "./agentRouting";
 import { allowedWorkspaces, sanitizeUser } from "./users";
+import { detectClearCompletedIntent, detectDeleteTaskIntent } from "./taskIntent";
 // Reports are WRITTEN owner-scoped (security.ts resolves the agent suffix before
 // touching disk), so the file-existence checks that decide whether a receipt may
 // name a file must resolve the SAME key — live 2026-10-07 18:57: for user
@@ -330,7 +331,7 @@ const SYSTEM_PROMPT = [
   "if they want the message varied each day (\"ganti ganti pesannya\"), just schedule the daily reminder — the system rotates messages automatically.",
   "Mac health monitoring: when the user asks to be NOTIFIED about Mac battery or storage at a percent ('kasih tau kalau batre 20%', 'storage 90% tolong kabarin'), say you'll watch it warmly — the system schedules the monitor automatically and alerts via heartbeat when it crosses. You can check the CURRENT value right away with device_battery (battery) or exec 'df -h /' (storage).",
   "For task management use add_task to create a task (optional dueAt deadline) — be imaginative: title should be engaging with emoji/vibe (e.g. 'Nonton Cars' → 'Nonton Cars 🚗 — Pixar night!'), not raw. ",
-  "list_tasks to show the task list, complete_task / cancel_task / delete_task / clear_completed_tasks to change or remove a ",
+  "list_tasks to show the task list. Tasks whose due time has passed are AUTO-marked done. complete_task = mark as done (task stays in list). cancel_task = mark as cancelled. delete_task = remove ONE task permanently. clear_completed_tasks = remove ALL done/cancelled tasks at once. IMPORTANT: when user says \"hapus yang udah kelar\" or \"bersihkan tugas selesai\" → use clear_completed_tasks (NOT complete_task, which only marks done and leaves the task in the list). ",
   "task's status (pass number OR match text — never list first just to change one), and reschedule_task to change its dueAt. ",
   "Prefer add_task over remind_me when the user wants an ongoing task to track, ",
   "not just a one-time nudge. For complex multi-step work, use Planning: plan_create (title+goal) → plan_add_step → plan_update_step (track pending/in_progress/completed; target by plan_match/step_match, no need to list first), plan_list/plan_get to inspect — this is Mia's internal planning board, different from user tasks. For marketplace, use skill_list/skill_search to browse SKILL.md skills (then hello_world demo). For calendar, be imaginative too: calendar_add/calendar_mac_add titles should be warm and vivid, not raw. Use list_uploads to show files the user uploaded via Telegram or Discord, and read_upload to read a saved upload's text content when asked about its contents. ",
@@ -513,7 +514,7 @@ export const SLIM_SYSTEM_PROMPT = [
   "ERRORS: a tool Error means plain words about what failed + what to do — never silent, never fabricated success. ",
   "PERSONA MEMORY: 'apa yang kamu ingat' → persona_show; 'ingat ini: X' → persona_set; facts save automatically, never ask permission; save_note only on explicit 'catat ini'. ",
   "REAL-WORLD mutable facts (open hours, prices, events, status) must be checked via web_search/fetch_url BEFORE answering; if unverifiable, say so honestly. Personal/user facts need no check. ",
-  "DAILY TOOLS (schemas self-describe): web_search (current/factual), places_search (venue/tempat via peta — WAJIB untuk rekomendasi kafe/resto), calculate, save_note/list_notes/delete_note, remind_me/reminders_list, add_task/list_tasks/complete_task, fetch_url (read a linked page), search_memory/memory_get, codebase_search, file_read/exec/write_file (repo sandbox; write_file = buat/tulis file, perlu konfirmasi), codebase_search (cari kode di repo+workspace, keluarkan file:line), calendar_list/calendar_add, mood_log/mood_recent, spotify_status/search/play/pause (Premium for control), device_list/device_battery, briefing/recap/weekly_insight, waze_route/weather/gmaps_route/hotel_search/cinema_showtimes/train_search/bus_search, git_status/exec_write (git add/commit/push + npm test/run), health/habit_log, gmail_list/search, humanize/summarize, learnings_search. ",
+  "DAILY TOOLS (schemas self-describe): web_search (current/factual), places_search (venue/tempat via peta — WAJIB untuk rekomendasi kafe/resto), calculate, save_note/list_notes/delete_note, remind_me/reminders_list, add_task/list_tasks/complete_task/clear_completed_tasks, fetch_url (read a linked page), search_memory/memory_get, codebase_search, file_read/exec/write_file (repo sandbox; write_file = buat/tulis file, perlu konfirmasi), codebase_search (cari kode di repo+workspace, keluarkan file:line), calendar_list/calendar_add, mood_log/mood_recent, spotify_status/search/play/pause (Premium for control), device_list/device_battery, briefing/recap/weekly_insight, waze_route/weather/gmaps_route/hotel_search/cinema_showtimes/train_search/bus_search, git_status/exec_write (git add/commit/push + npm test/run), health/habit_log, gmail_list/search, humanize/summarize, learnings_search. ",
   "RECON+PROVE (delivered here): pentest_resources, pentest_scan, recon_httpx, browser_snapshot, sast_scan, cve_intel, js_mine, js_deobfuscate, api_spec, workflow_fuzz, race_attack, graphql_hunt, coverage, threat_model, path_traversal, recon_full, http_request, poc_verify, finding_add, finding_list, oast_create, oast_poll, http_session, tamper_script, cdp_status, upload_fuzz, places_search, google_news, research, content_discover, crawl. CVE-2026-63077 (TeamCity RCE, KEV aktif): halaman menyebut TeamCity → ambil versi dari login page via http_request + bandingkan manual (<2026.1.3 / <2025.11.7 = RENTAN; tanpa payload deserialisasi apa pun). Saat mengusulkan tool (tunggu 'ya'): tulis usulan + alasan singkat SAJA, jangan kesimpulan final/verdict/nama file/receipt — itu dinarasikan SETELAH approval dari hasil nyata. ",
   "NATURAL, NOT SWEET (overrides anything warmer above): warmth shows as ",
   "relevance, never as a sentence about your feelings — no opening praise, no ",
@@ -2121,6 +2122,32 @@ function scheduleReminderFromIntent(messages: ChatMessage[], user: unknown, text
     return needDeleteSuffix ? appendDeleteSuffix(text) : text;
   }
 }
+
+/** Deterministic task cleanup: "hapus yang udah kelar" must actually remove
+ *  completed tasks from the store, not just mark them done. */
+function scheduleTaskClearFromIntent(messages: ChatMessage[], user: unknown, text: string): string {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user" && m.content);
+  if (!lastUser?.content) return text;
+  const userText = messageText(lastUser.content);
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { detectClearCompletedIntent } = require("./taskIntent") as typeof import("./taskIntent");
+    if (!detectClearCompletedIntent(userText)) return text;
+    const { clearCompletedTasks } = require("./tasks") as typeof import("./tasks");
+    const result = clearCompletedTasks(user);
+    if (result && !text.includes(result)) {
+      return `${(text || "").trimEnd()}\n\n${result}`;
+    }
+  } catch { /* best-effort */ }
+  return text;
+}
+
+function taskClearToolAlreadyHandled(needs: unknown): boolean {
+  try {
+    return !!(needs as any)?.some?.((c: any) => c.name === "clear_completed_tasks" || c.name === "delete_task");
+  } catch { return false; }
+}
+
 
 /** Day-rotated imaginative re-point confirmation — the same boring
  *  "Sudah kupindahkan ke pukul X ya." every time reads robotic. Mia's move
@@ -7428,6 +7455,7 @@ async function runAssistantTurnImpl(opts: {
     // so detect a "remind/bangunin di <waktu>" intent directly and schedule it
     // with the same store the `remind_me` tool uses.
     opencodeText = scheduleReminderFromIntent(messages, opts.user, opencodeText);
+    opencodeText = scheduleTaskClearFromIntent(messages, opts.user, opencodeText);
     opencodeText = ensurePlanFromIntent(messages, opts.user, opencodeText);
     // Link intelligence: a URL in the message is fetched + summarized + saved
     // in the background (never blocks the turn).
@@ -7863,6 +7891,20 @@ async function runAssistantTurnImpl(opts: {
   }
   if (!remindToolAlreadyHandled(opts, needsConfirmation)) {
     text = scheduleReminderFromIntent(messages, opts.user, text);
+  }
+  // Defuse the model's misread complete_task: when the user said "hapus yang
+  // udah kelar" (delete completed), the model sometimes proposes complete_task
+  // (mark as done) instead of clear_completed_tasks. The deterministic handler
+  // below owns the deletion, so a pending complete_task confirm must not land —
+  // or the user confirms a no-op and the task stays in the list.
+  const clearHit = lastUserMsg?.content ? (function() { try { /* eslint-disable-next-line @typescript-eslint/no-require-imports */ const { detectClearCompletedIntent } = require("./taskIntent") as typeof import("./taskIntent"); return detectClearCompletedIntent(messageText(lastUserMsg.content)); } catch { return false; } })() : false;
+  if (clearHit && needsConfirmation) {
+    needsConfirmation = needsConfirmation.filter((c) => c.name !== "complete_task");
+  }
+  // Deterministic task cleanup: "hapus yang udah kelar" must actually remove
+  // completed tasks, not just mark them done (the model confuses the two).
+  if (!taskClearToolAlreadyHandled(needsConfirmation)) {
+    text = scheduleTaskClearFromIntent(messages, opts.user, text);
     // Model-authored reminder variety for the deterministic path too: ask the
     // model (fire-and-forget) for a variants pool so the push rotates Mia-style
     // wordings instead of the static template.

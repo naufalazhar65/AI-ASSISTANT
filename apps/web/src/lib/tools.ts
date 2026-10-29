@@ -1102,7 +1102,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "complete_task",
         description:
-          "Mark a task as done. Pass `number` (1-based from list_tasks) OR `match` (text substring of the task) — don't list first just to complete.",
+          "Mark a SINGLE active task as done (status=done, task STAYS in list). Use ONLY when user explicitly says 'selesaikan tugas X' or 'tugas X sudah selesai' for one specific task. Do NOT use this to delete or remove tasks. To REMOVE completed tasks from the list entirely, use clear_completed_tasks instead.",
         parameters: {
           type: "object",
           properties: {
@@ -1199,7 +1199,7 @@ const toolRegistry: ToolPlugin[] = [
       function: {
         name: "clear_completed_tasks",
         description:
-          "Delete ALL completed (done) and cancelled tasks at once. Use when the user says 'hapus yang udah kelar', 'bersihkan tugas selesai', or 'clear completed tasks'.",
+          "PERMANENTLY DELETE all completed (done) and cancelled tasks from the list. Use this when the user says 'hapus yang udah kelar', 'bersihkan tugas selesai', 'clear completed tasks', or 'hapus tugas yang sudah selesai'. This REMOVES them from the list entirely — unlike complete_task which only marks as done. If the user wants to REMOVE finished tasks from the list, use THIS tool, not complete_task.",
         parameters: { type: "object", properties: {}, required: [] },
       },
     },
