@@ -294,7 +294,7 @@
 .btn:hover{border-color:var(--accent-edge);background:var(--accent-2);color:var(--text)}
 .btn:active{transform:translateY(1px)}
 .btn[disabled],.btn[aria-disabled="true"]{opacity:.5;cursor:not-allowed;transform:none}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#2b2724;
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);
   font-weight:650}
 .btn.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff7ee}
 
