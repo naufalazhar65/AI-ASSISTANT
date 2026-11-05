@@ -21,24 +21,26 @@
     --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s8:32px; --s10:40px;
     /* shape — restrained, not pill-everything */
     --r-xs:8px; --r-sm:10px; --r-md:14px; --r-lg:18px; --r-full:999px;
-    /* warm chrome */
-    --bg:#faf7f2; --bg2:#f3ebe0;
-    --panel:#ffffff; --panel-2:#f7f1e8; --panel-3:#efe4d6;
-    --line:#e8e0d6; --line-2:#dbd0c1;
-    --text:#2b2724; --muted:#635c53; --faint:#7f776d; --dim:#6b645c;
-    /* semantic */
-    --ok:#3d7a5a; --ok-2:#e7f1e9;
-    --warn:#8f6112; --warn-2:#f9eed7;
-    --bad:#a8442f; --bad-2:#fae7e1;
-    --info:#4c6d88;
-    --lav:#7b5f99; --sage:#3f7a5a;
-    /* accent — orange is for primary actions and selected states only */
-    --accent:#e99a56; --accent-2:#fceedd; --accent-ink:#a85c1a; --accent-edge:#f3c99b;
-    /* depth + motion */
-    --shadow:0 18px 42px rgba(92,70,44,.12);
-    --shadow-1:0 1px 2px rgba(92,70,44,.06);
-    --shadow-2:0 6px 18px rgba(92,70,44,.10);
-    --ring:0 0 0 3px rgba(233,154,86,.45);
+    /* Shared palette: canonical tokens first, legacy names below as aliases. */
+    --bg:#FFF9F0; --surface:#FFFFFF; --surface-alt:#FFF1DC; --surface-soft:#F8EEDD;
+    --panel:var(--surface); --panel-2:var(--surface-alt); --panel-3:var(--surface-soft);
+    --border:#E4D8C8; --border-strong:#342D26; --line:var(--border); --line-2:#D5C4AE;
+    --text:#292520; --text-muted:#655B50; --muted:var(--text-muted);
+    --faint:#7C7267; --dim:#655B50; --bg2:#F8EEDD;
+    --accent:#FFBE2E; --accent-ink:#302309; --accent-secondary:#F39A45;
+    --accent-secondary-ink:#38200B; --teal-soft:#BFE8E3; --coral-soft:#F5B8B1;
+    --lilac-soft:#D9CCF2; --accent-2:var(--surface-alt); --accent-edge:#E5B343;
+    /* Status hues describe real operational state only. */
+    --ok:#286044; --ok-2:#DDF2E5;
+    --warn:#855300; --warn-2:#FFF0CE;
+    --bad:#8E3326; --bad-2:#FBE3DE;
+    --info:#4c6d88; --lav:#7b5f99; --sage:#286044;
+    /* Quiet elevation; the offset treatment is reserved for primary actions. */
+    --shadow:0 8px 22px rgba(55,40,23,.12);
+    --shadow-1:0 1px 2px rgba(55,40,23,.07);
+    --shadow-2:0 6px 18px rgba(55,40,23,.11);
+    --shadow-offset:3px 4px 0 rgba(41,37,32,.16);
+    --ring:0 0 0 3px rgba(255,190,46,.42);
     --dur:.15s; --sbw:60px; --hudbg:rgba(255,255,255,.92); --hudw:322px;
     /* motion — one duration, one curve; panels arrive instead of jumping */
     --motion:.19s; --ease:cubic-bezier(.22,.61,.36,1);
@@ -46,23 +48,26 @@
       system-ui, -apple-system, "Helvetica Neue", sans-serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
-  /* Warm night — the toggle stays real, but it is a warm charcoal, not blue-black. */
+  /* Warm night — a deliberately distinct charcoal/paper palette. */
   html[data-theme="dark"]{
-    --bg:#1c1815; --bg2:#161310;
-    --panel:#231f1b; --panel-2:#2b2621; --panel-3:#342e28;
-    --line:#3b342d; --line-2:#4c433a;
-    --text:#f3eee7; --muted:#b8ada1; --faint:#9a8f83; --dim:#aaa094;
-    --ok:#7fc0a0; --ok-2:#243830;
-    --warn:#e0b071; --warn-2:#3a2f1e;
-    --bad:#e3907c; --bad-2:#3b2622;
-    --info:#95b5ce;
-    --lav:#b49bd0; --sage:#7fc0a0;
-    --accent:#e99a56; --accent-2:#3b2b1d; --accent-ink:#f0ae6e; --accent-edge:#6b4a2a;
-    --shadow:0 18px 42px rgba(0,0,0,.45);
-    --shadow-1:0 1px 2px rgba(0,0,0,.3);
-    --shadow-2:0 6px 18px rgba(0,0,0,.38);
-    --ring:0 0 0 3px rgba(233,154,86,.5);
-    --hudbg:rgba(35,31,27,.9);
+    --bg:#1C1815; --surface:#27221E; --surface-alt:#322B25; --surface-soft:#3A312A;
+    --panel:var(--surface); --panel-2:var(--surface-alt); --panel-3:var(--surface-soft);
+    --border:#4B4036; --border-strong:#E7D9C8; --line:var(--border); --line-2:#66584A;
+    --text:#F4EEE6; --text-muted:#C6B9AA; --muted:var(--text-muted);
+    --faint:#A99A89; --dim:#C6B9AA; --bg2:#211C18;
+    --accent:#FFBE2E; --accent-ink:#302309; --accent-secondary:#F39A45;
+    --accent-secondary-ink:#38200B; --teal-soft:#284B47; --coral-soft:#54342F;
+    --lilac-soft:#443952; --accent-2:var(--surface-alt); --accent-edge:#A77920;
+    --ok:#9BD8B3; --ok-2:#244335;
+    --warn:#F1CB83; --warn-2:#4C3B20;
+    --bad:#F0A69A; --bad-2:#502C28;
+    --info:#95b5ce; --lav:#b49bd0; --sage:#9BD8B3;
+    --shadow:0 8px 22px rgba(0,0,0,.38);
+    --shadow-1:0 1px 2px rgba(0,0,0,.28);
+    --shadow-2:0 6px 18px rgba(0,0,0,.32);
+    --shadow-offset:3px 4px 0 rgba(0,0,0,.42);
+    --ring:0 0 0 3px rgba(255,190,46,.48);
+    --hudbg:rgba(39,34,30,.94);
   }
 
   /* ── base ───────────────────────────────────────────────── */
@@ -91,7 +96,7 @@
   /* Identity mark — an original little desk-and-plant glyph, flat warm colour. */
   .brand .mark{width:26px;height:26px;flex:0 0 26px;border-radius:9px;
     background:var(--accent-2);border:1px solid var(--accent-edge);
-    display:flex;align-items:center;justify-content:center;color:var(--accent-ink)}
+    display:flex;align-items:center;justify-content:center;color:var(--text)}
   .brand .mark svg{width:16px;height:16px;display:block}
   .brand .who{display:flex;flex-direction:column;min-width:0}
   .brand b{font-size:var(--t1);font-weight:750;letter-spacing:-.01em;color:var(--text)}
@@ -109,13 +114,13 @@
   nav button:hover{background:var(--panel-3);color:var(--text)}
   /* Selected = a filled lamp with a hairline edge. The old inset left stripe
      read as a broken shape once the rail collapsed to 60 px. */
-  nav button.on{background:var(--accent-2);color:var(--accent-ink);font-weight:650;
+  nav button.on{background:var(--accent-2);color:var(--text);font-weight:650;
     box-shadow:inset 0 0 0 1px var(--accent-edge)}
   nav button .ic{width:18px;height:18px;flex:0 0 18px;color:var(--faint);
     display:flex;transition:color var(--dur)}
   nav button .ic svg{width:18px;height:18px;display:block;fill:none;stroke:currentColor;
     stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-  nav button:hover .ic,nav button.on .ic{color:var(--accent-ink)}
+  nav button:hover .ic,nav button.on .ic{color:var(--text)}
   nav button .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .nvgroup{font-size:var(--t-2);letter-spacing:.14em;text-transform:uppercase;
     color:var(--faint);padding:var(--s5) var(--s3) var(--s2);white-space:nowrap;font-weight:650}
@@ -137,8 +142,9 @@
     body:not(.sbopen) aside .brand .who{display:none}
     body:not(.sbopen) nav button{justify-content:center;padding:0;width:38px;height:38px;
       margin:0 auto;border-radius:11px}
-    body:not(.sbopen) nav button.on{background:var(--accent);color:#2b2724}
-    body:not(.sbopen) nav button.on .ic{color:#2b2724}
+    body:not(.sbopen) nav button.on{background:var(--accent);color:var(--accent-ink);
+      box-shadow:var(--shadow-offset)}
+    body:not(.sbopen) nav button.on .ic{color:var(--accent-ink)}
     body:not(.sbopen) .brand{padding-left:0;padding-right:0;justify-content:center}
     body:not(.sbopen) .brand .mark{margin:0 auto}
     body:not(.sbopen) .brand .dot{display:none}
@@ -160,7 +166,7 @@
   .crumbSep{color:var(--line-2);font-size:var(--t1)}
   /* The view title is the one thing in the bar that never shrinks: the bar wraps
      instead of crushing it. */
-  header h1{font-size:var(--t2);font-weight:700;margin:0;letter-spacing:-.01em;
+  header h1{font-size:var(--t2);font-weight:750;margin:0;letter-spacing:-.025em;
     color:var(--text);white-space:nowrap;min-width:max-content}
   header .sp{flex:1}
   header .grp{display:flex;align-items:center;gap:var(--s2)}
@@ -185,13 +191,15 @@
     border-radius:var(--r-sm);padding:7px 13px;font-size:var(--t-1);font-weight:550;
     cursor:pointer;white-space:nowrap;
     transition:background var(--dur),border-color var(--dur),color var(--dur)}
-  .btn:hover{border-color:var(--accent-edge);background:var(--accent-2);color:var(--accent-ink)}
+  .btn:hover{border-color:var(--accent-edge);background:var(--accent-2);color:var(--text)}
   .btn:active{transform:translateY(1px)}
   .btn[disabled],.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed;transform:none}
   /* Primary action — the only place the warm orange becomes a filled surface. */
-  .btn.primary{background:var(--accent);border-color:var(--accent);color:#2b2724;font-weight:650}
-  .btn.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink);
-    color:#fff7ee}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);
+    font-weight:700;box-shadow:var(--shadow-offset)}
+  .btn.primary:hover{background:var(--accent-secondary);border-color:var(--accent-secondary);
+    color:var(--accent-secondary-ink)}
+  .btn.primary:active{box-shadow:none}
   .btn.warn{border-color:var(--warn-2);color:var(--warn);background:var(--warn-2)}
   .btn.warn:hover{border-color:var(--warn);background:var(--warn-2);color:var(--warn)}
   .btn.ok{border-color:var(--ok-2);color:var(--ok);background:var(--ok-2)}
@@ -232,8 +240,8 @@
     transition:background var(--dur),color var(--dur)}
   .seg button+button{border-left:1px solid var(--line)}
   .seg button:hover{color:var(--text);background:var(--panel-3)}
-  .seg button.on{background:var(--accent-2);color:var(--accent-ink);font-weight:650}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+  .seg button.on{background:var(--accent-2);color:var(--text);font-weight:650}
+  .card{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-md);
     padding:var(--s5);box-shadow:var(--shadow-1)}
   .card h3,.secH{margin:0 0 var(--s3);font-size:var(--t-2);letter-spacing:.1em;
     text-transform:uppercase;color:var(--muted);font-weight:700}
@@ -251,7 +259,7 @@
   details{margin-top:var(--s3)}
   summary{cursor:pointer;color:var(--muted);font-size:var(--t-1);letter-spacing:.02em;
     font-weight:600;padding:4px 0}
-  summary:hover{color:var(--accent-ink)}
+  summary:hover{color:var(--text)}
   /* Diagnostics disclosure — technical detail stays out of the primary summary. */
   details.diag{border:1px solid var(--line);border-radius:var(--r-sm);
     background:var(--panel-2);padding:var(--s2) var(--s3)}
@@ -268,7 +276,7 @@
   section.view:not(.hide)>#office,
   section.view:not(.hide)>.hud{max-width:none;margin-left:0;margin-right:0}
   .vbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);margin:0 0 var(--s5);
-    padding-bottom:var(--s3);border-bottom:1px solid var(--line)}
+    padding-bottom:var(--s3);border-bottom:2px solid var(--line-2)}
   .vbar .lab{font-size:var(--t-2);letter-spacing:.12em;text-transform:uppercase;
     color:var(--muted);font-weight:650}
   .grid{display:grid;gap:var(--s4)}
@@ -276,7 +284,7 @@
   .g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
   .stats{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
     margin-bottom:var(--s5);align-items:stretch}
-  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+  .stat{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-md);
     padding:var(--s4) var(--s5);box-shadow:var(--shadow-1);
     display:flex;flex-direction:column}
   .stat .k{font-size:var(--t-2);letter-spacing:.1em;text-transform:uppercase;
@@ -331,7 +339,7 @@
   .tree .r{display:flex;gap:var(--s2);align-items:center;padding:8px 10px;
     border-radius:var(--r-xs);font-size:var(--t-1);color:var(--text);cursor:pointer}
   .tree .r:hover{background:var(--panel)}
-  .tree .r.on{background:var(--accent-2);color:var(--accent-ink);font-weight:600}
+  .tree .r.on{background:var(--accent-2);color:var(--text);font-weight:600}
   .tree .r.denied{opacity:.4;cursor:not-allowed}
   .tree .r .sz{margin-left:auto;color:var(--faint);font-size:var(--t-2)}
   .doc{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r-md);
@@ -416,7 +424,7 @@
   .ovlBottom .btn{flex:0 0 auto;margin-left:auto;background:transparent;
     border-color:var(--line);color:var(--muted)}
   .ovlBottom .btn:hover{background:var(--accent-2);border-color:var(--accent-edge);
-    color:var(--accent-ink)}
+    color:var(--text)}
   /* Scene toolbar — one coherent group, light neutral surfaces, warm accent for
      the selected control. Not a row of dark pills. */
   .sceneBar{pointer-events:auto;display:inline-flex;gap:var(--s1);align-items:center;
@@ -426,9 +434,9 @@
   .sceneBar .sep{width:1px;align-self:stretch;background:var(--line);margin:2px 3px}
   .sceneBar .btn{background:var(--panel);border-color:var(--line);color:var(--muted)}
   .sceneBar .btn:hover{background:var(--accent-2);border-color:var(--accent-edge);
-    color:var(--accent-ink)}
-  .sceneBar .btn.on{background:var(--accent);border-color:var(--accent);color:#2b2724;
-    font-weight:650}
+    color:var(--text)}
+  .sceneBar .btn.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);
+    font-weight:700}
   /* Scene menu — secondary controls live behind one disclosure so the toolbar
      stays one short row on a narrow canvas. */
   .sceneBar details.menu{margin-top:0;position:relative;flex:0 0 auto}
@@ -436,7 +444,7 @@
   .sceneBar summary.menuBtn::-webkit-details-marker{display:none}
   .menuList{position:absolute;top:calc(100% + 6px);left:0;z-index:30;display:none;
     flex-direction:column;align-items:stretch;gap:4px;min-width:168px;
-    background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+    background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-md);
     padding:6px;box-shadow:var(--shadow-2)}
   details.menu[open] > .menuList{display:flex}
   .menuList .btn{justify-content:flex-start;width:100%}
@@ -448,7 +456,7 @@
     cursor:pointer;white-space:nowrap;flex:0 0 auto;
     transition:background var(--dur),color var(--dur)}
   .rooms button:hover{color:var(--text);background:var(--panel-3)}
-  .rooms button.on{background:var(--accent-2);color:var(--accent-ink);font-weight:650;
+  .rooms button.on{background:var(--accent-2);color:var(--text);font-weight:650;
     box-shadow:inset 0 0 0 1px var(--accent-edge)}
   /* Status strip — data only, below the toolbar. It wraps to a second line
      rather than clipping a pill mid-word. */
@@ -487,7 +495,7 @@
   .tagLbl.sel{border-color:var(--accent);background:var(--accent-2);
     box-shadow:0 0 0 1px var(--accent-edge),var(--shadow-2)}
   .tagLbl b{font-weight:700;font-size:var(--t0);color:var(--text)}
-  .tagLbl.sel b{color:var(--accent-ink)}
+  .tagLbl.sel b{color:var(--text)}
   .tagLbl .tRow{display:flex;align-items:center;gap:6px}
   .tagLbl .tRole{color:var(--muted);font-size:var(--t-2);letter-spacing:.02em;
     overflow:hidden;text-overflow:ellipsis}
@@ -521,7 +529,7 @@
     color:var(--muted);background:transparent;border:1px solid transparent;
     border-radius:var(--r-xs);padding:5px 12px;cursor:pointer}
   .hudTab:hover{color:var(--text);background:var(--panel-3)}
-  .hudTab.on{color:var(--accent-ink);border-color:var(--accent-edge);background:var(--panel);
+  .hudTab.on{color:var(--text);border-color:var(--accent-edge);background:var(--panel);
     box-shadow:var(--shadow-1)}
   .hudPane{display:grid;gap:var(--s3);grid-template-columns:1fr;align-content:start;
     padding:var(--s4);overflow:auto;flex:1;min-height:0}

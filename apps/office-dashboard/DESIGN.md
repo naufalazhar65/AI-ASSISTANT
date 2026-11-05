@@ -1,287 +1,528 @@
-# AI Office — design system
+# AI Office — Design System
 
-Warm, playful-minimal dashboard for a live multi-agent office. The reference
-character is *approachable SaaS*: warm paper surfaces, one confident orange
-accent, rounded-but-not-bubbly controls, generous calm.
+> **Design direction:** Saweria-inspired, warm, playful-bold SaaS for a live multi-agent virtual office.
+>
+> This document is the source of truth for visual design and interaction rules. It describes an original AI Office identity inspired by broad visual principles such as warm surfaces, confident outlines, expressive accent colours, friendly typography, and selective offset shadows. It is **not** a reproduction of Saweria's UI, brand assets, mascots, or exact component designs.
 
-**All values live as CSS custom properties in `index.html` (`<style>` →
-`:root` / `html[data-theme="dark"]`).** `design-tokens.json` mirrors them for
-tooling. Change the token, not the rule.
+## 1. Product identity
 
-## Identity
+AI Office is a desktop-first virtual workspace for Mia, Agnes, and Michelle. The interface surrounds a live 3D office scene with navigation, agent status, operational views, and a conversation panel.
 
-Original to AI Office. No third-party mascot, logo, illustration or brand
-asset was copied. The only new artwork is a 26 px flat line-mark (a monitor on
-a stand) in the sidebar header, drawn inline as SVG.
+The product should feel:
 
-Navigation uses the same hand-drawn approach: one inline SVG sprite of fifteen
-24 × 24 stroke symbols — ten for the rail (`#i-office`, `#i-agents`,
-`#i-board`, `#i-calendar`, `#i-usage`, `#i-activity`, `#i-logs`, `#i-memory`,
-`#i-files`, `#i-settings`) and five for the header (`#i-menu`, `#i-theme`,
-`#i-refresh`, `#i-pause`, `#i-play`) — one stroke weight, `currentColor` fill
-so the selected state repaints the glyph instead of swapping a picture.
-Unicode dingbats are not used — a bare `◔` reads as a mystery, an icon reads
-as a destination. The header follows the same rule: the burger, the theme
-toggle, the refresh and the dispatch switch are icon-only buttons with a
-`title` + `aria-label`, never a glyph that renders differently per platform.
+- **Warm:** paper-like backgrounds and human-readable typography.
+- **Playful-bold:** decisive outlines, a confident yellow accent, occasional colourful surfaces, and controlled offset shadows.
+- **Practical:** operational information remains easy to scan and never becomes decoration.
+- **Original:** the 3D office, agent identities, iconography, and illustrations belong to AI Office.
+- **Trustworthy:** statuses and results always reflect real application state.
 
-## Colour
+The visual direction should not become a generic dashboard, a neon cyberpunk UI, or a clone of Saweria. Visual personality comes from a consistent system, not from decorating every component.
 
-| role | light | dark | used for |
-|---|---|---|---|
-| background | `#faf7f2` | `#1c1815` | page behind panels |
-| surface | `#ffffff` | `#231f1b` | cards, chat, HUD, header |
-| surface alt | `#f7f1e8` | `#2b2621` | sidebar, lanes, code blocks |
-| border | `#e8e0d6` | `#3b342d` | hairlines, card edges |
-| text | `#2b2724` | `#f3eee7` | primary |
-| muted | `#635c53` | `#b8ada1` | secondary, labels |
-| faint | `#7f776d` | `#9a8f83` | tertiary, timestamps |
-| accent | `#e99a56` | `#e99a56` | primary action fill, selected state |
-| accent ink | `#a85c1a` | `#f0ae6e` | accent-coloured **text** (accent is too light to read on white) |
-| ok / warn / bad | `#3d7a5a` `#8f6112` `#a8442f` | `#7fc0a0` `#e0b071` `#e3907c` | real status only |
+## 2. Non-negotiable principles
 
-Rules that keep it warm instead of loud:
+1. **The 3D scene is not part of the app colour system.** Never recolour or restyle the environment to match the UI palette.
+2. **No invented state.** Visible status, counters, tool results, and activity labels must come from actual runtime data.
+3. **One box per meaningful group.** Do not wrap every row, metric, or message in a card.
+4. **Accent colour has a job.** Use yellow/orange for primary actions and selected states, not as random decoration.
+5. **Bold does not mean heavy everywhere.** Reserve strong outlines and offset shadows for selected, interactive, or genuinely important surfaces.
+6. **No copied brand assets.** Do not use Saweria's logo, mascots, illustrations, or proprietary artwork.
+7. **Preserve behaviour.** Visual changes must not break chat, agent routing, tools, status updates, or the 3D renderer.
+8. **Design tokens are authoritative.** Change shared tokens before adding isolated values in component styles.
 
-- Orange marks **primary actions and selected states** — never decoration.
-- Status colour never carries meaning alone: a dot is always paired with a word.
-- The 3D scene keeps its own natural colours. The app palette is not pushed into it.
-- An agent has no accent colour of its own. Identity is the monogram, the name
-  and the role, so the orange accent never leaks into decoration — and no
-  per-agent hex value is invented in the markup.
+## 3. Source files and ownership
 
-## Typography
+Verify these paths in the current repository before editing; do not assume the structure has not changed.
 
-`Nunito → Avenir Next → Segoe UI Variable → system-ui` (all local; no webfont
-download). Mono for ids, code and raw log lines: `ui-monospace → SF Mono →
-Menlo`.
+| File | Responsibility |
+|---|---|
+| `index.html` | Design tokens, global dashboard styles, 3D scene, and views (if still structured this way) |
+| `chat.css` | Chat panel styles |
+| `chat.js` | Chat panel rendering and interactions |
+| `chat-core.mjs` | Pure chat helpers and related unit tests |
+| `design-tokens.json` | Machine-readable mirror of CSS design tokens |
+| `DESIGN.md` | Human-readable source of truth for visual rules and component behaviour |
 
-Scale: `11 / 12 / 13.5 / 15 / 17 / 21 / 30 px`. Nothing operational is below
-11 px. Section labels are uppercase 11 px in `--text-muted` (never faint grey).
-Headings are 650–750 weight with `-0.01em` tracking; body text is 1.5–1.62
-line-height.
+If the codebase has moved these responsibilities, update the actual current files rather than creating duplicate implementations. Keep `design-tokens.json` synchronised with the CSS tokens whenever tokens change.
 
-## Shape & depth
+## 4. Colour system
 
-Radii: `8` small controls · `10` inputs/buttons · `14` cards/panels · `18`
-modals and the mobile sheet. `999` only for status chips (`.pill`, `.badge`)
-and the scroll-to-latest affordance — never for cards, inputs or buttons.
+### 4.1 Light theme — default direction
 
-Shadows are warm and low-contrast (`rgba(92,70,44,…)`), never black.
+Use a warm-paper background, white surfaces, dark ink, and a confident sunny-yellow accent. Teal and coral are supporting surface colours, not competing primary accents.
 
-## Layout
+| Token | Value | Usage |
+|---|---|---|
+| `--bg` | `#FFF9F0` | Main application background |
+| `--surface` | `#FFFFFF` | Primary panels, chat, cards, and header surfaces |
+| `--surface-alt` | `#FFF1DC` | Sidebar groups, secondary lanes, selected-area backgrounds |
+| `--surface-soft` | `#F8EEDD` | Quiet wells and secondary regions |
+| `--text` | `#292520` | Primary text and icon ink |
+| `--text-muted` | `#655B50` | Secondary text and labels |
+| `--text-faint` | `#7C7267` | Timestamps and low-priority metadata; never essential information |
+| `--border` | `#E4D8C8` | Subtle separators and standard input edges |
+| `--border-strong` | `#342D26` | Strong card outlines and emphasis where needed |
+| `--accent` | `#FFBE2E` | Primary action fill and selected-state accent |
+| `--accent-ink` | `#302309` | Text/icons on yellow accent surfaces |
+| `--accent-secondary` | `#F39A45` | Secondary accent, limited use |
+| `--accent-secondary-ink` | `#38200B` | Text/icons on orange accent surfaces |
+| `--teal-soft` | `#BFE8E3` | Occasional secondary surface or small illustration detail |
+| `--coral-soft` | `#F5B8B1` | Occasional secondary surface or small illustration detail |
+| `--lilac-soft` | `#D9CCF2` | Optional illustration/supporting surface; use sparingly |
+| `--ok-bg` | `#DDF2E5` | Success/connected status background |
+| `--ok-ink` | `#286044` | Success/connected status text and icon |
+| `--warn-bg` | `#FFF0CE` | Warning status background |
+| `--warn-ink` | `#855300` | Warning status text and icon |
+| `--bad-bg` | `#FBE3DE` | Error status background |
+| `--bad-ink` | `#8E3326` | Error status text and icon |
 
+These values are proposed AI Office tokens, not official Saweria brand values. Check contrast in the rendered application and tune tokens when required; do not silently replace the palette with ad-hoc colours.
+
+### 4.2 Dark theme
+
+Keep dark theme supported. It must be intentionally designed, not produced by applying an indiscriminate colour inversion.
+
+| Token | Value | Usage |
+|---|---|---|
+| `--bg` | `#1C1815` | Main application background |
+| `--surface` | `#27221E` | Primary panels and cards |
+| `--surface-alt` | `#322B25` | Secondary panels and navigation groups |
+| `--surface-soft` | `#3A312A` | Quiet wells and secondary regions |
+| `--text` | `#F4EEE6` | Primary text and icon ink |
+| `--text-muted` | `#C6B9AA` | Secondary text and labels |
+| `--text-faint` | `#A99A89` | Timestamps and low-priority metadata |
+| `--border` | `#4B4036` | Subtle separators and standard edges |
+| `--border-strong` | `#E7D9C8` | Strong outlines where they remain useful on dark surfaces |
+| `--accent` | `#FFBE2E` | Primary action fill and selected-state accent |
+| `--accent-ink` | `#302309` | Text/icons on yellow accent surfaces |
+| `--accent-secondary` | `#F39A45` | Secondary accent, limited use |
+| `--accent-secondary-ink` | `#38200B` | Text/icons on orange accent surfaces |
+| `--teal-soft` | `#284B47` | Muted teal supporting surface |
+| `--coral-soft` | `#54342F` | Muted coral supporting surface |
+| `--lilac-soft` | `#443952` | Muted lilac supporting surface |
+| `--ok-bg` | `#244335` | Success/connected status background |
+| `--ok-ink` | `#9BD8B3` | Success/connected status text and icon |
+| `--warn-bg` | `#4C3B20` | Warning status background |
+| `--warn-ink` | `#F1CB83` | Warning status text and icon |
+| `--bad-bg` | `#502C28` | Error status background |
+| `--bad-ink` | `#F0A69A` | Error status text and icon |
+
+### 4.3 Colour rules
+
+- Light theme is the default for new users unless existing product requirements or saved preferences say otherwise.
+- Respect a user's saved theme preference. Do not reset their preference on every page load.
+- Yellow is the primary accent. Use orange as a secondary accent, not as a competing primary colour.
+- Within a local action group, ordinarily use only one filled primary button.
+- Do not use colour alone to communicate success, warning, error, connection, or availability. Pair the colour with a label or accessible name.
+- Status colours must describe real status, never decoration.
+- Teal, coral, and lilac are secondary surfaces. Do not use all of them in every view.
+- The 3D scene keeps its original materials and natural colours. UI theme changes must not tint the Three.js scene.
+- Check text contrast, including placeholder text, icons, disabled states, and focus states.
+
+## 5. Typography
+
+Use a locally available sans-serif stack; do not introduce a mandatory external font request solely for the redesign.
+
+Recommended stack:
+
+```css
+font-family: Nunito, "Avenir Next", "Segoe UI Variable", system-ui, sans-serif;
 ```
+
+Use a monospace stack for IDs, code, and raw log lines:
+
+```css
+font-family: ui-monospace, "SF Mono", Menlo, monospace;
+```
+
+### Type scale
+
+| Token / intended role | Size |
+|---|---:|
+| Tiny metadata, minimum operational text | `11px` |
+| Secondary metadata and timestamps | `12px` |
+| Compact labels | `13.5px` |
+| Default body and controls | `15px` |
+| Emphasised body / card title | `17px` |
+| Section heading | `21px` |
+| Page title / high-level value | `30px` |
+
+Rules:
+
+- Nothing operational should be smaller than 11 px.
+- Use 650–750 font weight for major headings, with slight negative letter spacing only where it improves the result.
+- Body copy generally uses `1.5–1.62` line-height.
+- Do not make every label bold to create a playful look.
+- Metadata must remain readable; do not use very faint text for important status or guidance.
+- Large report content, code, and long logs must remain readable without widening the layout.
+- Chat body text should remain compact enough to show a useful amount of history while retaining comfortable line length and line-height.
+
+## 6. Shape, borders, and depth
+
+### Radius scale
+
+- `6–8px`: small controls and compact icon buttons.
+- `8–10px`: inputs and standard buttons.
+- `12–14px`: cards, chat panel surfaces, and dashboard groups.
+- `16–18px`: modals and mobile sheets.
+- `999px`: status chips and badges only when a pill is the clearest representation.
+
+Do not make every element pill-shaped. Segmented controls may have a rounded track, but their internal buttons should remain visually proportionate.
+
+### Border rules
+
+- Use subtle borders for separation and strong dark-ink outlines selectively for important cards or interactive elements.
+- A bold outline is a visual accent, not a default for every row.
+- Inputs need a clear border and visible focus state.
+- Do not nest a bordered card inside another card unless the inner item is a separate object with its own interaction.
+- Avoid duplicating a border, shadow, and tinted background when one or two signals are sufficient.
+
+### Shadow rules
+
+Use two intentional shadow types:
+
+```css
+/* Warm, quiet elevation for floating surfaces. */
+--shadow-soft: 0 8px 22px rgba(55, 40, 23, 0.12);
+
+/* Small offset shadow for selected expressive components only. */
+--shadow-offset: 3px 4px 0 rgba(41, 37, 32, 0.16);
+```
+
+- Use soft shadow for popovers, drawers, and surfaces that float above other content.
+- Use offset shadow selectively on primary/selected components where it supports the playful-bold identity.
+- Do not apply offset shadow to every card, input, or message bubble.
+- Avoid large black shadows and decorative glow.
+
+## 7. Iconography and original artwork
+
+- Use the existing inline SVG icon sprite if it is still present and suitable.
+- Icons should share consistent viewBox, stroke width, line cap, and line join.
+- Use `currentColor` so hover, selected, and disabled states work without swapping artwork unnecessarily.
+- Icon-only buttons must have a `title`, an accessible name, and a usable hit area.
+- Do not use Unicode dingbats as substitutes for interface icons.
+- Keep icon style consistent across the rail, header, chat composer, and panels.
+- Any new illustration should be original to AI Office: simple, playful, and secondary to the data.
+- Do not import or trace Saweria's mascot, logo, illustrations, or proprietary artwork.
+- Do not add decorative illustrations to empty states unless they materially improve comprehension.
+
+## 8. Layout
+
+The application is a virtual office, not a generic analytics dashboard. The live 3D canvas remains the central experience, while surrounding controls and chat use the design system above.
+
+Reference desktop structure:
+
+```text
 ┌────────┬──────────────────────────┬────────┬────────┐
 │ rail   │ virtual office (canvas)  │  HUD   │  chat  │
 │ 60/248 │       flexible           │  322   │  340   │
 └────────┴──────────────────────────┴────────┴────────┘
 ```
 
-- The rail collapses to a 60 px icon rail; every icon-only button keeps a
-  `title` + `aria-label` tooltip. Collapsed, each destination is a 38 px
-  square plate and the current one is a solid accent square (orange fill,
-  dark ink) — a filled lamp, never an offset stripe that reads as a broken
-  shape at 60 px. Group headings collapse into hairline rules so the rail
-  still reads as four groups instead of ten loose glyphs.
-- The header shares its row with the canvas, HUD and chat. The view title is
-  the one thing in that bar that never shrinks: the title keeps its full
-  width and the bar wraps to a second row instead of crushing the text into
-  an ellipsis. Below ~1340 px the breadcrumb prefix and the sync timestamp
-  go first, and below ~560 px the bus pill and the refresh button follow —
-  the title is what stays.
-- The dispatch switch is a tinted icon toggle, not a filled button: pausing
-  the dispatch is a state, not a warning. It carries that state in colour
-  (warn = paused, ok = running) and in its accessible name.
-- Canvas overlays wrap instead of scrolling: room chips flow onto a second
-  row and the status pills stack, so nothing is cut in half by a scrollbar
-  the user cannot see.
-- The bottom overlay is **one HUD bar**, not a row of loose pills: a single
-  warm surface holds the counters, the roster and the Panel button, and the
-  chips inside it are flat. The bar owns its pointer events — a control inside
-  an overlay that inherits `pointer-events: none` is dead to the mouse.
-- A nameplate is a caption, not a card: tighter padding, smaller radius, one
-  shadow step. It sits over a bright 3D scene, so every pixel of weight it
-  carries is weight on the picture.
-- The HUD (crew + agent detail) is a sibling of the canvas so the office keeps
-  the bright surface; it becomes a bottom sheet under 820 px.
-- The chat is a sibling panel; under 1200 px it becomes a right drawer, under
-  420 px it takes the full width. The breakpoint is 1200 px and not 900 px
-  because the rail (248 px) and a docked chat (340 px) together leave the
-  header and the view title nothing to work with.
-- The chat is **open on wide screens and closed below 1200 px**; the Chat
-  button toggles it. Toggling must never recreate the Three.js renderer or
-  reset the camera.
+These dimensions are starting points from the existing layout, not instructions to force fixed widths if the current code already handles the viewport better.
 
-## Component rules
+### Rail and navigation
 
-- **One box per group, not per row.** Task rows, log lines and table rows use
-  spacing and surface tint; only genuinely separate objects get a card.
-- Buttons: neutral outline by default, `.primary` = solid orange (the only
-  filled orange button in the app), `.warn` / `.ok` = tinted state buttons.
-- Inputs: white surface, `--border-strong` edge, accent border + soft ring on
-  focus.
-- Segmented controls (period picker, agent selector): neutral track, accent
-  fill on the active segment.
-- Empty states: a soft dashed well with one honest sentence. No decorative art.
-- The chat's empty state never repeats the identity the header already shows
-  (name, role, avatar). It starts the conversation instead: one honest
-  sentence, then an even stack of starting points, anchored under the header
-  instead of floating in the middle of the panel.
-- The composer is one row: the input, the mic button and the send button share
-  height and radius. The send button is an ICON (never the word "Kirim"), and
-  the mic sits directly next to it — voice is the same conversation, spoken,
-  so it lives in the chat panel instead of a panel of its own.
-- The live strip (voice session) is separate from the chat history and hidden
-  while nothing happened: idle is silent.
-- Long values (ids, URLs, tool output) truncate with an ellipsis or scroll
-  inside their own box — they never widen the layout.
-- A list view gets one toolbar: a label, a count and the control that changes
-  the list (period, level, "lihat semua"). It is the same row on every view,
-  so the reader learns once where to look.
-- Grids size themselves: cards use `auto-fit` with a narrow floor, so three
-  agents fill one row instead of leaving one card alone in a half-empty
-  second row, and stat cards stretch to the same height with their subtitle
-  right under the value — a pinned subtitle leaves a hole in the middle of
-  the card.
-- The task board is a 2 × 2 grid of four panels of the same size. Each lane
-  scrolls its own list, so a lane with three items and a lane with forty read
-  as two panels, not as one tall column and one stub.
-- An agent card opens with its identity (monogram, name, status), keeps its
-  rows tight, lists the duties as bullets, and pins its buttons to the bottom
-  — three cards side by side end on the same line.
-- One account, several agents: the account key is printed once and the agent
-  names stand beside it. Repeating the key per agent is noise.
-- A card holds an object, not a paragraph. An empty preview, an empty file
-  list or a missing schedule is a plain note inside the panel that owns it —
-  never a second card nested inside the first.
+- The rail collapses to a 60 px icon rail; expanded width may use the existing 248 px layout.
+- Every icon-only destination retains a tooltip and accessible name.
+- In collapsed mode, each destination uses a consistent square hit area; the active destination uses a clear filled accent surface rather than a detached stripe.
+- Group headings can collapse to subtle rules so the rail still reads as organised groups.
+- Keep navigation icons consistent; do not add card backgrounds to every menu item.
 
-## State honesty
+### Header
 
-Every visible indicator is wired to real state:
+- The page/scene title is the most stable item in the header and must not be crushed into an ellipsis unnecessarily.
+- At constrained widths, remove low-priority breadcrumb details and sync timestamp before the title.
+- Secondary icon-only controls must retain tooltip and accessible name.
+- Use a tinted toggle for dispatch pause/running state; do not make pause look like a destructive action unless it truly is one.
+- Keep the header visually lighter than the canvas and avoid duplicating a border around every control.
 
-- The API dot and the bus pill reflect the actual connection.
-- The agent nameplate dot reflects the derived scene state, the crew card
-  reflects the backend status; they are different facts and are labelled
-  differently.
-- A nameplate shows the human activity label ("makan bakso", "istirahat kopi")
-  when the agent is idle, and the real tool summary when it is working. It
-  never implies a task that the backend did not report.
-- Machine-shaped values (basis, counters, provenance, scene signals) live in
-  the collapsed **Diagnostics** block of the agent panel, never in the primary
-  summary.
-- Machine values that do have to be shown are translated before they reach the
-  screen: an action key becomes a sentence ("satu giliran assistant"), a turn
-  id becomes a group with a count, a log source becomes "audit 20 Okt 2026",
-  an absolute path becomes `~/…`, a user key with an agent suffix becomes
-  "naufalazhar65 · Mia". The raw value stays in the `title` attribute when it
-  is worth keeping.
-- The task board groups turns that share a title, so a night of the same
-  request reads as one row with a count instead of hundreds of identical
-  cards. It shows a handful of groups per lane and offers "Lihat semua" for
-  the rest.
-- Log lines carry their level as a word plus a colour, and the level is a
-  filter. A wall of raw JSON is not a log view.
-- Counters are dot + word, and success never shares a chip with failure:
-  "Berjalan 448" and "gagal 18" are separate chips with their own colour.
-- A machine title becomes a sentence: "Turn mia via 9router" reads as "giliran
-  Mia via 9router", and a raw JSON tail in a turn excerpt is cut instead of
-  quoted.
-- A warning without a reason is not honest: the watchdog row names what it
-  could not verify and when it last looked, instead of printing "perhatian".
-- The dashboard never describes itself. A card that explains where the data
-  comes from is documentation, not a view — the rules live in this file.
-- Idle is silent. The chat header shows the agent's availability and drops the
-  task line when no turn is running, instead of printing "no turn is active".
-  A status that arrived from the server must reach the panel even when the
-  panel has no other news to render.
-- The typing row belongs to the CONVERSATION, not to the bottom of the panel.
-  It sits directly under the last message — the message stream must not grow
-  to fill the log, or the row drifts hundreds of pixels away from the bubble
-  it belongs to.
-- The typing row wears the agent's PHOTO, exactly like the messages do. A
-  letter in a circle is the fallback for a failed image, never the default.
-- A message stamp is a CLOCK ("11.55"). The date appears only when the day
-  changes — one centred separator per day, like WhatsApp. A message whose time
-  is unknown gets no time and no separator: a date is never invented.
-- A message that just arrived rises into place (opacity + a short lift). The
-  history that loads does NOT animate — only rows that arrived after the last
-  render move.
-- The typing row shows on EVERY send. It means "a turn is in flight", so it
-  appears the moment the message is sent and disappears when the turn ends; it
-  must not wait for the backend to answer before it shows anything.
+### Canvas overlays and HUD
 
-## Tool cards & execution truth
+- Room/area chips wrap instead of becoming a hidden horizontal scrollbar.
+- The bottom overlay is one grouped HUD surface, not a series of unrelated pills.
+- Flat status chips sit within the HUD; reserve individual cards for genuinely separate information.
+- The HUD is a sibling of the canvas, not a filter applied to the 3D scene.
+- On narrow screens, it may become a bottom sheet if that behaviour already exists or can be added without disturbing the renderer.
+- Controls inside an overlay must remain interactive; verify `pointer-events` behaviour rather than allowing a decorative wrapper to disable its children.
 
-A card is anchored to the turn that proposed it (the card id IS the provider's
-`tool_call_id`), and its state is only ever what the backend reported:
+### Chat layout and responsive behaviour
 
-| state | meaning |
+- The chat is a sibling panel to the canvas.
+- Target behaviour from the existing design: chat is docked/open on wide screens, becomes a right-side drawer below about 1200 px, and can take the full width on very narrow screens (about 420 px and below).
+- Verify the actual breakpoints against the current implementation before changing them.
+- The Chat control opens/closes the panel without recreating the Three.js renderer or resetting the camera.
+- When a panel closes, it must immediately stop receiving pointer and keyboard interaction, even if its exit animation is still running.
+- Do not change the camera framing, zoom, scene geometry, object placement, lighting, materials, or character movement as part of UI restyling.
+
+## 9. Component rules
+
+### General surfaces
+
+- One box per meaningful group, not per row.
+- Use spacing and surface tint for task rows, log rows, and table rows.
+- A card holds an object or a coherent group, not a paragraph wrapped in unnecessary containers.
+- Empty previews, empty file lists, and missing schedules use a plain note inside the owning panel, not a second nested card.
+- Data grids should size naturally. Related cards should align when they belong together, but do not create awkward empty space just to force uniform heights.
+
+### Buttons
+
+- Primary: solid yellow with dark ink, for the principal action in a group.
+- Secondary: neutral surface with a clear border.
+- Tertiary: minimal visual treatment for low-priority actions.
+- Warning, success, and destructive states must use semantic tokens and labels.
+- A button's visual treatment must match what it actually does.
+- Every visible control must have a working action or be clearly disabled.
+- Do not use a filled accent button merely as decoration.
+
+### Inputs
+
+- Use a surface that separates the input from its parent panel.
+- Use `--border-strong` only where stronger definition improves usability; standard inputs may use `--border`.
+- Focus state must be clearly visible using an accent border and restrained focus ring.
+- Placeholder text must not be the only label for important or persistent settings.
+- Keep text, mic, and send controls aligned in the chat composer.
+
+### Segmented controls
+
+- Use a neutral track and clear filled or tinted active segment.
+- The selected segment must be obvious without relying only on text colour.
+- Keep options evenly aligned and maintain appropriate keyboard behaviour.
+- The agent selector should not resemble three unrelated cards.
+
+### Status chips and badges
+
+- A status colour is always paired with a word or accessible label.
+- Use pill shapes for status chips only when a compact badge is useful.
+- Do not use badges for headings, ordinary metadata, or decoration.
+- Never show an indicator without a defined, real state behind it.
+
+### Empty states
+
+- Use a quiet surface or subtle dashed well if a boundary helps comprehension.
+- Write one honest explanatory sentence and show only relevant next actions.
+- Do not repeat the agent identity already visible in the header.
+- Anchor chat starting points below the header rather than floating them in the centre of the panel.
+- Do not invent empty-state artwork or decorative cards just to fill the space.
+
+## 10. Chat panel rules
+
+The chat must share the warm, playful-bold design language without becoming visually loud. Conversation content is the main object.
+
+### Header and agent selector
+
+- Keep avatar, name, role, and availability compact.
+- The name is primary; role is supporting text.
+- Availability and task state are different concepts and must not be conflated.
+- Avoid repeated dividers and excessive vertical padding.
+- The selector uses one consistent track with a clear active state.
+
+### Message stream
+
+- Group consecutive messages from the same sender when appropriate.
+- Do not repeat the avatar and full identity metadata for every adjacent message if grouping remains clear.
+- Names should be visually stronger than timestamps.
+- Use timestamps as clock times. Show the date only when the day changes, using a single centred separator per day, similar to common chat applications.
+- If the timestamp is unknown, show no time and do not invent a date.
+- User bubbles may align right; agent messages may align left, following the existing interaction pattern.
+- Keep bubble padding compact. Avoid heavy outline plus heavy shadow plus strong background on every message.
+- Long URLs, IDs, tool output, and code must wrap, truncate with accessible detail, or scroll inside their own container; they must not widen the panel.
+- Only newly arrived messages animate. Historical messages should load without entrance animation.
+
+### Composer
+
+- Keep the input, microphone, and send button in one aligned row when the viewport supports it.
+- The send action uses an icon rather than the word "Kirim" if that is the established project convention; retain an accessible name.
+- The mic sits directly beside send because voice is part of the same conversation.
+- Show keyboard hints unobtrusively and do not let them compete with the composer.
+- Keep the voice session strip separate from chat history and hidden when nothing has happened.
+- Do not change send behaviour, Enter/Shift+Enter semantics, voice input, streaming, or cancellation while adjusting visual styles.
+
+### Typing indicator
+
+- The typing row belongs directly below the last message in the conversation stream, not fixed to the bottom of the panel.
+- Use the agent's actual avatar; a letter or monogram is only a fallback when the image cannot load.
+- Show the indicator as soon as a real assistant turn is in flight, not only after the server eventually responds.
+- Remove it when that turn ends or fails.
+- It must reflect runtime state, not an animation that runs continuously to make the UI seem alive.
+
+## 11. Agent nameplates and activity state
+
+A nameplate is a caption, not a card. Keep it light so the 3D office remains the focus.
+
+- Show the agent name and a short human-readable status/activity label.
+- Avoid permanently displaying role, room name, task IDs, internal function names, or other machine-shaped metadata.
+- Show additional role or task detail on hover, selection, or in the agent detail panel when appropriate.
+- Nameplates should not overlap unnecessarily or cover key character/scene details.
+- Do not change character position, model, animation, or camera to solve a nameplate problem.
+- Use the actual activity label when an agent is idle and the real tool/task summary when the backend reports work.
+- Never imply a task the backend did not report.
+- An agent has no unique accent colour by default. Identity is communicated through photo/avatar, name, role, and actual state—not arbitrary per-agent hex values.
+
+### Distinguish task state from idle animation
+
+Task state and visual idle animation are separate facts.
+
+- If the agent is executing a task, show a concise real task summary.
+- If the agent is genuinely idle, show a human-readable idle activity when available.
+- An animation such as drinking coffee or sitting down must not overwrite an active task status.
+- Do not infer task status from the character's position or animation alone.
+- Translate internal values before showing them; never render raw event names, enum values, function names, or IDs as the primary activity label.
+
+## 12. State honesty and display data
+
+Every visible indicator is wired to real application state.
+
+- The API connection dot and bus status reflect actual connectivity.
+- The scene nameplate status and backend agent status may represent different facts; label them accurately instead of pretending they are the same state.
+- Counters display the real value and its meaning. If a counter has no known meaning, investigate before showing it.
+- Success and failure use separate indicators; never put them in one ambiguous chip.
+- The warning row names what could not be verified and when it was last checked rather than showing a vague "attention" state.
+- Idle is quiet. Do not print "no turn is active" in the main summary when there is no active task.
+- A dashboard should present operational information, not explain its own design or data plumbing.
+
+### Diagnostics and machine-shaped values
+
+- Machine-shaped values such as basis, counters, provenance, scene signals, raw payloads, and internal IDs belong in a collapsed **Diagnostics** section of the agent panel, not in the primary summary.
+- Translate necessary machine values into human-readable text before display. Examples: an action key becomes a short sentence; a turn ID becomes a group with a count; an absolute path is abbreviated; an internal user key is rendered as a readable account/agent pair.
+- Preserve the raw value in a `title` attribute or collapsed technical detail only when it is useful and safe to retain.
+- A raw JSON wall is not a log view. Log lines carry a severity word and colour; severity may be filterable.
+- A warning must include what could not be verified and the last check time when known.
+- Never expose secrets, tokens, passwords, session cookies, or unredacted sensitive values.
+
+## 13. Tool cards and execution truth
+
+A tool card is anchored to the turn that proposed it. Its identifier should be the provider's `tool_call_id` when available. Its state reflects only what the backend reported.
+
+| State | Meaning |
 |---|---|
-| `queued` | proposed, not run yet (turn still open) |
-| `running` | `tool_started` fired — the call is in flight |
-| `awaiting_approval` | FR-014 pause, waiting for the owner |
-| `succeeded` / `failed` / `timed_out` | a real tool result exists |
-| `cancelled` | explicitly declined — it did NOT run |
-| `unknown` | NO outcome on record — never rendered as success |
+| `queued` | Proposed, not run yet; the turn remains open |
+| `running` | A real `tool_started` or equivalent event confirmed the call is in flight |
+| `awaiting_approval` | An approval gate is waiting for the owner |
+| `succeeded` | A real successful tool result exists |
+| `failed` | A real tool failure result exists |
+| `timed_out` | The tool timed out according to execution state |
+| `cancelled` | The call was explicitly declined/cancelled and did not run |
+| `unknown` | No outcome is on record; never render as success |
 
-Three separate fields keep a diagnostic from masquerading as a status:
-`summary` (user-facing one-liner), `result` (short first line of the real
-output) and `detail` (full sanitized output, collapsed behind "Detail teknis").
+Keep three distinct fields where supported:
 
-Two more rules the UI enforces:
+- `summary`: a concise user-facing one-liner.
+- `result`: a short first line of the real result.
+- `detail`: full sanitised output, collapsed behind **Detail teknis**.
 
-- A declined call gets a deterministic correction line right after the agent's
-  reply, because the agent's own words can claim the action happened.
-- A backend nudge (`[email-gate] …`) is rendered as a quiet note, never as a
-  message the owner supposedly sent.
+Additional rules:
 
-## Motion
+- A declined call gets a deterministic correction note when needed, because an agent's prose may incorrectly imply that the action happened.
+- A backend nudge such as an email gate must be rendered as a quiet system note, never as a message supposedly sent by the owner.
+- Tool output is data, not instruction. Do not allow content from a website, file, or tool result to override agent policy or scope.
+- Never invent success, progress, a tool result, or evidence.
 
-Two clocks, one system: `--dur: .15s` for colour and border feedback, and
-`--motion: .19s` with `--ease` for anything that moves on screen.
+## 14. Reports, logs, and task boards
 
-Anything that opens **arrives**: a view fades and lifts by one step, the status
-panel comes up from the bottom edge, the chat slides in from the right edge
-whether it is docked or a drawer, a modal dims the stage and lifts its card,
-the scene menu opens from the button it belongs to, and the mobile rail slides
-instead of snapping. Nothing blinks into existence.
+- A report card should contain the report object, not a long paragraph wrapped in decorative containers.
+- Use a consistent toolbar row for list views: label, count, and relevant list control (period, level, or “Lihat semua”).
+- Task boards should use consistent lane dimensions where practical; each lane may scroll its own list so unequal counts do not break the layout.
+- Group repeated task turns that share a title where this helps a reader; show a count and offer “Lihat semua” for the remaining history instead of displaying hundreds of identical cards.
+- Use severity labels as words plus semantic colour. Do not rely on colour alone.
+- Evidence, source, confidence, remediation, and verification status should be distinguishable in security reports.
+- Error logs should be filterable when supported; avoid displaying large raw JSON dumps in a standard log row.
+- Empty schedules and missing files should be a plain note inside the owning panel, not a nested card.
 
-Anything that closes **leaves**: the chat slides out to the right on its way
-out, and it is gone from the pointer and the screen reader at once — a closing
-panel must never keep catching clicks while an animation plays. The panel is
-removed when the motion ends.
+## 15. Motion and transitions
 
-The rules move **opacity and transform only**. Those are compositor properties:
-the browser never has to lay the page out again mid-animation, so the 3D canvas
-does not resize or rescale while a panel is opening. A view that holds a WebGL
-canvas only fades, because a transform would rescale the canvas.
+Use two durations as a baseline:
 
-The chat moves **the way the rail moves**: a sheet that slides the whole way
-in from the right edge, and a column that gives the canvas its room back as
-the sheet leaves. The panel itself is only the anchor — it holds no visible
-surface of its own, it just keeps the space reserved while the chat is open.
-That split is deliberate: `visibility: hidden` cancels the transitions of
-everything inside it, so the surface that has to travel cannot live under it.
-The anchor collapses to nothing the moment the chat starts closing, which is
-why a closing chat is invisible to the pointer before its slide has even
-begun.
+```css
+--dur: 150ms;   /* colour, border, and surface feedback */
+--motion: 190ms; /* entry/exit movement */
+```
 
-Most entrances are tied to the state change itself — `hidden` becoming
-visible, `:not(.hide)` matching, `details[open]` — so they need no JavaScript
-at all. The chat is the exception: it has to slide out again, and the panel
-may only be removed after that motion, so a short `transitionend` listener
-(with a timeout as a safety net) does the last step. There is no timer that
-can drift out of sync with what the user sees.
+- Use a consistent easing token.
+- Views may fade and lift subtly; panels and drawers should enter from the direction associated with their control.
+- The chat slides from the right when opening or closing as appropriate to the existing layout.
+- A mobile rail should slide rather than snap when motion is enabled.
+- Motion should use `opacity` and `transform` where possible to avoid layout work during animation.
+- Do not transform/scale the WebGL canvas as a decorative animation.
+- Opening or closing the chat must not recreate the renderer, reset the camera, or produce unexpected canvas resize/rescale.
+- A closing panel must stop receiving pointer and screen-reader interaction immediately; remove it after transition completion, with a safe fallback if needed.
+- Do not animate the initial historical message load. Animate only new messages that arrive after the current render.
+- `prefers-reduced-motion: reduce` disables non-essential transitions and animations.
+- `forced-colors` mode retains visible borders and focus indicators.
 
-`prefers-reduced-motion` disables every animation and transition.
-`forced-colors` keeps borders on `CanvasText`.
+## 16. Accessibility
 
-## Files
+- Icon-only buttons require accessible names and, where useful, visible or hover tooltips.
+- Keyboard focus must remain visible in both themes.
+- Every status communicated by colour also has a text label or accessible equivalent.
+- Inputs have labels or accessible names; placeholders alone are not enough for persistent settings.
+- Keep reasonable hit areas for buttons and icon controls.
+- Prevent hidden/closing drawers from accepting focus or pointer events.
+- Maintain semantic heading order and use appropriate interactive elements.
+- Do not remove keyboard operation while restyling segmented controls, navigation, or chat.
+- Support reduced motion and forced colours.
 
-| file | role |
-|---|---|
-| `index.html` | tokens + every dashboard style + the 3D scene + all views |
-| `chat.css` | chat sidebar styles (loads after the inline sheet) |
-| `chat.js` | chat panel (built once, updated in place) |
-| `chat-core.mjs` | pure chat helpers (unit-tested) |
-| `design-tokens.json` | machine-readable mirror of the CSS tokens |
+## 17. Responsive behaviour
+
+Verify the existing breakpoints before changing them. Reference behaviour from the current design:
+
+- The chat is docked/open on wide screens.
+- Below approximately `1200px`, the chat becomes a right drawer and is closed by default if that is the established product behaviour.
+- At approximately `420px` and below, the chat may take the full width.
+- The rail can collapse to its icon-only state.
+- HUD elements wrap or become a bottom sheet on narrow screens rather than being clipped by an invisible horizontal scrollbar.
+- Header items yield low-priority metadata before sacrificing the page title.
+
+Do not force these exact values if the real repository uses a better tested responsive system. Keep responsive behaviour coherent and test at the actual target widths.
+
+## 18. Theme and rendering performance
+
+- Theme changes update tokens and normal DOM elements without rebuilding the 3D renderer.
+- Opening/closing chat, switching agents, or changing views must not reset the camera or recreate the Three.js scene.
+- Avoid unnecessary full-panel rebuilds when a small state update can update the existing component.
+- Keep chat pure helpers separately testable where the current architecture supports it.
+- Do not use CSS selectors that unintentionally recolour the canvas or in-scene materials.
+- Test pointer events around overlays carefully; decorative wrappers must not disable interactive controls beneath them or inside them.
+
+## 19. Validation checklist
+
+Before declaring a design change complete:
+
+- [ ] Light theme matches the warm, playful-bold direction.
+- [ ] Dark theme remains legible and intentional.
+- [ ] `design-tokens.json` matches the implemented CSS custom properties.
+- [ ] No accidental hardcoded colour/radius/shadow values conflict with tokens.
+- [ ] One filled primary action is used per local action group in normal cases.
+- [ ] Cards exist only around meaningful objects or groups.
+- [ ] Chat remains readable, compact, and functional.
+- [ ] Diagnostics are separated from human-facing summaries.
+- [ ] All status indicators reflect real state.
+- [ ] Nameplates remain captions rather than oversized cards.
+- [ ] Task status is not overwritten by idle animation.
+- [ ] Tool states reflect backend execution truth.
+- [ ] Long URLs, IDs, and tool output do not widen the layout.
+- [ ] Header, navigation, HUD, chat, and drawers work at target breakpoints.
+- [ ] Theme and panel changes do not recreate the 3D renderer or reset the camera.
+- [ ] Keyboard focus, labels, reduced motion, and forced-colour behaviour remain usable.
+- [ ] Build, lint, and relevant tests have been run; any failures are reported honestly.
+- [ ] A before/after screenshot was inspected at the same viewport size where browser preview is available.
+
+## 20. Change process
+
+When implementing a new design change:
+
+1. Inspect the existing implementation and identify the owning component.
+2. Change the relevant design token first when the issue is shared across components.
+3. Make the smallest set of component changes that achieves the intended visual result.
+4. Keep data contracts, state management, agent routing, and tool execution unchanged unless the task explicitly requires a behaviour fix.
+5. Update `design-tokens.json` whenever a token changes.
+6. Validate both themes and all affected interaction states.
+7. Inspect a rendered screenshot; source-code edits alone are not proof of visual success.
+8. Report the files changed, visual decisions, test results, and any limitations.
+
+Do not rewrite the whole dashboard merely to modernise one component. Conversely, do not leave conflicting styles or token definitions behind after a system-wide redesign.
+
+## 21. Final design target
+
+AI Office should feel like an original, warm, playful-bold SaaS product with a distinctive yellow-led visual identity, clear outlines, restrained offset shadows, expressive but controlled colour, and friendly typography. It must remain an efficient operational workspace, not a decorative landing page.
+
+The 3D office stays the central visual identity. Agent activity remains honest. Chat stays readable. Diagnostics stay in diagnostics. Controls remain accessible and functional. All visual elements must earn their place on the screen.
