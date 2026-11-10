@@ -2818,3 +2818,35 @@ Owner: "perbaiki gaya komunikasi Mia — natural, hangat, bukan customer-service
 **Sisa (jujur, tidak ditutup):** 4/8 balasan masih berakhir tanya (aturan prompt saja — model free tier sering tidak patuh; aturan deterministik berisiko memotong tanya sah) · "Tentu," masih muncul sebagai opener · "terus yang tadi?" context tracking lemah (bukan isu gaya) · `/api/health` jawab `{"error":"unauthorized"}` = token gate dashboard yang sudah ada sebelumnya · probe sempat mati 502 (UND_ERR_CONNECT_TIMEOUT) dari chain free tier.
 
 **Pelajaran (kelas "prompt bukan satu-satunya lapisan").** Overacting Mia bukan cuma instraksi prompt: separuhnya datang dari KODE yang menimpa balasan model (pool + suffix) dan dari BUG injeksi yang menyuntikkan paragraf gaya yang salah. Hanya baca prompt akan BUTA; ukur dari balasan nyata (probe live) + bukti wiring (mutasi).
+
+## Sesi 2026-11-10 — Audit DESIGN.md office-dashboard: 37 gap ditutup + view Findings baru
+
+Owner: "coba cek @apps/office-dashboard/DESIGN.md mana saja yang belum dikerjakan?" → audit 3 subagent paralel (read-only, source-level) → **37 gap** → fix 4 gelombang → "coba cek sekali lagi yang teliti" → 3 bug tambahan → gates hijau → "ok boleh komit push" → commit `e474854` (push `9924e9f..e474854`).
+
+**Wave 1 — token & sinkronisasi (§4/§5/§6/§15/§19).** Nama kanonik dokumen jadi utama + alias lama tetap (`--text-faint`, `--ok-bg/--ok-ink`, `--warn-*`, `--bad-*`, `--shadow-soft`) → 0 breakage. `--text-faint` `#7C7267`→`#73695E` (4,23:1 → 4,82:1 di `--panel-2`). `--shadow-1`/`--shadow-2` DIHAPUS (hanya dua shadow: soft + offset). Chat column tak lagi punya skala font sendiri (pakai skala dokumen, 13,5px). Radius/size/easing off-token → token. Font stack → `"Segoe UI Variable"`. `design-tokens.json` 1.1.0 → **1.2.0** (nama kanonik, shadow gelap, `layout.cssVars`).
+
+**Wave 2 — pelanggaran eksplisit.** §11: hex per-agent dihapus (CSS + chat.js + **payload server.js** — audit: tak ada konsumen, jadi payload mati). Nameplate: role/room → hover (`title`). §13: `summary` = one-liner aksi, `result` = baris pertama, `detail` = output penuh (sebelumnya `summary` ditimpa label state); state `running` jadi **terjangkau** (card dibuat saat `tool_started`). §12/§14: JSON mentah di log → `humanAuditDetail()` (server), raw hanya di `title`. §7: dingbat (× ↩ ✗ ⧗ 📬) → symbol SVG (`i-close/i-fail/i-hourglass/i-inbox`). §9: segmented control dapat `aria-pressed` + arrow-key; badge bukan heading; empty state tak bocor path internal. §2: `statGrid`/`.tk`/error-state → tanpa kartu per-baris.
+
+**Wave 3 — a11y/responsif (§16/§17).** Heading h1→h2 (19); `aria-label` pada 3 input placeholder-only; hit area 30→36px; `forced-colors` dapat fallback outline fokus (box-shadow hilang di forced colours); chat **inert + `aria-hidden`** sejak mulai menutup (pointer & screen-reader berhenti seketika).
+
+**Wave 4 — kompas visual + §14 report surface.** `hudClose`/badge/close-chat pakai sprite. Toolbar dapat jumlah. **View Findings DIBANGUN**: `GET /api/office/findings` + `reportCardsFromFindings()` → 26 temuan live; Sumber / Keyakinan / Verifikasi / Bukti / Perbaikan terpisah (keyakinan jujur: verified/observed/unverified dari state bukti, tak pernah dikarang). Bukti + Perbaikan blok kiri-ter-align (sebelumnya dinding teks rata-kanan).
+
+**Audit ronde 2 (owner: "cek sekali lagi yang teliti") — 3 bug nyata:**
+1. `var(--info)` **undefined** (index.html:405 `.laneDot.w`) — token `--info` dihapus di Wave 2 tapi pemakaiannya tertinggal → dot "berjalan" transparan. → `var(--accent)`.
+2. `fetchFindings()` **tanpa timeout** — undici default 300s, dashboard poll `/api/state` tiap 3s → web app yg hang membekukan dashboard. → `AbortSignal.timeout(8000)`.
+3. `applyBusEvent` bisa buat **kartu duplikat** (id server dipotong 64 char vs id busmentah) + revived kartu terminal jadi "running". → fallback `sameName()`.
+
+**Bug di luar audit (bikin gate hijau tapi produk rusak):**
+- **Lint pre-existing** (6 error): `require()` di jalur `delete_task` **mati di vitest** (ESM tak ada `require` global) → intent delete-task tak pernah jalan di test. → static import (`agent.ts`/`tools.ts`), `tasks.ts` `let`→`const`.
+- **Drill mengotori chat owner**: cleanup session cuma扫 `sessions/`, padahal transcript ada di `sessions-office-*/` (sejak refactor isolasi 2026-10-22) → 12 turn drill tertinggal. → scan kedua koleksi + tunggu write session (autosave debounce) sebelum cek reload.
+- Web dev server mati (tmux `mia` hilang) → sempat bikin drill gagal; restart per HABIT.
+
+**4 penyimpangan yang DIDOKUMENTASIKAN (jujur, bukan pakai maksa):** (1) `prefers-color-scheme` TIDAK ditambah — §4.3 minta default terang + hormati preferensi tersimpan, auto-dark justru bertentangan; (2) rail masih animasi `flex-basis/width` (layout work) — rewrite rail berisiko, jadi didokumentasikan; (3) `--border-strong/--teal-soft/--coral-soft/--lilac-soft` 0 pemakaian → §4.1 menyebutnya opsional → ditandai **reserved** di DESIGN.md, bukan dikarang pemakaian; (4) breakpoint chat tetap 700px (bukan 420px) — §17 izin keep yang lebih teruji, DESIGN.md §8/§17 disesuaikan ke implementasi.
+
+**Dokumen disinkron:** DESIGN.md §4.1/§4.2 (nama kanonik + nilai baru + catatan reserved), §15 (chat = flow column; aspect mengikuti supaya scene tak teregang; renderer tak dibangun ulang, kamera tak di-reset), §17 (breakpoint 700px).
+
+**Baru:** `apps/office-dashboard/probe-design-screenshot.mjs` (screenshot before/after viewport tetap — §19/§20), `apps/web/src/app/api/office/findings/route.ts`.
+
+**Gates (final, setelah semua fix):** typecheck 0 · lint 0 error · `npm test` **2721/2721** (142 file) · `node --test apps/office-dashboard/*.test.mjs` 65/65 · `verify.ts` EXIT=0 (249 OK) · `drill-office-chat-ui.mts` **47 ok / 0 FAIL** (browser+backend nyata) · screenshot before/after (5 sudut: light/dark/chat/narrow/findings) diinspeksi visual.
+
+**Pelajaran (kelas "hijau ≠ benar").** (1) Hapus token = proses 2 langkah: hapus SEMUA pemakaian, lalu sweep "var(--X) tanpa definisi" — satu `--info` yang tertinggal = dot transparan yang tak terlihat di gate mana pun. (2) Audit source tak pernah cek *payload mati*: `accent` per-agent dikirim server tapi tak ada konsumen — hapus di semua 3 tempat. (3) Card yang dibuat dari event HARUS punya id yang sama persis dengan card dari transkrip (potong 64 char) atau duplikat. (4) Fetch dari state yang dipoll tiap 3s WAJIB bounded — tanpa timeout, satu upstream hang membekukan seluruh dashboard. (5) Drift tidak selalu di file yang kamu ubah: drill lama membersihkan path SESI yang sudah dipindah → jejak drill di chat owner semanas-minggu.
