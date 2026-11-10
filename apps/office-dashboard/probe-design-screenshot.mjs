@@ -27,6 +27,13 @@ function token() {
   return m[1].trim().replace(/^["']|["']$/g, "");
 }
 
+/** Click without Playwright's post-click navigation wait (the dashboard keeps an SSE stream open, so that wait can hang). */
+async function safeClick(page, selector) {
+  await page
+    .click(selector, { timeout: 5000 })
+    .catch(() => page.evaluate((s) => document.querySelector(s)?.click(), selector));
+}
+
 mkdirSync(OUT, { recursive: true });
 
 const browser = await chromium.launch();
@@ -43,13 +50,13 @@ await page.waitForTimeout(2500);
 await page.screenshot({ path: join(OUT, "01-office-light.png") });
 
 // Dark theme (the toggle is #modeBtn; the attribute is html[data-theme]).
-await page.click("#modeBtn");
+await safeClick(page, "#modeBtn");
 await page.waitForTimeout(900);
 await page.screenshot({ path: join(OUT, "02-office-dark.png") });
 
 // Chat panel open, dark.
 // Chat panel: wide screens dock it open, so only open it when it is closed.
-await page.click("#modeBtn");
+await safeClick(page, "#modeBtn");
 await page.waitForTimeout(400);
 const chatOpen = await page.evaluate(() => !!document.querySelector("#chatPanel.open"));
 if (!chatOpen) {
@@ -58,9 +65,27 @@ if (!chatOpen) {
 }
 await page.screenshot({ path: join(OUT, "03-office-chat.png") });
 
-// Narrow viewport: the chat drawer breakpoint.
+// Constrained desktop + tablet widths (the plan asks for 1440/1280/1024/560).
+for (const width of [1280, 1024]) {
+  await page.setViewportSize({ width, height: 900 });
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: join(OUT, `w${width}-light.png`) });
+  await safeClick(page, "#modeBtn");
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: join(OUT, `w${width}-dark.png`) });
+  await safeClick(page, "#modeBtn");
+  await page.waitForTimeout(500);
+}
+
+// Narrow viewport: the chat drawer breakpoint. The chat is closed by default
+// here, so open it — the panel itself is what needs inspecting.
 await page.setViewportSize({ width: 560, height: 900 });
-await page.waitForTimeout(1200);
+await page.waitForTimeout(900);
+const narrowOpen = await page.evaluate(() => !!document.querySelector("#chatPanel.open"));
+if (!narrowOpen) {
+  await page.click("#chatToggle");
+  await page.waitForTimeout(900);
+}
 await page.screenshot({ path: join(OUT, "04-office-narrow.png") });
 
 // The Findings view (DESIGN.md §14 report surface): evidence, source,

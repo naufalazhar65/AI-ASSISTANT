@@ -16,7 +16,7 @@
 #chatPanel{
   /* The chat column uses the SAME documented type scale as the rest of the
      dashboard (DESIGN.md §5) — a scale of its own is not a token. */
-  flex:0 0 var(--chatw,340px);width:var(--chatw);min-width:0;
+  flex:0 0 var(--chatw,clamp(360px,30vw,460px));width:var(--chatw);min-width:0;
   display:flex;flex-direction:column;min-height:0;position:relative;
 }
 /* The visible surface is a wrapper inside the panel: the panel itself is the
@@ -27,7 +27,7 @@
    column can never clip it, and it slides in from the right edge the way the
    rail slides in from the left; it keeps its own width while the column
    around it collapses, so the text never folds on the way out. */
-.chatInner{position:fixed;top:0;right:0;bottom:0;width:var(--chatw,340px);min-width:0;
+.chatInner{position:fixed;top:0;right:0;bottom:0;width:var(--chatw);min-width:0;min-height:0;
   display:flex;flex-direction:column;
   background:var(--panel);border-left:1px solid var(--line);
   /* The stage is bright; a hard 1px seam read as a cut. A soft warm shadow
@@ -53,16 +53,16 @@
 #chatPanel.closing .chatInner{transform:translateX(100%)}
 
 /* ── header ─────────────────────────────────────────────── */
-.chatHead{padding:var(--s3);border-bottom:1px solid var(--line);background:var(--panel);
+.chatHead{padding:var(--s2) var(--s3);border-bottom:1px solid var(--line);background:var(--panel);
   flex:0 0 auto}
-.chatHeadTop{display:flex;align-items:flex-start;gap:var(--s2);margin-bottom:var(--s2)}
-.chatWho{display:flex;align-items:center;gap:var(--s2);min-width:0;flex:1;flex-wrap:wrap}
-.chatAv{width:30px;height:30px;flex:0 0 30px;border-radius:var(--r-sm);
+.chatHeadTop{display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s2)}
+.chatWho{display:flex;align-items:center;gap:var(--s3);min-width:0;flex:1;flex-wrap:wrap}
+.chatAv{width:40px;height:40px;flex:0 0 40px;border-radius:var(--r-md);
   display:flex;align-items:center;justify-content:center;font-weight:700;
-  font-size:var(--t0);color:var(--text);position:relative;overflow:hidden;
-  box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+  font-size:var(--t1);color:var(--text);position:relative;overflow:hidden;
+  box-shadow:inset 0 0 0 1px var(--line)}
 .chatWhoText{min-width:0;display:flex;flex-direction:column;gap:1px;flex:1 1 120px}
-.chatName{font-size:var(--t1);font-weight:700;letter-spacing:-.01em;color:var(--text);
+.chatName{font-size:var(--t2);font-weight:700;letter-spacing:-.01em;color:var(--text);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chatRole{font-size:var(--t-1);color:var(--muted);overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap}
@@ -70,8 +70,8 @@
    They are different facts, so both are named — but they share a line and a
    left edge instead of floating apart in the middle of the panel. */
 .chatStates{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2) var(--s3);
-  margin-top:3px}
-.chatAvail{display:inline-flex;align-items:center;gap:5px;font-size:var(--t-2);
+  margin-top:2px}
+.chatAvail{display:inline-flex;align-items:center;gap:6px;font-size:var(--t-2);
   color:var(--muted);white-space:nowrap}
 .chatTask{font-size:var(--t-2);color:var(--faint);white-space:nowrap;
   padding-left:var(--s3);border-left:1px solid var(--line)}
@@ -98,23 +98,28 @@
 
 /* Agent selector — a segmented control, not a row of pills. */
 .chatTabs{display:inline-flex;background:var(--panel-2);border:1px solid var(--line);
-  border-radius:var(--r-sm);padding:2px;gap:2px;width:100%}
+  border-radius:var(--r-md);padding:3px;gap:3px;width:100%}
 .chatTab{flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:6px;
   font:inherit;font-size:var(--t-1);font-weight:550;color:var(--muted);
-  background:transparent;border:1px solid transparent;border-radius:var(--r-xs);
-  padding:5px 7px;cursor:pointer;min-width:0;
+  background:transparent;border:1px solid transparent;border-radius:var(--r-sm);
+  padding:9px 8px;cursor:pointer;min-width:0;min-height:40px;
   transition:background var(--dur),color var(--dur),border-color var(--dur)}
 .chatTab:hover{color:var(--text);background:var(--panel-3)}
-.chatTab[aria-selected="true"]{background:var(--panel);border-color:var(--accent-edge);
-  color:var(--text);font-weight:650}
-.chatTabDot{width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:var(--faint)}
-.chatTabDot[data-tone="on"]{background:var(--ok)}
-.chatTabDot[data-tone="busy"]{background:var(--warn)}
-.chatTabDot[data-tone="off"]{background:var(--bad)}
+.chatTab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);
+  color:var(--accent-ink);font-weight:700}
+/* A dot is a STATE, not decoration: an idle agent wears none. */
+.chatTabDot{width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:var(--faint);
+  display:none}
+.chatTabDot[data-tone="busy"]{display:block;background:var(--warn);
+  animation:chatPulse 1.6s ease-in-out infinite}
+.chatTabDot[data-tone="off"]{display:block;background:var(--bad)}
 .chatTabName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* ── log ───────────────────────────────────────────────── */
-.chatLog{flex:1 1 auto;overflow-y:auto;padding:var(--s3) var(--s3) var(--s10);
+/* min-height:0 is what makes this a real scroll area. In a flex column the
+   automatic minimum size is the CONTENT height, so without it the log
+   refused to shrink and the newest message ended up UNDER the composer. */
+.chatLog{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--s3) var(--s3) var(--s4);
   display:flex;flex-direction:column;overscroll-behavior:contain}
 /* The stream must NOT grow: a growing stream pushed the typing row (a
    sibling AFTER it) to the very bottom of the log, hundreds of pixels below
@@ -127,7 +132,7 @@
 /* The header already carries name + role. The empty state must not repeat
    them; it starts the conversation instead — one hint, then an even list of
    starting points, anchored under the header instead of floating mid-panel. */
-.chatEmpty{max-width:340px;margin:var(--s3) 0 0;text-align:left;
+.chatEmpty{max-width:100%;margin:var(--s3) 0 0;text-align:left;
   display:flex;flex-direction:column;align-items:stretch;gap:var(--s3)}
 .chatEmptyHint{margin:0;font-size:var(--t0);color:var(--muted);line-height:1.6}
 .suggest{display:flex;flex-direction:column;gap:var(--s1);margin-top:0}
@@ -140,10 +145,12 @@
 /* ── messages ──────────────────────────────────────────── */
 .msg{display:flex;gap:var(--s2);align-items:flex-start}
 .msg + .msg{margin-top:var(--s3)}
+/* Inside one group the messages sit tight; a new group gets air. */
+.msg + .msg.msgSame{margin-top:var(--s1)}
 /* The day separator is a NODE between two messages, so it breaks the
    ".msg + .msg" adjacency: the message right below it would lose its top
    margin. The separator carries the space itself. */
-.msgSep{text-align:center;font-size:var(--t-2);color:var(--faint);
+.msgSep{text-align:center;font-size:var(--t-1);color:var(--faint);
   margin:var(--s4) 0 var(--s2);letter-spacing:.02em}
 .msgSep + .msg{margin-top:0}
 /* A row that just arrived rises into place. Opacity + transform only (the
@@ -152,22 +159,25 @@
 @keyframes chatBubbleIn{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}
 .msgEnter{animation:chatBubbleIn var(--motion) var(--ease) both}
 .msg.user{flex-direction:row-reverse}
-.msgCol{max-width:min(100%,62ch);min-width:0}
+.msgCol{max-width:min(100%,68ch);min-width:0}
 .msg.proposal{align-items:center}
 .msg.proposal .msgAvatar{margin-top:0}
 .msgProposal{font-size:var(--t-1);color:var(--muted);font-style:italic;
   padding:2px 0}
-.msgAvatar{width:26px;height:26px;flex:0 0 26px;border-radius:var(--r-sm);
+.msgAvatar{width:28px;height:28px;flex:0 0 28px;border-radius:var(--r-sm);
   display:flex;align-items:center;justify-content:center;font-weight:700;
-  font-size:var(--t-2);color:var(--text);position:relative;overflow:hidden;margin-top:18px;
-  box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+  font-size:var(--t-2);color:var(--text);position:relative;overflow:hidden;margin-top:16px;
+  box-shadow:inset 0 0 0 1px var(--line)}
+/* A message inside a group has no portrait, but its text still lines up
+   with the text of the group it belongs to. */
+.msgAvatarSpacer{width:28px;flex:0 0 28px}
 .avImg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
   object-position:50% 20%}
 .msgMeta{display:flex;align-items:baseline;gap:var(--s2);margin-bottom:3px}
 .msg.user .msgMeta{justify-content:flex-end}
-.msgName{font-size:var(--t-2);font-weight:700;color:var(--muted);letter-spacing:.02em}
+.msgName{font-size:var(--t0);font-weight:700;color:var(--muted);letter-spacing:.01em}
 .msgTime{font-size:var(--t-2);color:var(--faint);font-variant-numeric:tabular-nums}
-.msgBody{font-size:var(--t0);line-height:1.6;color:var(--text);
+.msgBody{font-size:var(--t1);line-height:1.55;color:var(--text);
   overflow-wrap:anywhere;word-break:break-word}
 /* Internal note (backend nudge): quiet, compact, never a bubble. */
 .msgNote{margin:var(--s2) 0 var(--s2);padding:var(--s2) var(--s3);
@@ -181,15 +191,14 @@
 
 .msgBody p{margin:0 0 var(--s3)}
 .msgBody p:last-child{margin-bottom:0}
-.msgBody ul,.msgBody ol{margin:var(--s2) 0 var(--s3)}
-.msgBody li{margin:2px 0}
 /* The user speaks in a soft warm bubble; the agent speaks on the panel itself.
    Only one side is boxed — every message in a card would read as noise. */
-.msg.user .msgBody{background:var(--accent-2);border:1px solid var(--accent-edge);
-  border-radius:var(--r-md) var(--r-md) var(--r-xs) var(--r-md);padding:8px 11px;
-  max-width:min(100%,58ch)}
+/* The cap lives on the COLUMN: a percentage on the bubble resolved against
+   the already-shrunk column, and the bubble broke words in the middle. */
+.msg.user .msgCol{max-width:min(78%,52ch)}
+.msg.user .msgBody{background:var(--accent-2);border:1px solid var(--line-2);
+  border-radius:var(--r-md);padding:9px 13px}
 .msg.agent .msgBody{padding:0}
-.msg.user .msgName{color:var(--text)}
 
 .msgBody a{color:var(--text);text-decoration:underline;text-underline-offset:2px}
 .msgBody a:hover{color:var(--accent)}
@@ -220,11 +229,10 @@
 .toolSum::-webkit-details-marker{display:none}
 .toolSum:hover{background:var(--panel-3)}
 .toolSumTop{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);min-width:0}
-.toolState{min-width:0}
 .toolLabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .toolSumInfo{display:flex;align-items:baseline;gap:var(--s2);min-width:0;margin-top:5px}
 .toolState{display:inline-flex;align-items:center;gap:5px;font-size:var(--t-2);
-  font-weight:650;color:var(--muted);white-space:nowrap}
+  font-weight:650;color:var(--muted);white-space:nowrap;min-width:0}
 .toolGlyph{width:16px;height:16px;flex:0 0 16px;border-radius:50%;display:inline-flex;
   align-items:center;justify-content:center;font-size:var(--t-2);font-weight:700;
   background:var(--panel-3);color:var(--muted)}
@@ -268,7 +276,7 @@
 .approvalHead{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s2)}
 .approvalGlyph{width:18px;height:18px;flex:0 0 18px;border-radius:50%;
   display:inline-flex;align-items:center;justify-content:center;font-weight:700;
-  font-size:12px;background:var(--warn);color:#fff}
+  font-size:var(--t-1);background:var(--warn);color:var(--surface)}
 .approval h4{margin:0;font-size:var(--t1);font-weight:700;color:var(--warn)}
 .approval p{margin:0 0 var(--s2);font-size:var(--t-1);color:var(--muted);line-height:1.6}
 .approvalList{list-style:none;margin:0 0 var(--s3);padding:0;display:flex;
@@ -283,21 +291,9 @@
 .approvalActs{display:flex;gap:var(--s2);flex-wrap:wrap}
 .approvalNote{margin:var(--s2) 0 0 !important;font-size:var(--t-1);color:var(--muted)}
 
-/* Shared button, restated for the panel (chat.css loads after index.html). */
-.btn{font:inherit;display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  background:var(--panel);border:1px solid var(--line-2);color:var(--text);
-  border-radius:var(--r-sm);padding:7px 13px;font-size:var(--t-1);font-weight:550;
-  cursor:pointer;white-space:nowrap;
-  transition:background var(--dur),border-color var(--dur),color var(--dur)}
-.btn:hover{border-color:var(--accent-edge);background:var(--accent-2);color:var(--text)}
-.btn:active{transform:translateY(1px)}
-.btn[disabled],.btn[aria-disabled="true"]{opacity:.5;cursor:not-allowed;transform:none}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);
-  font-weight:650}
-.btn.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink);color:#fff7ee}
 
 /* ── composer ──────────────────────────────────────────── */
-.chatFoot{border-top:1px solid var(--line);padding:var(--s2) var(--s3);
+.chatFoot{border-top:1px solid var(--line);padding:var(--s3);
   background:var(--panel);flex:0 0 auto}
 .chatFootTop{display:flex;align-items:center;gap:var(--s2);margin-bottom:var(--s2)}
 .chatStatus{font-size:var(--t-2);color:var(--muted);display:inline-flex;align-items:center;
@@ -314,18 +310,18 @@
 .chatStatus[data-state="open"]{color:var(--ok)}
 .chatHint{margin-left:auto;font-size:var(--t-2);color:var(--faint)}
 .chatForm{display:flex;gap:var(--s2);align-items:flex-end}
-.chatInput{flex:1 1 auto;min-width:0;min-height:36px;max-height:132px;resize:vertical;
-  background:var(--panel-2);border:1px solid var(--line-2);border-radius:var(--r-md);
-  color:var(--text);font:inherit;font-size:var(--t0);line-height:1.5;padding:8px 10px;
+.chatInput{flex:1 1 auto;min-width:0;min-height:46px;max-height:140px;resize:vertical;
+  background:var(--panel-2);border:1px solid var(--line-2);border-radius:var(--r-sm);
+  color:var(--text);font:inherit;font-size:var(--t0);line-height:1.5;padding:12px;
   transition:border-color var(--dur),box-shadow var(--dur)}
 .chatInput:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring);
   background:var(--panel)}
 .chatInput::placeholder{color:var(--faint)}
 /* The input, the mic and the send button sit in one row: same height, same
    radius. The two trailing buttons are icons — a glyph, not a word. */
-.chatSend{flex:0 0 auto;width:36px;min-height:36px;padding:0;border-radius:var(--r-md)}
-.chatMic{flex:0 0 auto;width:36px;min-height:36px;padding:0;border-radius:var(--r-md)}
-.chatSend .ib,.chatMic .ib{width:16px;height:16px;display:block}
+.chatSend{flex:0 0 auto;width:46px;min-height:46px;padding:0;border-radius:var(--r-sm)}
+.chatMic{flex:0 0 auto;width:46px;min-height:46px;padding:0;border-radius:var(--r-sm)}
+.chatSend .ib,.chatMic .ib{width:18px;height:18px;display:block}
 /* The mic is neutral until the session is open; then it wears the accent so
    "the mic is live" is visible without reading a label. */
 .chatMic[aria-pressed="true"]{background:var(--accent-2);border-color:var(--accent-edge);
@@ -377,7 +373,6 @@
   -webkit-box-orient:vertical;overflow:hidden}
 
 /* ── typing indicator ──────────────────────────────────── */
-.dots{display:inline-flex;gap:3px;align-items:center;padding:2px 0}
 .dots{display:inline-flex;gap:4px;align-items:center;height:14px}
 .dots i{width:5px;height:5px;border-radius:50%;background:var(--muted);
   animation:chatDot 1.3s ease-in-out infinite}
@@ -397,7 +392,7 @@
 .typingAvatar{width:26px;height:26px;flex:0 0 26px;border-radius:var(--r-sm);
   display:flex;align-items:center;justify-content:center;font-weight:700;
   font-size:var(--t-2);color:var(--text);position:relative;overflow:hidden;margin-top:0;
-  box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+  box-shadow:inset 0 0 0 1px var(--line)}
 
 /* ── scroll to latest ──────────────────────────────────── */
 .chatJump{position:sticky;bottom:0;align-self:center;margin:var(--s2) auto 0;
@@ -427,4 +422,6 @@
 }
 @media (max-width:420px){
   .chatInput{font-size:16px}
+  /* The keyboard hint does not fit a phone; the status line stays. */
+  .chatHint{display:none}
 }

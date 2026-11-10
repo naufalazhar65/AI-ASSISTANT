@@ -138,9 +138,9 @@
     "railCollapsed": "60px",
     "railExpanded": "248px",
     "hudWidth": "322px",
-    "chatWidth": "340px",
+    "chatWidth": { "min": "360px", "preferred": "30vw", "max": "460px", "cssVar": "--chatw" },
     "contentMax": "1180px",
     "cssVars": { "chatWidth": "--chatw", "contentMax": "--contentmax" },
-    "note": "Starting points from the existing layout; do not force fixed widths if the current code handles the viewport better. The chat panel is docked above 1200px, a right drawer at 1200px and below, and full width at 700px and below."
+    "note": "Starting points from the existing layout; do not force fixed widths if the current code handles the viewport better. The chat panel is docked above 1200px, a right drawer at 1200px and below, and full width at 700px and below. The docked chat is fluid: clamp(360px, 30vw, 460px) — it grows with the viewport but never eats the Virtual Office."
   }
 }

@@ -252,6 +252,7 @@ These dimensions are starting points from the existing layout, not instructions 
 
 - The chat is a sibling panel to the canvas.
 - Target behaviour from the existing design: chat is docked/open on wide screens, becomes a right-side drawer below about 1200 px, and can take the full width on very narrow screens (about 420 px and below).
+- The docked width is fluid: `clamp(360px, 30vw, 460px)`. The panel grows with the viewport but never eats the Virtual Office, and the token lives in `design-tokens.json` (`layout.chatWidth`).
 - Verify the actual breakpoints against the current implementation before changing them.
 - The Chat control opens/closes the panel without recreating the Three.js renderer or resetting the camera.
 - When a panel closes, it must immediately stop receiving pointer and keyboard interaction, even if its exit animation is still running.
@@ -318,6 +319,8 @@ The chat must share the warm, playful-bold design language without becoming visu
 - Availability and task state are different concepts and must not be conflated.
 - Avoid repeated dividers and excessive vertical padding.
 - The selector uses one consistent track with a clear active state.
+- The identity block stays compact: avatar 40px, name 17px, role 12px, status 11px. The name leads; the role supports it.
+- The active agent wears the yellow accent; the others stay on a warm surface. A status dot appears only for a real non-idle state (working, offline) — never as decoration on every agent.
 
 ### Message stream
 
@@ -330,6 +333,9 @@ The chat must share the warm, playful-bold design language without becoming visu
 - Keep bubble padding compact. Avoid heavy outline plus heavy shadow plus strong background on every message.
 - Long URLs, IDs, tool output, and code must wrap, truncate with accessible detail, or scroll inside their own container; they must not widen the panel.
 - Only newly arrived messages animate. Historical messages should load without entrance animation.
+- Conversation typography: body 15px with a 1.55 line height, sender name 13.5px, timestamp 11px, day separator 12px. Metadata stays readable, never faint-on-faint.
+- A new group starts when the sender changes OR when more than five minutes of silence separate two messages. Inside a group the identity line is drawn once and the messages sit tight.
+- The agent speaks on the panel itself — plain text, no card per message. The owner's message is the only bubble: warm cream surface, dark ink, a neutral border and a capped width that never breaks a word in the middle.
 
 ### Composer
 
@@ -338,6 +344,7 @@ The chat must share the warm, playful-bold design language without becoming visu
 - The mic sits directly beside send because voice is part of the same conversation.
 - Show keyboard hints unobtrusively and do not let them compete with the composer.
 - Keep the voice session strip separate from chat history and hidden when nothing has happened.
+- The input, microphone and send button share one height (46px) and one radius. The input grows with the text; the send action is the yellow icon button; the microphone stays neutral until the voice session is live.
 - Do not change send behaviour, Enter/Shift+Enter semantics, voice input, streaming, or cancellation while adjusting visual styles.
 
 ### Typing indicator

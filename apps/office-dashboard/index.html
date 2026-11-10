@@ -42,7 +42,9 @@
     --shadow-offset:3px 4px 0 rgba(41,37,32,.16);
     --ring:0 0 0 3px rgba(255,190,46,.42);
     --dur:.15s; --sbw:60px; --hudbg:rgba(255,255,255,.92); --hudw:322px;
-    --chatw:340px; --contentmax:1180px;
+    /* The docked chat is fluid: it grows with the viewport but never eats
+       the Virtual Office (DESIGN.md §8). */
+    --chatw:clamp(360px,30vw,460px); --contentmax:1180px;
     /* motion — one duration, one curve; panels arrive instead of jumping */
     --motion:.19s; --ease:cubic-bezier(.22,.61,.36,1);
     --font: "Nunito", "Avenir Next", "Segoe UI Variable", "Segoe UI",

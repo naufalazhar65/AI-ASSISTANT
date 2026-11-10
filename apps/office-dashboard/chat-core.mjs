@@ -461,6 +461,22 @@ export function unclaimedCards(cards, msgs) {
  * Availability straight from the backend `status` field.
  * Unknown values stay unknown — a displayed name never implies availability.
  */
+/**
+ * Does a new group start here?
+ *
+ * Two messages from the same sender are ONE reply — the identity line is
+ * drawn once — unless a long silence separates them. Past the gap the
+ * next message is a new turn, not a continuation of the previous one.
+ */
+export const GROUP_GAP_MS = 5 * 60 * 1000;
+
+export function groupBreaks(prevRole, role, prevTs, ts, gapMs = GROUP_GAP_MS) {
+  if (prevRole === null || prevRole === undefined) return true;
+  if (prevRole !== role) return true;
+  if (typeof prevTs === 'number' && typeof ts === 'number' && ts - prevTs > gapMs) return true;
+  return false;
+}
+
 export function agentAvailability(status) {
   switch (status) {
     case 'idle':

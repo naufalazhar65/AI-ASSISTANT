@@ -17,11 +17,13 @@ const ARTIFACT = "office_ui";
 // The chat width is a design token (apps/office-dashboard/design-tokens.json).
 // Reading it keeps the width assertion honest: a stale hard-coded range
 // failed this drill for weeks because the contract had moved to 340px.
-const CHAT_WIDTH_PX = (
+// The docked chat is fluid (clamp), so the token is a RANGE, not one
+// number: the drill asserts the panel lands inside it.
+const CHAT_WIDTH = (
   JSON.parse(
     readFileSync(join(ROOT, "apps", "office-dashboard", "design-tokens.json"), "utf8"),
-  ) as { layout?: { chatWidth?: string } }
-).layout?.chatWidth ?? "340px";
+  ) as { layout?: { chatWidth?: { min?: string; max?: string } } }
+).layout?.chatWidth ?? { min: "360px", max: "460px" };
 /** Marker text of the note the approval test creates — removed again at the end. */
 const DRILL_NOTE = "catatan dari drill sidebar";
 
@@ -174,6 +176,35 @@ async function waitForSessionTurn(marker: string): Promise<void> {
   }
 }
 
+/**
+ * Click the chat toggle.
+ *
+ * Playwright's click waits for "scheduled navigations to finish" after the
+ * action, and the dashboard keeps an SSE bus stream open, so the page never
+ * reaches a settled navigation state and that wait can burn its full 30s
+ * timeout on a click that already happened. The handler is the same either
+ * way, so a timeout falls back to a DOM click.
+ */
+async function clickToggle(page: import("playwright").Page): Promise<void> {
+  await page
+    .click("#chatToggle", { timeout: 5000 })
+    .catch(() => page.evaluate(() => document.getElementById("chatToggle")?.click()));
+}
+
+/**
+ * Reload the dashboard as a REAL navigation.
+ *
+ * `page.reload()` can land on the same-document path: the dashboard writes its
+ * view into the history at boot, so Chromium may treat the reload as a
+ * fragment navigation and never fire the "commit" event the drill waits for
+ * (it then times out on a page that is in fact fully loaded). A cache-busting
+ * URL forces a full document load — which is exactly what the drill wants to
+ * prove anyway: the history comes from the server, not from localStorage.
+ */
+async function hardReload(page: import("playwright").Page, auth: string): Promise<void> {
+  await page.goto(`${DASH}/?token=${encodeURIComponent(auth)}&_r=${Date.now()}`, { waitUntil: "commit" });
+}
+
 async function openPanel(page: import("playwright").Page): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const open = await page.evaluate(() => {
@@ -181,7 +212,7 @@ async function openPanel(page: import("playwright").Page): Promise<void> {
       return !!p && !p.hidden && p.getBoundingClientRect().width > 0;
     });
     if (open) return;
-    await page.click("#chatToggle");
+    await clickToggle(page);
     await page
       .waitForFunction(
         () => {
@@ -219,7 +250,7 @@ async function main(): Promise<void> {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e.message)));
 
-  await page.reload({ waitUntil: "commit" });
+  await hardReload(page, auth);
   await page.waitForSelector("#chatToggle", { timeout: 60000 });
 
   // 1. On a wide screen the chat is OPEN by default (DESIGN.md: "open on wide
@@ -256,7 +287,7 @@ async function main(): Promise<void> {
   check("3D office canvas still mounted", officeCanvas > 0, `canvas count=${officeCanvas}`);
 
   // 2. the toggle closes it and opens it again
-  await page.click("#chatToggle");
+  await clickToggle(page);
   const closed = await chatClosed().then(() => true).catch(() => false);
   check("toggle closes the chat", closed && (await page.locator("#chatPanel").isHidden()));
   // The close runs a short exit motion before the panel is removed, so the
@@ -265,18 +296,34 @@ async function main(): Promise<void> {
   await page
     .waitForFunction(() => document.getElementById("chatPanel")?.hidden === true, undefined, { timeout: 10000 })
     .catch(() => undefined);
-  await page.click("#chatToggle");
+  await clickToggle(page);
   const reopened = await chatOpen().then(() => true).catch(() => false);
   check("toggle opens the chat", reopened && (await page.locator("#chatPanel").isVisible()));
   check("toggle reports aria-expanded", (await page.getAttribute("#chatToggle", "aria-expanded")) === "true");
   const panelBox = await page.locator("#chatPanel").boundingBox();
   // The width comes from the design token (design-tokens.json), so the
   // assertion cannot drift away from the contract again.
-  const expectedWidth = Number((CHAT_WIDTH_PX.match(/\d+/) || ["0"])[0]);
+  const expectedMin = Number((CHAT_WIDTH.min?.match(/\d+/) || ["0"])[0]);
+  const expectedMax = Number((CHAT_WIDTH.max?.match(/\d+/) || ["0"])[0]);
   check(
-    "desktop width matches the design token",
-    !!panelBox && Math.abs(panelBox.width - expectedWidth) <= 4,
-    `width=${panelBox?.width} expected=${expectedWidth}`,
+    "desktop width stays inside the design token range",
+    !!panelBox && panelBox.width >= expectedMin - 1 && panelBox.width <= expectedMax + 1,
+    `width=${panelBox?.width} range=${expectedMin}..${expectedMax}`,
+  );
+  // The selector is a compact control, not a row of big buttons.
+  const tabsBox = await page.locator(".chatTabs").boundingBox();
+  check(
+    "the agent selector stays compact",
+    !!tabsBox && tabsBox.height >= 44 && tabsBox.height <= 52,
+    `tabs height=${tabsBox?.height}`,
+  );
+  // Composer controls must be comfortably clickable.
+  const sendBox = await page.locator(".chatSend").boundingBox();
+  const micBox = await page.locator(".chatMic").boundingBox();
+  check(
+    "the composer buttons are big enough to tap",
+    !!sendBox && !!micBox && sendBox.width >= 44 && micBox.width >= 44,
+    `send=${sendBox?.width} mic=${micBox?.width}`,
   );
   const focused = await page.evaluate(() => document.activeElement?.className || "");
   check("focus moves into the panel on open", focused.includes("chatInput"), `activeElement=${focused}`);
@@ -436,6 +483,21 @@ async function main(): Promise<void> {
     .catch(() => false);
   const reply = (await page.locator(".msg.agent .msgBody").last().textContent()) || "";
   check("agent really answered", answered, `new reply=${answered} ${reply.slice(0, 80)}`);
+  // The composer must never cover the conversation: the newest message has
+  // to stay fully visible inside the scroll area.
+  const covered = await page.evaluate(() => {
+    const log = document.querySelector(".chatLog");
+    const rows = log ? Array.from(log.querySelectorAll(".msg")) : [];
+    const last = rows[rows.length - 1] as HTMLElement | undefined;
+    if (!log || !last) return { ok: false, detail: "no message in the log" };
+    const lr = log.getBoundingClientRect();
+    const mr = last.getBoundingClientRect();
+    return {
+      ok: mr.bottom <= lr.bottom + 1,
+      detail: `msg.bottom=${Math.round(mr.bottom)} log.bottom=${Math.round(lr.bottom)}`,
+    };
+  });
+  check("the newest message is not covered by the composer", covered.ok, covered.detail);
   const userBubble = await page.evaluate((m) => {
     const el = [...document.querySelectorAll("#chatLog .msg.user")].find((x) =>
       (x.textContent || "").includes(m),
@@ -512,7 +574,7 @@ async function main(): Promise<void> {
   });
   await datedPage.goto(`${DASH}/?token=${encodeURIComponent(auth)}`, { waitUntil: "commit" });
   await datedPage.evaluate((value) => localStorage.setItem("mia_token", value), auth);
-  await datedPage.reload({ waitUntil: "commit" });
+  await hardReload(datedPage, auth);
   await datedPage.waitForSelector("#chatToggle", { timeout: 60000 });
   await openPanel(datedPage);
   await datedPage.waitForFunction(
@@ -562,6 +624,36 @@ async function main(): Promise<void> {
   });
   check("no injected script node in message body", !unsafe);
 
+  // 6b. the dark theme is a real theme, not an inverted filter: the panel
+  // surface, the composer surface and the border must stay distinguishable.
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.getElementById("modeBtn")?.click();
+  });
+  await page.waitForTimeout(500);
+  const dark = await page.evaluate(() => {
+    // No named arrow functions in here: esbuild injects __name and the page
+    // throws "ReferenceError: __name is not defined" (house rule).
+    const panel = document.querySelector(".chatInner");
+    const input = document.querySelector(".chatInput");
+    const bubble = document.querySelector(".msg.user .msgBody");
+    return {
+      theme: document.documentElement.getAttribute("data-theme"),
+      panel: panel ? getComputedStyle(panel).backgroundColor : "",
+      input: input ? getComputedStyle(input).backgroundColor : "",
+      inputBorder: input ? getComputedStyle(input).borderTopColor : "",
+      bubble: bubble ? getComputedStyle(bubble).backgroundColor : "",
+    };
+  });
+  check(
+    "dark theme keeps a real surface/border hierarchy",
+    dark.theme === "dark" && dark.panel !== dark.input && dark.inputBorder !== dark.panel && dark.bubble !== dark.panel,
+    JSON.stringify(dark),
+  );
+  await page.evaluate(() => document.getElementById("modeBtn")?.click());
+  await page.waitForTimeout(300);
+
+
   // 7. history survives a reload (server-side persistence, not localStorage)
   const bubbles = () =>
     page.evaluate(() =>
@@ -569,7 +661,7 @@ async function main(): Promise<void> {
     );
   await waitForSessionTurn(marker);
   const before = await bubbles();
-  await page.reload({ waitUntil: "commit" });
+  await hardReload(page, auth);
   await page.waitForSelector("#chatToggle", { timeout: 60000 });
   await openPanel(page);
   await page.waitForSelector(".msg.agent .msgBody", { timeout: 20000 });

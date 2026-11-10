@@ -6,7 +6,7 @@ import {
   sanitizeMarkdown, escapeHtml, parseNdjsonLine, applyBusEvent, turnIsLive, connectionLabel,
   visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
   dateTimeLabel, timeOnly, dayKey, dayLabel, daySeparatorLabels, freshMessageKeys,
-  agentAvailability, taskStateFor,
+  agentAvailability, taskStateFor, groupBreaks,
   toolStateMeta, humanError, humanGenerationError, avatarUrl,
   liveStripModel, cardResultLine, announceExcerpt,
 } from './chat-core.mjs';
@@ -598,4 +598,22 @@ test('announceExcerpt: truncates to maxLen with ellipsis on word boundary', () =
   assert.ok(out.length <= 41, `len=${out.length}`);
   assert.ok(out.endsWith('…'));
   assert.ok(!out.includes('  '));
+});
+
+// ── message grouping ────────────────────────────────────────────────
+test('a new group starts when the sender changes', () => {
+  assert.equal(groupBreaks(null, 'assistant', null, 1000), true);
+  assert.equal(groupBreaks('assistant', 'assistant', 1000, 2000), false);
+  assert.equal(groupBreaks('assistant', 'user', 1000, 2000), true);
+});
+
+test('a long silence starts a new group even for the same sender', () => {
+  const gap = 5 * 60 * 1000;
+  assert.equal(groupBreaks('assistant', 'assistant', 1000, 1000 + gap - 1000), false);
+  assert.equal(groupBreaks('assistant', 'assistant', 1000, 1000 + gap + 1000), true);
+});
+
+test('an unknown timestamp never breaks a group', () => {
+  assert.equal(groupBreaks('assistant', 'assistant', 1000, null), false);
+  assert.equal(groupBreaks('assistant', 'assistant', null, 2000), false);
 });

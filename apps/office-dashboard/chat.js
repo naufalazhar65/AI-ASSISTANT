@@ -10,7 +10,7 @@
 import {
   sanitizeMarkdown, parseNdjsonLine, applyBusEvent, turnIsLive, connectionLabel,
   visibleMessages, cardsForCallIds, unclaimedCards, isInternalNote, declinedNoteText, mergeStamps,
-  timeOnly, daySeparatorLabels, freshMessageKeys, agentAvailability,
+  timeOnly, daySeparatorLabels, freshMessageKeys, agentAvailability, groupBreaks,
   taskStateFor, toolStateMeta, humanError, humanGenerationError,
   avatarUrl, liveStripModel, cardResultLine, announceExcerpt, announceToolCard,
 } from './chat-core.mjs';
@@ -458,16 +458,23 @@ function MessageRow(m, { agentMeta, showMeta, time, fresh }) {
   }
   const col = h('div', { class: 'msgCol' });
   if (showMeta) {
-    col.append(
-      h('div', { class: 'msgMeta' }, [
-        h('span', { class: 'msgName', text: isUser ? 'Kamu' : agentMeta.name || 'Agent' }),
-        time ? h('span', { class: 'msgTime', text: time }) : null,
-      ]),
-    );
+    /* The owner is the only human in this conversation: repeating "Kamu"
+       above every bubble is metadata nobody needs, and it made the user's
+       side heavier than the agent's. The agent keeps its name; the owner
+       keeps the clock. */
+    const name = isUser ? null : h('span', { class: 'msgName', text: agentMeta.name || 'Agent' });
+    const clock = time ? h('span', { class: 'msgTime', text: time }) : null;
+    if (name || clock) col.append(h('div', { class: 'msgMeta' }, [name, clock]));
   }
   col.append(h('div', { class: 'msgBody', html: sanitizeMarkdown(m.content || '') }));
-  const row = h('div', { class: `msg ${isUser ? 'user' : 'agent'}` }, [
-    !isUser && showMeta ? avatarBox(agentMeta, 'msgAvatar', initials(agentMeta.name)) : null,
+  const row = h('div', {
+    class: `msg ${isUser ? 'user' : 'agent'}${showMeta ? '' : ' msgSame'}`,
+  }, [
+    !isUser
+      ? showMeta
+        ? avatarBox(agentMeta, 'msgAvatar', initials(agentMeta.name))
+        : h('div', { class: 'msgAvatarSpacer', 'aria-hidden': 'true' })
+      : null,
     col,
   ]);
   /* A row that just arrived gets the entrance animation. The log is rebuilt
@@ -663,12 +670,17 @@ function streamNodes(chat, c, agentMeta, freshKeys) {
   }
   const nodes = [];
   let prevRole = null;
+  let prevTs = null;
   let declineNote = null;
   const separatorLabels = daySeparatorLabels(msgs, c.stamps, c.tz);
   for (const [index, m] of msgs.entries()) {
-    const showMeta = m.role !== prevRole;
-    prevRole = m.role;
     const ts = Array.isArray(c.stamps) ? c.stamps[m.index] : null;
+    /* A new group starts when the sender changes OR when the silence
+       between the two messages is long enough that they are no longer
+       one reply. */
+    const showMeta = groupBreaks(prevRole, m.role, prevTs, ts);
+    prevRole = m.role;
+    prevTs = typeof ts === 'number' ? ts : prevTs;
     /* The date shows ONLY when the day changes — one centred separator per
        day, like WhatsApp. A message whose time is unknown gets no separator:
        a date is never invented for it, and it never closes a day either. */
@@ -1021,6 +1033,8 @@ function ChatSidebar(chat, toggleBtn) {
      the bottom. That keeps it from sitting on top of the conversation. */
   let unseen = false;
   let lastCount = 0;
+  /* Agents whose history was already scrolled to its newest message. */
+  const scrolledAgents = new Set();
   const updateJump = () => {
     if (nearBottom()) unseen = false;
     jump.classList.toggle('show', unseen && !nearBottom() && log.scrollHeight > log.clientHeight + 8);
@@ -1104,6 +1118,12 @@ function ChatSidebar(chat, toggleBtn) {
         if (line) toolAnnouncement = line;
       }
       if (toolAnnouncement) toolLive.textContent = toolAnnouncement;
+      /* A history opens at its newest message: the reader asked for the
+         conversation, not the top of a scrollback. */
+      if (!scrolledAgents.has(state.selected)) {
+        scrolledAgents.add(state.selected);
+        log.scrollTo({ top: log.scrollHeight, behavior: 'auto' });
+      }
     }
     seenCounts[state.selected] = (c.messages || []).length;
 
@@ -1148,7 +1168,7 @@ function ChatSidebar(chat, toggleBtn) {
 
     status.setAttribute('data-state', state.connection);
     status.textContent = connectionLabel(state.connection);
-    hint.textContent = state.busyForSelected ? 'Agent sedang bekerja…' : 'Enter kirim · Shift+Enter baris baru';
+    hint.textContent = state.busyForSelected ? 'Agent sedang bekerja…' : 'Enter kirim · Shift+Enter baris';
     composer.update(state, agentMeta);
 
     updateJump();
