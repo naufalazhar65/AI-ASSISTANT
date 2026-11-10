@@ -2838,7 +2838,7 @@ Owner: "coba cek @apps/office-dashboard/DESIGN.md mana saja yang belum dikerjaka
 
 **Bug di luar audit (bikin gate hijau tapi produk rusak):**
 - **Lint pre-existing** (6 error): `require()` di jalur `delete_task` **mati di vitest** (ESM tak ada `require` global) → intent delete-task tak pernah jalan di test. → static import (`agent.ts`/`tools.ts`), `tasks.ts` `let`→`const`.
-- **Drill mengotori chat owner**: cleanup session cuma扫 `sessions/`, padahal transcript ada di `sessions-office-*/` (sejak refactor isolasi 2026-10-22) → 12 turn drill tertinggal. → scan kedua koleksi + tunggu write session (autosave debounce) sebelum cek reload.
+- **Drill mengotori chat owner**: cleanup session cuma memindai `sessions/`, padahal transcript ada di `sessions-office-*/` (sejak refactor isolasi 2026-10-22) → 12 turn drill tertinggal. → scan kedua koleksi + tunggu write session (autosave debounce) sebelum cek reload.
 - Web dev server mati (tmux `mia` hilang) → sempat bikin drill gagal; restart per HABIT.
 
 **4 penyimpangan yang DIDOKUMENTASIKAN (jujur, bukan pakai maksa):** (1) `prefers-color-scheme` TIDAK ditambah — §4.3 minta default terang + hormati preferensi tersimpan, auto-dark justru bertentangan; (2) rail masih animasi `flex-basis/width` (layout work) — rewrite rail berisiko, jadi didokumentasikan; (3) `--border-strong/--teal-soft/--coral-soft/--lilac-soft` 0 pemakaian → §4.1 menyebutnya opsional → ditandai **reserved** di DESIGN.md, bukan dikarang pemakaian; (4) breakpoint chat tetap 700px (bukan 420px) — §17 izin keep yang lebih teruji, DESIGN.md §8/§17 disesuaikan ke implementasi.
