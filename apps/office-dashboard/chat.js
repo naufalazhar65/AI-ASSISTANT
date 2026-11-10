@@ -17,10 +17,12 @@ import {
 import { createLive } from './live.mjs';
 
 const CHAT_AGENTS = ['mia', 'agnes', 'michelle'];
+/* No per-agent accent colour (DESIGN.md §11): identity comes from the
+   photo, the name, the role and the real state — never from an arbitrary hex. */
 const FALLBACK_AGENT_META = {
-  mia: { id: 'mia', name: 'Mia', role: 'Main Assistant / Coordinator', accent: '#8b9dc3' },
-  agnes: { id: 'agnes', name: 'Agnes', role: 'Researcher', accent: '#7fae9b' },
-  michelle: { id: 'michelle', name: 'Michelle', role: 'Coder / Engineer', accent: '#a08fc0' },
+  mia: { id: 'mia', name: 'Mia', role: 'Main Assistant / Coordinator' },
+  agnes: { id: 'agnes', name: 'Agnes', role: 'Researcher' },
+  michelle: { id: 'michelle', name: 'Michelle', role: 'Coder / Engineer' },
 };
 const MAX_CHARS = 4000;
 
@@ -387,13 +389,13 @@ function clockOf(ts, zone) {
 }
 
 /**
- * Portrait box: the agent's photo when it loads, the initials over the accent
- * colour as the fallback (the image is removed on error, never a broken icon).
+ * Portrait box: the agent's photo when it loads, the initials over a neutral
+ * surface as the fallback (the image is removed on error, never a broken icon).
  */
 function avatarBox(agentMeta, cls, text, opts = {}) {
   const box = h('div', {
     class: cls,
-    style: `background:${agentMeta.accent || '#8b9dc3'}`,
+    style: 'background:var(--panel-3)',
     'aria-hidden': 'true',
   });
   box.append(document.createTextNode(text));
@@ -492,7 +494,9 @@ function ToolCard(card, zone) {
      operation with no list stays closed — its raw output is diagnostics. */
   const open = state === 'queued' || state === 'running' || state === 'awaiting_approval'
     || state === 'failed' || state === 'timed_out' || !!card.inbox;
-  const summary = card.summary || meta.label;
+  /* The state word belongs to the STATE (toolStateMeta); `card.summary` is the
+     action one-liner and lives in the info row below (DESIGN.md §13). */
+  const summary = meta.label;
   const resultLine = cardResultLine(card);
   const detailText = additionalToolDetail(card);
   // Only terminal states announce themselves: a running/queued card would
@@ -504,7 +508,7 @@ function ToolCard(card, zone) {
     'details',
     { class: 'tool', 'data-state': state, 'aria-live': liveMode, ...(open ? { open: true } : {}) },
     [
-      h('summary', { class: 'toolSum' }, [
+      h('summary', { class: 'toolSum', title: card.name || '' }, [
         h('span', { class: 'toolSumTop' }, [
           h('span', { class: 'toolState', 'data-state': state, 'data-tone': meta.tone }, [
             h('span', { class: 'toolGlyph', 'aria-hidden': 'true', text: meta.icon }),
@@ -515,7 +519,7 @@ function ToolCard(card, zone) {
           card.at ? h('span', { class: 'toolAt', text: timeOnly(card.at, zone) }) : null,
         ]),
         h('span', { class: 'toolSumInfo' }, [
-          h('span', { class: 'toolName', text: card.name || 'tool' }),
+          h('span', { class: 'toolName', text: card.summary || card.name || 'tool' }),
           card.args ? h('span', { class: 'toolArgs', text: card.args }) : null,
         ]),
       ]),
@@ -525,11 +529,18 @@ function ToolCard(card, zone) {
          the provider text stays behind "Detail teknis". */
       card.inbox
         ? h('div', { class: 'inbox' }, [
-            h('div', {
-              class: 'inboxHead',
-              text: `📬 Ringkasan Inbox — ${card.inbox.count} email terbaru`
-                + (card.inbox.range ? ` · ${card.inbox.range}` : ''),
-            }),
+            h('div', { class: 'inboxHead' }, [
+              h('span', {
+                class: 'ibIco',
+                html: '<svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+                  + ' stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"'
+                  + ' aria-hidden="true"><use href="#i-inbox"/></svg>',
+              }),
+              h('span', {
+                text: `Ringkasan Inbox — ${card.inbox.count} email terbaru`
+                  + (card.inbox.range ? ` · ${card.inbox.range}` : ''),
+              }),
+            ]),
             h('ul', { class: 'inboxList' }, (card.inbox.emails || []).map((e) =>
               h('li', { class: 'inboxItem' }, [
                 h('div', { class: 'inboxSubject', text: e.subject || '(tanpa judul)' }),
@@ -627,11 +638,9 @@ const SUGGESTIONS = {
   michelle: ['Periksa kode yang bermasalah', 'Jelaskan error terakhir', 'Review perubahan terbaru'],
 };
 
-const EMPTY_HINT = {
-  mia: 'Koordinator tim — susun pekerjaan, ringkas hasil, pantau agent.',
-  agnes: 'Peneliti — cari, bandingkan, dan ringkas sumber.',
-  michelle: 'Engineer — telusuri kode, jelaskan error, review perubahan.',
-};
+/* One honest sentence. The header already carries the agent name and
+   role (DESIGN.md §9) — repeating it here is noise. */
+const EMPTY_HINT = 'Tulis pesan di bawah — balasan datang dari agent sungguhan.';
 
 /** Messages + tool cards in one pass, grouped, chronologically. */
 function streamNodes(chat, c, agentMeta, freshKeys) {
@@ -641,7 +650,7 @@ function streamNodes(chat, c, agentMeta, freshKeys) {
        state starts the conversation instead of repeating the profile. */
     return [
       h('div', { class: 'chatEmpty' }, [
-        h('p', { class: 'chatEmptyHint', text: EMPTY_HINT[agentMeta.id] || 'Tulis pesan di bawah — balasan datang dari agent sungguhan.' }),
+        h('p', { class: 'chatEmptyHint', text: EMPTY_HINT }),
         h(
           'div',
           { class: 'suggest' },
@@ -730,7 +739,7 @@ function ChatComposer(chat, live) {
     'data-fk': 'send',
     'aria-label': 'Kirim pesan',
     title: 'Kirim pesan',
-    html: '<svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-send"/></svg>',
+    html: '<svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-send"/></svg>',
   });
   /* The mic sits right next to send: voice is the same conversation, just
      spoken. It carries the live state, so the owner can see at a glance that
@@ -742,7 +751,7 @@ function ChatComposer(chat, live) {
     'aria-pressed': 'false',
     'aria-label': 'Bicara dengan agent (Live)',
     title: 'Bicara dengan agent (Live)',
-    html: '<svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-mic"/></svg>',
+    html: '<svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-mic"/></svg>',
     onclick: () => live.toggle(),
   });
   const submit = async () => {
@@ -839,7 +848,7 @@ function ChatHeader(chat, state, agentMeta, onClose) {
         'data-fk': 'close',
         'aria-label': 'Tutup panel chat',
         title: 'Tutup',
-        text: '✕',
+        html: '<svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-close"/></svg>',
         onclick: onClose,
       }),
     ]),
@@ -901,7 +910,9 @@ function LiveRegion() {
  * costs nothing but the new nodes.
  */
 function ChatSidebar(chat, toggleBtn) {
-  const panel = h('section', { id: 'chatPanel', 'aria-label': 'Chat dengan agent AI Office', hidden: true });
+  const panel = h('section', { id: 'chatPanel', 'aria-label': 'Chat dengan agent AI Office', 'aria-hidden': 'true', hidden: true });
+  // A hidden panel must not be reachable by keyboard or pointer.
+  panel.inert = true;
 
   const head = h('div', { class: 'chatHead' });
   const stream = h('div', { class: 'chatStream' });
@@ -1164,6 +1175,8 @@ function ChatSidebar(chat, toggleBtn) {
       cancelClose();
       panel.classList.remove('closing');
       panel.hidden = false;
+      panel.inert = false;
+      panel.removeAttribute('aria-hidden');
       /* The sheet waits off the right edge and slides in, the way the nav
          rail slides in from the left. The column starts collapsed so the
          canvas reflows with the sheet instead of jumping. */
@@ -1182,6 +1195,9 @@ function ChatSidebar(chat, toggleBtn) {
       toggleBtn.focus();
       cancelClose();
       panel.classList.remove('open');
+      // Stop pointer AND screen-reader interaction the moment it starts closing.
+      panel.inert = true;
+      panel.setAttribute('aria-hidden', 'true');
       if (!animate) {
         panel.hidden = true;
         panel.classList.remove('closing');

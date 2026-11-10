@@ -73,7 +73,7 @@ test('applyBusEvent: tool_called ok:false settles as failed', () => {
     data: { name: 'web_search', ok: false, call_id: 'c1' },
   });
   assert.equal(out[0].state, 'failed');
-  assert.equal(out[0].summary, 'Gagal');
+  assert.equal(out[0].summary, 'web search', 'summary is the action one-liner, never the state label');
   assert.ok(out[0].result.includes('timeout'), 'the failure reason is the user-facing result');
 });
 
@@ -277,15 +277,15 @@ test('unclaimedCards keeps only the cards no visible turn owns', () => {
 
 test('applyBusEvent matches by call id, so a same-named call in another turn is untouched', () => {
   const cards = [
-    { id: 'call_old', name: 'gmail_list', state: 'succeeded', summary: 'Selesai' },
-    { id: 'call_new', name: 'gmail_list', state: 'queued', summary: 'Menunggu dijalankan' },
+    { id: 'call_old', name: 'gmail_list', state: 'succeeded', summary: 'gmail list' },
+    { id: 'call_new', name: 'gmail_list', state: 'queued', summary: 'gmail list' },
   ];
   const out = applyBusEvent(cards, {
     type: 'tool_called', ts: '2026-10-20T00:00:00Z', summary: 'gmail_list → ok',
     data: { name: 'gmail_list', ok: true, call_id: 'call_new' },
   });
   assert.equal(out[0].state, 'succeeded', 'the older card keeps its own outcome');
-  assert.equal(out[0].summary, 'Selesai');
+  assert.equal(out[0].summary, 'gmail list', 'the card keeps its own one-liner');
   assert.equal(out[1].state, 'succeeded', 'the addressed card takes the outcome');
   assert.equal(out[1].result, 'gmail_list → ok');
 });
@@ -296,16 +296,35 @@ test('applyBusEvent marks a started tool as running instead of guessing', () => 
     type: 'tool_started', ts: 't1', data: { name: 'gmail_list', call_id: 'call_1' },
   });
   assert.equal(out[0].state, 'running');
-  assert.equal(out[0].summary, 'Sedang berjalan');
+  assert.equal(out[0].summary, 'gmail list', 'summary is the action one-liner, not the state');
+});
+
+test('a tool_started with no card yet creates a running card (first call of a turn)', () => {
+  const out = applyBusEvent([], {
+    type: 'tool_started', ts: 't1', data: { name: 'http_request', call_id: 'call_x' },
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].state, 'running');
+  assert.equal(out[0].id, 'call_x');
+  assert.equal(out[0].summary, 'http request');
+});
+
+test('the state word never lands in the summary field', () => {
+  const out = applyBusEvent([{ id: 'c1', name: 'rm', state: 'queued' }], {
+    type: 'tool_called', ts: 'T', summary: 'rm → ok', data: { name: 'rm', ok: true, call_id: 'c1' },
+  });
+  assert.notEqual(out[0].summary, 'Selesai');
+  assert.notEqual(out[0].summary, 'Gagal');
+  assert.equal(out[0].summary, 'rm');
 });
 
 test('applyBusEvent never overwrites a finished card with a late cancel', () => {
-  const cards = [{ id: 'call_1', name: 'gmail_list', state: 'succeeded', summary: 'Selesai' }];
+  const cards = [{ id: 'call_1', name: 'gmail_list', state: 'succeeded', summary: 'gmail list' }];
   const out = applyBusEvent(cards, {
     type: 'task_cancelled', ts: 't1', data: { name: 'gmail_list', call_id: 'call_1' },
   });
   assert.equal(out[0].state, 'succeeded');
-  assert.equal(out[0].summary, 'Selesai');
+  assert.equal(out[0].summary, 'gmail list');
 });
 
 test('applyBusEvent cancels exactly the declined call id', () => {
@@ -423,9 +442,13 @@ test('day separators show one date per calendar day even when messages are out o
     Date.parse('2026-10-20T09:45:00Z'), // same consecutive day: no duplicate
     Date.parse('2026-10-22T07:45:00Z'),
   ];
+  /* A message without a timestamp gets NO date (DESIGN.md §10: an unknown
+     timestamp means no time and no invented date). The label therefore lands on
+     the first DATED message of a calendar day, not on the first message of the
+     transcript. */
   assert.deepEqual(daySeparatorLabels(messages, stamps, 'Asia/Jakarta'), [
-    '20 Okt 2026',
     '',
+    '20 Okt 2026',
     '',
     '21 Okt 2026',
     '',
@@ -439,8 +462,8 @@ test('day separators show one date per calendar day even when messages are out o
       [null, null, Date.parse('2026-10-20T07:45:00Z'), Date.parse('2026-10-20T08:45:00Z')],
       'Asia/Jakarta',
     ),
-    ['20 Okt 2026', '', '', ''],
-    'a legacy history with no timestamps on its first messages anchors the first known date at the top',
+    ['', '', '20 Okt 2026', ''],
+    'undated leading messages stay undated; the first known date labels the first DATED message',
   );
   assert.deepEqual(
     daySeparatorLabels([{ index: 0 }, { index: 1 }], [
@@ -532,7 +555,7 @@ test('an inbox card shows the inbox head ONCE (no duplicated result line)', () =
     id: 'c1',
     name: 'gmail_list',
     state: 'succeeded',
-    summary: 'Selesai',
+    summary: 'gmail list',
     result: '\ud83d\udce6 Ringkasan Inbox \u2014 5 email terbaru \u00b7 22 Okt 2026',
     inbox: { count: 5, range: '22 Okt 2026', emails: [] },
   };

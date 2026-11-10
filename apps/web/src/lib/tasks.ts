@@ -79,7 +79,7 @@ export function addTask(text: string, rawUser?: unknown, dueAt?: number): Task {
 /** Human-readable summary of the user's tasks, in insertion order (newest last). */
 export function listTasks(rawUser?: unknown): string {
   const userKey = sanitizeUser(rawUser);
-  let tasks = readTasks(rawUser);
+  const tasks = readTasks(rawUser);
   if (!tasks.length) return "Belum ada tugas beb — santai dulu, mau buat apa? 🌸";
   // Auto-complete tasks whose due time has passed: a deadline is a commitment,
   // and once it passes the task is considered done unless the user cancels it.

@@ -65,9 +65,9 @@ const MAX_PROMPT_CHARS = 4000;
 const AUTH_COOKIE = 'mia_auth'; // same cookie name as apps/web/src/lib/authGuard.ts
 
 const AGENTS = [
-  { id: 'mia', name: 'Mia', role: 'Main Assistant / Coordinator', user: OWNER_USER, accent: '#8b9dc3', idle: [-2.6, 0, 3.4], desk: [-2.6, 0, -1.6] },
-  { id: 'agnes', name: 'Agnes', role: 'Researcher', user: `${OWNER_USER}.agnes`, accent: '#7fae9b', idle: [0, 0, 3.6], desk: [0, 0, -1.6] },
-  { id: 'michelle', name: 'Michelle', role: 'Coder', user: `${OWNER_USER}.michelle`, accent: '#a08fc0', idle: [2.6, 0, 3.4], desk: [2.6, 0, -1.6] },
+  { id: 'mia', name: 'Mia', role: 'Main Assistant / Coordinator', user: OWNER_USER, idle: [-2.6, 0, 3.4], desk: [-2.6, 0, -1.6] },
+  { id: 'agnes', name: 'Agnes', role: 'Researcher', user: `${OWNER_USER}.agnes`, idle: [0, 0, 3.6], desk: [0, 0, -1.6] },
+  { id: 'michelle', name: 'Michelle', role: 'Coder', user: `${OWNER_USER}.michelle`, idle: [2.6, 0, 3.4], desk: [2.6, 0, -1.6] },
 ];
 const AGENT_IDS = AGENTS.map((a) => a.id);
 
@@ -138,6 +138,35 @@ function redact(value) {
   s = s.replace(/\b(?:MTIz|OTU5)[A-Za-z0-9_.-]{20,}\b/g, '***discord-token***');
   s = s.replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g, '***jwt***');
   return s;
+}
+
+/**
+ * One human line for an audit detail. A JSON payload becomes "key: value"
+ * pairs, the internal "||task=" suffix is dropped, and anything else is
+ * truncated. The raw payload is never printed as-is.
+ */
+function humanAuditDetail(detail) {
+  const raw = String(detail == null ? '' : detail).trim();
+  if (!raw) return '';
+  const json = raw.split(/\s*\|\|task=/)[0].trim();
+  let text = json;
+  const first = json.charAt(0);
+  if (first === '{' || first === '[') {
+    try {
+      const parsed = JSON.parse(json);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const parts = Object.keys(parsed).map((k) => {
+          const v = parsed[k];
+          const s = typeof v === 'string' ? v : JSON.stringify(v);
+          return k + ': ' + String(s).replace(/\s+/g, ' ').slice(0, 60);
+        });
+        if (parts.length) text = parts.join(' \u00b7 ');
+      }
+    } catch {
+      /* not JSON after all \u2014 the plain text is the honest fallback */
+    }
+  }
+  return truncate(text.replace(/\s+/g, ' ').trim(), 160);
 }
 
 function truncate(s, n) {
@@ -321,7 +350,6 @@ function deriveAgents(audit, paused) {
       id: a.id,
       name: a.name,
       role: a.role,
-      accent: a.accent,
       status,
       active_task: last && last.action.startsWith('tool') && age != null && age <= WORKING_WINDOW_MS ? summarizeTool(last.action, last.detail) : null,
       last_event: last ? { ts: last.ts, action: last.action, detail: last.detail, source: last.file } : null,
@@ -1121,7 +1149,14 @@ function buildSchedules() {
 function buildLog(audit, limit = 120) {
   const lines = [];
   for (const e of audit.events.slice(-limit)) {
-    lines.push({ ts: e.ts, agent: e.agent, source: 'audit', action: e.action, message: e.detail });
+    /* A log row is for a person: the detail becomes one readable line and the
+       raw payload stays available on hover. A raw JSON wall is not a log view
+       (DESIGN.md §12). */
+    const raw = redact(String(e.detail == null ? '' : e.detail));
+    lines.push({
+      ts: e.ts, agent: e.agent, source: 'audit', action: e.action,
+      message: humanAuditDetail(raw), raw: raw,
+    });
   }
   const { rows } = readJsonl(TASKS_FILE, { limitBytes: 128 * 1024 });
   for (const ev of rows.slice(-limit)) {
@@ -1133,6 +1168,36 @@ function buildLog(audit, limit = 120) {
 }
 
 /* ─────────────────────────── state ─────────────────────────── */
+
+/* ─────────────────────────── security findings (Mia's own store) ─────────────────────────── */
+/* Findings reach the dashboard as REPORT CARDS (DESIGN.md §14). They come from
+ * Mia's own findings store through the web API: the browser never reads the
+ * store and never chooses whose findings it sees (the owner is pinned
+ * server-side). Cached, because /api/state is polled every few seconds. */
+let FINDINGS_CACHE = { at: 0, cards: [] };
+async function fetchFindings() {
+  const now = Date.now();
+  if (now - FINDINGS_CACHE.at < 15000) return FINDINGS_CACHE.cards;
+  try {
+    const target = new URL('/api/office/findings', MIA_WEB_BASE);
+    const headers = { accept: 'application/json' };
+    if (AUTH_TOKEN) headers.authorization = 'Bearer ' + AUTH_TOKEN;
+    const res = await fetch(target, {
+      headers,
+      // The dashboard polls /api/state every 3s; a hanging upstream must not
+      // freeze the whole dashboard, so the upstream call is bounded.
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error('findings HTTP ' + res.status);
+    const data = await res.json();
+    const cards = Array.isArray(data && data.cards) ? data.cards : [];
+    FINDINGS_CACHE = { at: now, cards };
+  } catch (e) {
+    // A failing upstream must not empty the view: keep the last good list.
+    FINDINGS_CACHE = { at: now, cards: FINDINGS_CACHE.cards };
+  }
+  return FINDINGS_CACHE.cards;
+}
 
 async function buildState() {
   ensureDirs();
@@ -2121,7 +2186,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (p === '/api/state' && req.method === 'GET') {
-      sendJson(res, 200, await buildState());
+      const st = await buildState();
+      st.findings = await fetchFindings();
+      sendJson(res, 200, st);
       return;
     }
     if (p === '/api/files' && req.method === 'GET') {

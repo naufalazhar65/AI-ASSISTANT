@@ -58,7 +58,7 @@ Use a warm-paper background, white surfaces, dark ink, and a confident sunny-yel
 | `--surface-soft` | `#F8EEDD` | Quiet wells and secondary regions |
 | `--text` | `#292520` | Primary text and icon ink |
 | `--text-muted` | `#655B50` | Secondary text and labels |
-| `--text-faint` | `#7C7267` | Timestamps and low-priority metadata; never essential information |
+| `--text-faint` | `#73695E` | Timestamps and low-priority metadata; never essential information |
 | `--border` | `#E4D8C8` | Subtle separators and standard input edges |
 | `--border-strong` | `#342D26` | Strong card outlines and emphasis where needed |
 | `--accent` | `#FFBE2E` | Primary action fill and selected-state accent |
@@ -74,6 +74,9 @@ Use a warm-paper background, white surfaces, dark ink, and a confident sunny-yel
 | `--warn-ink` | `#855300` | Warning status text and icon |
 | `--bad-bg` | `#FBE3DE` | Error status background |
 | `--bad-ink` | `#8E3326` | Error status text and icon |
+
+> The CSS keeps the older short names (`--faint`, `--ok`, `--ok-2`, `--warn`, `--warn-2`, `--bad`, `--bad-2`, `--shadow`, `--panel`, `--muted`) as aliases that resolve to these canonical tokens.
+> `--border-strong`, `--teal-soft`, `--coral-soft` and `--lilac-soft` are defined but **reserved**: use them only where a strong outline or a secondary surface genuinely helps. They carry no automatic styling.
 
 These values are proposed AI Office tokens, not official Saweria brand values. Check contrast in the rendered application and tune tokens when required; do not silently replace the palette with ad-hoc colours.
 
@@ -444,6 +447,7 @@ Use two durations as a baseline:
 - Motion should use `opacity` and `transform` where possible to avoid layout work during animation.
 - Do not transform/scale the WebGL canvas as a decorative animation.
 - Opening or closing the chat must not recreate the renderer, reset the camera, or produce unexpected canvas resize/rescale.
+  The chat is a flow column, so docking it narrows the canvas element and the camera aspect follows — the scene stays undistorted, the renderer is never rebuilt and the camera is never reset.
 - A closing panel must stop receiving pointer and screen-reader interaction immediately; remove it after transition completion, with a safe fallback if needed.
 - Do not animate the initial historical message load. Animate only new messages that arrive after the current render.
 - `prefers-reduced-motion: reduce` disables non-essential transitions and animations.
@@ -467,7 +471,7 @@ Verify the existing breakpoints before changing them. Reference behaviour from t
 
 - The chat is docked/open on wide screens.
 - Below approximately `1200px`, the chat becomes a right drawer and is closed by default if that is the established product behaviour.
-- At approximately `420px` and below, the chat may take the full width.
+- The chat takes the full width at `700px` and below (the tested breakpoint in this implementation, so `420px` and below is included) and only bumps the input font size at `420px`.
 - The rail can collapse to its icon-only state.
 - HUD elements wrap or become a bottom sheet on narrow screens rather than being clipped by an invisible horizontal scrollbar.
 - Header items yield low-priority metadata before sacrificing the page title.

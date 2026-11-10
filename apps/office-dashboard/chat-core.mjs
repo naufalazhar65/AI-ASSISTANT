@@ -129,10 +129,36 @@ export function applyBusEvent(cards, ev) {
     return -1;
   };
   const target = () => (callId ? byId(callId) : byName());
+  /* A card for the same tool may already exist under a different id (the
+     server truncates tool_call ids to 64 chars). Prefer it over creating a
+     second card for the same call. */
+  const sameName = () => {
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      const c = list[i];
+      if (c && c.name === name) return i;
+    }
+    return -1;
+  };
   if (ev.type === 'tool_started') {
     if (!callId && !name) return list;
-    const i = target();
-    if (i >= 0) list[i] = { ...list[i], state: 'running', summary: 'Sedang berjalan', at: ev.ts };
+    let i = target();
+    if (i < 0) i = sameName();
+    if (i >= 0) {
+      list[i] = { ...list[i], state: 'running', summary: list[i].summary || toolActionLabel(name), at: ev.ts };
+    } else {
+      /* The first tool call of a turn has no card yet — the card is built from
+         the transcript, which only arrives with the assistant message. The
+         backend DID report the call as started, so the card is created here
+         (DESIGN.md §13: "running" = a real tool_started was confirmed). */
+      list.push({
+        id: callId || name,
+        name: name || 'tool',
+        args: '',
+        state: 'running',
+        summary: toolActionLabel(name),
+        at: ev.ts,
+      });
+    }
     return list;
   }
   if (ev.type === 'tool_called') {
@@ -143,7 +169,9 @@ export function applyBusEvent(cards, ev) {
       list[i] = {
         ...list[i],
         state: ok ? 'succeeded' : 'failed',
-        summary: ok ? 'Selesai' : 'Gagal',
+        /* The state word lives in toolStateMeta(state); `summary` stays the
+           action one-liner (DESIGN.md §13: three distinct fields). */
+        summary: list[i].summary || toolActionLabel(name),
         result: String(ev.summary || '').slice(0, 200),
         at: ev.ts,
       };
@@ -156,7 +184,7 @@ export function applyBusEvent(cards, ev) {
     /* A cancel never overwrites a real outcome: if the tool already produced
        a result, that result is the truth. */
     if (i >= 0 && !isTerminal(list[i].state)) {
-      list[i] = { ...list[i], state: 'cancelled', summary: 'Dibatalkan', result: undefined, at: ev.ts };
+      list[i] = { ...list[i], state: 'cancelled', summary: list[i].summary || toolActionLabel(name), result: undefined, at: ev.ts };
     }
     return list;
   }
@@ -358,9 +386,9 @@ export function dayLabel(at, zone) {
 }
 
 /**
- * Place one separator at the start of each known calendar day. When a legacy
- * history starts with undated messages, anchor its first known day at the start
- * of the transcript so the date does not appear to shift onto a later chat.
+ * Place one separator at the start of each known calendar day. A message
+ * without a timestamp gets NO date: inventing one above undated messages would
+ * date a conversation nobody dated (DESIGN.md §10).
  * Out-of-order messages cannot make a date appear twice.
  */
 export function daySeparatorLabels(messages, stamps, zone) {
@@ -371,18 +399,6 @@ export function daySeparatorLabels(messages, stamps, zone) {
     const stampIndex = Number.isInteger(rows[index]?.index) ? rows[index].index : index;
     return Array.isArray(stamps) ? stamps[stampIndex] : null;
   };
-
-  // Existing office histories predate per-message timestamps. Their opening
-  // messages can be undated while a later message is stamped; anchor the first
-  // known day separator at the start of the conversation instead of letting it
-  // appear to "move" onto the second chat. The message clock remains blank.
-  const firstDatedIndex = rows.findIndex((_, index) => !!dayKey(stampAt(index), zone));
-  if (firstDatedIndex > 0) {
-    const firstStamp = stampAt(firstDatedIndex);
-    const firstKey = dayKey(firstStamp, zone);
-    labels[0] = dayLabel(firstStamp, zone);
-    shownDays.add(firstKey);
-  }
 
   rows.forEach((_, index) => {
     const stamp = stampAt(index);
@@ -456,6 +472,18 @@ export function agentAvailability(status) {
     default:
       return { tone: 'unknown', label: 'Status tidak diketahui' };
   }
+}
+
+/**
+ * The action one-liner of a tool call: the tool's own name, spaced out for
+ * humans ("gmail_list" → "gmail list"). It describes WHAT was called, never
+ * the outcome — the state word lives in toolStateMeta (DESIGN.md §13: summary,
+ * result and detail are three distinct fields).
+ */
+export function toolActionLabel(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return 'tool';
+  return raw.replace(/[_-]+/g, ' ');
 }
 
 /**

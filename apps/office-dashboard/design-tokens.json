@@ -1,8 +1,8 @@
 {
   "name": "AI Office — warm playful-minimal",
-  "version": "1.1.0",
-  "updated": "2026-10-29",
-  "note": "Single source for the CSS custom properties in apps/office-dashboard/index.html. Light is the default; data-theme=\"dark\" is a warm night variant. Canonical tokens first; legacy aliases (panel, panel-2, panel-3, muted, line, line-2, faint, dim, bg2, ok-2, warn-2, bad-2, accent-2, accent-edge) are resolved to their canonical values below.",
+  "version": "1.2.0",
+  "updated": "2026-11-10",
+  "note": "Single source for the CSS custom properties in apps/office-dashboard/index.html. Light is the default; data-theme=\"dark\" is a warm night variant. Canonical tokens first; legacy aliases (panel, panel-2, panel-3, muted, line, line-2, faint, dim, bg2, ok, ok-2, warn, warn-2, bad, bad-2, accent-2, accent-edge) resolve to the canonical value next to them. DESIGN.md §3 requires this file to mirror the implemented CSS custom properties.",
   "color": {
     "bg": "#FFF9F0",
     "surface": "#FFFFFF",
@@ -18,7 +18,8 @@
     "text": "#292520",
     "textMuted": "#655B50",
     "muted": "#655B50",
-    "faint": "#7C7267",
+    "textFaint": "#73695E",
+    "faint": "#73695E",
     "dim": "#655B50",
     "bg2": "#F8EEDD",
     "accent": "#FFBE2E",
@@ -31,11 +32,17 @@
     "accent2": "#FFF1DC",
     "accentEdge": "#E5B343",
     "hudbg": "rgba(255,255,255,.92)",
+    "okInk": "#286044",
     "ok": "#286044",
+    "okBg": "#DDF2E5",
     "ok2": "#DDF2E5",
+    "warnInk": "#855300",
     "warn": "#855300",
+    "warnBg": "#FFF0CE",
     "warn2": "#FFF0CE",
+    "badInk": "#8E3326",
     "bad": "#8E3326",
+    "badBg": "#FBE3DE",
     "bad2": "#FBE3DE",
     "info": "#4c6d88",
     "lav": "#7b5f99",
@@ -56,6 +63,7 @@
     "text": "#F4EEE6",
     "textMuted": "#C6B9AA",
     "muted": "#C6B9AA",
+    "textFaint": "#A99A89",
     "faint": "#A99A89",
     "dim": "#C6B9AA",
     "bg2": "#211C18",
@@ -69,18 +77,24 @@
     "accent2": "#322B25",
     "accentEdge": "#A77920",
     "hudbg": "rgba(39,34,30,.94)",
+    "okInk": "#9BD8B3",
     "ok": "#9BD8B3",
+    "okBg": "#244335",
     "ok2": "#244335",
+    "warnInk": "#F1CB83",
     "warn": "#F1CB83",
+    "warnBg": "#4C3B20",
     "warn2": "#4C3B20",
+    "badInk": "#F0A69A",
     "bad": "#F0A69A",
+    "badBg": "#502C28",
     "bad2": "#502C28",
     "info": "#95b5ce",
     "lav": "#b49bd0",
     "sage": "#9BD8B3"
   },
   "typography": {
-    "fontSans": "Nunito, Avenir Next, Segoe UI Variable Text, Segoe UI, system-ui, -apple-system, Helvetica Neue, sans-serif",
+    "fontSans": "Nunito, Avenir Next, Segoe UI Variable, Segoe UI, system-ui, -apple-system, Helvetica Neue, sans-serif",
     "fontMono": "ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace",
     "scale": {
       "t-2": "11px",
@@ -107,11 +121,12 @@
   },
   "shadow": {
     "soft": "0 8px 22px rgba(55,40,23,.12)",
-    "1": "0 1px 2px rgba(55,40,23,.07)",
-    "2": "0 6px 18px rgba(55,40,23,.11)",
+    "softDark": "0 8px 22px rgba(0,0,0,.38)",
     "offset": "3px 4px 0 rgba(41,37,32,.16)",
+    "offsetDark": "3px 4px 0 rgba(41,37,32,.42)",
     "ring": "0 0 0 3px rgba(255,190,46,.42)",
-    "note": "Soft elevation for floating surfaces; offset shadow reserved for primary/selected expressive components."
+    "ringDark": "0 0 0 3px rgba(255,190,46,.48)",
+    "note": "Exactly two intentional shadow types (DESIGN.md §6): soft for floating surfaces, offset for selected/expressive components. Cards use borders and tints, never a shadow."
   },
   "motion": {
     "duration": "0.15s",
@@ -125,6 +140,7 @@
     "hudWidth": "322px",
     "chatWidth": "340px",
     "contentMax": "1180px",
-    "note": "Starting points from the existing layout; do not force fixed widths if the current code handles the viewport better."
+    "cssVars": { "chatWidth": "--chatw", "contentMax": "--contentmax" },
+    "note": "Starting points from the existing layout; do not force fixed widths if the current code handles the viewport better. The chat panel is docked above 1200px, a right drawer at 1200px and below, and full width at 700px and below."
   }
 }

@@ -55,6 +55,10 @@ import {
 import { agentDisplayName } from "./agentRouting";
 import { allowedWorkspaces, sanitizeUser } from "./users";
 import { detectClearCompletedIntent, detectDeleteTaskIntent } from "./taskIntent";
+// Static import, not require(): the require() interop is dead inside vitest
+// (ESM has no global require), so the try/catch swallowed a ReferenceError and
+// the delete-task intent never fired in tests.
+import { clearCompletedTasks } from "./tasks";
 // Reports are WRITTEN owner-scoped (security.ts resolves the agent suffix before
 // touching disk), so the file-existence checks that decide whether a receipt may
 // name a file must resolve the SAME key — live 2026-10-07 18:57: for user
@@ -2130,10 +2134,7 @@ function scheduleTaskClearFromIntent(messages: ChatMessage[], user: unknown, tex
   if (!lastUser?.content) return text;
   const userText = messageText(lastUser.content);
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { detectClearCompletedIntent } = require("./taskIntent") as typeof import("./taskIntent");
     if (!detectClearCompletedIntent(userText)) return text;
-    const { clearCompletedTasks } = require("./tasks") as typeof import("./tasks");
     const result = clearCompletedTasks(user);
     if (result && !text.includes(result)) {
       return `${(text || "").trimEnd()}\n\n${result}`;
@@ -2143,9 +2144,8 @@ function scheduleTaskClearFromIntent(messages: ChatMessage[], user: unknown, tex
 }
 
 function taskClearToolAlreadyHandled(needs: unknown): boolean {
-  try {
-    return !!(needs as any)?.some?.((c: any) => c.name === "clear_completed_tasks" || c.name === "delete_task");
-  } catch { return false; }
+  const calls = Array.isArray(needs) ? (needs as Array<{ name?: string }>) : [];
+  return calls.some((c) => c?.name === "clear_completed_tasks" || c?.name === "delete_task");
 }
 
 
@@ -7897,7 +7897,7 @@ async function runAssistantTurnImpl(opts: {
   // (mark as done) instead of clear_completed_tasks. The deterministic handler
   // below owns the deletion, so a pending complete_task confirm must not land —
   // or the user confirms a no-op and the task stays in the list.
-  const clearHit = lastUserMsg?.content ? (function() { try { /* eslint-disable-next-line @typescript-eslint/no-require-imports */ const { detectClearCompletedIntent } = require("./taskIntent") as typeof import("./taskIntent"); return detectClearCompletedIntent(messageText(lastUserMsg.content)); } catch { return false; } })() : false;
+  const clearHit = lastUserMsg?.content ? detectClearCompletedIntent(messageText(lastUserMsg.content)) : false;
   if (clearHit && needsConfirmation) {
     needsConfirmation = needsConfirmation.filter((c) => c.name !== "complete_task");
   }

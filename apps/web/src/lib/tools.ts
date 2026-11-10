@@ -6,7 +6,7 @@ import { roleGateRefusal } from "./roleGate";
 import { sanitizeUser, userDataRoot, appRoot, repoRoot, resolveInSandbox, resolveWritePath } from "./users";
 import { asBodyString, asNumber, asStringArray, redactArgsForDisplay } from "./args";
 import { addReminder, readFiredReceipts, readReminders, type Reminder } from "./reminders";
-import { addTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
+import { addTask, clearCompletedTasks, deleteTask, listTasks, rescheduleTask, setTaskStatus } from "./tasks";
 import { listUploads, readUpload } from "./uploads";
 import { addOrMergeAutomation, describeSchedule } from "./automations";
 import { similarity } from "./dupes";
@@ -1185,7 +1185,6 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (args, ctx) => {
       try {
-        const { deleteTask } = require("./tasks") as typeof import("./tasks");
         return deleteTask({ number: args.number, match: args.match }, ctx.rawUser);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "invalid task number"}`;
@@ -1205,7 +1204,6 @@ const toolRegistry: ToolPlugin[] = [
     },
     execute: (args, ctx) => {
       try {
-        const { clearCompletedTasks } = require("./tasks") as typeof import("./tasks");
         return clearCompletedTasks(ctx.rawUser);
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : "clear failed"}`;

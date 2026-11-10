@@ -12,6 +12,7 @@ import {
   parseNdjsonLine,
   parseInboxSummary,
   OFFICE_AGENTS,
+  reportCardsFromFindings,
 } from "./officeChat";
 import type { ChatMessage } from "./agent";
 
@@ -202,7 +203,10 @@ describe("officeChat — execution integrity", () => {
   it("marks a call with no outcome as unknown — never succeeded, never 'will run'", () => {
     const cards = toolCardsFromMessages([proposal([{ id: "call_a", name: "gmail_list" }])]);
     expect(cards[0].state).toBe("unknown");
-    expect(cards[0].summary).toBe(toolStateLabel("unknown"));
+    // The state word lives in the state, not in the summary (DESIGN.md §13):
+    // summary is the action one-liner the person reads.
+    expect(cards[0].summary).toBe("gmail list");
+    expect(cards[0].summary).not.toBe(toolStateLabel("unknown"));
   });
 
   it("keeps the outcome of each call separate when two calls share a name", () => {
@@ -239,7 +243,8 @@ describe("officeChat — execution integrity", () => {
       proposal([{ id: "call_a", name: "gmail_list" }]),
       result("call_a", "3 pesan\nlubang: yok"),
     ]);
-    expect(cards[0].summary).toBe("Selesai");
+    expect(cards[0].summary).toBe("gmail list");
+    expect(cards[0].summary).not.toBe("Selesai");
     expect(cards[0].result).toBe("3 pesan");
     expect(cards[0].detail).toContain("lubang: yok");
   });
@@ -249,7 +254,8 @@ describe("officeChat — execution integrity", () => {
       proposal([{ id: "call_a", name: "gmail_list" }]),
       result("call_a", NO_RESULT),
     ]);
-    expect(cards[0].summary).toBe(toolStateLabel("unknown"));
+    expect(cards[0].summary).toBe("gmail list");
+    expect(cards[0].summary).not.toBe(toolStateLabel("unknown"));
     expect(cards[0].summary).not.toContain("Not executed");
     expect(cards[0].result).toBeUndefined();
   });
@@ -349,5 +355,47 @@ describe("tool cards — the inbox result belongs to the call that produced it",
       result("call_a", INBOX_TEXT),
     ]);
     expect(cards[0].inbox).toBeUndefined();
+  });
+});
+
+describe("report cards from findings (DESIGN.md §14)", () => {
+  it("keeps evidence, source, confidence, remediation and verification separable", () => {
+    const cards = reportCardsFromFindings([
+      {
+        id: "F1",
+        title: "SQLi di /api/cari-berita",
+        severity: "critical",
+        cvss: 9.8,
+        target: "https://lab.example",
+        evidence: "payload UNION SELECT mengembalikan baris user",
+        expected: "401",
+        actual: "200 + 12 baris",
+        remediation: "Gunakan query berparameter",
+        status: "open",
+      },
+    ]);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].source).toBe("https://lab.example");
+    expect(cards[0].evidence).toContain("UNION SELECT");
+    expect(cards[0].remediation).toBe("Gunakan query berparameter");
+    expect(cards[0].confidence).toBe("verified");
+    expect(cards[0].verification).toContain("Expected vs actual");
+  });
+
+  it("never invents confidence: evidence only is observed, nothing is unverified", () => {
+    const cards = reportCardsFromFindings([
+      { id: "F2", title: "Header hilang", severity: "low", target: "https://lab.example", evidence: "no-store tidak ada" },
+      { id: "F3", title: "Tanpa bukti", severity: "low", target: "https://lab.example" },
+    ]);
+    expect(cards[0].confidence).toBe("observed");
+    expect(cards[0].verification).not.toContain("Expected vs actual");
+    expect(cards[1].confidence).toBe("unverified");
+    expect(cards[1].verification).not.toContain("Expected vs actual");
+    expect(cards[1].evidence).toContain("belum ada bukti");
+  });
+
+  it("returns an empty list for a non-array input", () => {
+    expect(reportCardsFromFindings(null)).toEqual([]);
+    expect(reportCardsFromFindings("nope")).toEqual([]);
   });
 });

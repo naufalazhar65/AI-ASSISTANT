@@ -275,7 +275,7 @@ export function toolCardsFromMessages(messages: ChatMessage[], opts: ToolCardOpt
           name,
           args: summarizeToolArgs(c.function?.arguments),
           state,
-          summary: toolStateLabel(state),
+          summary: toolActionSummary(name),
         });
       }
       continue;
@@ -286,7 +286,9 @@ export function toolCardsFromMessages(messages: ChatMessage[], opts: ToolCardOpt
       const text = typeof m.content === "string" ? m.content : "";
       const state = cancelled.has(card.id) ? "cancelled" : toolResultState(text);
       card.state = state;
-      card.summary = toolStateLabel(state);
+      /* `summary` stays the action one-liner (DESIGN.md §13: summary, result
+         and detail are three distinct fields); the state word lives in
+         toolStateLabel. */
       // The raw provider text is a DIAGNOSTIC. It goes to `detail` (collapsed);
       // the card body only shows the short, human-readable first line.
       card.detail = sanitizeToolOutput(text);
@@ -305,7 +307,6 @@ export function toolCardsFromMessages(messages: ChatMessage[], opts: ToolCardOpt
   for (const card of cards.values()) {
     if (cancelled.has(card.id) && card.state !== "succeeded") {
       card.state = "cancelled";
-      card.summary = toolStateLabel("cancelled");
       card.result = undefined;
     }
   }
@@ -315,10 +316,21 @@ export function toolCardsFromMessages(messages: ChatMessage[], opts: ToolCardOpt
   for (const card of cards.values()) {
     if (card.state === "queued" && final && !pending.has(card.id)) {
       card.state = "unknown";
-      card.summary = toolStateLabel("unknown");
     }
   }
   return [...cards.values()];
+}
+
+/**
+ * The action one-liner of a tool call: the tool's own name, spaced out for
+ * humans ("gmail_list" → "gmail list"). It never claims an outcome — the state
+ * word lives in toolStateLabel (DESIGN.md §13: summary, result and detail are
+ * three distinct fields).
+ */
+export function toolActionSummary(name: string): string {
+  const raw = String(name || "").trim();
+  if (!raw) return "tool";
+  return raw.replace(/[_-]+/g, " ");
 }
 
 /** Human label for a lifecycle state (Indonesian, UI copy). */
@@ -353,4 +365,62 @@ export function parseNdjsonLine(line: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+/* ─────────────────────────── security report cards (DESIGN.md §14) ─────────────────────────── */
+
+export type ReportCard = {
+  id: string;
+  title: string;
+  severity: string;
+  cvss: number | null;
+  source: string;
+  evidence: string;
+  confidence: string;
+  remediation: string;
+  verification: string;
+  status: string;
+  owasp: string;
+  cwe: string;
+  expected: string;
+  actual: string;
+};
+
+/**
+ * Turn security findings into report cards.
+ *
+ * DESIGN.md §14: a report card holds the REPORT OBJECT, and evidence, source,
+ * confidence, remediation and verification must stay distinguishable. The
+ * confidence is derived from the proof that is actually on record — never
+ * invented: expected+actual = verified, evidence only = observed, neither =
+ * unverified.
+ */
+export function reportCardsFromFindings(list: unknown): ReportCard[] {
+  const rows = Array.isArray(list) ? (list as Array<Record<string, unknown>>) : [];
+  return rows.map((f) => {
+    const text = (k: string): string => String(f?.[k] ?? "").trim();
+    const expected = text("expected");
+    const actual = text("actual");
+    const evidence = text("evidence");
+    const proven = Boolean(expected && actual);
+    return {
+      id: text("id"),
+      title: text("title") || "Tanpa judul",
+      severity: text("severity") || "unknown",
+      cvss: typeof f?.cvss === "number" ? f.cvss : null,
+      source: text("target") || "tidak diketahui",
+      evidence: evidence || "belum ada bukti terekam",
+      confidence: proven ? "verified" : evidence ? "observed" : "unverified",
+      remediation: text("remediation") || "belum ada usulan perbaikan",
+      verification: proven
+        ? "Expected vs actual tercatat — bisa direproduksi"
+        : evidence
+          ? "Evidence terekam, belum ada perbandingan expected/actual"
+          : "Belum ada bukti yang terekam",
+      status: text("status") || "open",
+      owasp: text("owasp"),
+      cwe: text("cwe"),
+      expected,
+      actual,
+    };
+  });
 }

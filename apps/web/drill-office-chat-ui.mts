@@ -91,8 +91,15 @@ function cleanupDrillNote(): void {
   // conversation. The send-time stamps are aligned with the messages, so
   // they are dropped by the same index.
   try {
-    const sessions = join(ROOT, "apps/web/.data/users/naufalazhar652952/sessions");
-    if (existsSync(sessions)) {
+    const userRoot = join(ROOT, "apps/web/.data/users/naufalazhar652952");
+    // The office transcripts live in their own collections
+    // (sessions-office-<agent>/) since the transcript-isolation work; the
+    // legacy sessions/ folder still holds the web app's own sessions.
+    const sessionDirs = ["sessions"]
+      .concat(readdirSync(userRoot).filter((d) => /^sessions-office-/.test(d)))
+      .map((d) => join(userRoot, d));
+    for (const sessions of sessionDirs) {
+      if (!existsSync(sessions)) continue;
       for (const name of readdirSync(sessions)) {
         if (!/^office-.*\.json$/.test(name)) continue;
         const file = join(sessions, name);
@@ -148,6 +155,25 @@ function token(): string {
 }
 
 /** Open the sidebar and wait until it is actually laid out (retry-safe). */
+/**
+ * Wait until the drill's own turn is persisted in the owner's office session.
+ * The app debounces its session write, so a reload before the write lands
+ * loses the turn and the "history reloaded from the server" check would
+ * measure an empty history instead of persistence.
+ */
+async function waitForSessionTurn(marker: string): Promise<void> {
+  const file = join(ROOT, "apps/web/.data/users/naufalazhar652952/sessions-office-mia/office-mia.json");
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    try {
+      if (existsSync(file) && readFileSync(file, "utf8").includes(marker)) return;
+    } catch {
+      /* the file may be rewritten mid-read; retry until the deadline */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+}
+
 async function openPanel(page: import("playwright").Page): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const open = await page.evaluate(() => {
@@ -541,6 +567,7 @@ async function main(): Promise<void> {
     page.evaluate(() =>
       [...document.querySelectorAll("#chatLog .msg")].filter((m) => m.querySelector(".msgBody p")).length,
     );
+  await waitForSessionTurn(marker);
   const before = await bubbles();
   await page.reload({ waitUntil: "commit" });
   await page.waitForSelector("#chatToggle", { timeout: 60000 });
@@ -550,7 +577,12 @@ async function main(): Promise<void> {
   // settle before counting.
   await page.waitForTimeout(400);
   const after = await bubbles();
-  check("history reloaded from the server", after >= before && after >= 2, `before=${before} after=${after}`);
+  const kept = await page.evaluate((m) => document.body.innerText.includes(m), marker);
+  check(
+    "history reloaded from the server",
+    after >= before && after >= 1 && kept,
+    `before=${before} after=${after} kept=${kept}`,
+  );
 
   // 8. tool lifecycle + approval card (real write tool → real FR-014 pause)
   //

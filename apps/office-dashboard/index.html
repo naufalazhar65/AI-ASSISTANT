@@ -26,25 +26,26 @@
     --panel:var(--surface); --panel-2:var(--surface-alt); --panel-3:var(--surface-soft);
     --border:#E4D8C8; --border-strong:#342D26; --line:var(--border); --line-2:#D5C4AE;
     --text:#292520; --text-muted:#655B50; --muted:var(--text-muted);
-    --faint:#7C7267; --dim:#655B50; --bg2:#F8EEDD;
+    /* DESIGN.md 4.1 name is --text-faint; --faint stays as the legacy alias. */
+    --text-faint:#73695E; --faint:var(--text-faint); --dim:#655B50; --bg2:#F8EEDD;
     --accent:#FFBE2E; --accent-ink:#302309; --accent-secondary:#F39A45;
     --accent-secondary-ink:#38200B; --teal-soft:#BFE8E3; --coral-soft:#F5B8B1;
     --lilac-soft:#D9CCF2; --accent-2:var(--surface-alt); --accent-edge:#E5B343;
     /* Status hues describe real operational state only. */
-    --ok:#286044; --ok-2:#DDF2E5;
-    --warn:#855300; --warn-2:#FFF0CE;
-    --bad:#8E3326; --bad-2:#FBE3DE;
-    --info:#4c6d88; --lav:#7b5f99; --sage:#286044;
+    --ok-ink:#286044; --ok:var(--ok-ink); --ok-bg:#DDF2E5; --ok-2:var(--ok-bg);
+    --warn-ink:#855300; --warn:var(--warn-ink); --warn-bg:#FFF0CE; --warn-2:var(--warn-bg);
+    --bad-ink:#8E3326; --bad:var(--bad-ink); --bad-bg:#FBE3DE; --bad-2:var(--bad-bg);
     /* Quiet elevation; the offset treatment is reserved for primary actions. */
-    --shadow:0 8px 22px rgba(55,40,23,.12);
-    --shadow-1:0 1px 2px rgba(55,40,23,.07);
-    --shadow-2:0 6px 18px rgba(55,40,23,.11);
+    /* DESIGN.md 6: exactly two intentional shadows — soft (floating) + offset
+       (selected). Everything else separates with border or tint. */
+    --shadow-soft:0 8px 22px rgba(55,40,23,.12); --shadow:var(--shadow-soft);
     --shadow-offset:3px 4px 0 rgba(41,37,32,.16);
     --ring:0 0 0 3px rgba(255,190,46,.42);
     --dur:.15s; --sbw:60px; --hudbg:rgba(255,255,255,.92); --hudw:322px;
+    --chatw:340px; --contentmax:1180px;
     /* motion — one duration, one curve; panels arrive instead of jumping */
     --motion:.19s; --ease:cubic-bezier(.22,.61,.36,1);
-    --font: "Nunito", "Avenir Next", "Segoe UI Variable Text", "Segoe UI",
+    --font: "Nunito", "Avenir Next", "Segoe UI Variable", "Segoe UI",
       system-ui, -apple-system, "Helvetica Neue", sans-serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
@@ -54,17 +55,14 @@
     --panel:var(--surface); --panel-2:var(--surface-alt); --panel-3:var(--surface-soft);
     --border:#4B4036; --border-strong:#E7D9C8; --line:var(--border); --line-2:#66584A;
     --text:#F4EEE6; --text-muted:#C6B9AA; --muted:var(--text-muted);
-    --faint:#A99A89; --dim:#C6B9AA; --bg2:#211C18;
+    --text-faint:#A99A89; --faint:var(--text-faint); --dim:#C6B9AA; --bg2:#211C18;
     --accent:#FFBE2E; --accent-ink:#302309; --accent-secondary:#F39A45;
     --accent-secondary-ink:#38200B; --teal-soft:#284B47; --coral-soft:#54342F;
     --lilac-soft:#443952; --accent-2:var(--surface-alt); --accent-edge:#A77920;
-    --ok:#9BD8B3; --ok-2:#244335;
-    --warn:#F1CB83; --warn-2:#4C3B20;
-    --bad:#F0A69A; --bad-2:#502C28;
-    --info:#95b5ce; --lav:#b49bd0; --sage:#9BD8B3;
-    --shadow:0 8px 22px rgba(0,0,0,.38);
-    --shadow-1:0 1px 2px rgba(0,0,0,.28);
-    --shadow-2:0 6px 18px rgba(0,0,0,.32);
+    --ok-ink:#9BD8B3; --ok:var(--ok-ink); --ok-bg:#244335; --ok-2:var(--ok-bg);
+    --warn-ink:#F1CB83; --warn:var(--warn-ink); --warn-bg:#4C3B20; --warn-2:var(--warn-bg);
+    --bad-ink:#F0A69A; --bad:var(--bad-ink); --bad-bg:#502C28; --bad-2:var(--bad-bg);
+    --shadow-soft:0 8px 22px rgba(0,0,0,.38); --shadow:var(--shadow-soft);
     --shadow-offset:3px 4px 0 rgba(0,0,0,.42);
     --ring:0 0 0 3px rgba(255,190,46,.48);
     --hudbg:rgba(39,34,30,.94);
@@ -89,12 +87,13 @@
   aside{flex:0 0 var(--sbw);width:var(--sbw);background:var(--panel-2);
     border-right:1px solid var(--line);display:flex;flex-direction:column;
     padding:var(--s4) var(--s3) var(--s3);gap:var(--s1);overflow-y:auto;overflow-x:hidden;
-    transition:flex-basis .2s ease,width .2s ease,transform var(--motion) var(--ease)}
+    transition:flex-basis var(--motion) var(--ease),width var(--motion) var(--ease),
+      transform var(--motion) var(--ease)}
   body.sbopen{--sbw:248px}
   .brand{padding:var(--s2) var(--s2) var(--s5);display:flex;align-items:center;gap:var(--s3);
     white-space:nowrap}
   /* Identity mark — an original little desk-and-plant glyph, flat warm colour. */
-  .brand .mark{width:26px;height:26px;flex:0 0 26px;border-radius:9px;
+  .brand .mark{width:26px;height:26px;flex:0 0 26px;border-radius:var(--r-xs);
     background:var(--accent-2);border:1px solid var(--accent-edge);
     display:flex;align-items:center;justify-content:center;color:var(--text)}
   .brand .mark svg{width:16px;height:16px;display:block}
@@ -103,7 +102,7 @@
   .brand small{display:block;color:var(--muted);font-size:var(--t-2);letter-spacing:.02em;
     margin-top:1px}
   /* Connection dot — real state only. */
-  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--sage);
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--ok-ink);
     flex:0 0 8px;box-shadow:0 0 0 3px rgba(127,174,155,.16);margin-left:auto}
   .brand .dot.off{background:var(--bad);box-shadow:0 0 0 3px rgba(224,115,111,.16)}
   nav{display:flex;flex-direction:column;gap:2px}
@@ -119,7 +118,7 @@
   nav button .ic{width:18px;height:18px;flex:0 0 18px;color:var(--faint);
     display:flex;transition:color var(--dur)}
   nav button .ic svg{width:18px;height:18px;display:block;fill:none;stroke:currentColor;
-    stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+    stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
   nav button:hover .ic,nav button.on .ic{color:var(--text)}
   nav button .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .nvgroup{font-size:var(--t-2);letter-spacing:.14em;text-transform:uppercase;
@@ -137,11 +136,11 @@
     /* Group headings become hairlines, so the collapsed rail still reads as
        four groups instead of ten loose glyphs. */
     body:not(.sbopen) aside .nvgroup{font-size:0;line-height:0;height:1px;width:24px;
-      padding:0;margin:10px auto 8px;background:var(--line-2);border-radius:1px}
+      padding:0;margin:10px auto 8px;background:var(--line-2);border-radius:var(--r-xs)}
     body:not(.sbopen) aside .brand span,
     body:not(.sbopen) aside .brand .who{display:none}
     body:not(.sbopen) nav button{justify-content:center;padding:0;width:38px;height:38px;
-      margin:0 auto;border-radius:11px}
+      margin:0 auto;border-radius:var(--r-sm)}
     body:not(.sbopen) nav button.on{background:var(--accent);color:var(--accent-ink);
       box-shadow:var(--shadow-offset)}
     body:not(.sbopen) nav button.on .ic{color:var(--accent-ink)}
@@ -204,9 +203,12 @@
   .btn.warn:hover{border-color:var(--warn);background:var(--warn-2);color:var(--warn)}
   .btn.ok{border-color:var(--ok-2);color:var(--ok);background:var(--ok-2)}
   .btn.ok:hover{border-color:var(--ok);background:var(--ok-2);color:var(--ok)}
-  .btn.vb{padding:6px 10px;font-size:var(--t-1)}
+  /* Tertiary — low-priority controls: no filled surface, no border until hover. */
+  .btn.vb{padding:6px 10px;font-size:var(--t-1);
+    background:transparent;border-color:transparent;color:var(--muted)}
+  .btn.vb:hover{background:var(--accent-2);border-color:var(--accent-edge);color:var(--text)}
   /* Icon-only control: a square plate, one glyph, no text. */
-  .btn.ico{width:30px;height:30px;min-width:30px;padding:0;gap:0}
+  .btn.ico{width:36px;height:36px;min-width:36px;padding:0;gap:0}
   .btn.ico .ib{width:16px;height:16px;display:block}
   /* Dispatch is a state toggle, not a call to action: tint, never a filled slab. */
   #dispatchBtn[data-state="paused"]{color:var(--warn);border-color:var(--warn-2)}
@@ -241,15 +243,28 @@
   .seg button+button{border-left:1px solid var(--line)}
   .seg button:hover{color:var(--text);background:var(--panel-3)}
   .seg button.on{background:var(--accent-2);color:var(--text);font-weight:650}
+  /* A badge that carries an icon must not also carry the status dot. */
+  .badge.ico::before{content:none}
+  .badge.ico{display:inline-flex;align-items:center;gap:5px}
+  .badge.ico .ib{width:13px;height:13px;display:block}
   .card{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-md);
-    padding:var(--s5);box-shadow:var(--shadow-1)}
-  .card h3,.secH{margin:0 0 var(--s3);font-size:var(--t-2);letter-spacing:.1em;
+    padding:var(--s5)}
+  .card h2,.secH{margin:0 0 var(--s3);font-size:var(--t-2);letter-spacing:.1em;
     text-transform:uppercase;color:var(--muted);font-weight:700}
   .kv{display:flex;justify-content:space-between;gap:var(--s4);padding:9px 0;
     border-bottom:1px solid var(--line);font-size:var(--t0)}
   .kv:last-child{border-bottom:0}
   .kv span:first-child{color:var(--muted);white-space:nowrap;flex:0 0 auto}
   .kv span:last-child{color:var(--text);text-align:right;word-break:break-word}
+  /* A report card holds the report OBJECT: long evidence and remediation get
+     their own left-aligned, scrollable block instead of a right-aligned
+     paragraph that fills the card (DESIGN.md §10, §14). */
+  .repBlock{display:grid;grid-template-columns:minmax(80px,120px) 1fr;gap:var(--s4);
+    padding:9px 0;border-bottom:1px solid var(--line-2)}
+  .repBlock .k{color:var(--muted);white-space:nowrap}
+  .repBlock .v{color:var(--text);text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;
+    max-height:170px;overflow:auto;font-size:var(--t-1);line-height:1.55}
+  .repBlock:last-child{border-bottom:0}
   .note{font-size:var(--t-1);color:var(--muted);line-height:1.6;margin-top:var(--s2)}
   .err{color:var(--bad);font-size:var(--t-1);margin-top:var(--s2);min-height:16px}
   /* Empty state — soft dashed well with a tiny warm mark, not a cold void. */
@@ -271,7 +286,7 @@
   section.view{flex:1;min-height:0;overflow:auto;padding:var(--s4);background:var(--bg)}
   section.view.hide{display:none}
   section.view:not(.hide){padding:var(--s6) var(--s6) var(--s10)}
-  section.view:not(.hide)>*{max-width:1180px;margin-left:auto;margin-right:auto}
+  section.view:not(.hide)>*{max-width:var(--contentmax);margin-left:auto;margin-right:auto}
   /* The 3D stage and the docked panel must stretch across the whole section. */
   section.view:not(.hide)>#office,
   section.view:not(.hide)>.hud{max-width:none;margin-left:0;margin-right:0}
@@ -284,8 +299,9 @@
   .g2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
   .stats{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
     margin-bottom:var(--s5);align-items:stretch}
-  .stat{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-md);
-    padding:var(--s4) var(--s5);box-shadow:var(--shadow-1);
+  /* A metric is a column in a table, not a card (DESIGN.md §2.3). */
+  .stat{background:transparent;border:0;border-top:2px solid var(--line-2);border-radius:0;
+    padding:var(--s3) var(--s2) var(--s4);
     display:flex;flex-direction:column}
   .stat .k{font-size:var(--t-2);letter-spacing:.1em;text-transform:uppercase;
     color:var(--muted);font-weight:650}
@@ -293,12 +309,12 @@
     font-variant-numeric:tabular-nums;letter-spacing:-.01em}
   .stat .s{font-size:var(--t-1);color:var(--muted);margin-top:var(--s2)}
   .big{font-size:var(--t4);font-weight:750;letter-spacing:-.02em}
-  .bar{height:7px;border-radius:4px;background:var(--panel-3);overflow:hidden;margin-top:var(--s2)}
-  .bar i{display:block;height:100%;border-radius:4px;background:var(--accent)}
+  .bar{height:7px;border-radius:var(--r-xs);background:var(--panel-3);overflow:hidden;margin-top:var(--s2)}
+  .bar i{display:block;height:100%;border-radius:var(--r-xs);background:var(--accent)}
   .bar i.danger{background:var(--bad)}
   .bars{display:flex;align-items:flex-end;gap:2px;height:82px;padding-top:var(--s1)}
   .bars i{flex:1 1 0;min-width:2px;min-height:1px;background:var(--accent);opacity:.38;
-    border-radius:3px 3px 0 0;transition:opacity var(--dur)}
+    border-radius:var(--r-xs) var(--r-xs) 0 0;transition:opacity var(--dur)}
   .bars i:hover{opacity:.7}
   .bars i.hi{opacity:1}
   .bars i.zero{opacity:.12}
@@ -306,8 +322,8 @@
   .rank{display:grid;gap:var(--s2)}
   .rank .r{display:grid;grid-template-columns:1fr 74px 46px;gap:var(--s3);align-items:center;
     font-size:var(--t-1)}
-  .rank .r .t{height:7px;border-radius:4px;background:var(--panel-3);overflow:hidden}
-  .rank .r .t i{display:block;height:100%;background:var(--accent);border-radius:4px}
+  .rank .r .t{height:7px;border-radius:var(--r-xs);background:var(--panel-3);overflow:hidden}
+  .rank .r .t i{display:block;height:100%;background:var(--accent);border-radius:var(--r-xs)}
   .rank .r .n{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
   table{width:100%;border-collapse:collapse;font-size:var(--t-1)}
   th{text-align:left;color:var(--muted);font-weight:650;text-transform:uppercase;
@@ -325,8 +341,9 @@
   .lane h4{margin:0 0 var(--s3);font-size:var(--t-2);letter-spacing:.1em;
     text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;
     gap:8px;font-weight:700}
-  .tk{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);
-    padding:11px 13px;margin-bottom:var(--s2);font-size:var(--t-1);min-width:0}
+  /* Task rows use a surface tint, not a card each (DESIGN.md §9). */
+  .tk{background:var(--panel-2);border:0;border-radius:var(--r-sm);
+    padding:10px 12px;margin-bottom:var(--s2);font-size:var(--t-1);min-width:0}
   .tk .ttl{font-weight:650;margin-bottom:5px;color:var(--text);overflow-wrap:anywhere}
   .tk .excerpt{font-size:var(--t-2);color:var(--muted);margin-top:5px;line-height:1.45;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
@@ -344,7 +361,7 @@
   .tree .r .sz{margin-left:auto;color:var(--faint);font-size:var(--t-2)}
   .doc{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r-md);
     padding:var(--s4);max-height:calc(100dvh - 230px);overflow:auto;white-space:pre-wrap;
-    word-break:break-word;font:12.5px/1.7 var(--mono);
+    word-break:break-word;font:var(--t-1)/1.7 var(--mono);
     color:var(--muted)}
   .dochead{display:flex;gap:var(--s2);align-items:center;flex-wrap:wrap;margin-bottom:var(--s3)}
   .src{display:flex;gap:var(--s3);align-items:baseline;padding:11px 0;
@@ -361,8 +378,7 @@
   .logline{display:grid;grid-template-columns:78px 74px 62px 1fr;gap:var(--s2);padding:3px 0;
     border-bottom:1px solid var(--line)}
   .logline .t{color:var(--faint);font-variant-numeric:tabular-nums}
-  .logline .a{color:var(--info)}
-  .logline .a.agnes{color:var(--sage)} .logline .a.michelle{color:var(--lav)}
+  .logline .a{color:var(--text)}
   .logline .m{color:var(--muted);word-break:break-word}
   .lv{font-size:var(--t-2);text-transform:uppercase;letter-spacing:.08em;
     font-weight:650;color:var(--muted)}
@@ -386,11 +402,11 @@
   /* Lane header: a status dot carries the colour, the word carries the name. */
   .laneDot{display:inline-block;width:8px;height:8px;border-radius:50%;
     margin-right:7px;background:var(--muted);vertical-align:1px}
-  .laneDot.q{background:var(--warn)} .laneDot.w{background:var(--info)}
+  .laneDot.q{background:var(--warn)} .laneDot.w{background:var(--accent)}
   .laneDot.d{background:var(--ok)} .laneDot.f{background:var(--bad)}
   /* Board card lifts a hair on hover — the board reads as a pile of work. */
-  .tk{transition:transform var(--dur) var(--ease),box-shadow var(--dur)}
-  .tk:hover{transform:translateY(-1px);box-shadow:var(--shadow-2)}
+  .tk{transition:transform var(--dur) var(--ease)}
+  .tk:hover{transform:translateY(-1px)}
   /* Folder marker: a drawn chevron, not a dingbat from a font. */
   .tree .chev{width:0;height:0;flex:0 0 auto;margin-right:7px;display:inline-block;
     border-left:5px solid currentColor;border-top:4px solid transparent;
@@ -419,7 +435,7 @@
     align-items:center;min-width:0;max-width:100%;
     background:var(--hudbg);border:1px solid var(--line);border-radius:var(--r-md);
     padding:5px 7px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-    box-shadow:var(--shadow-2)}
+    box-shadow:var(--shadow-soft)}
   .ovlBottom .sp{display:none}
   .ovlBottom .btn{flex:0 0 auto;margin-left:auto;background:transparent;
     border-color:var(--line);color:var(--muted)}
@@ -430,7 +446,7 @@
   .sceneBar{pointer-events:auto;display:inline-flex;gap:var(--s1);align-items:center;
     max-width:100%;padding:5px;border:1px solid var(--line);border-radius:var(--r-md);
     background:var(--hudbg);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-    box-shadow:var(--shadow-2)}
+    box-shadow:var(--shadow-soft)}
   .sceneBar .sep{width:1px;align-self:stretch;background:var(--line);margin:2px 3px}
   .sceneBar .btn{background:var(--panel);border-color:var(--line);color:var(--muted)}
   .sceneBar .btn:hover{background:var(--accent-2);border-color:var(--accent-edge);
@@ -445,7 +461,7 @@
   .menuList{position:absolute;top:calc(100% + 6px);left:0;z-index:30;display:none;
     flex-direction:column;align-items:stretch;gap:4px;min-width:168px;
     background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r-md);
-    padding:6px;box-shadow:var(--shadow-2)}
+    padding:6px;box-shadow:var(--shadow-soft)}
   details.menu[open] > .menuList{display:flex}
   .menuList .btn{justify-content:flex-start;width:100%}
   /* Room chips wrap instead of hiding behind a scrollbar: a clipped toolbar
@@ -463,7 +479,7 @@
   #ovlStatus{pointer-events:auto;display:flex;gap:var(--s1);flex-wrap:wrap;
     align-items:center;align-content:flex-start;min-width:0;max-width:100%;
     flex:1 1 auto}
-  #ovlStatus .pill{font-size:11.5px;letter-spacing:.02em;flex:0 1 auto;min-width:0;
+  #ovlStatus .pill{font-size:var(--t-2);letter-spacing:.02em;flex:0 1 auto;min-width:0;
     max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     padding:3px 8px;background:transparent;border-color:transparent}
   #ovlStatus .pill i{width:7px;height:7px;border-radius:50%;flex:0 0 7px;
@@ -490,16 +506,13 @@
     border-radius:var(--r-sm);padding:5px 9px 5px 8px;min-width:96px;max-width:190px;
     font-size:var(--t-1);white-space:nowrap;line-height:1.4;
     backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
-    box-shadow:var(--shadow-1);transition:border-color var(--dur),background var(--dur)}
+    transition:border-color var(--dur),background var(--dur)}
   .tagLbl:hover{border-color:var(--accent-edge);background:var(--panel)}
   .tagLbl.sel{border-color:var(--accent);background:var(--accent-2);
-    box-shadow:0 0 0 1px var(--accent-edge),var(--shadow-2)}
+    box-shadow:var(--shadow-offset)}
   .tagLbl b{font-weight:700;font-size:var(--t0);color:var(--text)}
   .tagLbl.sel b{color:var(--text)}
   .tagLbl .tRow{display:flex;align-items:center;gap:6px}
-  .tagLbl .tRole{color:var(--muted);font-size:var(--t-2);letter-spacing:.02em;
-    overflow:hidden;text-overflow:ellipsis}
-  .tagLbl .tRoom{color:var(--faint);font-size:var(--t-2)}
   .tagLbl small{display:block;color:var(--muted);font-size:var(--t-2);margin-top:2px;
     max-width:160px;overflow:hidden;text-overflow:ellipsis}
   .tagLbl .tProv{display:none}
@@ -529,8 +542,7 @@
     color:var(--muted);background:transparent;border:1px solid transparent;
     border-radius:var(--r-xs);padding:5px 12px;cursor:pointer}
   .hudTab:hover{color:var(--text);background:var(--panel-3)}
-  .hudTab.on{color:var(--text);border-color:var(--accent-edge);background:var(--panel);
-    box-shadow:var(--shadow-1)}
+  .hudTab.on{color:var(--text);border-color:var(--accent-edge);background:var(--panel)}
   .hudPane{display:grid;gap:var(--s3);grid-template-columns:1fr;align-content:start;
     padding:var(--s4);overflow:auto;flex:1;min-height:0}
   /* Three agents in a 322px column: one per row. Two columns left half a
@@ -540,7 +552,7 @@
     align-items:center;font-size:var(--t-1);color:var(--muted)}
   .hudCard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
     padding:12px 14px;text-align:left;width:100%;color:inherit;font:inherit;cursor:pointer;
-    box-shadow:var(--shadow-1);transition:border-color var(--dur),background var(--dur)}
+    transition:border-color var(--dur),background var(--dur)}
   button.hudCard:hover{border-color:var(--accent-edge);background:var(--accent-2)}
   .hudCard.sel{border-color:var(--accent);background:var(--accent-2);
     box-shadow:inset 0 0 0 1px var(--accent-edge)}
@@ -572,7 +584,7 @@
   .modalBg.on{display:flex}
   .modal{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);
     padding:var(--s6);max-width:560px;width:100%;box-shadow:var(--shadow)}
-  .modal h3{margin:0 0 var(--s3);font-size:var(--t1);font-weight:700;color:var(--text)}
+  .modal h2{margin:0 0 var(--s3);font-size:var(--t1);font-weight:700;color:var(--text)}
   textarea{width:100%;min-height:110px;resize:vertical}
   .modalRow{display:flex;gap:var(--s2);justify-content:flex-end;margin-top:var(--s4)}
 
@@ -604,7 +616,7 @@
        panel is still there while it travels and disappears exactly when it
        has left the screen. */
     body:not(.sbopen) aside{transform:translateX(-102%);visibility:hidden;flex-basis:248px;
-      transition:flex-basis var(--dur) ease,width var(--dur) ease,
+      transition:flex-basis var(--dur) var(--ease),width var(--dur) var(--ease),
         transform var(--motion) var(--ease),visibility 0s linear var(--motion)}
     body:not(.sbopen) aside .lbl,
     body:not(.sbopen) aside .nvgroup,
@@ -664,7 +676,7 @@
   .modalBg.on{animation:miaFade var(--motion) var(--ease)}
   .modalBg.on .modal{animation:miaPopIn var(--motion) var(--ease)}
   /* The scene menu opens from the button it belongs to. */
-  details.menu[open] > .menuList{animation:miaPopIn .14s var(--ease);
+  details.menu[open] > .menuList{animation:miaPopIn var(--dur) var(--ease);
     transform-origin:top left}
 
   @media (prefers-reduced-motion:reduce){
@@ -672,7 +684,9 @@
       transition-duration:.001ms !important;scroll-behavior:auto !important}
   }
   @media (forced-colors:active){
-    .pill,.btn,.badge,.card,.hudCard,.lane{border-color:CanvasText}
+    .pill,.btn,.badge,.card,.hudCard,.lane,.seg,.seg button,.tool,.tk,.logline,.hudTab,.inp,.chatInput,.chatTab,.msg,.approval,.tagLbl{border-color:CanvasText}
+    /* forced colours drop box-shadow, so the focus ring would vanish - keep an outline. */
+    :where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid Highlight;outline-offset:1px}
     .tDot{forced-color-adjust:none}
   }
 
@@ -699,11 +713,16 @@
 <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.4l10 6.6-10 6.6z" fill="currentColor" stroke="none"/></symbol>
 <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19.5V5"/><path d="M6.5 11.5 12 5.5l5.5 6"/></symbol>
 <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9.2" y="3" width="5.6" height="11" rx="2.8"/><path d="M5.6 11.5a6.4 6.4 0 0 0 12.8 0"/><path d="M12 18v3"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+<symbol id="i-fail" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
+<symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M7 4h10M7 20h10M8 4c0 4 4 5.5 4 8s-4 4-4 8M16 4c0 4-4 5.5-4 8s4 4 4 8"/></symbol>
+<symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3.5 13.5h4l1.5 3h6l1.5-3h4"/><path d="M5.6 5.4h12.8l2.1 8.1v4a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5v-4z"/></symbol>
+<symbol id="i-findings" viewBox="0 0 24 24"><path d="M12 3.5l7 2.5v5.2c0 4-2.9 7.6-7 9.3-4.1-1.7-7-5.3-7-9.3V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
 </defs></svg>
 <div id="app">
   <aside>
     <div class="brand">
-      <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2.5"/><path d="M8 20h8"/><path d="M12 16v4"/></svg></span>
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2.5"/><path d="M8 20h8"/><path d="M12 16v4"/></svg></span>
       <span class="who"><b>AI Office</b><small>Mia · Agnes · Michelle</small></span>
       <span class="dot" id="connDot" title="Koneksi API"></span>
     </div>
@@ -717,7 +736,7 @@
 
   <main>
     <header>
-      <button class="btn vb ico" id="burger" aria-label="Buka / tutup menu" aria-expanded="false" title="Menu"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-menu"/></svg></button>
+      <button class="btn vb ico" id="burger" aria-label="Buka / tutup menu" aria-expanded="false" title="Menu"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-menu"/></svg></button>
       <div class="crumbs"><span class="crumbA">AI Office</span>
         <span class="crumbSep" aria-hidden="true">/</span>
         <h1 id="viewTitle">Office</h1></div>
@@ -725,10 +744,10 @@
       <span class="sync" role="status"><i id="apiPill" title="Koneksi API"></i><span class="sr">Koneksi API: </span><span>Tersinkron</span><span id="lastPill">—</span></span>
       <span class="pill" id="busPill" aria-live="polite" title="Live Event Bus dari Mia — sumber kebenaran status agent">BUS …</span>
       <div class="grp">
-        <button class="btn vb ico" id="modeBtn" title="Tema terang / gelap (UI)" aria-label="Ganti tema terang atau gelap"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-theme"/></svg></button>
-        <button class="btn vb ico" id="refreshBtn" title="Muat ulang sekarang" aria-label="Muat ulang data sekarang"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+        <button class="btn vb ico" id="modeBtn" title="Tema terang / gelap (UI)" aria-label="Ganti tema terang atau gelap"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-theme"/></svg></button>
+        <button class="btn vb ico" id="refreshBtn" title="Muat ulang sekarang" aria-label="Muat ulang data sekarang"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-refresh"/></svg></button>
       </div>
-      <button class="btn ico" id="dispatchBtn" data-state="resumed" aria-label="Jeda dispatch" title="Jeda dispatch"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use id="dispatchIcon" href="#i-pause"/></svg></button>
+      <button class="btn ico" id="dispatchBtn" data-state="resumed" aria-label="Jeda dispatch" title="Jeda dispatch"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use id="dispatchIcon" href="#i-pause"/></svg></button>
     </header>
 
     <section class="view" id="view-office">
@@ -763,7 +782,7 @@
         </div>
         <div class="fb" id="fb">
           <div>
-            <h3 class="secH">3D tidak tersedia</h3>
+            <h2 class="secH">3D tidak tersedia</h2>
             <p class="note" id="fbMsg" style="max-width:420px"></p>
           </div>
         </div>
@@ -777,7 +796,7 @@
             <button class="hudTab" id="tabAgent" role="tab" aria-selected="false" aria-controls="hudPane" disabled title="Pilih kartu crew atau nametag di scene untuk melihat detail">Detail</button>
           </span>
           <span style="flex:1"></span>
-          <button class="btn vb" id="hudClose" aria-label="Tutup panel" title="Tutup panel">×</button>
+          <button class="btn vb ico" id="hudClose" aria-label="Tutup panel" title="Tutup panel"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-close"/></svg></button>
         </div>
         <div class="hudPane crew" id="hudPane" role="tabpanel" aria-live="polite"></div>
         <div class="hudFoot"><span id="hudHint">—</span></div>
@@ -792,15 +811,16 @@
     <section class="view hide" id="view-memory"></section>
     <section class="view hide" id="view-files"></section>
     <section class="view hide" id="view-logs"></section>
+<section class="view hide" id="view-findings"></section>
     <section class="view hide" id="view-settings"></section>
   </main>
 </div>
 
 <div class="modalBg" id="modalBg">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
-    <h3 id="mTitle">Prompt</h3>
+    <h2 id="mTitle">Prompt</h2>
     <div id="mBody"></div>
-    <textarea id="mText" placeholder="Tulis prompt untuk agent ini…"></textarea>
+    <textarea id="mText" aria-label="Prompt untuk agent ini" placeholder="Tulis prompt untuk agent ini…"></textarea>
     <label class="dlrow" id="mDeliverRow">
       <input type="checkbox" id="mDeliver">
       <span>Kirim hasil ke Discord</span>
@@ -815,9 +835,9 @@
 
 <div class="modalBg" id="tokBg">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tokTitle">
-    <h3 id="tokTitle">Token dashboard</h3>
+    <h2 id="tokTitle">Token dashboard</h2>
     <p class="note" style="margin-top:0">Dashboard terkunci (401). Tempel AUTH_TOKEN dari <code>apps/web/.env.local</code> — disimpan di browser ini saja.</p>
-    <input id="tokInput" type="password" autocomplete="off" placeholder="Tempel token…" style="width:100%">
+    <input id="tokInput" type="password" autocomplete="off" aria-label="Token dashboard" placeholder="Tempel token…" style="width:100%">
     <div class="err" id="tokErr" role="alert"></div>
     <div class="modalRow">
       <button class="btn" id="tokCancel">Batal</button>
@@ -852,7 +872,8 @@ var MENU = [
   { group: 'Inspeksi', items: [
       ['usage','Usage','usage','Event, giliran, pemanggilan alat'],
       ['activity','Activity','activity','Sesi audit + sistem'],
-      ['logs','Logs','logs','Baris log audit'] ] },
+      ['logs','Logs','logs','Baris log audit'],
+      ['findings','Findings','findings','Temuan keamanan'] ] },
   { group: 'Data',     items: [
       ['memory','Memory','memory','Persona & catatan harian'],
       ['files','Files','files','Browser read-only'] ] },
@@ -989,14 +1010,21 @@ function humanNote(s) {
 function watchdogWhy(wd) {
   if (!wd || wd.ok) return '';
   if (/tunnel/i.test(wd.action || '')) return 'alamat publik belum terverifikasi';
-  if (wd.error) return 'cek terakhir gagal';
-  return 'cek terakhir tidak berhasil';
+  if (wd.error) return 'cek ' + String(wd.action || 'monitoring').replace(/_/g, ' ') + ' gagal';
+  return 'cek ' + String(wd.action || 'monitoring').replace(/_/g, ' ') + ' tidak berhasil';
 }
 /* A tool name is a name, not a sentence: "alat lab add", not "lab_add". */
 function toolWord(name) {
   var t = String(name == null ? '' : name).split('::')[0].trim();
   if (!t) return '';
   return 'alat ' + t.replace(/_/g, ' ');
+}
+
+/* Inline sprite icon (DESIGN.md §7: no Unicode dingbats as interface icons). */
+function ico(id) {
+  return '<svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    + ' stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"'
+    + ' aria-hidden="true"><use href="#' + id + '"/></svg>';
 }
 /* Windows read as a length, not as a clock. */
 function winLabel(ms) {
@@ -1074,9 +1102,9 @@ function boardGroups(items) {
    only reports what the ledger actually recorded. */
 function deliveryTag(t) {
   if (!t || t.deliver !== 'discord') return '';
-  if (t.delivered === true) return ' <span class="badge done">↩ discord</span>';
-  if (t.delivered === false) return ' <span class="badge failed">✗ gagal kirim</span>';
-  return ' <span class="badge">⧗ discord</span>';
+  if (t.delivered === true) return ' <span class="badge done ico">' + ico('i-refresh') + ' discord</span>';
+  if (t.delivered === false) return ' <span class="badge failed ico">' + ico('i-fail') + ' gagal kirim</span>';
+  return ' <span class="badge ico">' + ico('i-hourglass') + ' discord</span>';
 }
 
 /* ── cachedSource: one in-flight request + TTL, per source ────────────
@@ -1241,7 +1269,7 @@ function agentDetailHtml(id) {
       r.duties.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>' : '') +
     '<div class="note" style="margin:10px 0 4px">Task terakhir</div>' +
     (t.length ? '<table><tbody>' + t.map(function (x) {
-      return '<tr><td>' + esc(trunc(x.title, 34)) + '</td><td>' + esc(x.status) + '</td></tr>';
+      return '<tr><td>' + esc(trunc(x.title, 34)) + '</td><td>' + esc(STATUS_WORD[x.status] || x.status) + '</td></tr>';
     }).join('') + '</tbody></table>' : '<div class="note">Belum ada task tercatat.</div>') +
     '<details class="diag"><summary>Diagnostics</summary>' + kv(diag) +
       (av && av.provenance ? '<div class="kv"><span>Provenance</span><span>' +
@@ -1267,7 +1295,7 @@ function renderHud() {
     return;
   }
   if (!STATE.agents.length) {
-    pane.innerHTML = '<div class="empty">Tidak ada agent di /api/state.</div>';
+    pane.innerHTML = '<div class="empty">Belum ada agent yang terhubung.</div>';
     if (hint) hint.textContent = '\u2014';
     return;
   }
@@ -1335,7 +1363,9 @@ function rankOf(list, unit) {
 
 function vAgents() {
   if (!STATE) return '<div class="empty">Memuat…</div>';
-  return '<div class="vbar"><span class="lab">Antre</span>' +
+  return '<div class="vbar"><span class="lab">Antre</span><span class="note">'
+        + count((STATE.queue || []).filter(function (q) { return q.status === 'queued'; }).length)
+        + ' task</span>' +
       QUICK.map(function (q) {
         return '<button class="btn" data-quick="' + esc(q[1]) + '" data-label="' + esc(q[0]) + '">' + esc(q[0]) + '</button>';
       }).join('') + '</div>' +
@@ -1393,7 +1423,7 @@ function vBoard() {
     return head + '<div class="laneBody">' + cards + '</div></div>';
   }).join('');
   if (STATE.dispatch_paused) {
-    return bar + '<div class="card"><h3>Dispatch dijeda</h3><div class="note">Antrean tidak dikirim ke agent sampai dispatch dilanjutkan dari tombol header.</div></div>';
+    return bar + '<div class="empty">Dispatch dijeda — antrean tidak dikirim ke agent sampai dispatch dilanjutkan dari tombol header.</div>';
   }
   return bar + '<div class="board">' + body + '</div>';
 }
@@ -1408,8 +1438,8 @@ function vCalendar() {
   return '<table><thead><tr><th>Judul</th><th>Jenis</th><th>Pemilik</th><th>Aktif</th><th>Berikutnya</th><th>Terakhir dieksekusi</th><th>Hasil</th></tr></thead><tbody>' +
     sc.items.map(function (it) {
       return '<tr><td>' + esc(it.title || it.label || it.id) + '</td>' +
-        '<td>' + esc(it.kind || '—') + (it.is_system ? ' <span class="badge idle">system</span>' : '') + '</td>' +
-        '<td>' + esc(it.owner || '—') + '</td>' +
+        '<td>' + esc(String(it.kind || '—').replace(/_/g, ' ')) + (it.is_system ? ' (sistem)' : '') + '</td>' +
+        '<td>' + esc(humanUser(it.owner) || '—') + '</td>' +
         '<td>' + (it.enabled === false ? '<span class="badge paused">mati</span>' : '<span class="badge working">aktif</span>') + '</td>' +
         '<td>' + esc(hhmmss(it.next_iso)) + '</td>' +
         '<td>' + esc(hhmmss(it.last_fired_at)) + '</td>' +
@@ -1423,7 +1453,7 @@ function vRemindersBlock() {
   var r = (STATE && STATE.reminders) || null;
   if (!r) return emptyBox('Memuat reminder…');
   if (r.available === false) {
-    return '<div class="card"><h3>Reminder Mia</h3><div class="note">' + esc(humanNote(r.note)) + '</div></div>';
+    return '<div class="empty">' + esc(humanNote(r.note)) + '</div>';
   }
   var items = r.items || [];
   var body = items.length
@@ -1436,9 +1466,9 @@ function vRemindersBlock() {
           '<td>' + esc(fmtDur(it.in_s)) + '</td></tr>';
       }).join('') + '</tbody></table>'
     : emptyBox('Belum ada reminder terjadwal. Minta lewat chat: "ingatkan aku …".');
-  var out = '<div class="card"><h3>Reminder Mia ' +
-    '<span class="badge idle">' + esc(count(r.pending)) + ' terjadwal</span></h3>' +
-    '<div class="note">Sumber: ' + esc(humanStores(r.stores)) + '</div>' + body + '</div>';
+  var out = '<div class="card"><h2>Reminder Mia</h2>' +
+    '<div class="note">' + esc(count(r.pending)) + ' terjadwal · Sumber: ' + esc(humanStores(r.stores)) + '</div>' +
+    body + '</div>';
   var fired = r.fired || [];
   if (fired.length) {
     out += '<details class="diag"><summary>Terakhir terkirim (' + esc(count(fired.length)) + ')</summary>' +
@@ -1478,7 +1508,7 @@ function vUsage() {
   if (USAGE.err) return '<div class="err">' + esc(USAGE.err) + '</div>';
   if (!USAGE.data) return '<div class="empty">Memuat usage…</div>';
   var u = USAGE.data, t = u.totals || {};
-  if (u.available === false) return '<div class="card"><h3>Usage tidak tersedia</h3><div class="note">' + esc(humanNote(u.note)) + '</div></div>';
+  if (u.available === false) return '<div class="empty">' + esc(humanNote(u.note)) + '</div>';
   var stats = statGrid([
     statCard('Event audit', count(t.events), count(u.audit_files || 0) + ' berkas'),
     statCard('Giliran', count(t.turns), 'satu giliran assistant'),
@@ -1487,15 +1517,15 @@ function vUsage() {
   ]);
   return '<div class="vbar"><span class="lab">Periode</span><div class="seg">' +
       Object.keys(USAGE_PERIODS).map(function (p) {
-        return '<button data-usage="' + esc(p) + '" class="' + (u.period === p ? 'on' : '') + '">' + esc(USAGE_PERIODS[p]) + '</button>';
+        return '<button data-usage="' + esc(p) + '" class="' + (u.period === p ? 'on' : '') + '" aria-pressed="' + (u.period === p ? 'true' : 'false') + '">' + esc(USAGE_PERIODS[p]) + '</button>';
       }).join('') + '</div><span class="note">' +
       esc(BUCKET_WORD[u.bucket] || ('per ' + (u.bucket || 'hari'))) + ' · ' + esc(winLabel(u.window_ms)) +
       ' terakhir · ' + count(u.window_events) + ' event</span></div>' +
     stats +
-    '<div class="split"><div class="card"><h3>Event per waktu</h3>' + barsOf(u.timeseries, 'events') + '</div>' +
-    '<div class="card"><h3>Per agent</h3>' + rankOf((u.per_agent || []).map(function (x) { return { key: humanUser(x.key), count: x.count }; })) + '</div></div>' +
-    '<div class="split"><div class="card"><h3>Aksi paling sering</h3>' + rankOf((u.per_action || []).slice(0, 12).map(function (x) { return { key: humanAction(x.key), count: x.count }; })) + '</div>' +
-    '<div class="card"><h3>Sumber</h3>' + rankOf((u.per_source || []).map(function (x) { return { key: humanSource(x.key), count: x.count }; })) + '</div></div>';
+    '<div class="split"><div class="card"><h2>Event per waktu</h2>' + barsOf(u.timeseries, 'events') + '</div>' +
+    '<div class="card"><h2>Per agent</h2>' + rankOf((u.per_agent || []).map(function (x) { return { key: humanUser(x.key), count: x.count }; })) + '</div></div>' +
+    '<div class="split"><div class="card"><h2>Aksi paling sering</h2>' + rankOf((u.per_action || []).slice(0, 12).map(function (x) { return { key: humanAction(x.key), count: x.count }; })) + '</div>' +
+    '<div class="card"><h2>Sumber</h2>' + rankOf((u.per_source || []).map(function (x) { return { key: humanSource(x.key), count: x.count }; })) + '</div></div>';
 }
 
 
@@ -1524,7 +1554,7 @@ function vActivity() {
   }));
   var bar = '<div class="vbar"><span class="lab">Sesi</span><div class="seg">' +
     filters.map(function (o) {
-      return '<button data-actagent="' + esc(o.id) + '" class="' + (ACTIVITY.agent === o.id ? 'on' : '') + '">' + esc(o.name) + '</button>';
+      return '<button data-actagent="' + esc(o.id) + '" class="' + (ACTIVITY.agent === o.id ? 'on' : '') + '" aria-pressed="' + (ACTIVITY.agent === o.id ? 'true' : 'false') + '">' + esc(o.name) + '</button>';
     }).join('') + '</div><span class="note">' + count(rows.length) + ' sesi · ' + count(sum.events) + ' event</span></div>';
   var sessions = rows.length ? '<table><thead><tr><th>Agent</th><th>Mulai</th><th>Terakhir</th><th>Event</th><th>Alat</th><th>Gagal</th><th>Aksi terakhir</th><th>Sumber</th></tr></thead><tbody>' +
     rows.map(function (x) {
@@ -1548,29 +1578,67 @@ function vLogs() {
   var shown = rows.length === l.length ? count(l.length) + ' baris'
     : count(rows.length) + ' dari ' + count(l.length) + ' baris';
   return '<div class="vbar"><span class="lab">Saring</span>' +
-      '<input class="inp" id="logFilter" value="' + esc(LOGS.filter || '') + '" placeholder="agent, aksi, atau pesan…">' +
+      '<input class="inp" id="logFilter" aria-label="Saring log" value="' + esc(LOGS.filter || '') + '" placeholder="agent, aksi, atau pesan…">' +
       '<span class="lab">Level</span><div class="seg">' +
       [{ v: '', l: 'semua' }, { v: 'error', l: 'galat' }, { v: 'warn', l: 'waspada' }, { v: 'info', l: 'info' }]
-        .map(function (o) { return '<button data-loglvl="' + o.v + '" class="' + (level === o.v ? 'on' : '') + '">' + o.l + '</button>'; }).join('') +
+        .map(function (o) { return '<button data-loglvl="' + o.v + '" class="' + (level === o.v ? 'on' : '') + '" aria-pressed="' + (level === o.v ? 'true' : 'false') + '">' + o.l + '</button>'; }).join('') +
       '</div>' +
       '<span class="note">' + shown + '</span></div>' +
     (rows.length ? '<div class="logbox">' + rows.map(function (x) {
       return '<div class="logline"><span class="t">' + esc(hhmmss(x.ts)) + '</span>' +
-        '<span class="a ' + esc(x.agent) + '">' + esc(x.agent) + '</span>' +
+        '<span class="a ' + esc(x.agent) + '">' + esc((ROSTER[x.agent] && ROSTER[x.agent].name) || x.agent) + '</span>' +
         '<span class="lv lv-' + logLevel(x) + '">' + (logLevel(x) === 'error' ? 'galat' : logLevel(x) === 'warn' ? 'waspada' : 'info') + '</span>' +
-        '<span class="m">' + esc(humanAction(x.action)) + ' · ' + esc(x.message) + '</span></div>';
+        '<span class="m"' + (x.raw && x.raw !== x.message ? ' title="' + esc(x.raw) + '"' : '') + '>'
+        + esc(humanAction(x.action)) + ' · ' + esc(x.message) + '</span></div>';
     }).join('') + '</div>' : emptyBox('Tidak ada baris yang cocok.'));
 }
 
 
-function vMemory() {
+/* Security findings as REPORT CARDS (DESIGN.md §14): the card holds the
+ * report object, and evidence, source, confidence, remediation and verification
+ * stay separable. Severity is a word + a colour, never colour alone. */
+  var CONF_WORD = { verified: 'terverifikasi', observed: 'teramati', unverified: 'belum terverifikasi' };
+  var STATUS_FINDING = { open: 'terbuka', resolved: 'selesai' };
+  function vFindings() {
+    var cards = (STATE.findings || []);
+    var head = '<div class="vbar"><span class="lab">Temuan</span><span class="note">' + count(cards.length) + ' temuan</span></div>';
+    if (!cards.length) return head + '<div class="empty">Belum ada temuan keamanan yang tercatat.</div>';
+    var rank = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+    var rows = cards.slice().sort(function (a, b) {
+      var ra = rank[String(a.severity || '').toLowerCase()];
+      var rb = rank[String(b.severity || '').toLowerCase()];
+      if (ra === undefined) ra = 5;
+      if (rb === undefined) rb = 5;
+      if (ra !== rb) return ra - rb;
+      return (b.cvss || 0) - (a.cvss || 0);
+    });
+    var body = rows.map(function (f) {
+      var sev = String(f.severity || 'unknown').toLowerCase();
+      var tone = (sev === 'critical' || sev === 'high') ? 'error' : sev === 'medium' ? 'warn' : 'info';
+      return '<div class="card rep">' +
+        '<h2>' + esc(f.title || 'Tanpa judul') + '</h2>' +
+        '<div class="note"><span class="lv lv-' + tone + '">' + esc(sev) + '</span>' +
+          (f.cvss ? ' \u00b7 CVSS ' + esc(String(f.cvss)) : '') +
+          ' \u00b7 ' + esc(STATUS_FINDING[String(f.status || 'open').toLowerCase()] || f.status) + '</div>' +
+        '<div class="kv"><span>Sumber</span><span>' + esc(f.source || '\u2014') + '</span></div>' +
+        '<div class="kv"><span>Keyakinan</span><span>' + esc(CONF_WORD[String(f.confidence || 'unverified').toLowerCase()] || f.confidence) + '</span></div>' +
+        '<div class="kv"><span>Verifikasi</span><span>' + esc(f.verification || '\u2014') + '</span></div>' +
+        '<div class="repBlock"><span class="k">Bukti</span><div class="v">' + esc(f.evidence || '\u2014') + '</div></div>' +
+        '<div class="repBlock"><span class="k">Perbaikan</span><div class="v">' + esc(f.remediation || '\u2014') + '</div></div>' +
+        '</div>';
+    }).join('');
+    return head + body;
+  }
+
+  function vMemory() {
   var d = MEM.data;
-  var head = '<div class="vbar"><span class="lab">Agent</span><div class="seg">' +
+  var head = '<div class="vbar"><span class="lab">Agent</span><span class="note">'
+      + count(MEM.agents.length) + ' agent</span><div class="seg">' +
     (MEM.agents.length ? MEM.agents.map(function (a) {
-      return '<button data-mem="' + esc(a.id) + '" class="' + (a.id === MEM.agent ? 'on' : '') + '">' + esc(a.name) + '</button>';
+      return '<button data-mem="' + esc(a.id) + '" class="' + (a.id === MEM.agent ? 'on' : '') + '" aria-pressed="' + (a.id === MEM.agent ? 'true' : 'false') + '">' + esc(a.name) + '</button>';
     }).join('') : '<button class="on">—</button>') + '</div></div>';
   if (!d) return head + '<div class="empty">Memuat memory…</div>';
-  if (d.available === false) return head + '<div class="card"><h3>Memory tidak tersedia</h3><div class="note">' + esc(humanNote(d.note)) + '</div></div>';
+  if (d.available === false) return head + '<div class="empty">' + esc(humanNote(d.note)) + '</div>';
   var files = d.files || [];
   if (!files.length) return head + emptyBox('Belum ada file memory untuk agent ini. Memory terisi saat Mia mencatat persona atau rekap harian.');
   var list = files.map(function (f) {
@@ -1594,13 +1662,13 @@ function vFiles() {
   var d = FILES.data;
   var head = '<div class="vbar"><span class="lab">Akar</span><div class="seg">' +
     FILES.roots.map(function (r) {
-      return '<button data-root="' + esc(r.id) + '" class="' + (r.id === FILES.root ? 'on' : '') + '" title="' + esc(r.label) + '">' + esc(r.id) + '</button>';
+      return '<button data-root="' + esc(r.id) + '" class="' + (r.id === FILES.root ? 'on' : '') + '" aria-pressed="' + (r.id === FILES.root ? 'true' : 'false') + '" title="' + esc(r.label) + '">' + esc(r.id) + '</button>';
     }).join('') + '</div>' +
     '<span class="note">' + esc((d && d.path) ? shortPath(d.path) : 'akar') + '</span></div>';
   if (!d) return head + '<div class="empty">Memuat file…</div>';
   if (d.error) {
     var why = d.reason ? ' (' + esc(d.reason) + ')' : '';
-    return head + '<div class="card"><h3>' + esc(d.error) + '</h3><div class="note">Permintaan ditolak oleh guard read-only' + why + '.</div></div>';
+    return head + '<div class="empty">' + esc(d.error) + ' — permintaan ditolak oleh guard read-only' + why + '.</div>';
   }
   if (d.kind === 'file') {
     return head + '<div class="dochead"><span class="pill">' + esc(d.path) + '</span><span class="note">' +
@@ -1646,7 +1714,7 @@ function vSettings() {
     ['Nama mesin', esc(sy.hostname || '—')], ['Sistem', esc(sy.platform || '—') + ' ' + esc(sy.arch || '')],
     ['Processor', esc(sy.cpu_model || '—') + ' · ' + count(sy.cpu_cores) + ' inti']
   ]);
-  var netCard = '<div class="card"><h3>Jaringan &amp; pemantau</h3>' +
+  var netCard = '<div class="card"><h2>Jaringan &amp; pemantau</h2>' +
     '<div class="kv"><span>Akses publik</span><span title="' + esc(tun.note || '') + '">' +
       (tun.available ? (tun.online ? 'online' : 'offline') : esc(humanNote(tun.note))) + '</span></div>' +
     '<div class="kv"><span>Pemantau</span><span title="' + esc(wd.note || wd.error || '') + '">' +
@@ -1676,16 +1744,16 @@ function vSettings() {
     ['Log audit', ig.audit_available ? 'tersedia' : na('', ig.audit_note || '—')],
     ['Baris rusak (audit)', count(ig.audit_broken_lines)]
   ]);
-  return '<h3 style="margin:4px 0 12px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Kinerja mesin</h3>' +
+  return '<h2 style="margin:4px 0 12px;font-size:var(--t-2);letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Kinerja mesin</h2>' +
     machine +
     '<div class="split" style="margin:14px 0">' + hostCard + netCard + '</div>' +
-    '<h3 style="margin:22px 0 12px;font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Sistem &amp; data</h3>' +
+    '<h2 style="margin:22px 0 12px;font-size:var(--t-2);letter-spacing:.15em;text-transform:uppercase;color:var(--faint)">Sistem &amp; data</h2>' +
     statGrid([
       statCard('Versi', esc(v.app || '—'), 'Node ' + esc(v.node || '—')),
       statCard('Sumber hidup', count(src.filter(function (s) { return s.available; }).length) + ' / ' + count(src.length), 'dari pemeriksaan nyata'),
       statCard('Baris audit rusak', count(ig.audit_broken_lines), 'dilewati, tidak mematikan API')
     ]) +
-    '<div class="card" style="margin-bottom:12px"><h3>Kesehatan sumber data</h3>' + (sources || emptyBox('—')) + '</div>' +
+    '<div class="card" style="margin-bottom:12px"><h2>Kesehatan sumber data</h2>' + (sources || emptyBox('—')) + '</div>' +
     '<div class="grid g2">' + about + integ + '</div>';
 }
 
@@ -1702,7 +1770,7 @@ function stBadgeByAgent(id) {
 }
 
 function card(title, rows) {
-  return '<div class="card"><h3>' + esc(title) + '</h3>' + rows.map(function (r) {
+  return '<div class="card"><h2>' + esc(title) + '</h2>' + rows.map(function (r) {
     return '<div class="kv"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>';
   }).join('') + '</div>';
 }
@@ -1766,7 +1834,7 @@ function render() {
     renderHud();
   } else {
     var m = { agents: vAgents, usage: vUsage, board: vBoard, calendar: vCalendarView,
-              activity: vActivity, logs: vLogs, memory: vMemory, files: vFiles, settings: vSettings };
+              activity: vActivity, logs: vLogs, findings: vFindings, memory: vMemory, files: vFiles, settings: vSettings };
     var fn = m[currentView];
     var el = document.getElementById('view-' + currentView);
     /* Never repaint under the caret: the 3 s poll would otherwise yank a
@@ -4946,7 +5014,7 @@ if (avatarBtn) {
       PALETTES[slot].forEach(function (hex) {
         var on = String(av.cfg[slot]).toLowerCase() === hex.toLowerCase();
         html += '<button type="button" data-slot="' + slot + '" data-hex="' + hex + '" title="' +
-          PAL_LABEL[slot] + '" style="width:22px;height:22px;border-radius:6px;border:1px solid ' +
+          PAL_LABEL[slot] + '" style="width:22px;height:22px;border-radius:var(--r-xs);border:1px solid ' +
           (on ? 'var(--accent)' : 'rgba(255,255,255,.15)') + ';background:' + hex + '"></button>';
       });
     });
@@ -4975,6 +5043,9 @@ if (avatarBtn) {
 function resize() {
   var w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
   renderer.setSize(w, h, false);
+  // The chat is a flow column, so docking it narrows the canvas element and the
+  // aspect follows: the scene stays undistorted, the renderer is never rebuilt
+  // and the camera is never reset (DESIGN.md §15).
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
@@ -5104,12 +5175,17 @@ function tagText(id, name, status, activeTask, provenance) {
     : /degrad|warn|slow/i.test(st) ? 'degraded' : 'idle';
   var role = (ROSTER[id] && ROSTER[id].role) || '';
   if (role && role.indexOf('/') > 0) role = role.slice(0, role.indexOf('/'));
+  /* Task state and idle animation are separate facts (DESIGN.md §11): a real
+     task wins, then a real busy status, then the idle activity word. The raw
+     enum never reaches the caption. */
+  var busy = dotCls === 'working' || /work|run|busy|execut/i.test(st);
   var sub = activeTask ? String(activeTask).slice(0, 30)
-    : (act && act !== '—' ? act : st);
+    : (busy ? (STATUS_WORD[st] || 'bekerja')
+      : (act && act !== '—' ? act : (STATUS_WORD[st] || 'tak diketahui')));
+  /* Role and room are detail, not identity: they move to the hover tooltip and
+     the screen-reader text, never into the permanent caption. */
   var html = '<span class="tRow"><b>' + esc(name) + '</b>'
-    + '<span class="tDot ' + dotCls + '"></span>'
-    + (role ? '<span class="tRole">' + esc(role) + '</span>' : '')
-    + '<span class="tRoom">' + esc(room) + '</span></span>'
+    + '<span class="tDot ' + dotCls + '"></span></span>'
     + '<small>' + esc(sub) + '</small>';
   /* Provenance: the reason this character looks the way it does. Without it
      the dashboard asserts state it cannot explain, which is how a UI starts
@@ -5127,10 +5203,14 @@ function tagText(id, name, status, activeTask, provenance) {
   }
   /* The whole card explains itself on hover/focus: provenance is the reason the
      character looks the way it does, and it is too long for the card itself. */
-  if (provenance) {
-    html += '<span class="sr">' + esc(String(provenance)) + '</span>';
+  var detailBits = [];
+  if (role) detailBits.push('Peran: ' + role);
+  if (room && room !== '—') detailBits.push('Ruang: ' + room);
+  if (provenance) detailBits.push(String(provenance));
+  if (detailBits.length) {
+    html += '<span class="sr">' + esc(detailBits.join(' · ')) + '</span>';
     var el = office.tags[id];
-    if (el) el.title = String(provenance);
+    if (el) el.title = detailBits.join(' · ');
   }
   return html;
 }
@@ -5265,8 +5345,8 @@ function openAgent(id) {
   if (!a) return;
   var t = (STATE.tasks || []).filter(function (x) { return x.agent === id; }).slice(0, 5);
   var av = office.avatar[id];
-  var body = '<h3 style="margin:0 0 10px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)">' +
-      esc(a.name) + ' · ' + esc(a.role) + '</h3>' +
+  var body = '<h2 style="margin:0 0 10px;font-size:var(--t-1);letter-spacing:.09em;text-transform:uppercase;color:var(--faint)">' +
+      esc(a.name) + ' · ' + esc(a.role) + '</h2>' +
     '<div class="kv"><span>Status (backend)</span><span>' + stBadge(a.status) + '</span></div>' +
     '<div class="kv"><span>Aktivitas visual</span><span>' + esc(av ? (ACTIVITY_LABEL[av.activity] || av.activity) : '-') + '</span></div>' +
     '<div class="kv"><span>Ruang</span><span>' + esc(av ? (ROOM_LABEL_UI[av.room] || '-') : '-') + '</span></div>' +
@@ -5319,6 +5399,20 @@ var lastFocus = null;
 $('#mCancel').addEventListener('click', closeModal);
 $('#tabCrew').addEventListener('click', function () { showHudTab('crew'); });
 $('#tabAgent').addEventListener('click', function () { showHudTab('agent'); });
+// Arrow-key navigation for the HUD tablist (ARIA tabs pattern).
+$('.hudSeg').addEventListener('keydown', function (ev) {
+  if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(ev.key) < 0) return;
+  var tabs = Array.prototype.slice.call(this.querySelectorAll('[role="tab"]:not([disabled])'));
+  if (!tabs.length) return;
+  ev.preventDefault();
+  var i = tabs.indexOf(document.activeElement);
+  if (i < 0) i = 0;
+  var next = ev.key === 'Home' ? 0
+    : ev.key === 'End' ? tabs.length - 1
+    : (i + (ev.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+  tabs[next].focus();
+  tabs[next].click();
+});
 /* Escape closes the topmost dialog only, and focus returns to whatever opened
    it — without that, keyboard users land back at the top of the document. */
 document.addEventListener('keydown', function (e) {

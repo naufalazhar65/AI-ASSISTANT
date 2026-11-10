@@ -1,0 +1,80 @@
+/**
+ * Before/after screenshot probe for the office dashboard.
+ *
+ *   node apps/office-dashboard/probe-design-screenshot.mjs <outDir>
+ *
+ * DESIGN.md §19/§20: "a before/after screenshot inspected at the same viewport
+ * size" and "source-code edits alone are not proof of visual success".
+ * The probe is deterministic: fixed viewport, fixed wait, fixed file names, so
+ * two runs can be compared side by side.
+ */
+import { mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { chromium } from "playwright";
+
+const OUT = process.argv[2] || "/tmp/office-design";
+const URL = process.env.OFFICE_DASH_URL || "http://127.0.0.1:3001";
+const VIEWPORT = { width: 1440, height: 900 };
+
+/** The dashboard is token-locked; use the same owner flow the drill uses. */
+function token() {
+  const env = readFileSync(
+    join(import.meta.dirname, "..", "web", ".env.local"),
+    "utf8",
+  );
+  const m = env.match(/^AUTH_TOKEN=(.*)$/m);
+  if (!m) throw new Error("AUTH_TOKEN not found in apps/web/.env.local");
+  return m[1].trim().replace(/^["']|["']$/g, "");
+}
+
+mkdirSync(OUT, { recursive: true });
+
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: 1 });
+const auth = token();
+await page.goto(`${URL}/?token=${encodeURIComponent(auth)}`, { waitUntil: "commit" });
+await page.evaluate((value) => localStorage.setItem("mia_token", value), auth);
+await page.reload({ waitUntil: "commit" });
+await page.waitForSelector("#modeBtn", { timeout: 20000 });
+await page.waitForSelector("#chatToggle", { timeout: 20000 });
+// The 3D office renders on a canvas; give it a beat to settle.
+await page.waitForTimeout(2500);
+
+await page.screenshot({ path: join(OUT, "01-office-light.png") });
+
+// Dark theme (the toggle is #modeBtn; the attribute is html[data-theme]).
+await page.click("#modeBtn");
+await page.waitForTimeout(900);
+await page.screenshot({ path: join(OUT, "02-office-dark.png") });
+
+// Chat panel open, dark.
+// Chat panel: wide screens dock it open, so only open it when it is closed.
+await page.click("#modeBtn");
+await page.waitForTimeout(400);
+const chatOpen = await page.evaluate(() => !!document.querySelector("#chatPanel.open"));
+if (!chatOpen) {
+  await page.click("#chatToggle");
+  await page.waitForTimeout(1200);
+}
+await page.screenshot({ path: join(OUT, "03-office-chat.png") });
+
+// Narrow viewport: the chat drawer breakpoint.
+await page.setViewportSize({ width: 560, height: 900 });
+await page.waitForTimeout(1200);
+await page.screenshot({ path: join(OUT, "04-office-narrow.png") });
+
+// The Findings view (DESIGN.md §14 report surface): evidence, source,
+// confidence, remediation and verification must be distinguishable.
+await page.setViewportSize(VIEWPORT);
+await page.waitForTimeout(800);
+const findingsNav = page.locator('button[data-view="findings"]');
+if (await findingsNav.count()) {
+  await findingsNav.first().click();
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: join(OUT, "05-office-findings.png") });
+} else {
+  console.log("WARN: findings nav button not found — the view is missing");
+}
+
+await browser.close();
+console.log(`screenshots -> ${OUT}`);
