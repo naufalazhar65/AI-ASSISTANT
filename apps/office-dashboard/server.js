@@ -21,6 +21,9 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
+/* Human activity phrases live in one module (activity.cjs) so the server
+   payload, the floating nameplate and the activity view can never disagree. */
+const { humanActivity } = require('./activity.cjs');
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
@@ -309,29 +312,12 @@ function readAudit() {
  *   paused  — dispatch.json says the fleet is paused (global, honest)
  */
 /**
- * The audit log stores a tool call's raw JSON arguments in `detail`. Showing
- * that verbatim under an agent's name (e.g. `{"expression":"12*8"}`) is real
- * data but unreadable, so pull out the human-meaningful part: the tool name
- * plus its first short scalar argument.
+ * A tool identifier and its raw arguments are developer metadata: they must
+ * never be the status line under an agent's name (DESIGN.md §11). The raw
+ * action and detail stay in `last_event` and surface in the agent panel
+ * Diagnostics (DESIGN.md §12); the status line gets a human sentence from
+ * activity.cjs.
  */
-function summarizeTool(action, detail) {
-  const tool = action.startsWith('tool:') ? action.slice(5) : action;
-  let arg = '';
-  const s = String(detail || '').trim();
-  if (s.startsWith('{') || s.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(s);
-      const first = Array.isArray(parsed) ? parsed[0] : Object.values(parsed || {})[0];
-      if (typeof first === 'string' || typeof first === 'number') {
-        const v = truncate(String(first), 40).replace(/\s+/g, ' ');
-        if (v && !/^https?:/i.test(v)) arg = ` · ${v}`;
-      }
-    } catch {
-      /* not valid JSON after all — fall back to the tool name alone */
-    }
-  }
-  return truncate(tool, 48) + arg;
-}
 
 function deriveAgents(audit, paused) {
   return AGENTS.map((a) => {
@@ -351,7 +337,7 @@ function deriveAgents(audit, paused) {
       name: a.name,
       role: a.role,
       status,
-      active_task: last && last.action.startsWith('tool') && age != null && age <= WORKING_WINDOW_MS ? summarizeTool(last.action, last.detail) : null,
+      active_task: last && last.action.startsWith('tool') && age != null && age <= WORKING_WINDOW_MS ? (humanActivity(last.action) || null) : null,
       last_event: last ? { ts: last.ts, action: last.action, detail: last.detail, source: last.file } : null,
       last_update: last ? last.ts : null,
       basis: audit.available
@@ -1283,7 +1269,8 @@ function buildActivity(audit, limit = 20) {
     if (e.action === 'turn_error') s.turn_errors += 1;
     if (e.at >= 0) {
       s.last = e.ts;
-      s.last_action = summarizeTool(e.action, e.detail);
+      s.last_action = e.action;
+      s.last_activity = humanActivity(e.action) || null;
     }
     if (!s.started || String(e.ts) < String(s.started)) s.started = e.ts;
   }

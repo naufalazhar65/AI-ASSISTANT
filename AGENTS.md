@@ -2872,3 +2872,55 @@ Owner: "coba cek @apps/office-dashboard/DESIGN.md mana saja yang belum dikerjaka
 **Gates akhir:** typecheck 0 · lint 0 error · `node --test apps/office-dashboard/*.test.mjs` **68/68** · `verify.ts` EXIT=0 (249 OK) · `drill-office-chat-ui.mts` **51 ok / 0 FAIL** · screenshot before/after (1440/1280/1024/560 × light & dark). `npm test` penuh: 6 timeout di file yang kena jaringan (slack/eval/reportDelivery/tier1) → 4 file itu **run ulang sendiri: 180/180 LULUS** (beban mesin); `xssHunt` OAST **proven pre-existing** di tree bersih (stash → same failure → stash pop). 3D scene, kamera, agent, tool, API, memory, persona, routing — tak tersentuh.
 
 **Owner approval:** komit + push setelah audit 2x (9 file, +291/-92).
+
+## Sesi 2026-11-10 — AI Office final UI polish: label floats jujur, HUD bermakna, selected state seragam
+
+Owner brief: P0 floating label (tampilin metadata teknis mentah), P1 bottom HUD (arti angka belum jelas), P1 konsistensi active state, P1 finalisasi light+dark, P2 header chat, P2 top nav. **Batas keras: scene 3D (kamera, geometri, karakter, material, pencahayaan, animasi) tak boleh disentuh.**
+
+**Yang ditemukan (audit + data nyata, bukan asumsi):**
+- **Akar label mentah = sisi server, bukan bug render.** `server.js summarizeTool()` mengembalikan nama tool mentah + argumen pertama → `google_news · id-ID` → jadi `active_task` → nameplate.
+- `Crew 1/3` = agen **busy**/total (bukan online/ready) — labelnya menyesatkan.
+- `Berjalan 725` = **94% task 'started' >7 hari** (ledger tak pernah menutupnya) — bukan pekerjaan live.
+- `gagal 59` = kegagalan 23–29 Okt (semua >7 hari lalu).
+- `Cron —` = chip kosong; `schedules.configured === false` (cron tak dikonfigurasi).
+- Selected state ada **4 bahasa berbeda**: rail expanded = accent-2, rail collapsed = accent solid, room chip = accent-2, chat tab = accent solid, HUD tab = panel+border.
+- Task title `Turn mia via 9router` membocorkan provider id.
+
+**Perubahan:**
+1. `activity.cjs` (baru) = SATU pemilik pemetaan tool → frasa manusia ("melakukan riset", "menulis kode", "menjalankan pengujian", "memeriksa keamanan", …); `activity.test.mjs` 5 tes. Argumen mentah dibuang dari label.
+2. Server: `active_task` = frasa manusia; field baru `last_activity`; `summarizeTool` dihapus.
+3. Client: `liveTaskCounts()` — SATU helper untuk HUD **dan** lane board (window jalan 5 mnt, gagal 24 jam) → HUD & board tak mungkin beda; backlog tetap DIBERITAKAN di board.
+4. HUD: `Bekerja x/3` · `Antre n` · `Berjalan n` (live saja) · `gagal n` (24 jam, disembunyikan saat 0) · chip `Cron` hilang saat tak dikonfigurasi · `Reminder` jadi chip terpisah · **tak ada chip kosong**.
+5. Selected state: satu bahasa (accent-2 + hairline accent-edge + weight 650); hover netral (`--panel-3`) supaya hover tak pernah terbaca selected; override rail collapsed dihapus; `.hudTab.on` & `.sceneBar .btn.on` diseragamkan. **Pengecualian terdokumentasi:** tab agen chat tetap fill accent solid (menunjuk subjek panel).
+6. Nameplate: teks sr-only hanya fakta manusia (peran/ruang); provenance mentah tetap di title hover + Diagnostics; Diagnostics nambah baris "Tool terakhir".
+7. `humanTitle`: "Turn x via y" → **"Menjawab pesan"** (provider id tak bocor).
+8. Top nav: konektivitas (Tersinkron + BUS) dikelompokkan dengan kontrol sistem; refresh punya busy state (aria-busy + spin); `poll()` kini balik promise.
+9. DESIGN.md §8/§9/§11/§12/§14 disinkron (aturan baru: counter menyebut periodenya, selected state satu bahasa, label = kalimat manusia).
+
+**Bukti (bukan klaim):**
+- **Live end-to-end**: POST `/api/office/chat` "cari berita terbaru tentang keamanan siber" → event audit `tool:google_news` → `/api/state` `agents[mia].active_task = "melakukan riset"` (sebelumnya `google_news · id-ID`), status `working`. Data nyata, bukan fixture.
+- Drill +5 assertion (label tanpa identifier, tanpa chip Cron, HUD "Bekerja" bukan "Crew", selected state nav == room) → **56 ok / 0 FAIL**.
+- Screenshot after: HUD "Bekerja 1/3 · Antre 0 · Berjalan 4"; nameplate "Agnes · makan bakso", "Mia · bekerja", "Michelle · istirahat kopi"; dark theme → scene 3D tetap terang (theme UI tak menyentuh material).
+
+**Gates:** typecheck 0 · lint 0 error · `npm test` 2721/2721 (142 file) · `node --test apps/office-dashboard/*.test.mjs` 73/73 · `verify.ts` EXIT=0 (248 OK) · `drill-office-chat-ui.mts` 56 ok / 0 FAIL · before/after screenshot 9 sudut.
+
+**Jujur:** window 5 menit / 24 jam = judgement call saya (bukan dari brief) · task 'started' yang tak pernah ditutup disembunyikan dari lane "Berjalan" tapi dilaporkan sebagai backlog (data tak hilang, tapi tak bisa diklik lagi dari board) · label "aktif" hanya teramati saat tool benar-benar jalan (idle → label aktivitas idle) · **belum commit** (menunggu approval owner).
+
+### Audit ulang terhadap PLAN (2026-11-10, owner: "coba cek lagi yang teliti")
+
+Audit plan-vs-implementasi (D1-D7) dengan baca diff + ukur di browser, bukan baca kode saja. **5 gap nyata + 2 bug harness ditemukan & ditutup.**
+
+**Gap implementasi:**
+1. **Hover masih memakai surface terpilih** — `.btn:hover`, `.btn.vb:hover`, `.ovlBottom .btn:hover`, `.sceneBar .btn:hover` semuanya `accent-2` + hairline `accent-edge` = **persis** bentuk selected state → hover bisa dibaca sebagai selected (melanggar aturan sendiri di DESIGN.md §9). → semua jadi surface netral `--panel-3` + hairline; selected tetap `accent-2` + hairline + weight 650.
+2. **Selected state tak seragam** — `.seg button.on` dan `.tree .r.on` punya surface `accent-2` tapi **tanpa hairline** (tree juga weight 600). → hairline `inset 0 0 0 1px var(--accent-edge)` + weight 650 → nav/rooms/seg/tree/sceneBar/hudTab/hudCard satu bahasa.
+3. **Angka kumulatif hilang dari HUD** — plan minta total historis pindah ke tooltip; implementasinya hanya menulis periode ("5 menit terakhir"). → tooltip sekarang menyebut total (`N tercatat berjalan secara keseluruhan`), chip `gagal` menyebut `N kegagalan lebih lama tidak dihitung`.
+4. **Refresh bisa nyeret spinner palsu** — `poll()` mengembalikan `Promise.resolve()` saat request masih jalan → klik refresh saat auto-poll berjalan = spinner hilang seketika. → `poll()` sekarang mengembalikan promise yang benar-benar jalan (`pollPromise`), jadi busy state jujur.
+5. **Baris Diagnostics salah nama** — label "Tool terakhir" padahal isinya event terakhir (bisa `turn_formatted`). → label jadi "Aktivitas terakhir" (nilai mentah tetap di sana; §12 memang mengizinkan nilai mentah di Diagnostics).
+
+**Bug harness (bukan produk):**
+6. **Double toggle** — `clickToggle()` = `page.click().catch(DOM click)`. Dashboard memegang SSE bus terbuka → Playwright menunggu "scheduled navigations to finish" dan bisa timeout **setelah klik terjadi** → fallback klik kedua → panel toggle dua kali → tertutup lagi ("toggle opens the chat" gagal acak). → klik DOM saja (drill + probe `safeClick`); probe juga ganti sisa `page.click` mentah.
+7. **Assertion menyalahartikan data owner** — "switching agent shows that agent's own history" membandingkan **jumlah** pesan; beide agent bisa punya history sejumlah sama (15 vs 15) → gagal padahal produk benar (API: mia 14 / michelle 18 / agnes 38 pesan). → bandingkan **isi** (pesan user pertama), bukan jumlah; "switching back" kini membandingkan isi persis (lebih ketat, bukan dilonggarkan).
+
+**Bukti:** tinggi header **sebelum = sesudah** (56/56/56/53 px di 1440/1280/1024/560, tanpa wrap: scrollW == clientW) → requirement "header height must not grow" terbukti terukur · drill +2 assertion (semua selected punya surface + hairline; counter menyebut periodenya) → **58 ok / 0 FAIL** · 9 screenshot after di /tmp/polish-audit.
+
+**Gates (audit):** typecheck 0 · lint 0 error · `npm test` 142 file / 2721 tes · `node --test apps/office-dashboard/*.test.mjs` 73/73 · `verify.ts` EXIT=0 · `drill-office-chat-ui.mts` 58 ok / 0 FAIL · inline script index.html `node --check` OK.

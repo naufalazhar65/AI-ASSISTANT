@@ -143,9 +143,8 @@
     body:not(.sbopen) aside .brand .who{display:none}
     body:not(.sbopen) nav button{justify-content:center;padding:0;width:38px;height:38px;
       margin:0 auto;border-radius:var(--r-sm)}
-    body:not(.sbopen) nav button.on{background:var(--accent);color:var(--accent-ink);
-      box-shadow:var(--shadow-offset)}
-    body:not(.sbopen) nav button.on .ic{color:var(--accent-ink)}
+    /* The selected state is identical whether the rail is open or collapsed
+       (DESIGN.md §9): accent surface + accent hairline, never a solid fill. */
     body:not(.sbopen) .brand{padding-left:0;padding-right:0;justify-content:center}
     body:not(.sbopen) .brand .mark{margin:0 auto}
     body:not(.sbopen) .brand .dot{display:none}
@@ -192,7 +191,9 @@
     border-radius:var(--r-sm);padding:7px 13px;font-size:var(--t-1);font-weight:550;
     cursor:pointer;white-space:nowrap;
     transition:background var(--dur),border-color var(--dur),color var(--dur)}
-  .btn:hover{border-color:var(--accent-edge);background:var(--accent-2);color:var(--text)}
+  /* Hover never wears the selected surface, so a hover can never be read as
+     a selection (DESIGN.md §9): selected = accent surface + accent hairline. */
+  .btn:hover{border-color:var(--accent-edge);background:var(--panel-3);color:var(--text)}
   .btn:active{transform:translateY(1px)}
   .btn[disabled],.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed;transform:none}
   /* Primary action — the only place the warm orange becomes a filled surface. */
@@ -208,10 +209,15 @@
   /* Tertiary — low-priority controls: no filled surface, no border until hover. */
   .btn.vb{padding:6px 10px;font-size:var(--t-1);
     background:transparent;border-color:transparent;color:var(--muted)}
-  .btn.vb:hover{background:var(--accent-2);border-color:var(--accent-edge);color:var(--text)}
+  .btn.vb:hover{background:var(--panel-3);border-color:var(--accent-edge);color:var(--text)}
   /* Icon-only control: a square plate, one glyph, no text. */
   .btn.ico{width:36px;height:36px;min-width:36px;padding:0;gap:0}
   .btn.ico .ib{width:16px;height:16px;display:block}
+  /* The refresh button shows that it is working (DESIGN.md §9). */
+  #refreshBtn[aria-busy="true"]{opacity:.8}
+  #refreshBtn[aria-busy="true"] svg{animation:ocSpin .9s linear infinite;
+    transform-origin:50% 50%;transform-box:fill-box}
+  @keyframes ocSpin{to{transform:rotate(360deg)}}
   /* Dispatch is a state toggle, not a call to action: tint, never a filled slab. */
   #dispatchBtn[data-state="paused"]{color:var(--warn);border-color:var(--warn-2)}
   #dispatchBtn[data-state="resumed"]{color:var(--ok);border-color:var(--ok-2)}
@@ -244,7 +250,8 @@
     transition:background var(--dur),color var(--dur)}
   .seg button+button{border-left:1px solid var(--line)}
   .seg button:hover{color:var(--text);background:var(--panel-3)}
-  .seg button.on{background:var(--accent-2);color:var(--text);font-weight:650}
+  .seg button.on{background:var(--accent-2);color:var(--text);font-weight:650;
+    box-shadow:inset 0 0 0 1px var(--accent-edge)}
   /* A badge that carries an icon must not also carry the status dot. */
   .badge.ico::before{content:none}
   .badge.ico{display:inline-flex;align-items:center;gap:5px}
@@ -358,7 +365,8 @@
   .tree .r{display:flex;gap:var(--s2);align-items:center;padding:8px 10px;
     border-radius:var(--r-xs);font-size:var(--t-1);color:var(--text);cursor:pointer}
   .tree .r:hover{background:var(--panel)}
-  .tree .r.on{background:var(--accent-2);color:var(--text);font-weight:600}
+  .tree .r.on{background:var(--accent-2);color:var(--text);font-weight:650;
+    box-shadow:inset 0 0 0 1px var(--accent-edge)}
   .tree .r.denied{opacity:.4;cursor:not-allowed}
   .tree .r .sz{margin-left:auto;color:var(--faint);font-size:var(--t-2)}
   .doc{background:var(--bg2);border:1px solid var(--line);border-radius:var(--r-md);
@@ -441,7 +449,7 @@
   .ovlBottom .sp{display:none}
   .ovlBottom .btn{flex:0 0 auto;margin-left:auto;background:transparent;
     border-color:var(--line);color:var(--muted)}
-  .ovlBottom .btn:hover{background:var(--accent-2);border-color:var(--accent-edge);
+  .ovlBottom .btn:hover{background:var(--panel-3);border-color:var(--accent-edge);
     color:var(--text)}
   /* Scene toolbar — one coherent group, light neutral surfaces, warm accent for
      the selected control. Not a row of dark pills. */
@@ -451,10 +459,12 @@
     box-shadow:var(--shadow-soft)}
   .sceneBar .sep{width:1px;align-self:stretch;background:var(--line);margin:2px 3px}
   .sceneBar .btn{background:var(--panel);border-color:var(--line);color:var(--muted)}
-  .sceneBar .btn:hover{background:var(--accent-2);border-color:var(--accent-edge);
+  .sceneBar .btn:hover{background:var(--panel-3);border-color:var(--accent-edge);
     color:var(--text)}
-  .sceneBar .btn.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);
-    font-weight:700}
+  /* One selected-state language: accent surface + accent hairline + weight
+     (DESIGN.md §9). */
+  .sceneBar .btn.on{background:var(--accent-2);border-color:var(--accent-edge);
+    color:var(--text);font-weight:650}
   /* Scene menu — secondary controls live behind one disclosure so the toolbar
      stays one short row on a narrow canvas. */
   .sceneBar details.menu{margin-top:0;position:relative;flex:0 0 auto}
@@ -544,7 +554,8 @@
     color:var(--muted);background:transparent;border:1px solid transparent;
     border-radius:var(--r-xs);padding:5px 12px;cursor:pointer}
   .hudTab:hover{color:var(--text);background:var(--panel-3)}
-  .hudTab.on{color:var(--text);border-color:var(--accent-edge);background:var(--panel)}
+  .hudTab.on{color:var(--text);border-color:var(--accent-edge);background:var(--accent-2);
+    font-weight:650}
   .hudPane{display:grid;gap:var(--s3);grid-template-columns:1fr;align-content:start;
     padding:var(--s4);overflow:auto;flex:1;min-height:0}
   /* Three agents in a 322px column: one per row. Two columns left half a
@@ -555,8 +566,10 @@
   .hudCard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
     padding:12px 14px;text-align:left;width:100%;color:inherit;font:inherit;cursor:pointer;
     transition:border-color var(--dur),background var(--dur)}
-  button.hudCard:hover{border-color:var(--accent-edge);background:var(--accent-2)}
-  .hudCard.sel{border-color:var(--accent);background:var(--accent-2);
+  /* Hover stays neutral so it can never be read as the selected state
+     (DESIGN.md §9): selected = accent surface + accent hairline. */
+  button.hudCard:hover{border-color:var(--line-2);background:var(--panel-3)}
+  .hudCard.sel{background:var(--accent-2);
     box-shadow:inset 0 0 0 1px var(--accent-edge)}
   .hudDetail .hdName{display:flex;flex-direction:column;gap:2px;padding-bottom:var(--s3);
     border-bottom:1px solid var(--line)}
@@ -743,8 +756,10 @@
         <span class="crumbSep" aria-hidden="true">/</span>
         <h1 id="viewTitle">Office</h1></div>
       <span class="sp"></span>
-      <span class="sync" role="status"><i id="apiPill" title="Koneksi API"></i><span class="sr">Koneksi API: </span><span>Tersinkron</span><span id="lastPill">—</span></span>
-      <span class="pill" id="busPill" aria-live="polite" title="Live Event Bus dari Mia — sumber kebenaran status agent">BUS …</span>
+      <div class="grp">
+        <span class="sync" role="status"><i id="apiPill" title="Koneksi API"></i><span class="sr">Koneksi API: </span><span>Tersinkron</span><span id="lastPill">—</span></span>
+        <span class="pill" id="busPill" aria-live="polite" title="Live Event Bus dari Mia — sumber kebenaran status agent">BUS …</span>
+      </div>
       <div class="grp">
         <button class="btn vb ico" id="modeBtn" title="Tema terang / gelap (UI)" aria-label="Ganti tema terang atau gelap"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-theme"/></svg></button>
         <button class="btn vb ico" id="refreshBtn" title="Muat ulang sekarang" aria-label="Muat ulang data sekarang"><svg class="ib" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-refresh"/></svg></button>
@@ -887,7 +902,7 @@ var QUICK = [
   ['General / Assistant','mia'], ['Research','agnes'], ['Coding & Testing','michelle']
 ];
 
-var STATE = null, lastOk = null, inflight = false, currentView = 'office';
+var STATE = null, lastOk = null, inflight = false, pollPromise = null, currentView = 'office';
 
 /* ── helpers ─────────────────────────── */
 function fmtBytes(n) {
@@ -1076,8 +1091,9 @@ function excerptOf(d) {
 /* The audit titles its own turns; on screen they read as a sentence. */
 function humanTitle(t) {
   var s = String(t == null ? '' : t);
-  var m = s.match(/^Turn\s+(\w+)\s+via\s+(\w+)$/i);
-  if (m) return 'giliran ' + ((ROSTER[m[1].toLowerCase()] || {}).name || m[1]) + ' via ' + m[2];
+  /* "Turn mia via 9router" is a ledger row, not something a user should read:
+     the provider id is metadata (DESIGN.md §11). */
+  if (/^Turn\s+\S+\s+via\s+/i.test(s)) return 'Menjawab pesan';
   return s;
 }
 
@@ -1139,9 +1155,12 @@ var STATE_TTL_MS = 1200;
 
 /* ── polling (no overlapping requests) ─────────────────────────── */
 function poll() {
-  if (inflight) return;
+  /* A second caller waits for the request that is already running instead of
+     resolving instantly — the refresh button's busy state must reflect the
+     real request (DESIGN.md §9). */
+  if (inflight) return pollPromise || Promise.resolve();
   inflight = true;
-  cachedSource('state', STATE_TTL_MS, function () {
+  pollPromise = cachedSource('state', STATE_TTL_MS, function () {
     return fetch(api('/api/state'), { headers: { accept: 'application/json' } })
       .then(function (r) {
         if (r.status === 401) throw new Error('401 unauthorized');
@@ -1163,7 +1182,8 @@ function poll() {
       $('#apiPill').title = 'API: ' + (e.message || 'error');
       $('#connDot').style.background = 'var(--bad)';
     })
-    .finally(function () { inflight = false; });
+    .finally(function () { inflight = false; pollPromise = null; });
+  return pollPromise;
 }
 
 /* ── mission-control sources ───────────────────────────
@@ -1254,8 +1274,10 @@ function agentDetailHtml(id) {
     ['Task aktif', a.active_task ? esc(a.active_task) : 'tidak ada'],
     ['Update terakhir', esc(hhmmss(a.last_update)) + ' \u00b7 ' + esc(ago(a.last_update))]
   ];
+  var ev = a.last_event || null;
   var diag = [
     ['Dasar status', b.note ? esc(b.note) : 'turnstile dari event bus'],
+    ['Aktivitas terakhir', ev ? esc(ev.action + (ev.detail ? ' \u00b7 ' + trunc(ev.detail, 60) : '')) : '\u2014'],
     ['Ruang', esc(av ? (ROOM_LABEL_UI[av.room] || '\u2014') : '\u2014')],
     ['Aktivitas visual', esc(av ? (ACTIVITY_LABEL[av.activity] || av.activity) : '\u2014')],
     ['Turn / tool', b.turns != null ? esc(count(b.turns) + ' turn \u00b7 ' + count(b.tool_calls) + ' tool') : '\u2014'],
@@ -1271,7 +1293,7 @@ function agentDetailHtml(id) {
       r.duties.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>' : '') +
     '<div class="note" style="margin:10px 0 4px">Task terakhir</div>' +
     (t.length ? '<table><tbody>' + t.map(function (x) {
-      return '<tr><td>' + esc(trunc(x.title, 34)) + '</td><td>' + esc(STATUS_WORD[x.status] || x.status) + '</td></tr>';
+      return '<tr><td>' + esc(trunc(humanTitle(x.title), 34)) + '</td><td>' + esc(STATUS_WORD[x.status] || x.status) + '</td></tr>';
     }).join('') + '</tbody></table>' : '<div class="note">Belum ada task tercatat.</div>') +
     '<details class="diag"><summary>Diagnostics</summary>' + kv(diag) +
       (av && av.provenance ? '<div class="kv"><span>Provenance</span><span>' +
@@ -1396,11 +1418,12 @@ function vAgents() {
 
 function vBoard() {
   if (!STATE) return '<div class="empty">Memuat…</div>';
+  var lc = liveTaskCounts(STATE.tasks);
   var lanes = [
-    { title: 'Antre', dot: 'q', items: STATE.queue.filter(function (q) { return q.status === 'queued'; }) },
-    { title: 'Berjalan', dot: 'w', items: STATE.tasks.filter(function (t) { return t.status === 'started' || t.status === 'progress'; }) },
-    { title: 'Selesai', dot: 'd', items: STATE.tasks.filter(function (t) { return t.status === 'done'; }) },
-    { title: 'Gagal', dot: 'f', items: STATE.tasks.filter(function (t) { return t.status === 'failed'; }) }
+    { title: 'Antre', dot: 'q', items: (STATE.queue || []).filter(function (q) { return q.status === 'queued'; }) },
+    { title: 'Berjalan (5 mnt)', dot: 'w', items: lc.runningTasks },
+    { title: 'Selesai', dot: 'd', items: (STATE.tasks || []).filter(function (t) { return t.status === 'done'; }) },
+    { title: 'Gagal (24 jam)', dot: 'f', items: lc.failedTasks }
   ];
   var groups = lanes.map(function (L) { return { title: L.title, dot: L.dot, items: boardGroups(L.items) }; });
   var total = groups.reduce(function (n, g) { return n + g.items.length; }, 0);
@@ -1424,10 +1447,14 @@ function vBoard() {
     }).join('') + (hidden > 0 ? '<div class="note">' + count(hidden) + ' kelompok lain belum ditampilkan.</div>' : '');
     return head + '<div class="laneBody">' + cards + '</div></div>';
   }).join('');
+  var backlog = (lc.runningStale || lc.failedOld)
+    ? '<div class="note">' + count(lc.runningStale) + ' task lain tercatat berjalan lebih dari 5 menit lalu dan belum ditutup · ' +
+      count(lc.failedOld) + ' kegagalan lebih dari 24 jam lalu tidak ditampilkan.</div>'
+    : '';
   if (STATE.dispatch_paused) {
     return bar + '<div class="empty">Dispatch dijeda — antrean tidak dikirim ke agent sampai dispatch dilanjutkan dari tombol header.</div>';
   }
-  return bar + '<div class="board">' + body + '</div>';
+  return bar + '<div class="board">' + body + '</div>' + backlog;
 }
 
 
@@ -1563,7 +1590,7 @@ function vActivity() {
       return '<tr><td>' + stBadgeByAgent(x.agent) + '</td><td>' + esc(hhmmss(x.started)) + '</td>' +
         '<td title="' + esc(ago(x.last)) + '">' + esc(hhmmss(x.last)) + '</td><td>' + count(x.events) + '</td><td>' +
         count(x.tool_calls) + '</td><td>' + (x.turn_errors ? count(x.turn_errors) : '0') + '</td><td>' +
-        esc(trunc(humanAction(x.last_action), 60)) + '</td><td title="' + esc(x.source) + '">' + esc(trunc(humanSource(x.source), 26)) + '</td></tr>';
+        esc(trunc(x.last_activity || humanAction(x.last_action), 60)) + '</td><td title="' + esc(x.source) + '">' + esc(trunc(humanSource(x.source), 26)) + '</td></tr>';
     }).join('') + '</tbody></table>' : emptyBox('Belum ada sesi yang bisa diturunkan dari log.');
   return bar + stats + sessions;
 }
@@ -1778,6 +1805,36 @@ function card(title, rows) {
 }
 
 /* Slim strip over the 3D stage. Reads /api/state only — no invented numbers. */
+/* Live task counts. The task ledger keeps rows that were never closed (a turn
+   that never wrote a "done" row stays "started" forever), so a raw status
+   count is history, not live state. A task counts as running only while it was
+   updated inside the live window; a failure counts only inside the day window.
+   The HUD and the board lanes share this helper, so the two can never
+   contradict each other (DESIGN.md §12). */
+var LIVE_WINDOW_MS = 5 * 60 * 1000;
+var FAIL_WINDOW_MS = 24 * 60 * 60 * 1000;
+function liveTaskCounts(tasks, now) {
+  var t = now || Date.now();
+  var out = { running: 0, failed: 0, runningTotal: 0, failedTotal: 0, runningStale: 0, failedOld: 0, runningTasks: [], failedTasks: [] };
+  (tasks || []).forEach(function (x) {
+    var at = Date.parse(x.updated_at || x.started_at || x.ts || '');
+    var age = isFinite(at) ? t - at : Infinity;
+    if (x.status === 'started' || x.status === 'progress') {
+      out.runningTotal++;
+      if (age <= LIVE_WINDOW_MS) { out.running++; out.runningTasks.push(x); }
+      else out.runningStale++;
+    } else if (x.status === 'failed') {
+      out.failedTotal++;
+      if (age <= FAIL_WINDOW_MS) { out.failed++; out.failedTasks.push(x); }
+      else out.failedOld++;
+    }
+  });
+  return out;
+}
+
+/* The HUD is one flat strip of meaningful counters. Every number says what it
+   counts and over which period; a chip without a real value is not rendered at
+   all (DESIGN.md §12). */
 function renderOvlStatus() {
   var el = $('#ovlStatus');
   if (!el) return;
@@ -1785,37 +1842,37 @@ function renderOvlStatus() {
   var ag = STATE.agents || [];
   var working = ag.filter(function (a) { return a.status === 'working'; }).length;
   var queued = (STATE.queue || []).filter(function (q) { return q.status === 'queued'; }).length;
-  var running = 0, failed = 0;
-  (STATE.tasks || []).forEach(function (t) {
-    if (t.status === 'started' || t.status === 'progress') running++;
-    else if (t.status === 'failed') failed++;
-  });
-  var next = null;
-  (((STATE.schedules || {}).items) || []).forEach(function (s) {
-    if (!s.enabled || !s.next_iso) return;
-    var at = Date.parse(s.next_iso);
-    if (!isFinite(at)) return;
-    if (!next || at < next.at) next = { at: at, label: s.label || s.title || s.id, kind: 'cron' };
-  });
+  var lc = liveTaskCounts(STATE.tasks);
+  var sch = STATE.schedules || {};
+  var out = [
+    '<span class="pill" title="Agen yang sedang bekerja"><i class="' + (working ? 'ok' : '') + '"></i>Bekerja ' + working + '/' + ag.length + '</span>',
+    '<span class="pill" title="Tugas yang menunggu giliran"><i class="' + (queued ? 'warn' : '') + '"></i>Antre ' + queued + '</span>',
+    '<span class="pill' + (lc.running ? ' hot' : '') + '" title="Tugas yang diperbarui dalam 5 menit terakhir \u00b7 ' + lc.runningTotal + ' tercatat berjalan secara keseluruhan"><i class="' + (lc.running ? 'ok' : '') + '"></i>Berjalan ' + lc.running + '</span>'
+  ];
+  if (lc.failed) {
+    out.push('<span class="pill fail" title="Kegagalan dalam 24 jam terakhir \u00b7 ' + lc.failedOld + ' kegagalan lebih lama tidak dihitung"><i class="bad"></i>gagal ' + lc.failed + '</span>');
+  }
+  if (sch.configured) {
+    var next = null;
+    (sch.items || []).forEach(function (s) {
+      if (!s.enabled || !s.next_iso) return;
+      var at = Date.parse(s.next_iso);
+      if (!isFinite(at)) return;
+      if (!next || at < next.at) next = { at: at, label: s.label || s.title || s.id };
+    });
+    if (next) {
+      out.push('<span class="pill" title="Jadwal berikutnya"><i class="warn"></i>Cron ' + esc(trunc(next.label, 18)) + ' \u00b7 ' + esc(hhmmss(new Date(next.at).toISOString())) + '</span>');
+    }
+  }
   // A reminder Mia set from Discord/Telegram is the same class of event as a
-  // cron slot — whichever fires first is what the owner cares about next.
+  // cron slot — both are shown, each with its own real time.
   var rnext = ((STATE.reminders || {}).next) || null;
   if (rnext && rnext.at_iso) {
     var rat = Date.parse(rnext.at_iso);
-    if (isFinite(rat) && (!next || rat < next.at)) {
-      next = { at: rat, label: rnext.text || rnext.agent_name || 'reminder', kind: 'reminder' };
+    if (isFinite(rat)) {
+      out.push('<span class="pill" title="Pengingat berikutnya"><i class="warn"></i>Reminder ' + esc(trunc(rnext.text || rnext.agent_name || 'pengingat', 18)) + ' \u00b7 ' + esc(hhmmss(new Date(rnext.at_iso).toISOString())) + '</span>');
     }
   }
-  var out = [
-    '<span class="pill"><i></i>Crew ' + working + '/' + ag.length + '</span>',
-    '<span class="pill"><i class="' + (queued ? 'warn' : '') + '"></i>Antre ' + queued + '</span>',
-    '<span class="pill hot"><i class="ok"></i>Berjalan ' + running + '</span>',
-    failed ? '<span class="pill fail"><i class="bad"></i>gagal ' + failed + '</span>' : '',
-    '<span class="pill"><i class="' + (next ? 'warn' : '') + '"></i>' +
-      (next && next.kind === 'reminder' ? 'Reminder ' : 'Cron ') + (next
-        ? esc(trunc(next.label, 18)) + ' · ' + esc(hhmmss(new Date(next.at).toISOString()))
-        : '—') + '</span>'
-  ];
   el.innerHTML = out.join('');
 }
 
@@ -5210,7 +5267,13 @@ function tagText(id, name, status, activeTask, provenance) {
   if (room && room !== '—') detailBits.push('Ruang: ' + room);
   if (provenance) detailBits.push(String(provenance));
   if (detailBits.length) {
-    html += '<span class="sr">' + esc(detailBits.join(' · ')) + '</span>';
+    /* The screen reader hears the human facts only. The raw provenance (bus
+       event, action name) can contain a tool identifier, so it stays in the
+       hover tooltip and in the agent panel Diagnostics (DESIGN.md §11/§12). */
+    var spoken = [];
+    if (role) spoken.push('Peran: ' + role);
+    if (room && room !== '—') spoken.push('Ruang: ' + room);
+    if (spoken.length) html += '<span class="sr">' + esc(spoken.join(' · ')) + '</span>';
     var el = office.tags[id];
     if (el) el.title = detailBits.join(' · ');
   }
@@ -5570,7 +5633,11 @@ $('#burger').addEventListener('click', function () { setNav(!document.body.class
 $('#hudToggle').addEventListener('click', function () { setHud($('#hud').hidden); });
 $('#hudClose').addEventListener('click', function () { setHud(false); });
 $('#refreshBtn').addEventListener('click', function () {
-  poll();
+  /* Honest busy feedback: the button spins while the data is loading. */
+  var rb = this;
+  rb.setAttribute('aria-busy', 'true');
+  var done = function () { rb.removeAttribute('aria-busy'); };
+  Promise.resolve(poll()).then(done, done);
   if (currentView === 'usage') loadUsage(true);
   if (currentView === 'memory') loadMemory(null, true);
   if (currentView === 'files') openDir(FILES.path);

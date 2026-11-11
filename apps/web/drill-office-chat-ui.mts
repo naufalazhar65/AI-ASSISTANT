@@ -186,9 +186,12 @@ async function waitForSessionTurn(marker: string): Promise<void> {
  * way, so a timeout falls back to a DOM click.
  */
 async function clickToggle(page: import("playwright").Page): Promise<void> {
-  await page
-    .click("#chatToggle", { timeout: 5000 })
-    .catch(() => page.evaluate(() => document.getElementById("chatToggle")?.click()));
+  /* DOM click only: page.click waits for "scheduled navigations to finish" and
+     this page holds an open SSE stream, so that wait can time out AFTER the
+     click already happened. The old fallback then clicked a SECOND time, the
+     panel toggled twice and ended up closed again — a flaky assertion, not a
+     product bug. One DOM click is exactly one toggle. */
+  await page.evaluate(() => document.getElementById("chatToggle")?.click());
 }
 
 /**
@@ -285,6 +288,102 @@ async function main(): Promise<void> {
   check("dashboard still visible", dashboardVisible);
   const officeCanvas = await page.locator("canvas").count();
   check("3D office canvas still mounted", officeCanvas > 0, `canvas count=${officeCanvas}`);
+
+  // 1b. nameplates, HUD counters and selected states — read from the REAL
+  // backend state, never from a fixture.
+  const officeUi = await page.evaluate(async () => {
+    const token = localStorage.getItem("mia_token") || "";
+    const st = await fetch("/api/state?token=" + encodeURIComponent(token), {
+      headers: { accept: "application/json" },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+    const hud = document.getElementById("ovlStatus");
+    const pills = hud
+      ? Array.from(hud.querySelectorAll(".pill")).map((p) => (p.textContent || "").trim())
+      : [];
+    /* Only the VISIBLE caption is checked: the hover tooltip and the agent
+       panel Diagnostics keep the raw values on purpose. */
+    const labels = Array.from(document.querySelectorAll(".tagLbl")).map((el) => {
+      const name = el.querySelector("b");
+      const status = el.querySelector("small:not(.tProv)");
+      return ((name ? name.textContent : "") + " " + (status ? status.textContent : "")).trim();
+    });
+    const navOn = document.querySelector("nav button.on");
+    const roomOn = document.querySelector(".rooms button.on");
+    const hudTabOn = document.querySelector(".hudTab.on");
+    /* The accent hairline is read from the token, not hardcoded: a probe
+       element resolves --accent-edge to the colour the theme actually uses.
+       No named arrow functions in here: esbuild injects __name and the page
+       throws (the drill's house rule). */
+    const probe = document.createElement("span");
+    probe.style.color = "var(--accent-edge)";
+    document.body.appendChild(probe);
+    const edgeRgb = getComputedStyle(probe).color;
+    probe.remove();
+    const navCs = navOn ? getComputedStyle(navOn) : null;
+    const roomCs = roomOn ? getComputedStyle(roomOn) : null;
+    const hudCs = hudTabOn ? getComputedStyle(hudTabOn) : null;
+    const navEdge = navCs ? (navCs.boxShadow + "|" + navCs.borderTopColor).indexOf(edgeRgb) >= 0 : false;
+    const roomEdge = roomCs ? (roomCs.boxShadow + "|" + roomCs.borderTopColor).indexOf(edgeRgb) >= 0 : false;
+    const hudTabEdge = hudCs ? (hudCs.boxShadow + "|" + hudCs.borderTopColor).indexOf(edgeRgb) >= 0 : false;
+    const pillTitles = hud
+      ? Array.from(hud.querySelectorAll(".pill")).map((x) => x.getAttribute("title") || "")
+      : [];
+    return {
+      schedulesConfigured: st && st.schedules ? !!st.schedules.configured : null,
+      pills,
+      labels,
+      navBg: navOn ? getComputedStyle(navOn).backgroundColor : "",
+      roomBg: roomOn ? getComputedStyle(roomOn).backgroundColor : "",
+      hudTabBg: hudTabOn ? getComputedStyle(hudTabOn).backgroundColor : "",
+      navEdge,
+      roomEdge,
+      hudTabEdge,
+      pillTitles,
+      hudText: pills.join(" | "),
+    };
+  });
+  check(
+    "the HUD counts working agents instead of a vague crew",
+    officeUi.hudText.includes("Bekerja") && !officeUi.hudText.includes("Crew"),
+    officeUi.hudText,
+  );
+  check(
+    "the HUD has no empty scheduler chip",
+    officeUi.schedulesConfigured === false ? !officeUi.hudText.includes("Cron") : true,
+    `configured=${officeUi.schedulesConfigured} hud=${officeUi.hudText}`,
+  );
+  check(
+    "no HUD chip is an empty placeholder",
+    !officeUi.pills.some((p) => p.endsWith("\u2014")),
+    officeUi.hudText,
+  );
+  check(
+    "nameplates never show a raw tool identifier",
+    officeUi.labels.length > 0 && officeUi.labels.every((l) => !/[a-z]+_[a-z]+/.test(l)),
+    officeUi.labels.join(" | "),
+  );
+  check(
+    "nav and room selections share one visual language",
+    officeUi.navBg !== "" && officeUi.navBg === officeUi.roomBg,
+    `nav=${officeUi.navBg} room=${officeUi.roomBg}`,
+  );
+  check(
+    "every chrome selection wears the accent surface and the accent hairline",
+    officeUi.navBg !== "" &&
+      officeUi.navBg === officeUi.roomBg &&
+      officeUi.navBg === officeUi.hudTabBg &&
+      officeUi.navEdge &&
+      officeUi.roomEdge &&
+      officeUi.hudTabEdge,
+    `nav=${officeUi.navBg}/${officeUi.navEdge} room=${officeUi.roomBg}/${officeUi.roomEdge} hudTab=${officeUi.hudTabBg}/${officeUi.hudTabEdge}`,
+  );
+  check(
+    "a HUD counter states the period it counts",
+    officeUi.pillTitles.some((t) => t.indexOf("5 menit") >= 0),
+    officeUi.pillTitles.join(" | "),
+  );
 
   // 2. the toggle closes it and opens it again
   await clickToggle(page);
@@ -726,22 +825,42 @@ async function main(): Promise<void> {
   }
 
   // 9. agent switching keeps conversations apart
-  await page.click('.chatTabs [role="tab"]:has-text("Michelle")');
-  await page.waitForTimeout(400);
-  // Count RENDERED messages only: the typing row is a persistent node that is
-  // hidden between turns, and each agent's history length is owner data (not
-  // something the drill may assume). The invariant under test is separation:
-  // Michelle's conversation is not Mia's.
-  const michelleMsgs = await page.locator("#chatLog .msg:not(.typing):visible").count();
-  await page.click('.chatTabs [role="tab"]:has-text("Mia")');
-  await page.waitForTimeout(400);
-  const miaMsgs = await page.locator("#chatLog .msg:not(.typing):visible").count();
+  /* Compare CONTENT, not length. The owner's histories may well be the same
+     size (they are real conversations), and then a length check fails for the
+     wrong reason — it asserts owner data, not the product. The invariant under
+     test is separation: Michelle's conversation is not Mia's. */
+  const firstUserText = async (): Promise<string> => {
+    const t = page.locator("#chatLog .msg.user .msgBody").first();
+    if ((await t.count()) === 0) return "";
+    return ((await t.textContent()) || "").trim();
+  };
+  /* DOM click: page.click waits for "scheduled navigations to finish" and the
+     dashboard holds an open SSE stream, so the wait can time out after the
+     click already happened. */
+  const clickTab = async (name: string): Promise<void> => {
+    await page.evaluate((n: string) => {
+      const tabs = Array.from(document.querySelectorAll('.chatTabs [role="tab"]'));
+      const t = tabs.find((x) => (x.textContent || "").includes(n));
+      if (t) (t as HTMLElement).click();
+    }, name);
+  };
+  const miaFirst = await firstUserText();
+  await clickTab("Michelle");
+  await page.waitForTimeout(1200);
+  const michelleFirst = await firstUserText();
+  await clickTab("Mia");
+  await page.waitForTimeout(1200);
+  const miaBack = await firstUserText();
   check(
     "switching agent shows that agent's own history",
-    michelleMsgs !== miaMsgs,
-    `michelle=${michelleMsgs} mia=${miaMsgs}`,
+    miaFirst !== "" && michelleFirst !== "" && michelleFirst !== miaFirst,
+    `mia="${miaFirst}" michelle="${michelleFirst}"`,
   );
-  check("switching back restores Mia's history", miaMsgs >= 2, `mia=${miaMsgs}`);
+  check(
+    "switching back restores Mia's history",
+    miaBack !== "" && miaBack === miaFirst,
+    `back="${miaBack}" vs "${miaFirst}"`,
+  );
 
   // 10. keyboard: Esc closes, focus returns to the toggle
   await page.keyboard.press("Escape");

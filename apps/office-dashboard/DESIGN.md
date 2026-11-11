@@ -243,6 +243,8 @@ These dimensions are starting points from the existing layout, not instructions 
 
 - Room/area chips wrap instead of becoming a hidden horizontal scrollbar.
 - The bottom overlay is one grouped HUD surface, not a series of unrelated pills.
+- Every HUD chip states what it counts and over which period. A chip without a real value is not rendered at all (no empty "Cron —").
+- The HUD and the task board compute their counters with the same helper, so the two views can never disagree about what is running.
 - Flat status chips sit within the HUD; reserve individual cards for genuinely separate information.
 - The HUD is a sibling of the canvas, not a filter applied to the 3D scene.
 - On narrow screens, it may become a bottom sheet if that behaviour already exists or can be added without disturbing the renderer.
@@ -292,6 +294,13 @@ These dimensions are starting points from the existing layout, not instructions 
 - The selected segment must be obvious without relying only on text colour.
 - Keep options evenly aligned and maintain appropriate keyboard behaviour.
 - The agent selector should not resemble three unrelated cards.
+
+### Selected state
+
+- Chrome selections (rail, area chips, segmented controls, file tree, HUD tabs and crew cards) share one visual language: accent surface (`--accent-2`) + accent hairline (`--accent-edge`) + stronger weight. Never a colour swap alone.
+- Hover stays neutral (`--panel-3`) so a hover can never be read as a selection.
+- The selected state looks the same whether the control is expanded or collapsed.
+- Two documented exceptions: the chat agent tab keeps a solid accent fill, because it names the subject of the panel beside it; the 3D scene nameplate keeps its expressive accent outline and offset shadow, because it marks a picked object in the scene, not a chrome selection.
 
 ### Status chips and badges
 
@@ -377,6 +386,8 @@ Task state and visual idle animation are separate facts.
 - An animation such as drinking coffee or sitting down must not overwrite an active task status.
 - Do not infer task status from the character's position or animation alone.
 - Translate internal values before showing them; never render raw event names, enum values, function names, or IDs as the primary activity label.
+- The status line under a name is a human sentence about the work ("melakukan riset", "menulis kode"), never a tool identifier, a locale, a task id, or a raw argument.
+- The raw action, the tool name and its arguments stay available in the agent panel Diagnostics.
 
 ## 12. State honesty and display data
 
@@ -385,6 +396,8 @@ Every visible indicator is wired to real application state.
 - The API connection dot and bus status reflect actual connectivity.
 - The scene nameplate status and backend agent status may represent different facts; label them accurately instead of pretending they are the same state.
 - Counters display the real value and its meaning. If a counter has no known meaning, investigate before showing it.
+- A counter also states its period: running work counts what was updated in the last few minutes, failures count the last day.
+- Ledger rows that were never closed are disclosed as a backlog, not presented as live work.
 - Success and failure use separate indicators; never put them in one ambiguous chip.
 - The warning row names what could not be verified and when it was last checked rather than showing a vague "attention" state.
 - Idle is quiet. Do not print "no turn is active" in the main summary when there is no active task.
@@ -432,6 +445,7 @@ Additional rules:
 - A report card should contain the report object, not a long paragraph wrapped in decorative containers.
 - Use a consistent toolbar row for list views: label, count, and relevant list control (period, level, or “Lihat semua”).
 - Task boards should use consistent lane dimensions where practical; each lane may scroll its own list so unequal counts do not break the layout.
+- A task board lane states its window ("Berjalan (5 mnt)"); rows outside that window are disclosed as a backlog count instead of pretending to be live.
 - Group repeated task turns that share a title where this helps a reader; show a count and offer “Lihat semua” for the remaining history instead of displaying hundreds of identical cards.
 - Use severity labels as words plus semantic colour. Do not rely on colour alone.
 - Evidence, source, confidence, remediation, and verification status should be distinguishable in security reports.

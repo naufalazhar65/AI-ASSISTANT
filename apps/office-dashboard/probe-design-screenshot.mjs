@@ -29,9 +29,10 @@ function token() {
 
 /** Click without Playwright's post-click navigation wait (the dashboard keeps an SSE stream open, so that wait can hang). */
 async function safeClick(page, selector) {
-  await page
-    .click(selector, { timeout: 5000 })
-    .catch(() => page.evaluate((s) => document.querySelector(s)?.click(), selector));
+  /* DOM click only: page.click waits for "scheduled navigations to finish" and
+     this page holds an open SSE stream, so the wait can time out after the
+     click already happened and the old fallback clicked a second time. */
+  await page.evaluate((s) => document.querySelector(s)?.click(), selector);
 }
 
 mkdirSync(OUT, { recursive: true });
@@ -60,7 +61,7 @@ await safeClick(page, "#modeBtn");
 await page.waitForTimeout(400);
 const chatOpen = await page.evaluate(() => !!document.querySelector("#chatPanel.open"));
 if (!chatOpen) {
-  await page.click("#chatToggle");
+  await safeClick(page, "#chatToggle");
   await page.waitForTimeout(1200);
 }
 await page.screenshot({ path: join(OUT, "03-office-chat.png") });
@@ -83,7 +84,7 @@ await page.setViewportSize({ width: 560, height: 900 });
 await page.waitForTimeout(900);
 const narrowOpen = await page.evaluate(() => !!document.querySelector("#chatPanel.open"));
 if (!narrowOpen) {
-  await page.click("#chatToggle");
+  await safeClick(page, "#chatToggle");
   await page.waitForTimeout(900);
 }
 await page.screenshot({ path: join(OUT, "04-office-narrow.png") });
@@ -94,7 +95,7 @@ await page.setViewportSize(VIEWPORT);
 await page.waitForTimeout(800);
 const findingsNav = page.locator('button[data-view="findings"]');
 if (await findingsNav.count()) {
-  await findingsNav.first().click();
+  await page.evaluate(() => document.querySelector('button[data-view="findings"]')?.click());
   await page.waitForTimeout(1200);
   await page.screenshot({ path: join(OUT, "05-office-findings.png") });
 } else {
