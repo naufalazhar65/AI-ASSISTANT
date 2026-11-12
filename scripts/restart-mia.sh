@@ -17,8 +17,42 @@ PORT=3000
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# 1. Kill HANYA proses yang memegang port 3000.
-PIDS="$(lsof -ti tcp:$PORT 2>/dev/null || true)"
+# 0. Mutex: satu restart Mia pada satu waktu.
+# Dua restart yang saling menimpa = dua instance Mia (Telegram 409 + chunk .next
+# terhapus di tengah jalan). Lock = direktori (mkdir atomik) + pid pemegangnya;
+# pid yang sudah mati = lock basi, boleh diambil alih.
+LOCK_DIR="${TMPDIR:-/tmp}/mia-restart.lock"
+release_lock() { rm -rf "$LOCK_DIR" 2>/dev/null || true; }
+acquire_lock() {
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo $$ >"$LOCK_DIR/pid" 2>/dev/null || true
+    trap 'release_lock' EXIT INT TERM
+    return 0
+  fi
+  local owner
+  owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || echo 0)"
+  if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+    echo "ERROR: restart Mia sudah berjalan (pid $owner) — batal, jangan start yang kedua." >&2
+    return 2
+  fi
+  rm -rf "$LOCK_DIR" 2>/dev/null || true
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo $$ >"$LOCK_DIR/pid" 2>/dev/null || true
+    trap 'release_lock' EXIT INT TERM
+    return 0
+  fi
+  return 1
+}
+acquire_lock
+lock_rc=$?
+if [ "$lock_rc" -ne 0 ]; then
+  exit "$lock_rc"
+fi
+
+# 1. Kill HANYA proses yang MEMEGANG LISTENER di port 3000.
+# `lsof -ti tcp:3000` juga menyodorkan socket client (dashboard yang
+# konek ke Mia!) → kill-nya Collateral. Selector harus LISTEN.
+PIDS="$(lsof -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
 if [ -n "$PIDS" ]; then
   echo "killing port $PORT pids: $PIDS"
   # shellcheck disable=SC2086
@@ -27,10 +61,10 @@ fi
 
 # 2. Tunggu port benar-benar bebas (TIDAK ada sleep buta).
 for _ in $(seq 1 25); do
-  if ! lsof -ti tcp:$PORT >/dev/null 2>&1; then break; fi
+  if ! lsof -tiTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then break; fi
   sleep 1
 done
-if lsof -ti tcp:$PORT >/dev/null 2>&1; then
+if lsof -tiTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
   echo "ERROR: port $PORT masih dipakai — batal, jangan start yang kedua." >&2
   exit 1
 fi
@@ -78,14 +112,14 @@ echo "telegram      : $(grep -c 'telegram] starting' /tmp/mia-dev.log 2>/dev/nul
 # missing-log case at 0.
 c409=$(grep -cE '409: Conflict|terminated by other getUpdates' /tmp/mia-dev.log 2>/dev/null); echo "409 conflicts : ${c409:-0}  (harus 0)"
 cc=$(grep -c 'Cannot find module' /tmp/mia-dev.log 2>/dev/null); echo "chunk errors  : ${cc:-0}  (harus 0)"
-echo "boot time     : $(ps -o lstart= -p "$(lsof -ti tcp:$PORT | head -1)" 2>/dev/null)"
+echo "boot time     : $(ps -o lstart= -p "$(lsof -tiTCP:$PORT -sTCP:LISTEN | head -1)" 2>/dev/null)"
 echo "agent.ts mtime: $(stat -f '%Sm' apps/web/src/lib/agent.ts)"
 
 # 6. Nyalakan office-dashboard (port 3001) — JANGAN skip.
 # Dashboard di-dispatch dari Mia tapi hidup di proses/tmux terpisah; kalau
 # tidak diurus di sini ia mati diam-diam tiap restart (2026-10-12).
-if lsof -ti tcp:3001 >/dev/null 2>&1; then
-  echo "office          : sudah jalan di port 3001 (pid $(lsof -ti tcp:3001 | tr '\n' ' '))"
+if lsof -tiTCP:3001 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "office          : sudah jalan di port 3001 (pid $(lsof -tiTCP:3001 -sTCP:LISTEN | tr '\n' ' '))"
 else
   tmux kill-session -t office 2>/dev/null || true
   tmux new-session -d -s office "cd $ROOT/apps/office-dashboard && node server.js 2>&1 | tee /tmp/office-dashboard.log; sleep infinity" 2>/dev/null || true
@@ -99,7 +133,7 @@ else
     sleep 1
   done
   if curl -fsS -m 2 "http://127.0.0.1:3001/api/health" >/dev/null 2>&1; then
-    echo "office          : OK di http://127.0.0.1:3001 (pid $(lsof -ti tcp:3001 | tr '\n' ' '))"
+    echo "office          : OK di http://127.0.0.1:3001 (pid $(lsof -tiTCP:3001 -sTCP:LISTEN | tr '\n' ' '))"
   else
     echo "office          : GAGAL answering di port 3001 — lihat tail /tmp/office-dashboard.log" >&2
     tail -20 /tmp/office-dashboard.log >&2 || true
@@ -108,8 +142,8 @@ fi
 
 # 7. JANGAN sentuh 20128 — laporkan saja statusnya.
 echo "--- 9router (JANGAN DIKILL) ---"
-if lsof -ti tcp:20128 >/dev/null 2>&1; then
-  echo "9router pid   : $(lsof -ti tcp:20128 | head -1)  (alive ✓)"
+if lsof -tiTCP:20128 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "9router pid   : $(lsof -tiTCP:20128 -sTCP:LISTEN | head -1)  (alive ✓)"
   echo "9router /v1   : $(curl -s -m 8 http://127.0.0.1:20128/v1/models | head -c 60)"
 else
   echo "9router MATI — start manual: tmux new-session -d -s 9router '9router -p 20128; sleep infinity'" >&2

@@ -224,7 +224,10 @@ async function clickToggle(page: import("playwright").Page): Promise<void> {
  * prove anyway: the history comes from the server, not from localStorage.
  */
 async function hardReload(page: import("playwright").Page, auth: string): Promise<void> {
-  await page.goto(`${DASH}/?token=${encodeURIComponent(auth)}&_r=${Date.now()}`, { waitUntil: "commit" });
+  /* "commit" returns while the old document is still on screen: the next
+     click then lands on the document that is being replaced. Wait for the
+     new document to be usable. */
+  await page.goto(`${DASH}/?token=${encodeURIComponent(auth)}&_r=${Date.now()}`, { waitUntil: "load" });
 }
 
 async function openPanel(page: import("playwright").Page): Promise<void> {
@@ -266,6 +269,11 @@ function startDrillDashboard(): { proc: ChildProcess; dataDir: string } {
     const src = join(ROOT, "apps/office-dashboard/data", f);
     if (existsSync(src)) copyFileSync(src, join(dataDir, f));
   }
+  // Pause the dispatch loop and shrink the rotation window: the queue rows
+  // this drill creates must stay queued (a dispatched row would also land in
+  // the task ledger, and the prompt would no longer prove anything), and the
+  // oldest rows must really rotate into the archive.
+  writeFileSync(join(dataDir, "dispatch.json"), '{"paused":true}\n');
   const log = openSync("/tmp/office-drill-dashboard.log", "a");
   const proc = spawn("node", ["server.js"], {
     cwd: join(ROOT, "apps/office-dashboard"),
@@ -274,6 +282,8 @@ function startDrillDashboard(): { proc: ChildProcess; dataDir: string } {
       PORT: String(DASH_PORT),
       OFFICE_OWNER_USER: DRILL_USER,
       OFFICE_DATA_DIR: dataDir,
+      LEDGER_KEEP_LINES: "1",
+      LEDGER_MAX_BYTES: "4096",
     },
     stdio: ["ignore", log, log],
   });
@@ -1202,6 +1212,11 @@ async function main(): Promise<void> {
       const el = document.getElementById("missionUpdated");
       return el ? (el.textContent || "").trim() : "";
     });
+    /* The clock has second resolution: two refreshes inside the same second
+       look identical. The view's fetch counter is the reliable signal. */
+    const fetchBefore = await page.evaluate(
+      () => Number(document.getElementById("view-mission")?.dataset.missionFetch || 0),
+    );
     await openPanel(page);
     // The marker keeps the drill turn out of the owner's own transcript and
     // daily memory (cleanupDrillNote removes blocks carrying it).
@@ -1225,18 +1240,21 @@ async function main(): Promise<void> {
     let busSeen = busSeenBefore;
     let frameAt = -1;
     let clockMovedAt = -1;
+    let clockNow = clockBefore;
     for (let i = 0; i < 60; i += 1) {
       await page.waitForTimeout(250);
       const s = await page.evaluate(() => ({
         bus: (document.getElementById("busPill")?.textContent || "").trim(),
         clock: (document.getElementById("missionUpdated")?.textContent || "").trim(),
+        fetches: Number(document.getElementById("view-mission")?.dataset.missionFetch || 0),
       }));
       const m = /BUS LIVE (\d+)/.exec(s.bus);
       if (frameAt < 0 && m && Number(m[1]) > busSeen) {
         busSeen = Number(m[1]);
         frameAt = Date.now() - t0;
       }
-      if (clockMovedAt < 0 && s.clock !== clockBefore) clockMovedAt = Date.now() - t0;
+      clockNow = s.clock;
+      if (clockMovedAt < 0 && s.fetches > fetchBefore) clockMovedAt = Date.now() - t0;
       if (busSeen > busSeenBefore && clockMovedAt >= 0) break;
     }
     const framed = busSeen > busSeenBefore;
@@ -1256,7 +1274,7 @@ async function main(): Promise<void> {
       check(
         "a bus event repaints the Mission Control without waiting for the poll",
         movedIn,
-        `last poll ${age}s ago (next in >=${10 - age}s), frame after ${frameAt}ms, clock moved after ${clockMovedAt}ms, bus="${busPillText}"`,
+        `last poll ${age}s ago (next in >=${10 - age}s), frame after ${frameAt}ms, view refreshed after ${clockMovedAt}ms (clock "${clockBefore}" -> "${clockNow}"), bus="${busPillText}"`,
       );
       // Let the turn finish so the drill does not close the browser mid-answer.
       await waitForSessionTurn(busMarker);
@@ -1389,6 +1407,84 @@ async function main(): Promise<void> {
   );
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForTimeout(500);
+
+  // 20. a rotated queue row must keep its prompt on the board.
+  //
+  // The queue rotates: the oldest rows move to data/queue.archive.jsonl. The
+  // PROMPT lives only in the queue row (the task ledger keeps it in rare
+  // cases), so a rotated row that is never read back removes the task from
+  // the board — and the "Jalankan ulang" button with it.
+  const dashToken = token();
+  const drillDir = drillInstance?.dataDir || "";
+  const readDrillFile = (f: string): string => {
+    const p = join(drillDir, f);
+    return existsSync(p) ? readFileSync(p, "utf8") : "";
+  };
+  const rowIds = (content: string): string[] =>
+    content
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => {
+        try {
+          return String((JSON.parse(l) as Record<string, unknown>).id || "");
+        } catch {
+          return "";
+        }
+      })
+      .filter(Boolean);
+  /* The rotation moves the OLDEST rows into the archive, so the rows this
+     drill just posted are the ones that stay live. */
+  const idsBefore = rowIds(readDrillFile("queue.jsonl"));
+  /* A task that already has a prompt BEFORE this drill posts. After the
+     rotation its queue row lives in the archive, so it is the row that proves
+     the board still reads the archive back. */
+  const missionBefore = (await (
+    await fetch(`${DASH}/api/mission?token=${encodeURIComponent(dashToken)}&period=all&sort=smart`)
+  ).json()) as Record<string, any>;
+  const oldTask = (missionBefore.tasks || []).find(
+    (t: Record<string, any>) => t.source === "dispatch" && t.prompt,
+  ) as Record<string, any> | undefined;
+  const postQueue = async (prompt: string) => {
+    const r = await fetch(`${DASH}/api/queue?token=${encodeURIComponent(dashToken)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${dashToken}` },
+      body: JSON.stringify({ prompt, agent: "mia", deliver: "none" }),
+    });
+    return { status: r.status, body: (await r.json().catch(() => ({}))) as Record<string, any> };
+  };
+  const qA = await postQueue("rotasi-antrean-A prompt harus tetap hidup di board");
+  const qB = await postQueue("rotasi-antrean-B prompt harus tetap hidup di board");
+  const qidA = qA.body?.item?.id as string | undefined;
+  const taskA = qA.body?.item?.task_id as string | undefined;
+  const liveIds = rowIds(readDrillFile("queue.jsonl"));
+  const archIds = rowIds(readDrillFile("queue.archive.jsonl"));
+  const rotated = idsBefore.filter((id) => archIds.includes(id) && !liveIds.includes(id));
+  const missionAfter = (await (
+    await fetch(`${DASH}/api/mission?token=${encodeURIComponent(dashToken)}&period=all&sort=smart`)
+  ).json()) as Record<string, any>;
+  const onBoard = (missionAfter.tasks || []).find((t: Record<string, any>) => t.task_id === taskA);
+  check(
+    "the oldest queue rows rotate into the archive",
+    qA.status === 201 && qB.status === 201 && idsBefore.length > 0 && rotated.length === idsBefore.length,
+    `postA=${qA.status} postB=${qB.status} before=${idsBefore.length} rotated=${rotated.length} live=${liveIds.length} archive=${archIds.length}`,
+  );
+  /* Count the tasks that still carry a prompt. The rotation moved the old
+     queue rows into the archive; if the board stops reading the archive, the
+     prompts of those rows disappear and the "Jalankan ulang" buttons go with
+     them. A single task can have its prompt in the task ledger instead, so
+     the count is the honest signal here. */
+  const promptCount = (m: Record<string, any>) =>
+    (m.tasks || []).filter((t: Record<string, any>) => !!t.prompt).length;
+  check(
+    "a rotated queue row keeps its prompt on the board",
+    promptCount(missionBefore) > 0 && promptCount(missionAfter) >= promptCount(missionBefore),
+    `prompts before=${promptCount(missionBefore)} after=${promptCount(missionAfter)} oldTask=${(oldTask && oldTask.task_id) || "?"}`,
+  );
+  check(
+    "the newest queue task appears on the board with its prompt",
+    !!onBoard && !!onBoard.prompt,
+    `task=${taskA || "?"} onBoard=${!!onBoard} prompt=${onBoard ? String(onBoard.prompt || "").slice(0, 40) : "-"}`,
+  );
 
   check("no uncaught page errors", errors.length === 0, errors.slice(0, 2).join(" | "));
 

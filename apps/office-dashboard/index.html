@@ -614,6 +614,8 @@
   #view-mission .stats{margin-bottom:0}
   #view-mission .stat{border-top:0;padding-top:var(--s2)}
   #view-mission .stat .k{min-height:2.4em;line-height:1.2}
+/* A detail that is rebuilt while open must not replay its entrance. */
+#missionBg.quiet .modal{animation:none}
   .msFilters{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;
     margin:0 0 var(--s3)}
   .msFilters .inp{min-width:0}
@@ -1593,8 +1595,9 @@ function loadMission() {
   if (document.hidden) return;
   if (MISSION.loading) {
     /* A request is already running: remember that something asked for fresh
-       data, so a changed filter is never painted with the old rows. */
-    MISSION.pending = true;
+       data, so a changed filter is never painted with the old rows. This is
+       the LOAD flag — the action flag lives separately (MISSION.acting). */
+    MISSION.needReload = true;
     return;
   }
   MISSION.loading = true;
@@ -1608,9 +1611,12 @@ function loadMission() {
   }).finally(function () {
     MISSION.loading = false;
     /* The query changed while this request was running: fetch the new one. */
-    if (MISSION.pending) {
-      MISSION.pending = false;
-      if (missionQuery() !== asked) { loadMission(); return; }
+    if (MISSION.needReload) {
+      MISSION.needReload = false;
+      /* Someone asked for fresh data while this request ran: fetch again —
+         the data may have changed even when the query did not. */
+      loadMission();
+      return;
     }
     if (currentView === 'mission') missionPaint();
   });
@@ -1645,6 +1651,10 @@ function missionPaint() {
    repaints (the flicker paint-on-change exists to kill). */
 function missionStamp(el) {
   if (!el) return;
+  /* A monotonic fetch counter next to the clock. The clock has second
+     resolution, so two refreshes inside the same second look identical — the
+     counter is the honest "the view refreshed" signal. */
+  el.dataset.missionFetch = String(Number(el.dataset.missionFetch || 0) + 1);
   var up = el.querySelector('#missionUpdated');
   if (up) up.textContent = MISSION.data ? ' · diperbarui ' + esc(missionWhen(MISSION.data.generated_at)) : '';
 }
@@ -1692,7 +1702,10 @@ function vMission() {
     if (m.key !== 'total' && m.key !== 'running' && m.key !== 'queued' && m.key !== 'waiting_approval' && m.key !== 'completed' && m.key !== 'failed') return (counters[m.key] || 0) > 0;
     return true;
   }).map(function (m) {
-    return statCard(m.label, count(counters[m.key] || 0), m.hint + ' · ' + periodLabel);
+    /* The counters follow the filter, so the hint must not claim the whole
+       period when the list is filtered. */
+    var filtered = !!(MISSION.q || MISSION.status || MISSION.agent);
+    return statCard(m.label, count(counters[m.key] || 0), (filtered ? 'Task yang cocok filter' : m.hint) + ' · ' + periodLabel);
   });
 
   var agentCards = (d.agents || []).map(function (a) {
@@ -1789,8 +1802,19 @@ function renderMissionDetail() {
   if (!t) { MISSION.selected = null; bg.classList.remove('on'); return; }
   /* Only rebuild when the detail really changed: a rebuild replays the
      entrance animation and throws away what the owner was reading. */
+  /* Rebuilding the box throws away the scroll and replays the entrance
+     animation; keep both when only the content changed. */
+  var box = bg.querySelector('.modal');
+  var keepScroll = box ? box.scrollTop : 0;
+  var wasOpen = bg.classList.contains('on');
   paint(bg, '<div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="msTitle">' + missionDetailHtml(t) + '</div>');
+  /* The "quiet" flag lives on the overlay, not inside the painted HTML: a
+     class that changes with the render state would make every repaint look
+     like a content change and rebuild the box the owner is reading. */
+  bg.classList.toggle('quiet', wasOpen);
   bg.classList.add('on');
+  var box2 = bg.querySelector('.modal');
+  if (box2 && keepScroll) box2.scrollTop = keepScroll;
 }
 function missionDetailHtml(t) {
   var st = missionStatusMeta(t.status);
@@ -1863,14 +1887,14 @@ function missionDetailHtml(t) {
 
   var acts = (t.actions || []).map(function (a) {
     return '<button class="btn' + (a.kind === 'cancel' ? ' warn' : ' primary') + '" data-mission-action="' + esc(a.id) +
-      '" data-mission-task="' + esc(t.task_id) + '"' + (MISSION.pending ? ' disabled' : '') + '>' + esc(a.label) + '</button>';
+      '" data-mission-task="' + esc(t.task_id) + '"' + (MISSION.acting ? ' disabled' : '') + '>' + esc(a.label) + '</button>';
   }).join('');
   var confirmBox = '';
   if (MISSION.confirm && MISSION.confirm.task_id === t.task_id) {
     confirmBox = '<div class="msConfirm"><b>' + esc(MISSION.confirm.label) + '?</b> ' + esc(MISSION.confirm.confirm || '') +
       '<div class="modalRow"><button class="btn" data-mission-cancel="1">Batal</button>' +
       '<button class="btn primary" data-mission-run="' + esc(MISSION.confirm.action) + '" data-mission-task="' + esc(t.task_id) +
-      '"' + (MISSION.pending ? ' disabled' : '') + '>Ya, jalankan</button></div></div>';
+      '"' + (MISSION.acting ? ' disabled' : '') + '>Ya, jalankan</button></div></div>';
   }
   var note = MISSION.note ? '<div class="msNote" role="status">' + esc(MISSION.note) + '</div>' : '';
 
@@ -1884,10 +1908,12 @@ function missionDetailHtml(t) {
 /* Run one action and report what the BACKEND said — the task only changes
    status when the backend confirms it. */
 function missionRun(action, taskId) {
-  if (MISSION.pending) return;
-  var task = missionTask(taskId);
+  if (MISSION.acting) return;
+  /* The task may have been filtered out of the list while its detail is
+     still open — the detail's own copy is then the only source. */
+  var task = missionTask(taskId) || (MISSION.selectedTask && MISSION.selectedTask.task_id === taskId ? MISSION.selectedTask : null);
   if (!task) return;
-  MISSION.pending = true;
+  MISSION.acting = true;
   MISSION.note = '';
   renderMissionDetail();
   fetch(api('/api/mission'), {
@@ -1906,7 +1932,7 @@ function missionRun(action, taskId) {
   }).catch(function (e) {
     MISSION.note = 'Gagal menghubungi backend: ' + e.message;
   }).finally(function () {
-    MISSION.pending = false;
+    MISSION.acting = false;
     loadMission();
   });
 }

@@ -79,7 +79,10 @@ function loadState(): State {
   return readJson<State>(STATE_FILE, { history: [] });
 }
 function saveState(s: State): void {
-  if (s.history.length > 10) s.history = s.history.slice(-10);
+  // History is newest-first ([entry, ...old]), so the newest 10 are the FIRST
+  // 10. slice(-10) kept the OLDEST 10 and threw away the entry just written —
+  // the auto-update log froze in September while lastRunAt kept moving.
+  if (s.history.length > 10) s.history = s.history.slice(0, 10);
   atomicWrite(STATE_FILE, s);
 }
 
@@ -158,17 +161,18 @@ function scheduleRestart(): void {
   if (!autoUpdateRestart() || isUnderTest()) return;
   try {
     const root = repoRoot();
-    // Fixed command (all paths constant, no user input) — safe to run through bash.
-    const script = [
-      "sleep 8",
-      'pkill -f "next dev" || true',
-      "sleep 2",
-      `rm -rf '${appRoot}/.next'`,
-      `cd '${root}' && nohup npm run dev -w @voice/web >> /tmp/mia-dev.log 2>&1 &`,
-    ].join("; ");
-    const child = spawn("bash", ["-c", script], { detached: true, stdio: "ignore" });
+    const script = join(root, "scripts", "restart-mia.sh");
+    // Delegate to the ONE restart path (scripts/restart-mia.sh): it kills only
+    // the port holder, waits for the port to free, clears .next, and starts Mia
+    // inside tmux. The old inline `pkill -f "next dev"` did NOT kill the
+    // next-server child that holds :3000, so the fresh instance auto-picked
+    // :3001 — the dashboard's port — and ran outside tmux (dies on stdin EOF).
+    const child = spawn("bash", ["-c", 'sleep 8; exec "$1"', "bash", script], {
+      detached: true,
+      stdio: "ignore",
+    });
     child.unref();
-    logInfo("auto-update", "scheduled server restart in ~10s");
+    logInfo("auto-update", "scheduled server restart in ~8s (via scripts/restart-mia.sh)");
   } catch (e) {
     logError("auto-update", `restart spawn failed: ${e instanceof Error ? e.message : String(e)}`);
   }

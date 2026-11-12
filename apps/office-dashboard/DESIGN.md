@@ -282,6 +282,7 @@ These dimensions are starting points from the existing layout, not instructions 
 - **A refresh never takes the controls away.** The control the owner is using keeps its focus and its value; a filter change is fetched, not dropped.
 - **A hidden tab is not watched.** No polling while the document is hidden; the tab refreshes immediately when it becomes visible again.
 - **A clock is not content.** A "last updated" stamp that changes on every fetch lives outside the painted markup — otherwise every poll looks like a change and the whole view repaints, which is exactly the flicker the paint-on-change rule removes.
+- **A refresh is observable.** The view carries a monotonic refresh counter (`data-mission-fetch`) beside the clock: the clock has second resolution, so two refreshes inside the same second look identical, and a counter is the only honest proof that the view refreshed.
 - **The manual refresh button bypasses the cache.** It must show the current data, not the value the last poll already fetched.
 
 ### Buttons

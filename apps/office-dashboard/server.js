@@ -152,7 +152,8 @@ function compactLedger(file) {
   try {
     lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
   } catch { return false; }
-  if (lines.length <= rule.keepLines) return false;
+  /* The byte budget is the real one: a file with few but huge rows must be
+     rotated too (the line cap alone would let it grow forever). */
   // Keep the newest lines that still fit the byte budget (and at most
   // keepLines of them). Keeping a fixed LINE count would leave the file above
   // the byte cap whenever the rows are big — and then every single append
@@ -166,10 +167,26 @@ function compactLedger(file) {
     keepFrom = i;
   }
   if (keepFrom === 0) return false;
+  /* Never empty the live file: a single row bigger than the whole budget
+     would otherwise push every row into the archive. */
+  if (keepFrom >= lines.length) keepFrom = lines.length - 1;
   const kept = lines.slice(keepFrom);
   const dropped = lines.slice(0, keepFrom);
   try {
-    fs.appendFileSync(rule.archive, dropped.join('\n') + '\n');
+    /* Append only rows the archive does not have yet: a failed live rewrite
+       leaves the rows in both files, and re-appending them would duplicate
+       the history on every later rotation. */
+    const seen = new Set();
+    try {
+      for (const l of fs.readFileSync(rule.archive, 'utf8').split('\n')) {
+        if (!l.trim()) continue;
+        try { const r = JSON.parse(l); seen.add(JSON.stringify([r.ts, r.status, r.task_id, r.attempt])); } catch { /* ignore a broken line */ }
+      }
+    } catch { /* no archive yet */ }
+    const fresh = dropped.filter((l) => {
+      try { const r = JSON.parse(l); return !seen.has(JSON.stringify([r.ts, r.status, r.task_id, r.attempt])); } catch { return true; }
+    });
+    if (fresh.length) fs.appendFileSync(rule.archive, fresh.join('\n') + '\n');
   } catch { return false; }
   // The archive is history, not an infinite file: its oldest rows go too.
   try {
@@ -529,7 +546,10 @@ function buildTasks() {
   // Rows older than the live ledger live in the archive. The board still shows
   // them: the archive's tail is read too, and the flag says out loud when even
   // that window cut something off.
-  const arch = readJsonl(TASKS_ARCHIVE_FILE, { limitBytes: 512 * 1024 });
+  // The archive window must cover what the archive itself may hold, otherwise
+  // rows that were kept on disk can never reach the board ("the board outlives
+  // the ledger" would be a lie).
+  const arch = readJsonl(TASKS_ARCHIVE_FILE, { limitBytes: 8 * 1024 * 1024 });
   const byId = new Map();
   // The archive holds the OLDER rows, so they come first.
   for (const ev of [...arch.rows, ...rows]) {
@@ -560,7 +580,12 @@ function buildTasks() {
     if (ev.deliver_to) t.deliver_to = ev.deliver_to;
     if (ev.delivered !== undefined && ev.delivered !== null) t.delivered = ev.delivered;
     t.updated_at = ev.ts;
-    t.history.push({ ts: ev.ts, status: ev.status, detail: ev.detail || '', execution_id: execId, attempt: ev.attempt || t.attempt || null });
+    /* The same row can live in the live ledger AND in the archive. The fold
+       is idempotent per task, the history array is not — so push the event
+       only when it is really new. */
+    const h = { ts: ev.ts, status: ev.status, detail: ev.detail || '', execution_id: execId, attempt: ev.attempt || t.attempt || null };
+    const last = t.history[t.history.length - 1];
+    if (!last || last.ts !== h.ts || last.status !== h.status || last.attempt !== h.attempt) t.history.push(h);
   }
   const list = [...byId.values()].sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
   return { tasks: list, broken_lines: broken, ledger_missing: missing, truncated: truncated === true || arch.truncated === true || arch.rows.some((r) => r && r.__rotated_out) };
@@ -569,9 +594,14 @@ function buildTasks() {
 /* ─────────────────────────── queue + real dispatch ─────────────────────────── */
 
 function buildQueue() {
-  const { rows, broken, missing } = readJsonl(QUEUE_FILE);
+  // The queue rotates too. Its rows carry the PROMPT — the only source of a
+  // retryable request (the task ledger keeps it in rare cases) — so a rotated
+  // row that is never read back silently removes the "retry" button from the
+  // board. Read the archive as well: older rows first, the live file wins.
+  const arch = readJsonl(QUEUE_ARCHIVE_FILE, { limitBytes: 4 * 1024 * 1024 });
+  const { rows, broken, missing } = readJsonl(QUEUE_FILE, { limitBytes: 4 * 1024 * 1024 });
   const byId = new Map();
-  for (const r of rows) {
+  for (const r of [...arch.rows, ...rows]) {
     if (!r.id) continue;
     const prev = byId.get(r.id);
     byId.set(r.id, {
@@ -589,7 +619,7 @@ function buildQueue() {
     });
   }
   const list = [...byId.values()].sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
-  return { queue: list, broken_lines: broken, ledger_missing: missing };
+  return { queue: list, broken_lines: broken, ledger_missing: missing, truncated: arch.truncated === true || arch.rows.some((r) => r && r.__rotated_out) };
 }
 
 function newId(prefix) {
@@ -1309,7 +1339,7 @@ function buildMissionState(query) {
   ensureDirs();
   const q = query || {};
   const { tasks, truncated } = buildTasks();
-  const { queue } = buildQueue();
+  const { queue, truncated: queueTruncated } = buildQueue();
   const audit = readAudit();
   const dispatchState = readJson(DISPATCH_FILE, { paused: false });
   const sources = readMissionSources();
@@ -1322,7 +1352,7 @@ function buildMissionState(query) {
     executions: sources.executions,
     agents: deriveAgents(audit, dispatchState.paused === true),
     now: Date.now(),
-    liveWindowMs: WORKING_WINDOW_MS,
+    liveWindowMs: Math.max(WORKING_WINDOW_MS, DISPATCH_TIMEOUT_MS + 60000),
   }, {
     period: String(q.period || 'all'),
     status: String(q.status || ''),
@@ -1337,7 +1367,7 @@ function buildMissionState(query) {
     }
   }
   // Say it out loud when the ledger window cut the oldest tasks off.
-  out.truncated = truncated === true;
+  out.truncated = truncated === true || queueTruncated === true;
   return out;
 }
 
@@ -1405,6 +1435,10 @@ async function missionAction(body) {
     if (action === 'retry') {
       const waiting = queue.find((q) => q.task_id === taskId && q.status === 'queued');
       if (waiting) return { ok: false, status: 409, error: 'Task ini sudah menunggu eksekusi.' };
+      /* A dispatch that is still inside its own timeout is alive: retrying it
+         now would send the same prompt to the owner twice. */
+      const running = (task.executions || []).find((e) => e && e.status === 'running' && Date.now() - Date.parse(e.started_at || '') < DISPATCH_TIMEOUT_MS);
+      if (running) return { ok: false, status: 409, error: 'Task ini masih berjalan.' };
       const attempt = (task.executions || []).length + 1;
       const qid = newId('q');
       appendJsonl(QUEUE_FILE, {

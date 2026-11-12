@@ -3133,3 +3133,46 @@ Probe `apps/web/probe-mission-workflow.mts` menulis ke store **owner** (board ha
 **Gates final sesi ini:** `npm test` **2721/2721** (142 file, exit 0) · `node --test apps/office-dashboard/*.test.mjs` **93/93** · `npm run typecheck` 0 · `npm run lint` 0 (1 warning baseline `writeup.ts:65`) · `npx tsx apps/web/drill-office-chat-ui.mts` **78 ok / 0 FAIL** (asersi typing portrait SEKARANG HIJAU: artefak animasi dikeluarkan dari perbandingan, bukan toleransi dilonggarkan) · `npx tsx apps/web/drill-dashboard-live.mts` 26 ok / 0 FAIL · CJK 0 · scan rahasia 0.
 
 **Sudah commit** (`b1f1bcb`) — pushed ke `origin/main`. Marker "Belum commit" di sesi-sesi lama (sebelum `bce3ece`) dibiarkan apa adanya: itu catatan pada saat ditulis, bukan status git.
+
+## Sesi 2026-11-12 (lanjutan) — Audit post-commit: 3 auditor paralel, 13 cacat diperbaiki, BELUM commit
+
+Owner: "karna sudah terlanjur kamu komit, coba kamu audit sekali lagi yang teliti". Cara: 3 auditor read-only paralel (skrip supervisor · rotasi ledger · mission.cjs+index.html) + verifikasi ULANG setiap klaim di kode/data sendiri (tidak dipercaya mentah). **Temuan baru TIDAK di-commit tanpa approval owner.**
+
+**Yang sudah dipatch di sesi ini (worktree):**
+1. **[HIGH] Prompt retry hilang saat antrean terrotasi.** `buildQueue()` hanya baca file live → setelah rotasi (batas 400 baris/256 KB) baris prompt pindah ke arsip → tombol "Jalankan ulang" lenyap (61 dari 63 task board ambil prompt HANYA dari antrean). Fix: `buildQueue()` baca `data/queue.archive.jsonl` (4 MB) dan iterasi arsip→live.
+2. **[MED] Jendela baca arsip ≠ batas arsip** (512 KB vs 8 MB/4 MB) → baris yang tersimpan di disk tak pernah tampil. Fix: jendela arsip tasks 8 MB, antrean 4 MB; flag `truncated` naik ke payload.
+3. **[HIGH] `lsof -ti tcp:PORT` menyodorkan socket CLIENT** → restart dashboard membunuh Chrome owner; restart Mia membunuh dashboard sebagai collateral. Fix: `lsof -tiTCP:$PORT -sTCP:LISTEN` di 3 skrip.
+4. **[HIGH] Supervisor fail-open**: token tak terbaca → health dianggap "sehat" → Mia tak pernah direstart + `--status` berbohong; 503 (provider key hilang) = Mia hidup tapi dianggap mati → restart tiap 90 s; timeout 3 s dashboard → false-positive kill. Fix: `health_ok` jadi LIVENESS (200/401/403/503 = hidup), logika token dihapus total (tidak ada rahasia di skrip), 2 kegagalan berturut + timeout 8 s sebelum kill, restart yang gagal tidak mereset counter.
+5. **[HIGH] Restart bisa paralel** (`restart-mia.sh` tanpa mutex + `autoUpdater` pakai `pkill -f "next dev"` yang TIDAK membunuh `next-server` pemegang :3000 → instance baru auto-nabrak :3001 = port dashboard + `nohup` di shell non-interaktif mati sendiri). Fix: mutex `mkdir` + PID di `restart-mia.sh` (exit 2 = "sudah berjalan"), `autoUpdater.scheduleRestart()` mendelegasikan ke `scripts/restart-mia.sh`.
+6. **[MED] Supervisor `--start` tanpa `sleep infinity`** padahal header-nya sendiri memintanya → sesi tmux bisa di-reap. Fix: `... --run; sleep infinity`.
+7. **[BARU, dari data] `autoUpdater.saveState` membuang entri TERBARU** (`slice(-10)` padahal history newest-first) → log auto-update membeku sejak September. Fix: `slice(0, 10)`.
+8. **[HIGH] Task yang SEDANG jalan tampil "Berhenti"** (working window 2 mnt < dispatch timeout 3 mnt) → tombol retry muncul dan retry diterima → EKSEKUSI KEDUA terkirim. Fix: `liveWindowMs = max(WORKING_WINDOW_MS, DISPATCH_TIMEOUT_MS + 60s)` + guard server: retry ditolak 409 bila ada eksekusi 'running' yang umurnya < timeout.
+9. **[HIGH] `MISSION.pending` dipakai dua arti** (load in-flight vs aksi in-flight) → klik tombol aksi bisa diam tanpa request. Fix: flag terpisah `MISSION.needReload` (load) & `MISSION.acting` (aksi).
+10. **[MED] Aksi di detail mati setelah filter diganti** (task tak ada di daftar terfilter) → fallback ke `MISSION.selectedTask`.
+11. **[MED] Detail dibangun ulang tiap refresh** → scroll internal reset + animasi entrance diputar → scroll `.modal` kini dipulihkan + kelas `quiet` mematikan animasi saat sudah terbuka.
+12. **[MED] Counter "Total Task" menampilkan jumlah terfilter tetapi hint-nya "Seluruh task pada periode ini"** → hint jujur saat filter aktif ("Task yang cocok filter").
+13. **[MED] `compactLedger` bisa mengosongkan file live** (satu baris besar > budget) + cap byte tak ditegakkan saat baris sedikit → fix: sisakan ≥1 baris terbaru + cap byte ditegakkan; **append arsip idempoten** (baris yang sudah ada di arsip tidak di-append lagi) + `history.push` hanya bila event benar-benar baru (baris yang sama di live+arsip tak lagi muncul 2× di timeline).
+
+**Dilaporkan, tidak diperbaiki (terpisah dari dashboard):** A6 `orchestrator.recordAttempt` hanya dipanggil saat failure → timeline task "Selesai" menampilkan attempt "Gagal" (gap data di `apps/web`); A7 workflow `waiting_approval` mendapat aksi "Jalankan sekarang" (bukan approve); A9 dropdown tertutup saat repaint; A10 overlay tak bisa ditutup Escape/backdrop; A11 durasi "0 detik" untuk eksekusi berjalan; R5 marker `__rotated_out` tak menampilkan jumlah; R6 `watchdog-history.jsonl` tak pernah dirotasi.
+
+**Gates:** `bash -n` OK 3 skrip · `node --check server.js` OK · `node --test apps/office-dashboard/*.test.mjs` **93/93** · `npm run typecheck` 0 · drill office (lihat catatan) · CJK 0.
+
+**Catatan jujur:** drill punya 2 gate yang bergantung pada urutan (reload `hardReload` yang hanya menunggu "commit" → klik berikutnya mendarat di dokumen lama). `hardReload` kini menunggu "load"; bila masih gagal, itu cacat harness, bukan produk (probe navigasi di dashboard owner: klik nav Logs → view tampil + input terisi, di 1440 dan 560).
+
+**Belum commit** (menunggu approval owner).
+
+### Lanjutan: gerbang drill yang salah (vakum) → 2 cacat produk nyata, evidence-first
+
+Drill #2 (setelah 13 fix) membuka 2 FAIL; masing-masing membongkar **cacat produk** yang tak terlihat dari review kode.
+
+**1 [HIGH] Detail task dibangun ulang tiap repaint.** Gerbang "an open task detail survives a repaint of the list" gagal: `marked=true kept=false open=true` → node modal yang ditandai hilang. Akar: kelas `quiet` (penahan animasi entrance saat modal sudah terbuka) ikut di dalam HTML yang dipaint — `'<div class="modal wide' + (wasOpen ? ' quiet' : '') + '">'` → HTML-nya BERUBAH tiap repaint (pakai `quiet` di render kedua, tidak di render pertama) → `paint()` melihat "perubahan" → modal dibangun ulang → scroll internal Owner ter-reset + animasi diputar (langgar DESIGN.md §9 "A refresh never closes what the owner is reading"). Fix: kelas `quiet` pindah ke **container** (`bg.classList.toggle('quiet', wasOpen)` + CSS `#missionBg.quiet .modal{animation:none}`) → HTML modal konstan → `paint()` tidak menulis ulang → node owner tetap hidup. Bukti: gerbang FAIL → setelah fix OK.
+
+**2 [MED] Jam "diperbarui" resolusi detik → dua refresh dalam detik yang sama tampak tak berubah.** Gerbang bus gagal sesekali ("view refreshed after 9869ms" = poll periodik) padahal refresh berbasis bus jalan: stub `missionStamp` hanya menulis `HH.MM.SS`, jadi fetch di detik yang sama dengan fetch sebelumnya menghasilkan TEKS IDENTIK → "tidak berubah" → gerbang menunggu sampai poll 10 s. Fix: `missionStamp` menambah penghitung monotonik `el.dataset.missionFetch` → sinyal "view ter-refresh" yang jujur (dan bisa dipakai console). Gerbang drill sekarang membaca penghitung itu, bukan teks jam.
+
+**3 [GERBANG SALAH] Asersi rotasi menguji baris TERBARU, bukan yang tertua.** "the oldest queue row really rotates into the archive" sehat tanpa fix apa pun: rotasi memindahkan baris **terlama** (130 baris salinan ledger drill), sedangkan baris yang baru di-post (A, B) justru yang TETAP live → syarat `!inLive && inArchive` tak mungkin terpenuhi untuk A (inLive=true) → gerbang selalu salah. Fix gerbang: bandingkan himpunan id baris **sebelum** post vs arsip sesudahnya → "semua baris lama pindah ke arsip dan tak ada lagi di file live" (bukan vakum: matikan `compactLedger` → arsip kosong → FAIL). Plus asersi kedua: "prompt pada board tak hilang" → **jumlah** task yang punya prompt sebelum vs sesudah (sebelum fix: 63 → 4 = 59 prompt hilang). Gerbang lama ("task terbaru punya prompt") tetap ada sebagai cek terpisah.
+
+**Bukti (mutasi, arrested):** (a) `buildQueue()` dikembalikan ke live-only (`[...rows]`, arsip tak dibaca) → gerbang prompt GAGAL "prompts before=63 after=4"; dipulihkan → OK. (b) `scheduleRefresh()` dimatikan → gerbang bus GAGAL "view refreshed after 9869ms" (poll periodik, bukan bus); dipulihkan → OK. (c) sebelum fix, gerbang detail GAGAL "marked=true kept=false" → sesudah fix OK.
+
+**Gates:** typecheck 0 · lint 0 · `node --test apps/office-dashboard/*.test.mjs` **93/93** · `drill-office-chat-ui.mts` **81 ok / 0 FAIL** (2 asersi baru) · CJK 0 · DESIGN.md §9 += "A refresh is observable".
+
+**Belum commit** (menunggu approval owner).

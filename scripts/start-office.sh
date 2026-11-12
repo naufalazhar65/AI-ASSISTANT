@@ -20,9 +20,24 @@ PORT=3001
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/apps/office-dashboard"
 
-if lsof -ti tcp:$PORT >/dev/null 2>&1; then
-  echo "office-dashboard sudah jalan di port $PORT (pid $(lsof -ti tcp:$PORT | tr '\n' ' '))."
-  exit 0
+if lsof -tiTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
+  if curl -fsS -m 2 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
+    echo "office-dashboard sudah jalan di port $PORT (pid $(lsof -tiTCP:$PORT -sTCP:LISTEN | tr '\n' ' '))."
+    exit 0
+  fi
+  # Portnya dipegang tapi tidak menjawab = proses macet. Membunuhnya lebih
+  # jujur daripada melapor "sudah jalan": supervisor pernah mencatat "hidup
+  # lagi" padahal dashboard tetap mati.
+  echo "port $PORT dipegang proses yang tidak menjawab — dibunuh lalu start ulang"
+  stale="$(lsof -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
+  if [ -n "${stale:-}" ]; then
+    # shellcheck disable=SC2086
+    kill $stale 2>/dev/null || true
+    for _ in $(seq 1 10); do
+      lsof -tiTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1 || break
+      sleep 1
+    done
+  fi
 fi
 
 tmux kill-session -t office 2>/dev/null || true
@@ -41,7 +56,7 @@ fi
 # Tunggu socket benar-benar menerima — jangan percaya log yang kosong.
 for _ in $(seq 1 25); do
   if curl -fsS -m 2 "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
-    echo "office-dashboard OK di http://127.0.0.1:$PORT (pid $(lsof -ti tcp:$PORT | tr '\n' ' '))"
+    echo "office-dashboard OK di http://127.0.0.1:$PORT (pid $(lsof -tiTCP:$PORT -sTCP:LISTEN | tr '\n' ' '))"
     exit 0
   fi
   sleep 1
