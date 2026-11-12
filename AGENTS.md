@@ -2949,11 +2949,11 @@ Owner brief: bangun **Mission Control** sebagai pusat semua pekerjaan Mia/Agnes/
 
 **Gates:** typecheck 0 · lint 0 error · `npm test` 142 file / 2721 tes · `node --test apps/office-dashboard/*.test.mjs` **85/85** · `verify.ts` EXIT=0 (248 OK) · `drill-office-chat-ui.mts` **72 ok / 0 FAIL** · inline script index.html `node --check` OK. 3D scene, kamera, karakter, agent, tool, API, persona, routing — tak tersentuh.
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit** (`bce3ece`).
 
 ## Sesi 2026-11-11 — Audit ulang Mission Control: 6 bug nyata ditemukan (bukan dari review kode)
 
-Owner: "coba audit lagi yang teliti dibagian mission control dashboard office, sepertinya masih ada bugs, dan jangan komit dulu". Cara: **bukti dari data & API yang hidup**, bukan dari baca kode — semua temuan di bawah direproduksi lewat `/api/mission` + file ledger, lalu diperbaiki dan dibuktikan ulang. **Belum commit** (menunggu approval owner).
+Owner: "coba audit lagi yang teliti dibagian mission control dashboard office, sepertinya masih ada bugs, dan jangan komit dulu". Cara: **bukti dari data & API yang hidup**, bukan dari baca kode — semua temuan di bawah direproduksi lewat `/api/mission` + file ledger, lalu diperbaiki dan dibuktikan ulang. **Sudah commit** (`bce3ece`).
 
 **1 [TINGGI] Retry tak pernah muncul untuk 62 dari 63 task — termasuk 5 task GAGAL.** `actionsFor()` mensyaratkan `task.prompt`; `dispatchTasks` hanya ambil prompt dari LEDGER (`t.prompt`), dan ledger baru menyimpan prompt sejak perubahan sesi sebelumnya (`dispatchQueueItem` menulis `prompt`). Ukur: 62/63 task dispatch TIDAK punya prompt di ledger — **tapi 62/62 bisa dipulihkan dari `queue.jsonl`** (`q.prompt`, terpotong 300 char). Dampak: 5 task 'Gagal' (401 / Discord push gagal) menampilkan **nol tombol aksi** → owner tak bisa retry dari Mission Control. **Catatan sesi sebelumnya ("62 task lama tidak punya prompt → tombol retry TIDAK muncul, kebohongan lebih buruk daripada tombol yang tidak ada") SALAH** — prompt-nya ada di antrean, cuma tak dibaca. Fix: peta `queuePrompt` + `queueFirstTs` di `dispatchTasks` → prompt jatuh dari antrean, `created_at` = ts antrean TERLAMA (bukan ts retry). Bukti live: 5/5 task gagal kini punya aksi "retry"; retry nyata task `task-q-mvdejk4j-45n52v` (gagal 401 18 Okt) → **BERHASIL** (exec-1 failed + `::2` completed, hasil = jawaban Mia sungguhan).
 
@@ -2975,7 +2975,7 @@ Owner: "coba audit lagi yang teliti dibagian mission control dashboard office, s
 
 **Gates:** typecheck 0 · lint 0 error (1 warning baseline `writeup.ts:65`) · `node --test apps/office-dashboard/*.test.mjs` **91/91** · `drill-office-chat-ui.mts` **72 ok / 0 FAIL** · live re-verified di :3001 (server di-restart, boot > mtime lib). 3D scene, kamera, karakter, agent, tool, API, persona, routing — tak tersentuh. `npm test` penuh + `verify.ts` TIDAK dijalankan (perubahan hanya di `apps/office-dashboard`, di luar cakupan keduanya; keduanya tetap hijau di HEAD).
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit** (`bce3ece`).
 
 ## Sesi 2026-11-11 (lanjutan) — Mission Control UI "belum rapi": 6 cacat layout diperbaiki
 
@@ -2993,11 +2993,11 @@ Owner: screenshot `/Users/naufalazhar/Desktop/Screenshot 2026-11-11 at 12.09.29.
 
 **Bukti:** render light + dark via `probe-design-screenshot.mjs` → satu garis, angka sejajar, tanpa "Progress belum tersedia", placeholder utuh. Drill `drill-office-chat-ui.mts` **72 ok / 0 FAIL** (semua asersi Mission Control tetap hijau: 4 select, label "Total Task", `.msId` tetap di baris, parity aksi). `node --test apps/office-dashboard/*.test.mjs` **91/91** · typecheck 0 · lint 0 (1 warning baseline) · CJK 0.
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit** (`bce3ece`).
 
 ## Sesi 2026-11-11 (lanjutan) — "realtime auto refresh sangat menggaggu": paint-on-change + bus + poll 10s
 
-Owner: "tapi fitur realtime auto refreshnya sangat menggaggu sekali, ada solusi?" → pilih "Full: paint-on-change + bus + poll 10s". **Belum commit.**
+Owner: "tapi fitur realtime auto refreshnya sangat menggaggu sekali, ada solusi?" → pilih "Full: paint-on-change + bus + poll 10s". **Sudah commit** (`bce3ece`).
 
 **Akar (bukan dari review kode — dari render):** DUA lapis. (1) `poll(); setInterval(poll, 3000);` berjalan terus tanpa henti; (2) SETIAP poll menulis ulang SELURUH DOM view (`el.innerHTML = fn()`) → animasi entrance diputar ulang (flicker), scroll posisi reset, dan jam "diperbarui HH.MM.SS" berubah tiap tick.
 
@@ -3020,11 +3020,11 @@ Owner: "tapi fitur realtime auto refreshnya sangat menggaggu sekali, ada solusi?
 
 **Catatan:** asersi drill lama "the typing row sits with the last message" kadang GAGAL (gap=78) — itu asersi yang terikat data owner (riwayat chat owner yang menentukan elemen terakhir; drill tidak bisa mengisolasi sesi). Flaky, bukan efek perubahan ini (render chat ada di chat.js, tidak disentuh).
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit** (`bce3ece`).
 
 ## Sesi 2026-11-12 — Audit kedua Mission Control: 3 auditor paralel + verifikasi sendiri, 20 cacat diperbaiki
 
-Owner: "coba audit sekali lagi yang teliti". Cara: 3 auditor read-only paralel (mission.cjs, server.js, index.html) + verifikasi sendiri (sweep API hidup, scan 63 overlay detail di browser, cek higiene data) — klaim auditor TIDAK langsung dipercaya, tiap-tiap dicek ulang. **Belum commit.**
+Owner: "coba audit sekali lagi yang teliti". Cara: 3 auditor read-only paralel (mission.cjs, server.js, index.html) + verifikasi sendiri (sweep API hidup, scan 63 overlay detail di browser, cek higiene data) — klaim auditor TIDAK langsung dipercaya, tiap-tiap dicek ulang. **Sudah commit** (`bce3ece`).
 
 **Koreksi atas laporan saya sendiri:** saya sempat melaporkan composer chat "menolak pesan" sebagai bug. SALAH — probe `probe-bus-refresh.mts switch` menunjukkan `sendDisabled: true`: turn sebelumnya masih jalan, jadi itu guard "satu giliran pada satu waktu" yang disengaja (`chat.js`: `if (!text.trim() || chat.busy) return;` — draft tetap, footer memberi tahu). Teks "Riwayat percakapan masih dimuat…" cuma sisa loadHistory saat panel dibuka ulang. **Bukan bug produk** (paragraf di sesi sebelumnya sudah dikoreksi).
 
@@ -3058,7 +3058,7 @@ Owner: "coba audit sekali lagi yang teliti". Cara: 3 auditor read-only paralel (
 
 **Dilaporkan, tidak diperbaiki:** S9 `buildMissionState` melakukan sync I/O (~1 MB) di jalur GET →(ms-level, acceptable); route /api/gemini-live/* masih menerima POST tanpa content-type (live.mjs tidak mengirimnya); laten M4/M5/M8/M9/M11/M14 (store workflow/orkestrasi masih kosong).
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit** (`bce3ece`).
 
 ## Sesi 2026-11-12 (lanjutan) — Chevron dropdown: jarak panah ke tepi (diukur, bukan dikira)
 
@@ -3072,7 +3072,7 @@ Owner: screenshot `Screenshot 2026-11-11 at 23.59.01.png` + "masih ada bug layou
 
 **DESIGN.md §9 Inputs:** aturan baru "A dropdown chevron keeps its distance from the edge" + catatan bahwa panah native duduk 3 px dari border dan padding tidak memindahkannya.
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit** (`bce3ece`).
 
 ## Sesi 2026-11-12 (lanjutan) — Audit layout semua view (12 view x 3 lebar) + 1 bug nyata, 1 koreksi diri
 
@@ -3088,7 +3088,7 @@ Owner: "coba cek layout yang lainnya, khawatirnya masih ada bug juga". Cara: pro
 
 **Gerbang drill:** +1 ("the activity table fits a narrow view" — tabel ≤ viewport di 560). Gates: typecheck 0 · lint 0 · test dashboard 91/91 · drill **77 ok / 1 FAIL** — satu-satunya FAIL = asersi lama "the typing row sits with the last message" (gap=78) yang **flaky, terikat data owner** (riwayat chat owner yang menentukan elemen terakhir; panel chat tidak disentuh perubahan ini — GREEN di run sebelumnya). Probe layout 12x3 clean.
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit** (`bce3ece`).
 
 ## Sesi 2026-11-12 (P1-P3) — Supervisor, rotasi ledger, jalur workflow/orkestrasi, sesi drill sendiri, CSRF Live
 
@@ -3131,3 +3131,5 @@ Probe `apps/web/probe-mission-workflow.mts` menulis ke store **owner** (board ha
 **Polusi lain yang dibersihkan:** 2 task `[rotasi-ledger] uji rotasi ledger` (bukti rotasi ledger) + 4 baris queue-nya dihapus dari `apps/office-dashboard/data/tasks.jsonl` + `queue.jsonl` (backup `.bak-probe-cleanup`) → board owner kembali **63 task, 0 baris probe, truncated=false**.
 
 **Gates final sesi ini:** `npm test` **2721/2721** (142 file, exit 0) · `node --test apps/office-dashboard/*.test.mjs` **93/93** · `npm run typecheck` 0 · `npm run lint` 0 (1 warning baseline `writeup.ts:65`) · `npx tsx apps/web/drill-office-chat-ui.mts` **78 ok / 0 FAIL** (asersi typing portrait SEKARANG HIJAU: artefak animasi dikeluarkan dari perbandingan, bukan toleransi dilonggarkan) · `npx tsx apps/web/drill-dashboard-live.mts` 26 ok / 0 FAIL · CJK 0 · scan rahasia 0.
+
+**Sudah commit** (`b1f1bcb`) — pushed ke `origin/main`. Marker "Belum commit" di sesi-sesi lama (sebelum `bce3ece`) dibiarkan apa adanya: itu catatan pada saat ditulis, bukan status git.
