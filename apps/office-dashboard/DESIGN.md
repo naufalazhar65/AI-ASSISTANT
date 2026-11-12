@@ -376,6 +376,7 @@ The chat must share the warm, playful-bold design language without becoming visu
 ### Typing indicator
 
 - The typing row belongs directly below the last message in the conversation stream, not fixed to the bottom of the panel.
+- It lives inside the message stream, not beside it: a separate container puts its portrait a few pixels off the message portraits.
 - Use the agent's actual avatar; a letter or monogram is only a fallback when the image cannot load.
 - Show the indicator as soon as a real assistant turn is in flight, not only after the server eventually responds.
 - Remove it when that turn ends or fails.
@@ -481,6 +482,7 @@ Mission Control is the operational view of everything the three agents are doing
 - **The owner's own data is never public.** The queue and ledger files hold the owner's prompts and replies: they are served by the token-protected API, never as static files.
 - **An action appears only if the backend can perform it.** Retry, resume, and cancel are offered per status, confirmed before they run, and the status only changes after the backend confirms it. A task's prompt is read from the dispatch ledger *or* the queue ledger, so a task dispatched before prompts were stored can still be re-run.
 - **Duration is the last attempt, not the span.** A task retried weeks later reports the duration of the attempt that ran, never the gap between attempts.
+- **The board outlives the ledger file.** The dispatch ledger is append-only, so it is rotated: the live file keeps the newest rows, the older ones move to an archive, and the board reads both — a task that was rotated out is still listed. When even the archive window no longer reaches the oldest rows, the toolbar says "terbaru saja" instead of pretending the list is complete.
 - **Status words carry the meaning** (Antre · Berjalan · Menunggu Persetujuan · Selesai · Selesai Sebagian · Gagal · Terblokir · Dibatalkan · Berhenti). A stale row is “Berhenti”, never “Berjalan”.
 - The detail view holds information, progress stages, execution timeline, delegation, results, and files. Long values are left-aligned blocks, not right-aligned table cells.
 - The detail overlay lives outside the polled view so a background refresh can never wipe what the owner is reading.

@@ -29,9 +29,25 @@ const { humanActivity } = require('./activity.cjs');
 const mission = require('./mission.cjs');
 
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, 'data');
+// The data directory can be pointed elsewhere so a test instance never
+// touches the owner's ledger or queue (the drill runs its own copy).
+const DATA_DIR = path.resolve(process.env.OFFICE_DATA_DIR || path.join(ROOT, 'data'));
 const TASKS_FILE = path.join(DATA_DIR, 'tasks.jsonl');
 const QUEUE_FILE = path.join(DATA_DIR, 'queue.jsonl');
+/* Append-only ledgers grow forever. The live file stays small (the view only
+   needs recent history) and the old rows move to an archive, so nothing is
+   lost silently: the mission view says "terbaru saja" when the archive holds
+   more than the live ledger. */
+const TASKS_ARCHIVE_FILE = path.join(DATA_DIR, 'tasks.archive.jsonl');
+const QUEUE_ARCHIVE_FILE = path.join(DATA_DIR, 'queue.archive.jsonl');
+/* The thresholds are overridable so the rotation can be exercised without
+   waiting for a megabyte of traffic (LEDGER_MAX_BYTES / LEDGER_KEEP_LINES). */
+const LEDGER_MAX_BYTES = Number(process.env.LEDGER_MAX_BYTES || 1024 * 1024);
+const LEDGER_KEEP_LINES = Number(process.env.LEDGER_KEEP_LINES || 1200);
+const LEDGER_ROTATION = {
+  [TASKS_FILE]: { archive: TASKS_ARCHIVE_FILE, maxBytes: LEDGER_MAX_BYTES, keepLines: LEDGER_KEEP_LINES, archiveMaxBytes: 8 * 1024 * 1024, archiveKeepLines: 4000 },
+  [QUEUE_FILE]: { archive: QUEUE_ARCHIVE_FILE, maxBytes: Math.min(LEDGER_MAX_BYTES, 256 * 1024), keepLines: Math.min(LEDGER_KEEP_LINES, 400), archiveMaxBytes: 4 * 1024 * 1024, archiveKeepLines: 2000 },
+};
 const DISPATCH_FILE = path.join(DATA_DIR, 'dispatch.json');
 const PUBLIC_URL_FILE = path.join(ROOT, 'PUBLIC_URL.txt');
 const WATCHDOG_HISTORY_FILE = path.join(ROOT, 'watchdog-history.jsonl');
@@ -118,6 +134,61 @@ function readJsonl(file, { limitBytes = 512 * 1024 } = {}) {
 
 function appendJsonl(file, obj) {
   fs.appendFileSync(file, JSON.stringify(obj) + '\n');
+  compactLedger(file);
+}
+
+/** Move the oldest rows of an append-only ledger into its archive.
+ *
+ *  The archive is written FIRST: a crash between the two steps leaves the
+ *  rows in both files, and the ledger fold is idempotent per task id, so a
+ *  duplicated row changes nothing. The other order would lose them. */
+function compactLedger(file) {
+  const rule = LEDGER_ROTATION[file];
+  if (!rule) return false;
+  let st;
+  try { st = fs.statSync(file); } catch { return false; }
+  if (st.size <= rule.maxBytes) return false;
+  let lines;
+  try {
+    lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
+  } catch { return false; }
+  if (lines.length <= rule.keepLines) return false;
+  // Keep the newest lines that still fit the byte budget (and at most
+  // keepLines of them). Keeping a fixed LINE count would leave the file above
+  // the byte cap whenever the rows are big — and then every single append
+  // would rotate again.
+  let size = 0;
+  let keepFrom = lines.length;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const len = lines[i].length + 1;
+    if (size + len > rule.maxBytes || lines.length - i > rule.keepLines) break;
+    size += len;
+    keepFrom = i;
+  }
+  if (keepFrom === 0) return false;
+  const kept = lines.slice(keepFrom);
+  const dropped = lines.slice(0, keepFrom);
+  try {
+    fs.appendFileSync(rule.archive, dropped.join('\n') + '\n');
+  } catch { return false; }
+  // The archive is history, not an infinite file: its oldest rows go too.
+  try {
+    const ast = fs.statSync(rule.archive);
+    if (ast.size > rule.archiveMaxBytes) {
+      const alines = fs.readFileSync(rule.archive, 'utf8').split('\n').filter((l) => l.trim());
+      const tmp = `${rule.archive}.tmp-${process.pid}`;
+      // A marker row records that history was dropped, so the view can say so
+      // instead of pretending the board is everything that ever happened.
+      fs.writeFileSync(tmp, JSON.stringify({ __rotated_out: alines.length - rule.archiveKeepLines, ts: new Date().toISOString() }) + '\n' + alines.slice(-rule.archiveKeepLines).join('\n') + '\n');
+      fs.renameSync(tmp, rule.archive);
+    }
+  } catch { /* best effort: the archive stays larger than the cap */ }
+  const tmp = `${file}.tmp-${process.pid}`;
+  try {
+    fs.writeFileSync(tmp, kept.join('\n') + '\n');
+    fs.renameSync(tmp, file);
+  } catch { return false; }
+  return true;
 }
 
 // Append-only writes to a small state file (rewriting the whole object).
@@ -455,8 +526,13 @@ function buildTasks() {
   // the oldest tasks from Mission Control (it is already at ~420 KB). Read a
   // wider window and REPORT the truncation instead of hiding it.
   const { rows, broken, missing, truncated } = readJsonl(TASKS_FILE, { limitBytes: 4 * 1024 * 1024 });
+  // Rows older than the live ledger live in the archive. The board still shows
+  // them: the archive's tail is read too, and the flag says out loud when even
+  // that window cut something off.
+  const arch = readJsonl(TASKS_ARCHIVE_FILE, { limitBytes: 512 * 1024 });
   const byId = new Map();
-  for (const ev of rows) {
+  // The archive holds the OLDER rows, so they come first.
+  for (const ev of [...arch.rows, ...rows]) {
     const id = ev.task_id;
     if (!id) continue;
     if (!AGENT_IDS.includes(ev.agent)) continue;
@@ -487,7 +563,7 @@ function buildTasks() {
     t.history.push({ ts: ev.ts, status: ev.status, detail: ev.detail || '', execution_id: execId, attempt: ev.attempt || t.attempt || null });
   }
   const list = [...byId.values()].sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-  return { tasks: list, broken_lines: broken, ledger_missing: missing, truncated };
+  return { tasks: list, broken_lines: broken, ledger_missing: missing, truncated: truncated === true || arch.truncated === true || arch.rows.some((r) => r && r.__rotated_out) };
 }
 
 /* ─────────────────────────── queue + real dispatch ─────────────────────────── */
@@ -2221,6 +2297,18 @@ function proxyGeminiLive(req, res, url) {
   const agent = AGENTS.find((a) => a.id === agentId);
   if (!agent) {
     sendJson(res, 400, { error: 'unknown_agent', detail: redact(agentId) });
+    return;
+  }
+  /* Same guard as the other POST routes: without the JSON type a page on
+     another site can POST here (text/plain needs no preflight) and start a
+     Live turn or run a tool as the owner. It runs AFTER the route and agent
+     checks, so a request for a route that does not exist is still a 404 and a
+     request for an unknown agent is still a 400 — the media type only decides
+     what happens to a request that would otherwise have been forwarded. */
+  try {
+    assertJsonContentType(req);
+  } catch (e) {
+    sendJson(res, e.statusCode || 415, { error: 'unsupported_media_type' });
     return;
   }
 

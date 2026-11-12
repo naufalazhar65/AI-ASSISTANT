@@ -164,6 +164,16 @@ async function main(): Promise<void> {
   });
   check("an unknown live sub-route is 404", nf.status === 404, `status=${nf.status}`);
 
+  /* 3b. A cross-origin POST (text/plain needs no preflight) is refused: the
+     JSON type is what proves the request came from our own page. */
+  const noType = await fetch(`${base}/api/gemini-live/token?agent=mia`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${DASH_TOKEN}`, "content-type": "text/plain" },
+    body: "{}",
+  });
+  check("a live POST without the JSON type is refused", noType.status === 415, `status=${noType.status}`);
+  check("a refused live POST never reaches Mia", upstream.length === 1, `upstream calls=${upstream.length}`);
+
   /* 4. The dashboard's own gate still applies — no token, no Live. */
   const noAuth = await fetch(`${base}/api/gemini-live/token?agent=mia`, {
     method: "POST",

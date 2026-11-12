@@ -1728,6 +1728,9 @@ function vMission() {
   var bar = '<div class="vbar"><span class="lab">Mission Control</span>' +
     '<span class="note">' + count(tasks.length) + ' task' +
     (d.total && d.total !== tasks.length ? ' dari ' + count(d.total) : '') +
+    /* The ledger is rotated: older tasks live in the archive. Say it, do not
+       pretend the board is the whole history. */
+    (d.truncated ? ' · terbaru saja (riwayat lama di arsip)' : '') +
     '</span><span class="note" id="missionUpdated"></span>' +
     '<span style="flex:1"></span>' +
     '<select class="inp" id="missionPeriod" aria-label="Periode">' +
@@ -1824,8 +1827,12 @@ function missionDetailHtml(t) {
   var timeline = '';
   if (t.events && t.events.length) {
     timeline = '<h2 class="secH">Riwayat eksekusi</h2><ul class="msTimeline">' + t.events.slice().reverse().map(function (e) {
+      /* The attempt's own outcome, not just what it was doing: an attempt that
+         already finished must not read as "still running" in the timeline. */
+      var es = e.status ? missionStatusMeta(e.status) : null;
       return '<li><span class="t">' + esc(missionWhen(e.ts)) + '</span><span class="d"><b>' + esc(missionAgentName(e.actor)) +
-        '</b> · ' + esc(e.activity) + (e.detail ? '<br>' + esc(trunc(e.detail, 300)) : '') + '</span></li>';
+        '</b> · ' + esc(e.activity) + (es ? ' · ' + esc(es.label) : '') +
+        (e.detail ? '<br>' + esc(trunc(e.detail, 300)) : '') + '</span></li>';
     }).join('') + '</ul>';
   }
 

@@ -659,7 +659,10 @@ var MiaLive = (() => {
         const headers = { ...userHeader, ...this.options.userHeader || {} };
         const tokenUrl = this.options.tokenUrl || "/api/gemini-live/token";
         const doFetch = this.options.fetchImpl || fetch;
-        const res = await doFetch(tokenUrl, { method: "POST", headers });
+        const res = await doFetch(tokenUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...headers }
+        });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.token) {
           const message = json.error ?? `Gemini Live is unavailable (HTTP ${res.status}).`;

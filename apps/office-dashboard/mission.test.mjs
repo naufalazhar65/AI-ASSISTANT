@@ -396,3 +396,48 @@ test('the duration is the last attempt, not the span across attempts', () => {
   assert.equal(t.duration_ms, 4000, 'the last attempt took 4 s, not 20 days');
   assert.ok(t.duration_ms < 60_000, 'a retry weeks later must not be a 20-day duration');
 });
+
+test('a finished attempt is not shown as still running (the session outcome wins)', () => {
+  const plans = [
+    {
+      id: 'orch_2',
+      created_at: iso(NOW - 60 * 60 * 1000),
+      tasks: [
+        { task_id: 't1', objective: 'Riset sumber', agent_id: 'agnes', status: 'SUCCEEDED', created_at: iso(NOW - 60 * 60 * 1000), completed_at: iso(NOW - 30 * 60 * 1000) },
+      ],
+    },
+  ];
+  const sessions = [
+    {
+      id: 'ps_orch_2_t1',
+      plan_id: 'orch_2',
+      task_id: 't1',
+      status: 'succeeded',
+      attempts: [
+        { n: 1, at: iso(NOW - 60 * 60 * 1000), phase: 'DIAGNOSE', action: 'gagal', failure: 'boom', duration_ms: 1200 },
+        { n: 2, at: iso(NOW - 50 * 60 * 1000), phase: 'VERIFY', action: 'ok', duration_ms: 3400 },
+      ],
+    },
+  ];
+  const out = M.orchestrationTasks(plans, sessions, { now: NOW });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].executions.length, 2);
+  assert.equal(out[0].executions[0].status, 'failed', 'the failed attempt stays failed');
+  assert.equal(out[0].executions[1].status, 'completed', 'the last attempt inherits the finished session');
+  assert.equal(out[0].events[out[0].events.length - 1].status, 'completed', 'the timeline says the same');
+});
+
+test('the attempt count falls back to the engine when no per-attempt history is on disk', () => {
+  const plans = [
+    {
+      id: 'orch_3',
+      created_at: iso(NOW - 60 * 60 * 1000),
+      tasks: [
+        { task_id: 't1', objective: 'Riset sumber', agent_id: 'agnes', status: 'SUCCEEDED', attempts: 2, created_at: iso(NOW - 60 * 60 * 1000), completed_at: iso(NOW - 30 * 60 * 1000) },
+      ],
+    },
+  ];
+  const out = M.orchestrationTasks(plans, [], { now: NOW });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].attempts, 2, 'the board must not say "no attempts" when the engine says two');
+});

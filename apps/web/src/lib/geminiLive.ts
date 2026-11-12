@@ -326,7 +326,13 @@ export class GeminiLiveSession {
       // caller's absolute `tokenUrl` (default stays the browser's own path).
       const tokenUrl = this.options.tokenUrl || "/api/gemini-live/token";
       const doFetch = this.options.fetchImpl || fetch;
-      const res = await doFetch(tokenUrl, { method: "POST", headers });
+      /* The JSON type is what lets the dashboard refuse a cross-origin POST:
+         a page on another site can send text/plain without a preflight, so a
+         body-less POST with no type would be accepted by the proxy. */
+      const res = await doFetch(tokenUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+      });
       const json = (await res.json().catch(() => ({}))) as {
         token?: string;
         model?: string;

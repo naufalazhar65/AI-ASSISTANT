@@ -511,11 +511,23 @@ function orchestrationTasks(plans, sessions, opts) {
 
       var session = sessionById['ps_' + plan.id + '_' + text(t.task_id)];
       if (session) {
-        task.executions = (session.attempts || []).map(function (a) {
+        var attempts = session.attempts || [];
+        /* The last attempt inherits the session outcome: a session that already
+           finished must not leave its last attempt on screen as "running". */
+        var attemptStatus = function (a, i) {
+          if (a.failure) return 'failed';
+          if (i !== attempts.length - 1) return 'running';
+          var s = session.status || 'unknown';
+          if (s === 'succeeded') return 'completed';
+          if (s === 'stopped') return 'failed';
+          if (s === 'active') return 'running';
+          return 'running';
+        };
+        task.executions = attempts.map(function (a, i) {
           return {
             execution_id: 'ps:' + plan.id + ':' + text(t.task_id) + '#' + text(a.n),
             attempt: a.n,
-            status: a.failure ? 'failed' : a.recovery ? 'running' : 'running',
+            status: attemptStatus(a, i),
             started_at: a.at || null,
             finished_at: a.at || null,
             duration_ms: typeof a.duration_ms === 'number' ? a.duration_ms : null,
@@ -524,12 +536,12 @@ function orchestrationTasks(plans, sessions, opts) {
             recovery: a.recovery || null,
           };
         });
-        (session.attempts || []).forEach(function (a) {
+        attempts.forEach(function (a, i) {
           task.events.push({
             ts: a.at || null,
             actor: t.agent_id || null,
             activity: a.phase ? 'Tahap ' + text(a.phase).toLowerCase() : 'Percobaan',
-            status: a.failure ? 'failed' : 'running',
+            status: attemptStatus(a, i),
             detail: text(a.error) || text(a.action) || '',
             execution_id: 'ps:' + plan.id + ':' + text(t.task_id) + '#' + text(a.n),
           });
@@ -544,6 +556,10 @@ function orchestrationTasks(plans, sessions, opts) {
         });
         task.criteria_outcome = task.criteria_outcome || session.criteria_outcome || null;
       }
+      /* The engine knows how many attempts a task took. When the per-attempt
+         history is not on disk, that count is still the honest number — saying
+         "no attempts" would contradict the engine. */
+      task.attempts = (task.executions && task.executions.length) || Number(t.attempts) || 0;
 
       task.duration_ms = durationBetween(task.started_at, task.completed_at || task.updated_at);
       out.push(task);

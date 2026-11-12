@@ -1095,7 +1095,10 @@ function ChatSidebar(chat, toggleBtn) {
     const known = Object.prototype.hasOwnProperty.call(seenCounts, state.selected);
     const freshKeys = known ? freshMessageKeys(seenCounts[state.selected], msgs) : new Set();
     if (sSig !== streamSig) {
-      stream.replaceChildren(...streamNodes(chat, c, agentMeta, freshKeys));
+      // The typing row belongs to the message column: as a sibling of the
+      // stream it sat in another container, and its portrait ended up a few
+      // pixels off the message portraits.
+      stream.replaceChildren(...streamNodes(chat, c, agentMeta, freshKeys), typing);
       streamSig = sSig;
       const lastAgent = [...msgs].reverse().find((m) => m.role !== 'user');
       if (lastAgent && lastAgent.key !== announced) {

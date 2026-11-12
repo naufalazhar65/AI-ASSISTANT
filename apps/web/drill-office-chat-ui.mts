@@ -7,12 +7,31 @@
  * sends a REAL turn to Mia through /api/office/chat and asserts what the user
  * sees. Any FAIL is printed and the process exits non-zero.
  */
-import { readFileSync, existsSync, writeFileSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readdirSync, mkdtempSync, rmSync, copyFileSync, openSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { spawn, type ChildProcess } from "node:child_process";
+import { createServer } from "node:net";
+import type { AddressInfo } from "node:net";
 import { chromium } from "playwright";
 
 const ROOT = join(import.meta.dirname, "..", "..");
-const DASH = process.env.OFFICE_DASH_URL || "http://127.0.0.1:3001";
+// A fixed port made two drill runs kill each other (the second one found the
+// first one's dashboard gone -> ERR_CONNECTION_REFUSED). Each run takes a free
+// port of its own.
+let DASH_PORT = Number(process.env.OFFICE_DRILL_PORT || 0);
+/**
+ * The drill runs ITS OWN dashboard instance with its own user bucket and its
+ * own copy of the ledger.
+ *
+ * Why: the office proxy pins the owner user server-side, so a drill against
+ * the owner's dashboard used the owner's REAL chat session — and every
+ * assertion about the conversation's shape depended on whatever the owner had
+ * said that day (three assertions flaked on it). The user is still pinned
+ * server-side, so the browser still cannot choose whose data it reads.
+ */
+const DRILL_USER = `office_drill_${Date.now().toString(36)}`;
+let DASH = process.env.OFFICE_DASH_URL || `http://127.0.0.1:${DASH_PORT}`;
 const ARTIFACT = "office_ui";
 // The chat width is a design token (apps/office-dashboard/design-tokens.json).
 // Reading it keeps the width assertion honest: a stale hard-coded range
@@ -33,7 +52,7 @@ function cleanupDrillNote(): void {
   // the global fallback (used when a note is saved without a user key). Only
   // the marker text is ever removed.
   for (const file of [
-    join(ROOT, "apps/web/.data/users/naufalazhar652952/notes.json"),
+    join(ROOT, "apps/web/.data/users", DRILL_USER, "notes.json"),
     join(ROOT, "apps/web/.data/notes.json"),
   ]) {
     try {
@@ -51,7 +70,7 @@ function cleanupDrillNote(): void {
   // conversation. Every drill turn carries a unique marker, so the whole
   // block that holds it can go; every other block stays untouched.
   try {
-    const dir = join(ROOT, "apps/web/.data/users/naufalazhar652952/memory");
+    const dir = join(ROOT, "apps/web/.data/users", DRILL_USER, "memory");
     if (existsSync(dir)) {
       for (const name of readdirSync(dir)) {
         if (!name.endsWith(".md")) continue;
@@ -69,7 +88,7 @@ function cleanupDrillNote(): void {
   // still carries the drill line would be retrievable by recall even after
   // the file itself was cleaned, so the drill text leaves the index too.
   try {
-    const index = join(ROOT, "apps/web/.data/users/naufalazhar652952/memory/embeddings.json");
+    const index = join(ROOT, "apps/web/.data/users", DRILL_USER, "memory", "embeddings.json");
     // No early return here: the session cleanup below must still run when the
     // semantic index does not exist.
     if (existsSync(index)) {
@@ -93,7 +112,7 @@ function cleanupDrillNote(): void {
   // conversation. The send-time stamps are aligned with the messages, so
   // they are dropped by the same index.
   try {
-    const userRoot = join(ROOT, "apps/web/.data/users/naufalazhar652952");
+    const userRoot = join(ROOT, "apps/web/.data/users", DRILL_USER);
     // The office transcripts live in their own collections
     // (sessions-office-<agent>/) since the transcript-isolation work; the
     // legacy sessions/ folder still holds the web app's own sessions.
@@ -164,7 +183,7 @@ function token(): string {
  * measure an empty history instead of persistence.
  */
 async function waitForSessionTurn(marker: string): Promise<void> {
-  const file = join(ROOT, "apps/web/.data/users/naufalazhar652952/sessions-office-mia/office-mia.json");
+  const file = join(ROOT, "apps/web/.data/users", DRILL_USER, "sessions-office-mia", "office-mia.json");
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) {
     try {
@@ -234,8 +253,89 @@ async function openPanel(page: import("playwright").Page): Promise<void> {
   if (!ok) throw new Error("sidebar did not open after 3 attempts");
 }
 
+/**
+ * Start the drill's own dashboard instance.
+ *
+ * It gets its own data directory (a copy of the owner's ledger, so Mission
+ * Control has rows to show) and its own pinned user. The owner's ledger and
+ * queue are never written by the drill.
+ */
+function startDrillDashboard(): { proc: ChildProcess; dataDir: string } {
+  const dataDir = mkdtempSync(join(tmpdir(), "office-drill-"));
+  for (const f of ["tasks.jsonl", "queue.jsonl", "dispatch.json", "tasks.archive.jsonl", "queue.archive.jsonl"]) {
+    const src = join(ROOT, "apps/office-dashboard/data", f);
+    if (existsSync(src)) copyFileSync(src, join(dataDir, f));
+  }
+  const log = openSync("/tmp/office-drill-dashboard.log", "a");
+  const proc = spawn("node", ["server.js"], {
+    cwd: join(ROOT, "apps/office-dashboard"),
+    env: {
+      ...process.env,
+      PORT: String(DASH_PORT),
+      OFFICE_OWNER_USER: DRILL_USER,
+      OFFICE_DATA_DIR: dataDir,
+    },
+    stdio: ["ignore", log, log],
+  });
+  return { proc, dataDir };
+}
+
+/** Wait until the drill's dashboard really answers. */
+async function waitForDashboard(): Promise<void> {
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch(`${DASH}/api/health`);
+      if (r.ok) return;
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error(`drill dashboard did not answer on ${DASH}`);
+}
+
+/** Kill the drill's dashboard and delete everything it wrote. */
+function stopDrillDashboard(proc: ChildProcess, dataDir: string): void {
+  try {
+    proc.kill("SIGTERM");
+  } catch {
+    /* already gone */
+  }
+  try {
+    rmSync(dataDir, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
+  try {
+    rmSync(join(ROOT, "apps/web/.data/users", DRILL_USER), { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
+}
+
+let drillInstance: { proc: ChildProcess; dataDir: string } | null = null;
+
+/** A free TCP port, so two drill runs never fight over the same one. */
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const port = (srv.address() as AddressInfo).port;
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
 async function main(): Promise<void> {
   const auth = token();
+  if (!process.env.OFFICE_DASH_URL) {
+    DASH_PORT = await freePort();
+    DASH = `http://127.0.0.1:${DASH_PORT}`;
+    drillInstance = startDrillDashboard();
+    await waitForDashboard();
+  }
   const browser = await chromium.launch({ args: ["--no-sandbox"] });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
@@ -487,42 +587,6 @@ async function main(): Promise<void> {
   // The live strip is silent while nothing happened (no fake "live" panel).
   check("the live strip stays hidden until a session exists", await page.locator(".chatLive").isHidden());
 
-  // 3c. the typing row: it belongs to the CONVERSATION, not to the bottom of
-  // the log, and it wears the agent's PHOTO (a letter looked broken).
-  //
-  // The row only shows while a turn is working, so it is forced visible here
-  // (DOM only, no server call) and measured. The gap to the last message is
-  // the contract: a growing message stream pushed the row to the very bottom
-  // of the panel, hundreds of pixels below the last bubble.
-  const typing = await page.evaluate(() => {
-    const log = document.querySelector(".chatLog");
-    const row = document.querySelector(".msg.typing");
-    if (!log || !row) return null;
-    row.removeAttribute("hidden");
-    const rows = [...log.querySelectorAll(".chatStream .msg")];
-    const last = rows[rows.length - 1];
-    const t = row.getBoundingClientRect();
-    const l = last ? last.getBoundingClientRect() : null;
-    const av = row.querySelector(".msgAvatar");
-    const msgAv = log.querySelector(".chatStream .msg.agent .msgAvatar");
-    const img = av ? av.querySelector("img") : null;
-    return {
-      gapToLast: l ? Math.round(t.top - l.bottom) : null,
-      avatarLeft: av ? Math.round(av.getBoundingClientRect().left) : null,
-      msgAvatarLeft: msgAv ? Math.round(msgAv.getBoundingClientRect().left) : null,
-      imgSrc: img ? img.getAttribute("src") : null,
-      imgLoaded: !!img && img.complete && img.naturalWidth > 0,
-    };
-  });
-  check("the typing row sits with the last message", !!typing && typing.gapToLast !== null && typing.gapToLast <= 24, `gap=${typing?.gapToLast}`);
-  check("the typing row shows the agent's photo", !!typing && !!typing.imgSrc && typing.imgLoaded, `src=${typing?.imgSrc} loaded=${typing?.imgLoaded}`);
-  check(
-    "the typing portrait lines up with the message portraits",
-    !!typing && typing.avatarLeft !== null && typing.msgAvatarLeft !== null && Math.abs(typing.avatarLeft - typing.msgAvatarLeft) <= 2,
-    `typing=${typing?.avatarLeft} messages=${typing?.msgAvatarLeft}`,
-  );
-  // A picture of the fixed row, so the fix can be SEEN and not only measured.
-  await page.screenshot({ path: "/tmp/office-chat-typing.png", fullPage: false });
 
   // 4. real send → real reply
   //
@@ -582,6 +646,70 @@ async function main(): Promise<void> {
     .catch(() => false);
   const reply = (await page.locator(".msg.agent .msgBody").last().textContent()) || "";
   check("agent really answered", answered, `new reply=${answered} ${reply.slice(0, 80)}`);
+  // 3c. the typing row (measured AFTER the first reply: the gap is to the
+  // last message in the log, so the log must have one — and the portrait
+  // comparison needs an AGENT message). It belongs to the CONVERSATION, not to the bottom of
+  // the log, and it wears the agent's PHOTO (a letter looked broken).
+  //
+  // The row only shows while a turn is working, so it is forced visible here
+  // (DOM only, no server call) and measured. The gap to the last message is
+  // the contract: a growing message stream pushed the row to the very bottom
+  // of the panel, hundreds of pixels below the last bubble.
+  // The entrance animation (190 ms) scales the row; wait for it to settle so
+  // the measurement reads the layout, not the animation.
+  await page.waitForTimeout(350);
+  const typing = await page.evaluate(() => {
+    const log = document.querySelector(".chatLog");
+    const row = document.querySelector(".msg.typing");
+    if (!log || !row) return null;
+    row.removeAttribute("hidden");
+    const rows = [...log.querySelectorAll(".chatStream .msg:not(.typing)")];
+    const last = rows[rows.length - 1];
+    const t = row.getBoundingClientRect();
+    const l = last ? last.getBoundingClientRect() : null;
+    const av = row.querySelector(".msgAvatar");
+    const msgAvs = [
+      ...log.querySelectorAll(".chatStream .msg.agent:not(.typing) .msgAvatar"),
+      // The entrance animation scales its row (scale(.985)) for a moment,
+      // which shifts the portrait a few pixels to the right. Compare only
+      // rows whose animation has finished — otherwise we measure the
+      // animation, not the layout.
+    ].filter((el) => !(el.parentElement?.getAnimations?.() || []).some((a) => a.playState === "running"));
+    const msgAv = msgAvs[0] || null;
+    const lastAv = msgAvs.length ? msgAvs[msgAvs.length - 1] : null;
+    const img = av ? av.querySelector("img") : null;
+    return {
+      gapToLast: l ? Math.round(t.top - l.bottom) : null,
+      avatarLeft: av ? Math.round(av.getBoundingClientRect().left) : null,
+      avatarWidth: av ? Math.round(av.getBoundingClientRect().width) : null,
+      msgAvatarLeft: msgAv ? Math.round(msgAv.getBoundingClientRect().left) : null,
+      msgAvatarWidth: msgAv ? Math.round(msgAv.getBoundingClientRect().width) : null,
+      lastAvatarLeft: lastAv ? Math.round(lastAv.getBoundingClientRect().left) : null,
+      agentAvatars: msgAvs.length,
+      // Where the 3 px can hide: the row inside its container, and the avatar
+      // inside the row. Offsets are relative, so they compare across
+      // containers (the typing row is a sibling of the stream).
+      typingRowOffset: (row as HTMLElement).offsetLeft,
+      typingAvatarOffset: av ? (av as HTMLElement).offsetLeft : null,
+      agentRowOffset: msgAv ? ((msgAv.parentElement as HTMLElement | null)?.offsetLeft ?? null) : null,
+      agentAvatarOffset: msgAv ? (msgAv as HTMLElement).offsetLeft : null,
+      logPadLeft: log ? getComputedStyle(log).paddingLeft : null,
+      imgSrc: img ? img.getAttribute("src") : null,
+      imgLoaded: !!img && img.complete && img.naturalWidth > 0,
+    };
+  });
+  check("the typing row sits with the last message", !!typing && typing.gapToLast !== null && typing.gapToLast <= 24, `gap=${typing?.gapToLast}`);
+  check("the typing row shows the agent's photo", !!typing && !!typing.imgSrc && typing.imgLoaded, `src=${typing?.imgSrc} loaded=${typing?.imgLoaded}`);
+  check(
+    "the typing portrait lines up with the message portraits",
+    // The portrait that matters is the one directly above the typing row (the
+    // last agent message), not the first one in the log.
+    !!typing && typing.avatarLeft !== null && typing.lastAvatarLeft !== null && Math.abs(typing.avatarLeft - typing.lastAvatarLeft) <= 2,
+    `typing=${typing?.avatarLeft}/${typing?.avatarWidth} messages=${typing?.msgAvatarLeft}/${typing?.msgAvatarWidth} last=${typing?.lastAvatarLeft} n=${typing?.agentAvatars} rowOff=${typing?.typingRowOffset}/${typing?.agentRowOffset} avOff=${typing?.typingAvatarOffset}/${typing?.agentAvatarOffset} logPad=${typing?.logPadLeft}`,
+  );
+  // A picture of the fixed row, so the fix can be SEEN and not only measured.
+  await page.screenshot({ path: "/tmp/office-chat-typing.png", fullPage: false });
+
   // The composer must never cover the conversation: the newest message has
   // to stay fully visible inside the scroll area.
   const covered = await page.evaluate(() => {
@@ -807,7 +935,7 @@ async function main(): Promise<void> {
   // note landed on disk a second later).
   const notesWithMarker = () => {
     try {
-      const file = join(ROOT, "apps/web/.data/users/naufalazhar652952/notes.json");
+      const file = join(ROOT, "apps/web/.data/users", DRILL_USER, "notes.json");
       if (!existsSync(file)) return 0;
       const notes = JSON.parse(readFileSync(file, "utf8")) as Array<{ content?: string }>;
       return notes.filter((n) => String(n?.content ?? "").includes(DRILL_NOTE)).length;
@@ -853,7 +981,11 @@ async function main(): Promise<void> {
   const miaBack = await firstUserText();
   check(
     "switching agent shows that agent's own history",
-    miaFirst !== "" && michelleFirst !== "" && michelleFirst !== miaFirst,
+    // The invariant is SEPARATION: the other agent's history is not Mia's. The
+    // drill now runs on its OWN user, so the sibling agent legitimately has an
+    // empty history — "empty" is a different history, and the sibling check
+    // below still proves the switch really loaded something.
+    miaFirst !== "" && michelleFirst !== miaFirst,
     `mia="${miaFirst}" michelle="${michelleFirst}"`,
   );
   check(
@@ -1091,29 +1223,40 @@ async function main(): Promise<void> {
     // assertion would prove nothing.
     const t0 = Date.now();
     let busSeen = busSeenBefore;
+    let frameAt = -1;
     let clockMovedAt = -1;
-    for (let i = 0; i < 40; i += 1) {
+    for (let i = 0; i < 60; i += 1) {
       await page.waitForTimeout(250);
       const s = await page.evaluate(() => ({
         bus: (document.getElementById("busPill")?.textContent || "").trim(),
         clock: (document.getElementById("missionUpdated")?.textContent || "").trim(),
       }));
       const m = /BUS LIVE (\d+)/.exec(s.bus);
-      if (m && Number(m[1]) > busSeen) busSeen = Number(m[1]);
+      if (frameAt < 0 && m && Number(m[1]) > busSeen) {
+        busSeen = Number(m[1]);
+        frameAt = Date.now() - t0;
+      }
       if (clockMovedAt < 0 && s.clock !== clockBefore) clockMovedAt = Date.now() - t0;
       if (busSeen > busSeenBefore && clockMovedAt >= 0) break;
     }
     const framed = busSeen > busSeenBefore;
     // The periodic poll can fire at the earliest 10 s after the previous poll;
     // the last one was `age` seconds ago, so it cannot fire before 10 - age.
-    const movedIn = clockMovedAt >= 0 && clockMovedAt < 5000;
+    // The frame itself can arrive late (the model needs seconds before its
+    // first action), so the window is measured FROM THE FRAME: the repaint
+    // must follow the event, and it must still beat the periodic timer.
+    const movedIn =
+      clockMovedAt >= 0 &&
+      frameAt >= 0 &&
+      clockMovedAt - frameAt < 2000 &&
+      clockMovedAt < (10 - age) * 1000;
     if (!framed) {
       console.log("  · SKIP bus-refresh assertion: no bus frame arrived");
     } else {
       check(
         "a bus event repaints the Mission Control without waiting for the poll",
         movedIn,
-        `last poll ${age}s ago (next in >=${10 - age}s), clock moved after ${clockMovedAt}ms, bus="${busPillText}"`,
+        `last poll ${age}s ago (next in >=${10 - age}s), frame after ${frameAt}ms, clock moved after ${clockMovedAt}ms, bus="${busPillText}"`,
       );
       // Let the turn finish so the drill does not close the browser mid-answer.
       await waitForSessionTurn(busMarker);
@@ -1260,3 +1403,6 @@ main().catch((err) => {
 });
 
 process.on("exit", cleanupDrillNote);
+process.on("exit", () => {
+  if (drillInstance) stopDrillDashboard(drillInstance.proc, drillInstance.dataDir);
+});
