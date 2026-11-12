@@ -24,6 +24,9 @@ const { execFileSync } = require('child_process');
 /* Human activity phrases live in one module (activity.cjs) so the server
    payload, the floating nameplate and the activity view can never disagree. */
 const { humanActivity } = require('./activity.cjs');
+/* Mission Control's domain rules (one task = one identity, one execution =
+   one attempt, progress only from reported stages) live in mission.cjs. */
+const mission = require('./mission.cjs');
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
@@ -84,16 +87,18 @@ function ensureDirs() {
 
 function readJsonl(file, { limitBytes = 512 * 1024 } = {}) {
   let raw;
+  let truncated = false;
   try {
     const st = fs.statSync(file);
     const start = st.size > limitBytes ? st.size - limitBytes : 0;
+    truncated = start > 0;
     const fd = fs.openSync(file, 'r');
     const buf = Buffer.alloc(st.size - start);
     fs.readSync(fd, buf, 0, buf.length, start);
     fs.closeSync(fd);
     raw = buf.toString('utf8');
   } catch {
-    return { rows: [], broken: 0, missing: true };
+    return { rows: [], broken: 0, missing: true, truncated: false };
   }
   const rows = [];
   let broken = 0;
@@ -108,7 +113,7 @@ function readJsonl(file, { limitBytes = 512 * 1024 } = {}) {
       broken++; // one corrupt line must never take the API down
     }
   }
-  return { rows, broken, missing: false };
+  return { rows, broken, missing: false, truncated };
 }
 
 function appendJsonl(file, obj) {
@@ -216,6 +221,12 @@ const AUTH_ENABLED = AUTH_TOKEN.length > 0;
  * must use Mia's own AUTH_TOKEN instead.
  */
 const UPSTREAM_TOKEN = MIA_ENV.AUTH_TOKEN || AUTH_TOKEN;
+/**
+ * Mia answers a risky-tool turn with HTTP 200 whose body is this control
+ * frame (the same prefix agent.ts uses). Nothing ran and nobody can approve
+ * it from here, so such a reply must never be recorded as "Selesai".
+ */
+const CONFIRM_FRAME_PREFIX = '@@CONFIRM ';
 
 function parseCookies(header) {
   const out = {};
@@ -440,7 +451,10 @@ function mirrorAuditTurns(audit) {
 
 /** Fold append-only events into current status + history per task_id. */
 function buildTasks() {
-  const { rows, broken, missing } = readJsonl(TASKS_FILE);
+  // The ledger grows forever; the default 512 KB window would silently drop
+  // the oldest tasks from Mission Control (it is already at ~420 KB). Read a
+  // wider window and REPORT the truncation instead of hiding it.
+  const { rows, broken, missing, truncated } = readJsonl(TASKS_FILE, { limitBytes: 4 * 1024 * 1024 });
   const byId = new Map();
   for (const ev of rows) {
     const id = ev.task_id;
@@ -448,22 +462,32 @@ function buildTasks() {
     if (!AGENT_IDS.includes(ev.agent)) continue;
     let t = byId.get(id);
     if (!t) {
-      t = { task_id: id, agent: ev.agent, title: ev.title || '(tanpa judul)', status: 'started', started_at: ev.ts, updated_at: ev.ts, source: ev.source || 'dashboard', detail: ev.detail || '', history: [] };
+      t = { task_id: id, agent: ev.agent, title: ev.title || '(tanpa judul)', status: 'started', started_at: ev.ts, updated_at: ev.ts, source: ev.source || 'dashboard', detail: ev.detail || '', prompt: '', execution_id: null, attempt: null, history: [] };
       byId.set(id, t);
     }
     if (ev.title && (t.title === '(tanpa judul)' || !t.title)) t.title = ev.title;
     if (ev.status) t.status = ev.status;
     if (ev.detail) t.detail = ev.detail;
+    // One task = one identity; one execution = one attempt. The prompt rides
+    // along so a retry re-runs the SAME request, and the execution id keeps
+    // every attempt in its own slot.
+    if (ev.prompt && !t.prompt) t.prompt = ev.prompt;
+    // An event without its own execution id belongs to the execution that is
+    // already open for this task — otherwise one task's attempts would split
+    // into several "executions" that never ran.
+    const execId = ev.execution_id || t.execution_id || null;
+    if (execId) t.execution_id = execId;
+    if (ev.attempt) t.attempt = ev.attempt;
     // Delivery facts ride along so the UI never has to guess whether a
     // "kirim ke Discord" task actually reached Discord.
     if (ev.deliver) t.deliver = ev.deliver;
     if (ev.deliver_to) t.deliver_to = ev.deliver_to;
     if (ev.delivered !== undefined && ev.delivered !== null) t.delivered = ev.delivered;
     t.updated_at = ev.ts;
-    t.history.push({ ts: ev.ts, status: ev.status, detail: ev.detail || '' });
+    t.history.push({ ts: ev.ts, status: ev.status, detail: ev.detail || '', execution_id: execId, attempt: ev.attempt || t.attempt || null });
   }
   const list = [...byId.values()].sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-  return { tasks: list, broken_lines: broken, ledger_missing: missing };
+  return { tasks: list, broken_lines: broken, ledger_missing: missing, truncated };
 }
 
 /* ─────────────────────────── queue + real dispatch ─────────────────────────── */
@@ -478,6 +502,9 @@ function buildQueue() {
       id: r.id,
       ts: r.ts,
       prompt: r.prompt,
+      prompt_full: r.prompt_full || (prev && prev.prompt_full) || null,
+      attempt: r.attempt || (prev && prev.attempt) || null,
+      updated_at: r.updated_at || (prev && prev.updated_at) || null,
       agent: r.agent,
       deliver: r.deliver || (prev && prev.deliver) || 'auto',
       status: r.status || (prev && prev.status) || 'queued',
@@ -520,23 +547,31 @@ function deliverRequested(prompt, explicit) {
  */
 async function dispatchQueueItem(item) {
   const agent = AGENTS.find((a) => a.id === item.agent);
-  const taskId = `task-${item.id}`;
+  // The queue row already carries the task id (stamped when it was queued),
+  // so "Antre" and "Berjalan" are one task, never two.
+  const taskId = item.task_id || `task-${item.id}`;
+  const attempt = item.attempt || 1;
+  const executionId = item.execution_id || `${taskId}::${attempt}`;
   const userKey = agent ? agent.user : OWNER_USER;
-  const wantDeliver = deliverRequested(item.prompt, item.deliver);
+  // The queue row keeps the full prompt next to the truncated one; Mia must
+  // receive the FULL request (the ledger already stores it).
+  const promptFull = item.prompt_full || item.prompt;
+  const wantDeliver = deliverRequested(promptFull, item.deliver);
   const target = wantDeliver ? MIA_WEBHOOK_URL : MIA_LLM_URL;
-  appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: truncate(item.prompt, 120), status: 'started', detail: `Dikirim ke Mia (POST ${wantDeliver ? '/api/webhook → Discord' : '/api/llm'}).`, deliver: wantDeliver ? 'discord' : 'none', delivered: null, source: 'dashboard' });
+  appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: truncate(promptFull, 120), status: 'started', detail: `Dikirim ke Mia (POST ${wantDeliver ? '/api/webhook → Discord' : '/api/llm'}).`, deliver: wantDeliver ? 'discord' : 'none', delivered: null, source: 'dashboard', execution_id: executionId, attempt, prompt: promptFull });
   appendJsonl(QUEUE_FILE, { ...item, status: 'done', task_id: taskId, detail: 'dispatched' });
   const started = Date.now();
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), DISPATCH_TIMEOUT_MS);
   const payload = wantDeliver
-    ? { prompt: item.prompt, user: userKey, agent: item.agent, deliver_to: deliveryLabelFor(item.agent), ...(WEBHOOK_SECRET ? { secret: WEBHOOK_SECRET } : {}) }
-    : { messages: [{ role: 'user', content: item.prompt }], user: userKey, channel: 'office-dashboard' };
+    ? { prompt: promptFull, user: userKey, agent: item.agent, deliver_to: deliveryLabelFor(item.agent), ...(WEBHOOK_SECRET ? { secret: WEBHOOK_SECRET } : {}) }
+    : { messages: [{ role: 'user', content: promptFull }], user: userKey, channel: 'office-dashboard' };
   try {
     const headers = { 'content-type': 'application/json' };
     // Mia's middleware 401s every /api/* call without a Bearer token, so a
     // quick task with deliver:none failed 401 before Mia ever saw the prompt.
-    if (AUTH_TOKEN) headers.authorization = `Bearer ${AUTH_TOKEN}`;
+    // Upstream calls use Mia's own token, not the dashboard's.
+    if (UPSTREAM_TOKEN) headers.authorization = `Bearer ${UPSTREAM_TOKEN}`;
     const res = await fetch(target, {
       method: 'POST',
       headers,
@@ -547,16 +582,25 @@ async function dispatchQueueItem(item) {
     let data = null;
     try { data = JSON.parse(raw); } catch { /* non-JSON body is handled below */ }
     if (!res.ok) {
-      appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'failed', deliver: wantDeliver ? 'discord' : 'none', delivered: false, detail: redact(truncate(`HTTP ${res.status}: ${(data && data.message) || raw}`, 400)), source: 'dashboard' });
+      appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, execution_id: executionId, attempt, status: 'failed', deliver: wantDeliver ? 'discord' : 'none', delivered: false, detail: redact(truncate(`HTTP ${res.status}: ${(data && data.message) || raw}`, 400)), source: 'dashboard' });
       return;
     }
     if (!wantDeliver) {
+      // /api/llm answers a risky tool with a 200 that carries a CONFIRM frame:
+      // nothing ran and nobody can approve it here, so it must NOT be recorded
+      // as "Selesai".
+      if (raw.startsWith(CONFIRM_FRAME_PREFIX)) {
+        appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, execution_id: executionId, attempt, status: 'failed', deliver: 'none', delivered: null, detail: 'Butuh konfirmasi tool — tidak ada yang bisa menyetujuinya dari dashboard, jadi tidak ada yang dijalankan.', source: 'dashboard' });
+        return;
+      }
       appendJsonl(TASKS_FILE, {
         ts: new Date().toISOString(),
         task_id: taskId,
         agent: item.agent,
         subagent: null,
         title: null,
+        execution_id: executionId,
+        attempt,
         status: 'done',
         deliver: 'none',
         delivered: null,
@@ -568,19 +612,19 @@ async function dispatchQueueItem(item) {
     // Delivery path — never say "done" unless Discord actually got it.
     const text = redact(truncate(String((data && data.text) || '(no reply)').replace(/\s+/g, ' ').trim(), 300));
     if (data && data.status === 'needs_confirmation') {
-      appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'failed', deliver: 'discord', delivered: false, detail: redact(truncate(`Butuh konfirmasi tool (${data.tool && data.tool.name ? data.tool.name : '?'}) — tidak dikirim ke Discord.`, 400)), source: 'dashboard' });
+      appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, execution_id: executionId, attempt, status: 'failed', deliver: 'discord', delivered: false, detail: redact(truncate(`Butuh konfirmasi tool (${data.tool && data.tool.name ? data.tool.name : '?'}) — tidak dikirim ke Discord.`, 400)), source: 'dashboard' });
       return;
     }
     if (data && data.pushed === true) {
       // Name the destination. "✅ Terkirim ke Discord" was true but useless —
       // the owner could not tell it had landed in his DM instead of the office
       // channel, which is exactly how a mis-routed delivery stays invisible.
-      appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'done', deliver: 'discord', delivered: true, deliver_to: data.delivered_to || deliveryLabelFor(item.agent), detail: `✅ Terkirim ke Discord [${data.delivered_to || deliveryLabelFor(item.agent)}] — ${text}`, source: 'dashboard' });
+      appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, execution_id: executionId, attempt, status: 'done', deliver: 'discord', delivered: true, deliver_to: data.delivered_to || deliveryLabelFor(item.agent), detail: `✅ Terkirim ke Discord [${data.delivered_to || deliveryLabelFor(item.agent)}] — ${text}`, source: 'dashboard' });
       return;
     }
-    appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'failed', deliver: 'discord', delivered: false, detail: redact(truncate(`Mia menjawab tapi hasil TIDAK terkirim ke Discord${data && data.push_error ? ` (${data.push_error})` : ''} — ${text}`, 400)), source: 'dashboard' });
+    appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, execution_id: executionId, attempt, status: 'failed', deliver: 'discord', delivered: false, detail: redact(truncate(`Mia menjawab tapi hasil TIDAK terkirim ke Discord${data && data.push_error ? ` (${data.push_error})` : ''} — ${text}`, 400)), source: 'dashboard' });
   } catch (err) {
-    appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, status: 'failed', deliver: wantDeliver ? 'discord' : 'none', delivered: false, detail: redact(truncate(`${err.name}: ${err.message} (${Date.now() - started}ms)`, 400)), source: 'dashboard' });
+    appendJsonl(TASKS_FILE, { ts: new Date().toISOString(), task_id: taskId, agent: item.agent, subagent: null, title: null, execution_id: executionId, attempt, status: 'failed', deliver: wantDeliver ? 'discord' : 'none', delivered: false, detail: redact(truncate(`${err.name}: ${err.message} (${Date.now() - started}ms)`, 400)), source: 'dashboard' });
   } finally {
     clearTimeout(timer);
   }
@@ -592,7 +636,12 @@ async function dispatchLoop() {
   const dispatchState = readJson(DISPATCH_FILE, { paused: false });
   if (dispatchState.paused) return;
   const { queue } = buildQueue();
-  const next = queue.find((q) => q.status === 'queued');
+  // FIFO: the task submitted first runs first. buildQueue sorts newest-first
+  // (the board wants recent work on top), so the oldest waiting item is picked
+  // explicitly — otherwise a retry jumps ahead of everything queued before it.
+  const next = queue
+    .filter((q) => q.status === 'queued')
+    .sort((a, b) => String(a.ts || '').localeCompare(String(b.ts || '')))[0];
   if (!next) return;
   dispatching = true;
   try {
@@ -1151,6 +1200,193 @@ function buildLog(audit, limit = 120) {
   }
   lines.sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
   return lines.slice(0, limit);
+}
+
+/* ─────────────────────────── mission control ─────────────────────────── */
+/* Mission Control merges the three places where AI Office really does work:
+   the dispatch ledger (owner-requested quick tasks), the orchestrator's plans
+   (multi-agent work with real stages) and the workflow registry (scheduled
+   runs). The rules live in mission.cjs; this is only the plumbing. */
+const MISSION_PLANS_FILE = 'orchestration.json';
+const MISSION_SESSIONS_FILE = 'recovery-sessions.json';
+
+function readMissionSources() {
+  const plans = [];
+  const sessions = [];
+  const workflows = [];
+  const executions = [];
+  const users = AGENTS.map((a) => a.user).filter(Boolean);
+  for (const user of users) {
+    const orch = readUserJson(MISSION_PLANS_FILE, user);
+    if (orch && Array.isArray(orch.plans)) for (const p of orch.plans) plans.push({ ...p, user: p.user || user });
+    const rec = readUserJson(MISSION_SESSIONS_FILE, user);
+    if (rec && Array.isArray(rec.sessions)) for (const s of rec.sessions) sessions.push({ ...s, user: s.user || user });
+    const defs = readUserJson(WORKFLOWS_FILE, user);
+    if (Array.isArray(defs)) for (const w of defs) workflows.push({ ...w, user: w.user || user });
+    const execs = readUserJson(WORKFLOW_EXECUTIONS_FILE, user);
+    if (Array.isArray(execs)) for (const e of execs) executions.push({ ...e, user: e.user || user });
+  }
+  return { plans, sessions, workflows, executions };
+}
+
+function buildMissionState(query) {
+  ensureDirs();
+  const q = query || {};
+  const { tasks, truncated } = buildTasks();
+  const { queue } = buildQueue();
+  const audit = readAudit();
+  const dispatchState = readJson(DISPATCH_FILE, { paused: false });
+  const sources = readMissionSources();
+  const out = mission.missionView({
+    ledger: tasks,
+    queue,
+    plans: sources.plans,
+    sessions: sources.sessions,
+    workflows: sources.workflows,
+    executions: sources.executions,
+    agents: deriveAgents(audit, dispatchState.paused === true),
+    now: Date.now(),
+    liveWindowMs: WORKING_WINDOW_MS,
+  }, {
+    period: String(q.period || 'all'),
+    status: String(q.status || ''),
+    agent: String(q.agent || ''),
+    q: String(q.q || ''),
+    sort: String(q.sort || 'smart'),
+  });
+  for (const t of out.tasks) {
+    for (const a of t.artifacts) {
+      // Only a real path can be opened — a prose line is not a file.
+      if (a && typeof a === 'object' && !a.open_url) a.open_url = artifactOpenUrl(a.path);
+    }
+  }
+  // Say it out loud when the ledger window cut the oldest tasks off.
+  out.truncated = truncated === true;
+  return out;
+}
+
+/** An artifact only gets an "open" action when its path really resolves
+ *  inside a browsable root AND the file is really there — otherwise the path
+ *  is shown as plain text. No link is ever invented. */
+function artifactOpenUrl(p) {
+  const raw = String(p == null ? '' : p).trim();
+  if (!raw) return null;
+  const abs = path.isAbsolute(raw) ? raw : path.resolve(ROOT, raw);
+  for (const root of FILE_ROOTS) {
+    const rel = path.relative(root.dir, abs);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+    if (denyPathReason(rel)) continue;
+    if (!fs.existsSync(abs)) continue;
+    return '/api/files?root=' + encodeURIComponent(root.id) + '&path=' + encodeURIComponent(rel);
+  }
+  return null;
+}
+
+/** Call Mia's own API with the server-side bearer. The browser never picks a
+ *  user: the owner is pinned here. */
+async function miaPost(pathname, body) {
+  try {
+    const target = new URL(pathname, MIA_WEB_BASE);
+    const headers = { 'content-type': 'application/json' };
+    // Upstream calls use Mia's OWN token: the dashboard token may be a
+    // different one (DASHBOARD_TOKEN), and then every upstream call 401s.
+    if (UPSTREAM_TOKEN) headers.authorization = 'Bearer ' + UPSTREAM_TOKEN;
+    const res = await fetch(target, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    });
+    const raw = await res.text();
+    let data = null;
+    try { data = JSON.parse(raw); } catch { /* not JSON — the raw text is the message */ }
+    if (!res.ok) {
+      const msg = (data && (data.error || data.message)) || raw || ('HTTP ' + res.status);
+      return { ok: false, status: res.status, error: String(msg).slice(0, 300) };
+    }
+    return { ok: true, status: res.status, data };
+  } catch (e) {
+    return { ok: false, status: 502, error: String((e && e.message) || e).slice(0, 300) };
+  }
+}
+
+/** Run one Mission Control action. The task is re-read from the live stores
+ *  first, so the decision is made on the CURRENT state and only actions the
+ *  backend can really perform are accepted. */
+async function missionAction(body) {
+  const action = String((body && body.action) || '');
+  const taskId = String((body && body.task_id) || '');
+  if (!action || !taskId) return { ok: false, status: 400, error: 'action dan task_id wajib diisi.' };
+
+  const state = buildMissionState();
+  const task = state.tasks.find((t) => t.task_id === taskId);
+  if (!task) return { ok: false, status: 404, error: 'Task tidak ditemukan.' };
+  const allowed = (task.actions || []).some((a) => a.id === action);
+  if (!allowed) return { ok: false, status: 400, error: 'Aksi ini tidak tersedia untuk task ini.' };
+
+  if (task.source === 'dispatch') {
+    const { queue } = buildQueue();
+    if (action === 'retry') {
+      const waiting = queue.find((q) => q.task_id === taskId && q.status === 'queued');
+      if (waiting) return { ok: false, status: 409, error: 'Task ini sudah menunggu eksekusi.' };
+      const attempt = (task.executions || []).length + 1;
+      const qid = newId('q');
+      appendJsonl(QUEUE_FILE, {
+        id: qid,
+        ts: new Date().toISOString(),
+        prompt: truncate(task.prompt, 300),
+        prompt_full: task.prompt,
+        agent: task.current_assignee || task.owner_agent || 'mia',
+        deliver: (task.delivery && task.delivery.deliver) || 'none',
+        status: 'queued',
+        task_id: taskId,
+        attempt,
+      });
+      dispatchLoop().catch(() => {});
+      return { ok: true, task_id: taskId, message: 'Percobaan baru dijadwalkan; riwayat sebelumnya tetap tersimpan.' };
+    }
+    if (action === 'cancel') {
+      // Rows queued before the task id was stamped are addressed by the same
+      // fallback the board uses ('task-' + id), or the button 409s.
+      const item = queue.find((q) => (q.task_id || `task-${q.id}`) === taskId && q.status === 'queued');
+      if (!item) return { ok: false, status: 409, error: 'Task ini tidak ada di antrean.' };
+      appendJsonl(QUEUE_FILE, { ...item, status: 'cancelled', detail: 'dibatalkan dari Mission Control', updated_at: new Date().toISOString() });
+      return { ok: true, task_id: taskId, message: 'Task dibatalkan dari antrean.' };
+    }
+  }
+
+  if (task.source === 'workflow') {
+    const wfId = taskId.indexOf('wf:') === 0 ? taskId.slice(3) : taskId;
+    const user = task.user || OWNER_USER;
+    if (action === 'retry') {
+      const r = await miaPost('/api/workflows', { user, action: 'run_now', id: wfId });
+      if (!r.ok) return { ok: false, status: r.status, error: r.error };
+      return { ok: true, task_id: taskId, message: 'Eksekusi baru dibuat; riwayat eksekusi sebelumnya tetap tersimpan.' };
+    }
+    if (action === 'cancel') {
+      const r = await miaPost('/api/workflows', { user, action: 'cancel', id: wfId });
+      if (!r.ok) return { ok: false, status: r.status, error: r.error };
+      return { ok: true, task_id: taskId, message: 'Eksekusi dibatalkan.' };
+    }
+    if (action === 'resume') {
+      const r = await miaPost('/api/workflows', { user, action: 'resume', id: wfId });
+      if (!r.ok) return { ok: false, status: r.status, error: r.error };
+      return { ok: true, task_id: taskId, message: 'Jadwal dilanjutkan.' };
+    }
+  }
+
+  if (task.source === 'orchestration') {
+    const parts = taskId.split(':');
+    const planId = parts[1] || '';
+    const user = task.user || OWNER_USER;
+    if (action === 'cancel_plan') {
+      const r = await miaPost('/api/orchestration', { user, id: planId, action: 'cancel' });
+      if (!r.ok) return { ok: false, status: r.status, error: r.error };
+      return { ok: true, task_id: taskId, message: 'Rencana dibatalkan.' };
+    }
+  }
+
+  return { ok: false, status: 400, error: 'Aksi tidak dikenal.' };
 }
 
 /* ─────────────────────────── state ─────────────────────────── */
@@ -1819,6 +2055,21 @@ function sendJson(res, status, obj) {
   res.end(body);
 }
 
+/**
+ * A cross-origin page cannot POST application/json without a preflight, and
+ * the dashboard sends no CORS headers — so requiring the JSON type is what
+ * stops another site from enqueueing work (or starting a turn) when the
+ * dashboard runs without a token.
+ */
+function assertJsonContentType(req) {
+  const ct = String(req.headers['content-type'] || '').toLowerCase();
+  if (ct.indexOf('application/json') < 0) {
+    const e = new Error('Content-Type application/json diperlukan');
+    e.statusCode = 415;
+    throw e;
+  }
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -1870,6 +2121,16 @@ function proxyOfficeChat(req, res, url) {
   const target = new URL('/api/office/chat', MIA_WEB_BASE);
   target.searchParams.set('user', OWNER_USER);
   if (url.searchParams.get('agent')) target.searchParams.set('agent', url.searchParams.get('agent'));
+  if (req.method === 'POST') {
+    // Same reason as the other POST routes: a cross-origin page must not be
+    // able to start a Mia turn.
+    try {
+      assertJsonContentType(req);
+    } catch (e) {
+      sendJson(res, e.statusCode || 415, { error: 'unsupported_media_type' });
+      return;
+    }
+  }
 
   let body = Buffer.alloc(0);
   // The browser must never choose whose history it reads/writes: pin the owner
@@ -1886,7 +2147,8 @@ function proxyOfficeChat(req, res, url) {
   };
   const send = (up) => {
     const headers = { accept: 'application/x-ndjson, application/json' };
-    if (AUTH_TOKEN) headers.authorization = `Bearer ${AUTH_TOKEN}`;
+    // Upstream = Mia's own token, not the dashboard's.
+    if (UPSTREAM_TOKEN) headers.authorization = `Bearer ${UPSTREAM_TOKEN}`;
     if (body.length) {
       headers['content-type'] = 'application/json';
       headers['content-length'] = String(body.length);
@@ -2043,6 +2305,14 @@ function serveStatic(req, res, urlPath) {
     sendJson(res, 403, { error: 'forbidden' });
     return;
   }
+  // The ledger/queue trees hold the owner's prompts and replies. They are
+  // served by /api/* (behind the token), never as static files: without this
+  // /data/queue.jsonl was readable by anyone with the dashboard URL.
+  const segs = rel.split('/').filter(Boolean);
+  if (segs.some((s) => s === 'data' || s.startsWith('.'))) {
+    sendJson(res, 403, { error: 'forbidden' });
+    return;
+  }
   const stat = fs.existsSync(resolved) ? fs.statSync(resolved) : null;
   if (!stat || !stat.isFile()) {
     sendJson(res, 404, { error: 'not_found', path: urlPath });
@@ -2178,6 +2448,27 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, st);
       return;
     }
+    if (p === '/api/mission' && req.method === 'GET') {
+      sendJson(res, 200, buildMissionState(Object.fromEntries(url.searchParams.entries())));
+      return;
+    }
+    if (p === '/api/mission' && req.method === 'POST') {
+      let body;
+      try {
+        assertJsonContentType(req);
+        body = JSON.parse((await readBody(req)) || '{}');
+      } catch (e) {
+        sendJson(res, e.statusCode || 400, { error: e.statusCode === 413 ? 'payload_too_large' : e.statusCode === 415 ? 'unsupported_media_type' : 'invalid_json' });
+        return;
+      }
+      const out = await missionAction(body);
+      if (out.ok) {
+        sendJson(res, 200, { ok: true, task_id: out.task_id || null, message: out.message || '' });
+      } else {
+        sendJson(res, out.status || 400, { error: out.error || 'Aksi gagal.' });
+      }
+      return;
+    }
     if (p === '/api/files' && req.method === 'GET') {
       const out = buildFiles(Object.fromEntries(url.searchParams.entries()));
       if (out.error === 'unknown_root' || out.error === 'forbidden' || out.error === 'not_found') {
@@ -2198,9 +2489,10 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/queue' && req.method === 'POST') {
       let body;
       try {
+        assertJsonContentType(req);
         body = JSON.parse((await readBody(req)) || '{}');
       } catch (e) {
-        sendJson(res, e.statusCode || 400, { error: e.statusCode === 413 ? 'payload_too_large' : 'invalid_json' });
+        sendJson(res, e.statusCode || 400, { error: e.statusCode === 413 ? 'payload_too_large' : e.statusCode === 415 ? 'unsupported_media_type' : 'invalid_json' });
         return;
       }
       const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
@@ -2209,18 +2501,22 @@ const server = http.createServer(async (req, res) => {
       if (!prompt) return sendJson(res, 400, { error: 'prompt_required', message: 'prompt harus string non-kosong.' });
       if (prompt.length > MAX_PROMPT_CHARS) return sendJson(res, 400, { error: 'prompt_too_long', max: MAX_PROMPT_CHARS });
       if (!AGENT_IDS.includes(agent)) return sendJson(res, 400, { error: 'unknown_agent', allowed: AGENT_IDS });
-      const item = { id: newId('q'), ts: new Date().toISOString(), prompt: redact(truncate(prompt, 300)), agent, deliver, status: 'queued', task_id: null };
+      // The task id is stamped HERE, not when the item is dispatched: one
+      // task = one identity, so "Antre" and "Berjalan" are the same task.
+      const qid = newId('q');
+      const item = { id: qid, ts: new Date().toISOString(), prompt: redact(truncate(prompt, 300)), prompt_full: redact(prompt), agent, deliver, status: 'queued', task_id: `task-${qid}`, attempt: 1 };
       appendJsonl(QUEUE_FILE, item);
-      dispatchLoop();
+      dispatchLoop().catch(() => {});
       sendJson(res, 201, { ok: true, item });
       return;
     }
     if (p === '/api/dispatch' && req.method === 'POST') {
       let body;
       try {
+        assertJsonContentType(req);
         body = JSON.parse((await readBody(req)) || '{}');
       } catch (e) {
-        sendJson(res, e.statusCode || 400, { error: e.statusCode === 413 ? 'payload_too_large' : 'invalid_json' });
+        sendJson(res, e.statusCode || 400, { error: e.statusCode === 413 ? 'payload_too_large' : e.statusCode === 415 ? 'unsupported_media_type' : 'invalid_json' });
         return;
       }
       if (typeof body.paused !== 'boolean') return sendJson(res, 400, { error: 'paused_must_be_boolean' });

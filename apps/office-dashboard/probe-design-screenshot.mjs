@@ -102,5 +102,28 @@ if (await findingsNav.count()) {
   console.log("WARN: findings nav button not found — the view is missing");
 }
 
+// The Mission Control view: the counters, the agent roll-up and the task list
+// must all come from the real backend.
+const missionNav = page.locator('button[data-view="mission"]');
+if (await missionNav.count()) {
+  await page.evaluate(() => document.querySelector('button[data-view="mission"]')?.click());
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: join(OUT, "06-office-mission.png") });
+  // The same view in dark theme — that is the theme the owner reads it in.
+  await safeClick(page, "#modeBtn");
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: join(OUT, "06b-office-mission-dark.png") });
+  await safeClick(page, "#modeBtn");
+  await page.waitForTimeout(400);
+  // The task detail overlay (information, stages, timeline).
+  await page.evaluate(() => document.querySelector("#view-mission [data-mission-open]")?.click());
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: join(OUT, "07-office-mission-detail.png") });
+  await page.evaluate(() => document.querySelector("[data-mission-close]")?.click());
+  await page.waitForTimeout(300);
+} else {
+  console.log("WARN: mission nav button not found — the view is missing");
+}
+
 await browser.close();
 console.log(`screenshots -> ${OUT}`);

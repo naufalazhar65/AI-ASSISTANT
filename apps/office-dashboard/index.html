@@ -241,6 +241,13 @@
   input:focus,textarea:focus,.inp:focus{outline:none;border-color:var(--accent);
     box-shadow:var(--ring)}
   .inp{border-radius:var(--r-full);font-size:var(--t-1);min-width:190px}
+  /* The native dropdown arrow sat 3 px from the pill border (measured in the
+     render) and padding does NOT move it — only a custom chevron at a fixed
+     inset does. It carries the theme's own ink. */
+  select.inp{appearance:none;-webkit-appearance:none;padding-right:30px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23655B50' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 12px center;background-size:13px 13px}
+  html[data-theme="dark"] select.inp{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23C6B9AA' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")}
   .dlrow{display:flex;align-items:center;gap:var(--s2);margin-top:var(--s2);
     font-size:var(--t-1);color:var(--dim);cursor:pointer}
   .seg{display:inline-flex;border:1px solid var(--line-2);border-radius:var(--r-sm);
@@ -268,7 +275,7 @@
   /* A report card holds the report OBJECT: long evidence and remediation get
      their own left-aligned, scrollable block instead of a right-aligned
      paragraph that fills the card (DESIGN.md §10, §14). */
-  .repBlock{display:grid;grid-template-columns:minmax(80px,120px) 1fr;gap:var(--s4);
+  .repBlock{display:grid;grid-template-columns:minmax(80px,120px) minmax(0,1fr);gap:var(--s4);
     padding:9px 0;border-bottom:1px solid var(--line-2)}
   .repBlock .k{color:var(--muted);white-space:nowrap}
   .repBlock .v{color:var(--text);text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;
@@ -327,9 +334,9 @@
   .bars i:hover{opacity:.7}
   .bars i.hi{opacity:1}
   .bars i.zero{opacity:.12}
-  .split{display:grid;gap:var(--s4);grid-template-columns:1.15fr .85fr;align-items:stretch}
+  .split{display:grid;gap:var(--s4);grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr);align-items:stretch}
   .rank{display:grid;gap:var(--s2)}
-  .rank .r{display:grid;grid-template-columns:1fr 74px 46px;gap:var(--s3);align-items:center;
+  .rank .r{display:grid;grid-template-columns:minmax(0,1fr) 74px 46px;gap:var(--s3);align-items:center;
     font-size:var(--t-1)}
   .rank .r .t{height:7px;border-radius:var(--r-xs);background:var(--panel-3);overflow:hidden}
   .rank .r .t i{display:block;height:100%;background:var(--accent);border-radius:var(--r-xs)}
@@ -359,7 +366,7 @@
     overflow-wrap:anywhere}
   .tk .meta{color:var(--muted);font-size:var(--t-2);display:flex;gap:var(--s2);
     flex-wrap:wrap;align-items:center}
-  .ex{display:grid;grid-template-columns:minmax(200px,300px) 1fr;gap:var(--s4);align-items:start}
+  .ex{display:grid;grid-template-columns:minmax(200px,300px) minmax(0,1fr);gap:var(--s4);align-items:start}
   .tree{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-md);
     padding:var(--s2);max-height:calc(100dvh - 230px);overflow:auto}
   .tree .r{display:flex;gap:var(--s2);align-items:center;padding:8px 10px;
@@ -385,7 +392,7 @@
   .logbox{max-height:440px;overflow:auto;background:var(--bg2);border:1px solid var(--line);
     border-radius:var(--r-md);padding:var(--s2);
     font-family:var(--mono);font-size:var(--t-1);line-height:1.6}
-  .logline{display:grid;grid-template-columns:78px 74px 62px 1fr;gap:var(--s2);padding:3px 0;
+  .logline{display:grid;grid-template-columns:78px 74px 62px minmax(0,1fr);gap:var(--s2);padding:3px 0;
     border-bottom:1px solid var(--line)}
   .logline .t{color:var(--faint);font-variant-numeric:tabular-nums}
   .logline .a{color:var(--text)}
@@ -592,6 +599,74 @@
   .hudFoot{padding:var(--s3) var(--s4);border-top:1px solid var(--line);
     font-size:var(--t-1);letter-spacing:.01em;color:var(--faint);flex:0 0 auto}
 
+  /* ── mission control ──────────────────────────────────────────────
+     One surface per group (DESIGN.md §9): the counters, the agent roll-up
+     and the task list are separate blocks, and a task row is a row, never a
+     card of its own. */
+  .msWrap{display:flex;flex-direction:column;gap:var(--s5)}
+  /* One rule above the counters (the toolbar's), no dead band under it, and the
+     counter numbers on a shared baseline — a two-line label must not push its
+     number down (DESIGN.md §14). */
+  #view-mission .vbar{margin-bottom:var(--s3)}
+  /* Two toolbar notes read as one line — the generic .note margin would push
+     the clock off the label baseline. */
+  #view-mission .vbar .note{margin-top:0}
+  #view-mission .stats{margin-bottom:0}
+  #view-mission .stat{border-top:0;padding-top:var(--s2)}
+  #view-mission .stat .k{min-height:2.4em;line-height:1.2}
+  .msFilters{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;
+    margin:0 0 var(--s3)}
+  .msFilters .inp{min-width:0}
+  .msFilters #missionSearch{flex:1 1 260px;min-width:200px}
+  .msAgents{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+  .msAgent{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:var(--s4);display:flex;flex-direction:column;gap:var(--s2);min-width:0}
+  .msAgent .n{font-weight:700;font-size:var(--t0);color:var(--text)}
+  .msAgent .r{font-size:var(--t-2);color:var(--muted)}
+  .msAgent .m{display:flex;gap:var(--s3);flex-wrap:wrap;align-items:center;
+    font-size:var(--t-1);color:var(--muted)}
+  .msAgent .m b{color:var(--text);font-weight:650}
+  .msList{display:flex;flex-direction:column}
+  .msRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s2) var(--s4);
+    padding:var(--s3) 0;border-bottom:1px solid var(--line);align-items:start}
+  .msRow:last-child{border-bottom:0}
+  .msRow .ttl{font-weight:650;color:var(--text);overflow-wrap:anywhere}
+  .msRow .meta{display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center;
+    font-size:var(--t-2);color:var(--muted);margin-top:5px}
+  .msRow .meta .msId{font-family:var(--mono);font-size:var(--t-2);color:var(--faint)}
+  .msRow .prog{font-size:var(--t-2);color:var(--muted);margin-top:5px}
+  .msRow .acts{display:flex;gap:var(--s2);flex-wrap:wrap;grid-column:1 / -1;margin-top:var(--s1)}
+  .msHead{display:flex;gap:var(--s3);align-items:flex-start;justify-content:space-between}
+  .msHead h2{margin:0;font-size:var(--t1);font-weight:700;color:var(--text);overflow-wrap:anywhere}
+  .msActs{display:flex;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s3)}
+  .msConfirm{background:var(--warn-bg);border:1px solid var(--warn-2);
+    border-radius:var(--r-sm);padding:var(--s3);margin-top:var(--s3);font-size:var(--t-1);
+    color:var(--text)}
+  .msConfirm .modalRow{margin-top:var(--s3)}
+  .msNote{font-size:var(--t-1);color:var(--muted);margin-top:var(--s2)}
+  .msDetailGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--s5);margin-top:var(--s4)}
+  .msStages{list-style:none;margin:0;padding:0}
+  .msStages li{display:flex;gap:var(--s3);align-items:baseline;flex-wrap:wrap;
+    padding:6px 0;border-bottom:1px solid var(--line-2);font-size:var(--t-1)}
+  .msStages li:last-child{border-bottom:0}
+  .msStages .mk{flex:0 0 auto;font-weight:650;font-size:var(--t-2);color:var(--muted);
+    min-width:120px}
+  .msStages .sl{color:var(--text);overflow-wrap:anywhere;flex:1 1 auto}
+  .msStages .sa{font-size:var(--t-2);color:var(--muted)}
+  .msTimeline{list-style:none;margin:0;padding:0}
+  .msTimeline li{display:grid;grid-template-columns:84px minmax(0,1fr);gap:var(--s3);
+    padding:6px 0;border-bottom:1px solid var(--line-2);font-size:var(--t-1)}
+  .msTimeline li:last-child{border-bottom:0}
+  .msTimeline .t{color:var(--muted);font-variant-numeric:tabular-nums}
+  .msTimeline .d{color:var(--text);overflow-wrap:anywhere}
+  .modal.wide{max-width:900px;max-height:88vh;overflow:auto}
+  .badge.warn{color:var(--warn);border-color:var(--warn-2);background:var(--warn-2)}
+  .badge.cancelled{color:var(--muted);border-color:var(--line);background:var(--panel-2)}
+  .badge.blocked{color:var(--bad);border-color:var(--bad-2);background:var(--bad-2)}
+  @media (max-width:820px){
+    .msDetailGrid{grid-template-columns:1fr}
+  }
+
   /* ── modal ──────────────────────────────────────────────── */
   .modalBg{position:fixed;inset:0;background:rgba(43,39,36,.42);display:none;
     align-items:center;justify-content:center;padding:var(--s5);z-index:50;
@@ -621,6 +696,14 @@
   @media (max-width:900px){
     .split,.ex{grid-template-columns:1fr}
     .tree,.doc{max-height:280px}
+    /* The table headers kept the table wider than the screen (measured: the
+       activity table needed 600 px in a 560 px view and was cut at the edge).
+       Let the headers and the cells wrap so the table fits. */
+    th{white-space:normal}
+    td{overflow-wrap:anywhere}
+    /* Tighter cells on a small screen: the padding alone was 160 px of the
+       table's width (8 columns x 20 px). */
+    th,td{padding:7px 6px}
   }
   @media (max-width:820px){
     /* One mobile strategy: the rail is an overlay drawer, the rest is a column. */
@@ -702,6 +785,9 @@
     .pill,.btn,.badge,.card,.hudCard,.lane,.seg,.seg button,.tool,.tk,.logline,.hudTab,.inp,.chatInput,.chatTab,.msg,.approval,.tagLbl{border-color:CanvasText}
     /* forced colours drop box-shadow, so the focus ring would vanish - keep an outline. */
     :where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid Highlight;outline-offset:1px}
+    /* The custom chevron is a background image, which forced colours drop —
+       give the select its native indicator back. */
+    select.inp{appearance:auto;-webkit-appearance:auto;background-image:none}
     .tDot{forced-color-adjust:none}
   }
 
@@ -733,6 +819,7 @@
 <symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M7 4h10M7 20h10M8 4c0 4 4 5.5 4 8s-4 4-4 8M16 4c0 4-4 5.5-4 8s4 4 4 8"/></symbol>
 <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3.5 13.5h4l1.5 3h6l1.5-3h4"/><path d="M5.6 5.4h12.8l2.1 8.1v4a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5v-4z"/></symbol>
 <symbol id="i-findings" viewBox="0 0 24 24"><path d="M12 3.5l7 2.5v5.2c0 4-2.9 7.6-7 9.3-4.1-1.7-7-5.3-7-9.3V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
+<symbol id="i-mission" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2.6v2.6M12 18.8v2.6M2.6 12h2.6M18.8 12h2.6"/></symbol>
 </defs></svg>
 <div id="app">
   <aside>
@@ -820,6 +907,7 @@
       </div>
     </section>
 
+    <section class="view hide" id="view-mission"></section>
     <section class="view hide" id="view-agents"></section>
     <section class="view hide" id="view-usage"></section>
     <section class="view hide" id="view-board"></section>
@@ -863,6 +951,8 @@
   </div>
 </div>
 
+<div class="modalBg" id="missionBg"></div>
+
 <link rel="stylesheet" href="/chat.css">
 <script src="/vendor/three.min.js"></script>
 <!-- Gemini Live client, bundled from apps/web (esbuild). Classic script on
@@ -883,6 +973,7 @@ var ROSTER = {
 var MENU = [
   { group: 'Office',   items: [ ['office','Virtual Office','office','Ruang 3D + HUD'] ] },
   { group: 'Operasi',  items: [
+      ['mission','Mission Control','mission','Semua pekerjaan AI'],
       ['agents','Agent','agents','Status, peran, tugas'],
       ['board','Task Board','board','Antre · berjalan · selesai'],
       ['calendar','Kalender','calendar','Jadwal terjadwal'] ] },
@@ -1154,13 +1245,20 @@ function cachedSource(name, ttlMs, loader) {
 var STATE_TTL_MS = 1200;
 
 /* ── polling (no overlapping requests) ─────────────────────────── */
-function poll() {
+function poll(fresh) {
   /* A second caller waits for the request that is already running instead of
      resolving instantly — the refresh button's busy state must reflect the
      real request (DESIGN.md §9). */
-  if (inflight) return pollPromise || Promise.resolve();
+  /* A hidden tab has nobody watching it — save the requests. */
+  if (document.hidden) return Promise.resolve();
+  if (inflight) {
+    if (!fresh) return pollPromise || Promise.resolve();
+    /* A FRESH request must not be answered by the one already running: the
+       refresh button has to show data that arrived after the click. */
+    return (pollPromise || Promise.resolve()).then(function () { return poll(true); });
+  }
   inflight = true;
-  pollPromise = cachedSource('state', STATE_TTL_MS, function () {
+  pollPromise = cachedSource('state', fresh ? 0 : STATE_TTL_MS, function () {
     return fetch(api('/api/state'), { headers: { accept: 'application/json' } })
       .then(function (r) {
         if (r.status === 401) throw new Error('401 unauthorized');
@@ -1173,7 +1271,11 @@ function poll() {
       $('#apiPill').className = 'ok';
       $('#apiPill').title = 'API terhubung';
       $('#connDot').style.background = 'var(--ok)';
-      render();
+      /* A view builder that throws must not look like a dead API (the pill
+         would go red although the API answered) and must not stop the
+         Mission list from refreshing. */
+      try { render(); } catch (err) { console.error('[dashboard] render gagal', err); }
+      if (currentView === 'mission') loadMission();
     })
     .catch(function (e) {
       if (e && e.message && e.message.indexOf('401') >= 0) needToken();
@@ -1309,17 +1411,17 @@ function renderHud() {
   var pane = $('#hudPane'), hint = $('#hudHint');
   if (!pane) return;
   if (!STATE) {
-    pane.innerHTML = '<div class="hudCard"><div class="k">Status</div><div class="v">Memuat\u2026</div></div>';
+    paint(pane, '<div class="hudCard"><div class="k">Status</div><div class="v">Memuat\u2026</div></div>');
     if (hint) hint.textContent = '\u2014';
     return;
   }
   if (hudTab === 'agent' && office.selAgent) {
-    pane.innerHTML = agentDetailHtml(office.selAgent);
+    paint(pane, agentDetailHtml(office.selAgent));
     if (hint) hint.textContent = 'Detail agent terpilih — memilih tidak mengirim giliran baru.';
     return;
   }
   if (!STATE.agents.length) {
-    pane.innerHTML = '<div class="empty">Belum ada agent yang terhubung.</div>';
+    paint(pane, '<div class="empty">Belum ada agent yang terhubung.</div>');
     if (hint) hint.textContent = '\u2014';
     return;
   }
@@ -1335,7 +1437,7 @@ function renderHud() {
         ? esc(count(b.turns) + ' turn \u00b7 ' + count(b.tool_calls) + ' tool \u00b7 ' + ago(a.last_update))
         : esc(b.note || 'belum ada data')) + '</div></button>';
   });
-  pane.innerHTML = '<div class="hudSummary">' + esc(STATE.agents.length + ' agent \u00b7 ' + busy + ' bekerja') + '</div>' + cards.join('');
+  paint(pane, '<div class="hudSummary">' + esc(STATE.agents.length + ' agent \u00b7 ' + busy + ' bekerja') + '</div>' + cards.join(''));
   if (hint) hint.textContent = 'Pilih kartu crew atau nametag di scene untuk detail agent.';
 }
 
@@ -1346,7 +1448,10 @@ function wireLogFilter(el) {
   i.addEventListener('input', function () {
     LOGS.filter = i.value;
     var pos = i.selectionStart;
-    el.innerHTML = vLogs();
+    paint(el, vLogs());
+    /* The paint replaced the input — wire the new one, or the filter dies
+       after the first keystroke. */
+    wireLogFilter(el);
     var n = el.querySelector('#logFilter');
     if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} }
   });
@@ -1415,6 +1520,389 @@ function vAgents() {
     }).join('') + '</div>';
 }
 
+
+/* ── mission control ──────────────────────────────────────────────
+   One page for everything the three agents are doing. The rules (one task =
+   one identity, one execution = one attempt, progress only from stages an
+   engine really reported) live in mission.cjs on the server; the browser
+   asks for the filtered list and draws it — it never invents a number. */
+var MISSION_PERIODS = [
+  { v: 'all', l: 'Semua waktu' },
+  { v: '24h', l: '24 jam' },
+  { v: '7d', l: '7 hari' }
+];
+var MISSION_AGENT_FILTERS = [
+  { v: '', l: 'Semua agent' },
+  { v: 'mia', l: 'Mia' },
+  { v: 'agnes', l: 'Agnes' },
+  { v: 'michelle', l: 'Michelle' }
+];
+var MISSION_SORT_FILTERS = [
+  { v: 'smart', l: 'Aktif dulu' },
+  { v: 'newest', l: 'Terbaru' },
+  { v: 'oldest', l: 'Terlama' },
+  { v: 'updated', l: 'Terakhir diubah' },
+  { v: 'duration', l: 'Durasi terlama' },
+  { v: 'priority', l: 'Prioritas' }
+];
+var MISSION = { data: null, loading: false, err: '', period: 'all', status: '', agent: '', sort: 'smart',
+                q: '', selected: null, confirm: null, pending: false, note: '', searchTimer: null };
+
+function missionAgentName(id) {
+  if (!id) return '—';
+  return (ROSTER[id] || {}).name || id;
+}
+function missionStatusMeta(status) {
+  var m = (MISSION.data && MISSION.data.statuses) || {};
+  return m[status] || { label: String(status || '—'), tone: 'idle' };
+}
+function missionTask(id) {
+  var list = (MISSION.data && MISSION.data.tasks) || [];
+  for (var i = 0; i < list.length; i++) if (list[i].task_id === id) return list[i];
+  return null;
+}
+function missionWhen(v) {
+  if (!v) return '—';
+  var t = Date.parse(v);
+  if (!isFinite(t)) return '—';
+  return hhmmss(new Date(t).toISOString());
+}
+/* A row stays silent when the engine reported no stage; the detail view is
+   where "Progress belum tersedia" belongs (DESIGN.md §14). */
+function missionHasProgress(t) {
+  return !!(t && ((t.progress && t.progress.label) || (t.stages && t.stages.length)));
+}
+function missionProgress(t) {
+  if (t.progress && t.progress.label) return t.progress.label;
+  if (t.stages && t.stages.length) {
+    var done = t.stages.filter(function (s) { return s.status === 'completed'; }).length;
+    return done + ' dari ' + t.stages.length + ' tahap';
+  }
+  return 'Progress belum tersedia';
+}
+function missionQuery() {
+  var p = ['period=' + encodeURIComponent(MISSION.period)];
+  if (MISSION.status) p.push('status=' + encodeURIComponent(MISSION.status));
+  if (MISSION.agent) p.push('agent=' + encodeURIComponent(MISSION.agent));
+  if (MISSION.sort) p.push('sort=' + encodeURIComponent(MISSION.sort));
+  if (MISSION.q) p.push('q=' + encodeURIComponent(MISSION.q));
+  return '/api/mission?' + p.join('&');
+}
+function loadMission() {
+  /* A hidden tab is not watched. */
+  if (document.hidden) return;
+  if (MISSION.loading) {
+    /* A request is already running: remember that something asked for fresh
+       data, so a changed filter is never painted with the old rows. */
+    MISSION.pending = true;
+    return;
+  }
+  MISSION.loading = true;
+  var asked = missionQuery();
+  json(asked).then(function (d) {
+    if (d && d.error) { MISSION.err = String(d.error); MISSION.data = null; return; }
+    MISSION.data = d;
+    MISSION.err = '';
+  }).catch(function (e) {
+    MISSION.err = 'Mission Control gagal dimuat: ' + e.message;
+  }).finally(function () {
+    MISSION.loading = false;
+    /* The query changed while this request was running: fetch the new one. */
+    if (MISSION.pending) {
+      MISSION.pending = false;
+      if (missionQuery() !== asked) { loadMission(); return; }
+    }
+    if (currentView === 'mission') missionPaint();
+  });
+}
+/* Repaint the view AND keep the caret where it was: the search box lives in
+   the view, so a plain innerHTML swap would eat a half-typed query. */
+function missionPaint() {
+  var el = document.getElementById('view-mission');
+  if (!el) return;
+  var active = document.activeElement;
+  var wasSearch = !!(active && active.id === 'missionSearch');
+  var wasSelect = !!(active && active.tagName === 'SELECT' && el.contains(active));
+  var selectId = wasSelect ? active.id : '';
+  var pos = wasSearch ? active.selectionStart : null;
+  var changed = paint(el, vMission());
+  wireMission(el);
+  if (changed && wasSearch) {
+    var n = document.querySelector('#missionSearch');
+    if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} }
+  }
+  /* A re-created <select> loses the focus (and closes its dropdown) — give
+     it back to the control the owner was using. */
+  if (changed && wasSelect) {
+    var sel = document.getElementById(selectId);
+    if (sel) sel.focus();
+  }
+  missionStamp(el);
+  if (MISSION.selected) renderMissionDetail();
+}
+/* The "diperbarui" clock changes on every fetch, so it must stay OUT of the
+   painted HTML — otherwise every poll looks like a change and the whole view
+   repaints (the flicker paint-on-change exists to kill). */
+function missionStamp(el) {
+  if (!el) return;
+  var up = el.querySelector('#missionUpdated');
+  if (up) up.textContent = MISSION.data ? ' · diperbarui ' + esc(missionWhen(MISSION.data.generated_at)) : '';
+}
+function wireMission(el) {
+  var i = el.querySelector('#missionSearch');
+  if (i && !i.dataset.wired) {
+    i.dataset.wired = '1';
+    i.addEventListener('input', function () {
+      MISSION.q = i.value;
+      if (MISSION.searchTimer) clearTimeout(MISSION.searchTimer);
+      MISSION.searchTimer = setTimeout(function () { loadMission(); }, 250);
+    });
+  }
+  [['missionStatus', 'status'], ['missionAgent', 'agent'], ['missionSort', 'sort'], ['missionPeriod', 'period']]
+    .forEach(function (pair) {
+      var s = el.querySelector('#' + pair[0]);
+      if (!s || s.dataset.wired) return;
+      s.dataset.wired = '1';
+      s.addEventListener('change', function () {
+        MISSION[pair[1]] = s.value;
+        loadMission();
+      });
+    });
+}
+function missionStatusOptions() {
+  var m = (MISSION.data && MISSION.data.statuses) || {};
+  var out = ['<option value=""' + (MISSION.status ? '' : ' selected') + '>Semua status</option>'];
+  Object.keys(m).forEach(function (k) {
+    out.push('<option value="' + esc(k) + '"' + (k === MISSION.status ? ' selected' : '') + '>' + esc(m[k].label) + '</option>');
+  });
+  return out.join('');
+}
+function vMission() {
+  if (MISSION.err) return '<div class="empty">' + esc(MISSION.err) + '</div>';
+  if (!MISSION.data) return '<div class="empty">Memuat Mission Control…</div>';
+  var d = MISSION.data;
+  var tasks = d.tasks || [];
+  var counters = d.counters || {};
+  var periodLabel = 'Semua waktu';
+  MISSION_PERIODS.forEach(function (o) { if (o.v === (d.period || 'all')) periodLabel = o.l; });
+
+  var stats = (d.counter_meta || []).filter(function (m) {
+    /* Only the six headline counters are always visible; the rest appear when
+       they are not zero, so the row always adds up to "Total Task". */
+    if (m.key !== 'total' && m.key !== 'running' && m.key !== 'queued' && m.key !== 'waiting_approval' && m.key !== 'completed' && m.key !== 'failed') return (counters[m.key] || 0) > 0;
+    return true;
+  }).map(function (m) {
+    return statCard(m.label, count(counters[m.key] || 0), m.hint + ' · ' + periodLabel);
+  });
+
+  var agentCards = (d.agents || []).map(function (a) {
+    return '<div class="msAgent">' +
+      '<div class="n">' + esc(a.name) + '</div>' +
+      '<div class="r">' + esc(a.role || '') + '</div>' +
+      '<div class="m"><span class="badge ' + esc(a.status_tone || 'idle') + '">' + esc(a.status_label || a.status) + '</span>' +
+      (a.active_task ? '<span>' + esc(a.active_task) + '</span>' : '') + '</div>' +
+      '<div class="m"><span>Task <b>' + count(a.total) + '</b></span>' +
+      '<span>Aktif <b>' + count(a.active) + '</b></span>' +
+      '<span>Selesai <b>' + count(a.completed) + '</b></span>' +
+      '<span>Gagal <b>' + count(a.failed) + '</b></span></div>' +
+      '</div>';
+  }).join('');
+
+  var rows = tasks.map(function (t) {
+    var st = missionStatusMeta(t.status);
+    var acts = (t.actions || []).map(function (a) {
+      return '<button class="btn vb" data-mission-action="' + esc(a.id) + '" data-mission-task="' + esc(t.task_id) + '">' + esc(a.label) + '</button>';
+    }).join('');
+    return '<div class="msRow">' +
+      '<div><div class="ttl">' + esc(trunc(t.title, 90)) + '</div>' +
+      '<div class="meta"><span class="badge ' + esc(st.tone) + '">' + esc(st.label) + '</span>' +
+      '<span>' + esc(missionAgentName(t.owner_agent)) + '</span>' +
+      '<span class="msId">' + esc(t.task_id) + '</span>' +
+      '<span>' + esc(missionWhen(t.updated_at)) + '</span></div>' +
+      (missionHasProgress(t) ? '<div class="prog">' + esc(missionProgress(t)) + '</div>' : '') + '</div>' +
+      '<div><button class="btn vb" data-mission-open="' + esc(t.task_id) + '">Detail</button></div>' +
+      (acts ? '<div class="acts">' + acts + '</div>' : '') +
+      '</div>';
+  }).join('');
+
+  var bar = '<div class="vbar"><span class="lab">Mission Control</span>' +
+    '<span class="note">' + count(tasks.length) + ' task' +
+    (d.total && d.total !== tasks.length ? ' dari ' + count(d.total) : '') +
+    '</span><span class="note" id="missionUpdated"></span>' +
+    '<span style="flex:1"></span>' +
+    '<select class="inp" id="missionPeriod" aria-label="Periode">' +
+      MISSION_PERIODS.map(function (o) {
+        return '<option value="' + o.v + '"' + (o.v === MISSION.period ? ' selected' : '') + '>' + esc(o.l) + '</option>';
+      }).join('') +
+    '</select>' +
+    '<button class="btn vb" data-mission-refresh="1">Muat ulang</button></div>';
+
+  var filters = '<div class="msFilters">' +
+    '<input class="inp" id="missionSearch" aria-label="Cari task" value="' + esc(MISSION.q) + '" placeholder="Cari judul, id, atau agent…">' +
+    '<select class="inp" id="missionStatus" aria-label="Filter status">' + missionStatusOptions() + '</select>' +
+    '<select class="inp" id="missionAgent" aria-label="Filter agent">' +
+      MISSION_AGENT_FILTERS.map(function (o) {
+        return '<option value="' + o.v + '"' + (o.v === MISSION.agent ? ' selected' : '') + '>' + esc(o.l) + '</option>';
+      }).join('') +
+    '</select>' +
+    '<select class="inp" id="missionSort" aria-label="Urutan">' +
+      MISSION_SORT_FILTERS.map(function (o) {
+        return '<option value="' + o.v + '"' + (o.v === MISSION.sort ? ' selected' : '') + '>' + esc(o.l) + '</option>';
+      }).join('') +
+    '</select></div>';
+
+  var body = tasks.length
+    ? '<div class="msList">' + rows + '</div>'
+    : '<div class="empty">' + (MISSION.q || MISSION.status || MISSION.agent
+        ? 'Tidak ada task yang cocok dengan filter.'
+        : 'Belum ada task saat ini.') + '</div>';
+
+  return '<div class="msWrap">' + bar + statGrid(stats) +
+    '<div class="msAgents">' + agentCards + '</div>' + filters + body + '</div>';
+}
+
+/* ── the detail overlay ─────────────────────────────────────────────
+   It lives outside the view section on purpose: the 3 s poll repaints the
+   view, and an open detail must survive that. */
+function missionOpen(id) {
+  MISSION.selected = id;
+  /* Keep the task itself: a filter change or a refresh must never close the
+     detail the owner is reading (DESIGN.md §14). */
+  var t = missionTask(id);
+  if (t) MISSION.selectedTask = t;
+  renderMissionDetail();
+}
+function missionClose() {
+  MISSION.selected = null;
+  MISSION.selectedTask = null;
+  MISSION.confirm = null;
+  var bg = $('#missionBg');
+  if (bg) bg.classList.remove('on');
+}
+function renderMissionDetail() {
+  var bg = $('#missionBg');
+  if (!bg) return;
+  var t = missionTask(MISSION.selected) || MISSION.selectedTask;
+  if (!t) { MISSION.selected = null; bg.classList.remove('on'); return; }
+  /* Only rebuild when the detail really changed: a rebuild replays the
+     entrance animation and throws away what the owner was reading. */
+  paint(bg, '<div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="msTitle">' + missionDetailHtml(t) + '</div>');
+  bg.classList.add('on');
+}
+function missionDetailHtml(t) {
+  var st = missionStatusMeta(t.status);
+  var src = { dispatch: 'Quick task (dashboard)', orchestration: 'Rencana orkestrasi', workflow: 'Jadwal workflow' }[t.source] || t.source || '—';
+  function kv(k, v) { return '<div class="kv"><span>' + esc(k) + '</span><span>' + v + '</span></div>'; }
+  /* A long value is NOT a table cell: it gets a left-aligned, scrollable body
+     so it stays readable instead of turning into a right-aligned wall. */
+  function block(k, v) { return '<div class="repBlock"><div class="k">' + esc(k) + '</div><div class="v">' + v + '</div></div>'; }
+  var info = '';
+  info += kv('Judul', esc(t.title));
+  info += kv('Task ID', '<span class="msId">' + esc(t.task_id) + '</span>');
+  if (t.description) info += block('Deskripsi', esc(trunc(t.description, 600)));
+  info += kv('Sumber', esc(src));
+  info += kv('Agent pemilik', esc(missionAgentName(t.owner_agent)));
+  info += kv('Agent mengerjakan', esc(missionAgentName(t.current_assignee)));
+  info += kv('Status', '<span class="badge ' + esc(st.tone) + '">' + esc(st.label) + '</span>');
+  info += kv('Dibuat', esc(missionWhen(t.created_at)));
+  info += kv('Mulai', esc(missionWhen(t.started_at)));
+  info += kv('Diperbarui', esc(missionWhen(t.updated_at)));
+  if (t.completed_at) info += kv('Selesai', esc(missionWhen(t.completed_at)));
+  if (typeof t.duration_ms === 'number') info += kv('Durasi', esc(Math.round(t.duration_ms / 1000) + ' detik'));
+  if (t.priority != null) info += kv('Prioritas', esc(String(t.priority)));
+  if (t.error) info += block('Error', '<span style="color:var(--bad)">' + esc(trunc(t.error, 400)) + '</span>');
+
+  var stages = '';
+  if (t.stages && t.stages.length) {
+    stages = '<h2 class="secH">Tahapan</h2><ul class="msStages">' + t.stages.map(function (s) {
+      var sm = missionStatusMeta(s.status);
+      return '<li><span class="mk">' + esc(sm.label) + '</span><span class="sl">' + esc(s.label) + '</span>' +
+        (s.agent_id ? '<span class="sa">' + esc(missionAgentName(s.agent_id)) + '</span>' : '') + '</li>';
+    }).join('') + '</ul>';
+  }
+
+  var timeline = '';
+  if (t.events && t.events.length) {
+    timeline = '<h2 class="secH">Riwayat eksekusi</h2><ul class="msTimeline">' + t.events.slice().reverse().map(function (e) {
+      return '<li><span class="t">' + esc(missionWhen(e.ts)) + '</span><span class="d"><b>' + esc(missionAgentName(e.actor)) +
+        '</b> · ' + esc(e.activity) + (e.detail ? '<br>' + esc(trunc(e.detail, 300)) : '') + '</span></li>';
+    }).join('') + '</ul>';
+  }
+
+  var handoff = '';
+  if (t.handoffs && t.handoffs.length) {
+    handoff = '<h2 class="secH">Delegasi</h2><ul class="msTimeline">' + t.handoffs.map(function (h) {
+      return '<li><span class="t">' + esc(missionWhen(h.at)) + '</span><span class="d">' + esc(missionAgentName(h.from)) +
+        ' → ' + esc(h.to ? missionAgentName(h.to) : 'agen lain') +
+        (h.reason ? '<br>' + esc(trunc(h.reason, 240)) : '') + '</span></li>';
+    }).join('') + '</ul>';
+  }
+
+  var results = '';
+  if (t.results && t.results.length) {
+    results = '<h2 class="secH">Hasil</h2>' + t.results.map(function (r) {
+      return '<div class="repBlock"><div class="k">' + esc(r.kind) + '</div><div class="v">' + esc(trunc(r.text, 1200)) + '</div></div>';
+    }).join('');
+  }
+
+  var arts = '';
+  if (t.artifacts && t.artifacts.length) {
+    arts = '<h2 class="secH">Berkas hasil</h2>' + t.artifacts.map(function (a) {
+      var p = typeof a === 'string' ? a : (a.path || a.text || '');
+      var open = (a && a.open_url) ? ' <a href="' + esc(a.open_url) + '" target="_blank" rel="noopener">buka</a>' : '';
+      return '<div class="repBlock"><div class="k">Berkas</div><div class="v">' + esc(shortPath(p)) + open + '</div></div>';
+    }).join('');
+  }
+
+  var acts = (t.actions || []).map(function (a) {
+    return '<button class="btn' + (a.kind === 'cancel' ? ' warn' : ' primary') + '" data-mission-action="' + esc(a.id) +
+      '" data-mission-task="' + esc(t.task_id) + '"' + (MISSION.pending ? ' disabled' : '') + '>' + esc(a.label) + '</button>';
+  }).join('');
+  var confirmBox = '';
+  if (MISSION.confirm && MISSION.confirm.task_id === t.task_id) {
+    confirmBox = '<div class="msConfirm"><b>' + esc(MISSION.confirm.label) + '?</b> ' + esc(MISSION.confirm.confirm || '') +
+      '<div class="modalRow"><button class="btn" data-mission-cancel="1">Batal</button>' +
+      '<button class="btn primary" data-mission-run="' + esc(MISSION.confirm.action) + '" data-mission-task="' + esc(t.task_id) +
+      '"' + (MISSION.pending ? ' disabled' : '') + '>Ya, jalankan</button></div></div>';
+  }
+  var note = MISSION.note ? '<div class="msNote" role="status">' + esc(MISSION.note) + '</div>' : '';
+
+  return '<div class="msHead"><h2 id="msTitle">' + esc(trunc(t.title, 120)) + '</h2>' +
+    '<button class="btn ico" data-mission-close="1" aria-label="Tutup detail" title="Tutup">' + ico('i-close') + '</button></div>' +
+    note + (acts ? '<div class="msActs">' + acts + '</div>' : '') + confirmBox +
+    '<div class="msDetailGrid"><div>' + info + '</div><div>' +
+      '<h2 class="secH">Progres</h2><div class="note">' + esc(missionProgress(t)) + '</div>' + stages + handoff +
+    '</div></div>' + timeline + results + arts;
+}
+/* Run one action and report what the BACKEND said — the task only changes
+   status when the backend confirms it. */
+function missionRun(action, taskId) {
+  if (MISSION.pending) return;
+  var task = missionTask(taskId);
+  if (!task) return;
+  MISSION.pending = true;
+  MISSION.note = '';
+  renderMissionDetail();
+  fetch(api('/api/mission'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ action: action, task_id: taskId, source: task.source })
+  }).then(function (r) {
+    return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+  }).then(function (res) {
+    if (res.ok) {
+      MISSION.note = (res.d && res.d.message) || 'Backend mengonfirmasi tindakan.';
+      MISSION.confirm = null;
+    } else {
+      MISSION.note = 'Backend menolak: ' + ((res.d && res.d.error) || 'permintaan gagal');
+    }
+  }).catch(function (e) {
+    MISSION.note = 'Gagal menghubungi backend: ' + e.message;
+  }).finally(function () {
+    MISSION.pending = false;
+    loadMission();
+  });
+}
 
 function vBoard() {
   if (!STATE) return '<div class="empty">Memuat…</div>';
@@ -1787,6 +2275,19 @@ function vSettings() {
 }
 
 
+/* Repainting identical HTML still rewrites every node: the entrance animations
+   replay and the scroll position resets — at a poll interval that reads as
+   flicker. Only touch the DOM when the content actually changed. */
+function paint(el, html) {
+  if (!el) return false;
+  if (el.__miaHtml === html) return false;
+  var top = el.scrollTop;
+  el.innerHTML = html;
+  el.scrollTop = top;
+  el.__miaHtml = html;
+  return true;
+}
+
 function typingIn(el) {
   var a = document.activeElement;
   return !!(a && el && el.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
@@ -1838,7 +2339,7 @@ function liveTaskCounts(tasks, now) {
 function renderOvlStatus() {
   var el = $('#ovlStatus');
   if (!el) return;
-  if (!STATE) { el.innerHTML = '<span class="pill">Memuat…</span>'; return; }
+  if (!STATE) { paint(el, '<span class="pill">Memuat…</span>'); return; }
   var ag = STATE.agents || [];
   var working = ag.filter(function (a) { return a.status === 'working'; }).length;
   var queued = (STATE.queue || []).filter(function (q) { return q.status === 'queued'; }).length;
@@ -1873,7 +2374,7 @@ function renderOvlStatus() {
       out.push('<span class="pill" title="Pengingat berikutnya"><i class="warn"></i>Reminder ' + esc(trunc(rnext.text || rnext.agent_name || 'pengingat', 18)) + ' \u00b7 ' + esc(hhmmss(new Date(rnext.at_iso).toISOString())) + '</span>');
     }
   }
-  el.innerHTML = out.join('');
+  paint(el, out.join(''));
 }
 
 function render() {
@@ -1893,15 +2394,19 @@ function render() {
     renderHud();
   } else {
     var m = { agents: vAgents, usage: vUsage, board: vBoard, calendar: vCalendarView,
-              activity: vActivity, logs: vLogs, findings: vFindings, memory: vMemory, files: vFiles, settings: vSettings };
+              activity: vActivity, logs: vLogs, findings: vFindings, mission: vMission, memory: vMemory, files: vFiles, settings: vSettings };
     var fn = m[currentView];
     var el = document.getElementById('view-' + currentView);
     /* Never repaint under the caret: the 3 s poll would otherwise yank a
        half-typed filter (or a scroll position) out from under the user. */
     if (fn && el && !typingIn(el)) {
-      el.innerHTML = fn();
-      if (currentView === 'logs') wireLogFilter(el);
+      if (paint(el, fn())) {
+        if (currentView === 'logs') wireLogFilter(el);
+        if (currentView === 'mission') wireMission(el);
+      }
     }
+    /* The clock is not content: it moves even while the owner types. */
+    if (currentView === 'mission') missionStamp(el);
   }
   syncOffice();
 }
@@ -4557,6 +5062,27 @@ function busPill() {
 /* Reconnect is left to EventSource itself: it retries on its own and will
    replay from our cursor, so a restart of Mia loses nothing after the last
    frame we saw. We only track connectivity so the UI can be honest about it. */
+/* Bus-driven refresh: the dashboard already receives Mia's event stream, so a
+   real change repaints within half a second instead of waiting for the next
+   poll tick. Debounced — one busy agent can emit many frames per second. */
+var refreshTimer = null;
+var refreshFirst = 0;
+function scheduleRefresh() {
+  /* Debounce, but not forever: a busy agent emits frames faster than the
+     debounce window, and a pure trailing debounce postpones the refresh
+     exactly when the bus is busiest. */
+  var now = Date.now();
+  if (!refreshTimer) refreshFirst = now;
+  if (refreshTimer) clearTimeout(refreshTimer);
+  var wait = Math.max(0, Math.min(500, 2000 - (now - refreshFirst)));
+  refreshTimer = setTimeout(function () {
+    refreshTimer = null;
+    refreshFirst = 0;
+    poll(true);
+    if (currentView === 'mission') loadMission();
+  }, wait);
+}
+
 function connectBus() {
   if (BUS.es || typeof EventSource === 'undefined') return;
   var url = '/api/bus/stream' + (BUS.cursor ? '?since=' + BUS.cursor : '');
@@ -4580,6 +5106,7 @@ function connectBus() {
     try { ev = JSON.parse(msg.data); } catch (e) { return; }
     BUS.frames++;
     applyBusEvent(ev);
+    scheduleRefresh();
   };
   /* Proof of life. Without this the client has no way to tell a working
      stream from a socket that died silently. */
@@ -5289,7 +5816,7 @@ function syncOffice() {
        the bus just told us. */
     if (av) av.apiStatus = a.status;
     var tag = office.tags[a.id];
-    if (tag) tag.innerHTML = tagText(a.id, a.name, a.status, a.active_task, av && av.provenance);
+    if (tag) paint(tag, tagText(a.id, a.name, a.status, a.active_task, av && av.provenance));
   });
   projectTags();
   /* Who is in the room. Written from the same poll as the nameplates so the
@@ -5457,7 +5984,7 @@ function submitTask() {
     return r.json().then(function (b) { return { ok: r.ok, b: b }; });
   }).then(function (res) {
     if (!res.ok) { err.textContent = (res.b && res.b.message) || res.b.error || 'Gagal mengantrekan.'; return; }
-    closeModal(); poll();
+    closeModal(); poll(true);
   }).catch(function (e) { err.textContent = e.message; });
 }
 var lastFocus = null;
@@ -5531,6 +6058,7 @@ function show(v) {
   /* Each view owns its own source and pulls it lazily — a slow source never
      stalls /api/state, and an unavailable one renders as Not available. */
   if (v === 'usage') loadUsage();
+  if (v === 'mission') loadMission();
   if (v === 'memory') loadMemory();
   if (v === 'files' && !FILES.data) openDir('');
   if (hashView() !== v) history.pushState(null, '', '#' + v);
@@ -5562,6 +6090,24 @@ document.addEventListener('click', function (e) {
     return;
   }
   if ((t = hit('[data-usage]'))) { USAGE.period = t.getAttribute('data-usage'); USAGE.data = null; loadUsage(true); return; }
+  if ((t = hit('[data-mission-action]'))) {
+    var mAction = t.getAttribute('data-mission-action');
+    var mTask = t.getAttribute('data-mission-task');
+    var mDef = (missionTask(mTask) || {}).actions || [];
+    var mMeta = null;
+    for (var mi = 0; mi < mDef.length; mi++) if (mDef[mi].id === mAction) mMeta = mDef[mi];
+    if (!mMeta) return;
+    MISSION.note = '';
+    missionOpen(mTask);
+    MISSION.confirm = { action: mAction, task_id: mTask, label: mMeta.label, confirm: mMeta.confirm };
+    renderMissionDetail();
+    return;
+  }
+  if ((t = hit('[data-mission-run]'))) { missionRun(t.getAttribute('data-mission-run'), t.getAttribute('data-mission-task')); return; }
+  if ((t = hit('[data-mission-cancel]'))) { MISSION.confirm = null; renderMissionDetail(); return; }
+  if ((t = hit('[data-mission-open]'))) { missionOpen(t.getAttribute('data-mission-open')); return; }
+  if ((t = hit('[data-mission-close]'))) { missionClose(); return; }
+  if ((t = hit('[data-mission-refresh]'))) { loadMission(); return; }
 });
 function parentPath(p) { return String(p || '').replace(/\/+$/, '').split('/').slice(0, -1).join('/'); }
 
@@ -5637,7 +6183,9 @@ $('#refreshBtn').addEventListener('click', function () {
   var rb = this;
   rb.setAttribute('aria-busy', 'true');
   var done = function () { rb.removeAttribute('aria-busy'); };
-  Promise.resolve(poll()).then(done, done);
+  /* Fresh: the TTL cache would answer with the state we already have, so the
+     button would spin without showing anything new. */
+  Promise.resolve(poll(true)).then(done, done);
   if (currentView === 'usage') loadUsage(true);
   if (currentView === 'memory') loadMemory(null, true);
   if (currentView === 'files') openDir(FILES.path);
@@ -5650,8 +6198,8 @@ $('#dispatchBtn').addEventListener('click', function () {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ paused: next })
   }).then(function (r) { return r.json(); })
-    .then(function (b) { if (b.error) console.warn('dispatch', b); poll(); })
-    .catch(function () { poll(); });
+    .then(function (b) { if (b.error) console.warn('dispatch', b); poll(true); })
+    .catch(function () { poll(true); });
 });
 
 /* ── boot ─────────────────────────── */
@@ -5661,7 +6209,14 @@ setHud(lsGet(HUD_KEY, window.innerWidth > 1180 ? '1' : '0') === '1' && window.in
 try { init3D(); } catch (e) { fail3D('Three.js gagal berjalan: ' + e.message); }
 show(hashView() || 'office');
 poll();
-setInterval(poll, 3000);
+/* 10 s is the safety net, not the primary refresh: the bus pushes real
+   changes within half a second (scheduleRefresh). */
+setInterval(poll, 10000);
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) return;
+  poll(true);
+  if (currentView === 'mission') loadMission();
+});
 // Tag positions are now projected inside the render loop (see loop()), so this
 // timer is gone: re-projecting on a 100 ms tick only made the labels stutter
 // behind the camera.

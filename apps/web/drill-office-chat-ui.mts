@@ -890,6 +890,363 @@ async function main(): Promise<void> {
   await page.waitForTimeout(300);
   await page.screenshot({ path: "/tmp/office-chat-desktop.png", fullPage: false });
 
+  // 12. Mission Control — the counters must match the REAL backend, the
+  // filters must really filter, and an action may only appear when the
+  // backend can perform it.
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>('button[data-view="mission"]');
+    if (b) b.click();
+  });
+  await page.waitForTimeout(2500);
+  const missionView = await page.evaluate(() => {
+    const el = document.getElementById("view-mission");
+    return {
+      shown: !!el && !el.classList.contains("hide"),
+      rows: document.querySelectorAll("#view-mission .msRow").length,
+      agents: Array.from(document.querySelectorAll("#view-mission .msAgent .n")).map((s) => (s.textContent || "").trim()),
+      filters: document.querySelectorAll("#view-mission select").length,
+      stats: Array.from(document.querySelectorAll("#view-mission .stat")).map((s) => {
+        const k = s.querySelector(".k");
+        const v = s.querySelector(".v");
+        return { k: (k && k.textContent || "").trim(), v: (v && v.textContent || "").trim() };
+      }),
+      canvas: document.querySelectorAll("canvas").length,
+    };
+  });
+  check("Mission Control opens from the nav", missionView.shown);
+  check("Mission Control lists the three agents", missionView.agents.length === 3, missionView.agents.join(","));
+  check("Mission Control has a search plus three filters", missionView.filters === 4, `filters=${missionView.filters}`);
+  check("the 3D scene survives the Mission Control view", missionView.canvas > 0, `canvas=${missionView.canvas}`);
+
+  const missionApi = await page.evaluate(async () => {
+    const token = localStorage.getItem("mia_token") || "";
+    const r = await fetch("/api/mission?token=" + encodeURIComponent(token) + "&period=all&sort=smart", {
+      headers: { accept: "application/json" },
+    });
+    return await r.json();
+  });
+  const apiTotal = Number((missionApi.counters || {}).total || 0);
+  check("the task list holds exactly the tasks the backend reports", missionView.rows === apiTotal, `rows=${missionView.rows} api=${apiTotal}`);
+  const totalStat = missionView.stats.find((s) => s.k === "Total Task");
+  check("the Total Task counter shows the backend number", !!totalStat && totalStat.v === String(apiTotal), JSON.stringify(totalStat));
+
+  // search must really filter — a query that cannot match empties the list
+  await page.fill("#missionSearch", "zzz-tidak-ada-task");
+  await page.waitForTimeout(1400);
+  const afterSearch = await page.evaluate(() => document.querySelectorAll("#view-mission .msRow").length);
+  check("search filters the list down", afterSearch === 0, `rows=${afterSearch}`);
+  await page.fill("#missionSearch", "");
+  await page.waitForTimeout(1400);
+  const afterClear = await page.evaluate(() => document.querySelectorAll("#view-mission .msRow").length);
+  check("clearing the search restores the list", afterClear === apiTotal, `rows=${afterClear} api=${apiTotal}`);
+
+  // status filter
+  const statusFilter = await page.evaluate(async () => {
+    const s = document.querySelector<HTMLSelectElement>("#missionStatus");
+    if (!s) return null;
+    s.value = "failed";
+    s.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1400));
+    const badges = Array.from(document.querySelectorAll("#view-mission .msRow .badge")).map((b) => (b.textContent || "").trim());
+    return { rows: document.querySelectorAll("#view-mission .msRow").length, badges: Array.from(new Set(badges)) };
+  });
+  check(
+    "the status filter shows only that status",
+    !!statusFilter && statusFilter.rows > 0 && statusFilter.badges.length === 1 && statusFilter.badges[0] === "Gagal",
+    JSON.stringify(statusFilter),
+  );
+
+  // sorting must reorder the list
+  const sortIds = await page.evaluate(async () => {
+    const s = document.querySelector<HTMLSelectElement>("#missionSort");
+    if (!s) return { smart: "", oldest: "" };
+    s.value = "smart";
+    s.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1400));
+    const e1 = document.querySelector("#view-mission .msRow .msId");
+    const smart = e1 ? (e1.textContent || "").trim() : "";
+    s.value = "oldest";
+    s.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1400));
+    const e2 = document.querySelector("#view-mission .msRow .msId");
+    const oldest = e2 ? (e2.textContent || "").trim() : "";
+    return { smart, oldest };
+  });
+  check("the sort control reorders the list", sortIds.smart !== "" && sortIds.oldest !== "" && sortIds.smart !== sortIds.oldest, JSON.stringify(sortIds));
+  await page.evaluate(async () => {
+    const s = document.querySelector<HTMLSelectElement>("#missionStatus");
+    if (!s) return;
+    s.value = "";
+    s.dispatchEvent(new Event("change", { bubbles: true }));
+    const t = document.querySelector<HTMLSelectElement>("#missionSort");
+    if (!t) return;
+    t.value = "smart";
+    t.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1200));
+  });
+
+  // the detail overlay
+  await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>("#view-mission [data-mission-open]");
+    if (b) b.click();
+  });
+  await page.waitForTimeout(700);
+  const detail = await page.evaluate(() => {
+    const bg = document.getElementById("missionBg");
+    return {
+      open: !!bg && bg.classList.contains("on"),
+      id: (() => { const e = bg ? bg.querySelector(".msId") : null; return e ? (e.textContent || "").trim() : ""; })(),
+      hasStatus: !!(bg && bg.querySelector(".badge")),
+      shownActions: bg ? bg.querySelectorAll("[data-mission-action]").length : 0,
+    };
+  });
+  check("the task detail opens with the real task id", detail.open && detail.id.length > 3, detail.id);
+  check("the task detail shows a status", detail.hasStatus);
+
+  // an action may only be shown when the backend offers it for THAT task
+  const actionParity = await page.evaluate(async () => {
+    const token = localStorage.getItem("mia_token") || "";
+    const bg = document.getElementById("missionBg");
+    const idEl = bg ? bg.querySelector(".msId") : null;
+    const id = idEl ? (idEl.textContent || "").trim() : "";
+    const r = await fetch("/api/mission?token=" + encodeURIComponent(token), { headers: { accept: "application/json" } });
+    const d = (await r.json()) as { tasks?: Array<{ task_id: string; actions?: unknown[] }> };
+    const t = (d.tasks || []).find((x) => x.task_id === id);
+    return { shown: bg ? bg.querySelectorAll("[data-mission-action]").length : 0, expected: t ? (t.actions || []).length : -1 };
+  });
+  check(
+    "every action shown is an action the backend offers",
+    actionParity.expected >= 0 && actionParity.shown === actionParity.expected,
+    JSON.stringify(actionParity),
+  );
+  await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>("[data-mission-close]");
+    if (b) b.click();
+  });
+  await page.waitForTimeout(500);
+  check(
+    "the task detail closes",
+    await page.evaluate(() => {
+      const bg = document.getElementById("missionBg");
+      return !!bg && !bg.classList.contains("on");
+    }),
+  );
+
+  // 13. A bus event must repaint the view WITHOUT waiting for the periodic
+  // poll. Proof: the "diperbarui" clock only moves when the mission data is
+  // re-fetched, and the periodic poll can only fire 10 s after the previous
+  // one — so a move inside 5 s of a chat turn, taken while the previous poll
+  // is at most 4 s old (the next one is then ≥6 s away), can only come from
+  // the bus path.
+  const lastPollAge = async (): Promise<number> =>
+    page.evaluate(() => {
+      const t = (document.getElementById("lastPill")?.textContent || "").trim();
+      const m = /^(\d{2})[.:](\d{2})[.:](\d{2})$/.exec(t);
+      if (!m) return -1;
+      const now = new Date();
+      const last = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Number(m[1]), Number(m[2]), Number(m[3]));
+      return Math.round((now.getTime() - last.getTime()) / 1000);
+    });
+  const busPillText = await page.evaluate(() => (document.getElementById("busPill")?.textContent || "").trim());
+  const busSeenBefore = Number(/BUS LIVE (\d+)/.exec(busPillText)?.[1] ?? -1);
+  let age = await lastPollAge();
+  // The periodic poll fires 10 s after the previous one, so it is only safe to
+  // watch a 5 s window when the last poll is fresh (age <= 4 → the next one is
+  // at least 6 s away).
+  for (let i = 0; i < 30 && age >= 0 && age > 4; i++) {
+    await page.waitForTimeout(400);
+    age = await lastPollAge();
+  }
+  if (age < 0) {
+    console.log("  · SKIP bus-refresh assertion: the last-poll clock is unreadable");
+  } else if (age > 4) {
+    console.log(`  · SKIP bus-refresh assertion: the last poll was ${age}s ago — the next one is too close`);
+  } else if (!busPillText.startsWith("BUS LIVE")) {
+    // No live bus = no event can arrive = the question cannot be answered.
+    console.log(`  · SKIP bus-refresh assertion: the bus is not live (${busPillText})`);
+  } else {
+    const clockBefore = await page.evaluate(() => {
+      const el = document.getElementById("missionUpdated");
+      return el ? (el.textContent || "").trim() : "";
+    });
+    await openPanel(page);
+    // The marker keeps the drill turn out of the owner's own transcript and
+    // daily memory (cleanupDrillNote removes blocks carrying it).
+    const busMarker = `drill-${Date.now()}`;
+    // The turn is posted straight to the office endpoint: the bus events come
+    // from the server, so the composer is not part of what is under test here
+    // (and the composer refuses a message while a history load is pending).
+    await page.evaluate((m) => {
+      const tok = localStorage.getItem("mia_token") || "";
+      fetch("/api/office/chat?agent=mia&token=" + encodeURIComponent(tok), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agent: "mia", messages: [{ role: "user", content: "bus refresh probe [" + m + "]" }] }),
+      }).catch(() => undefined);
+    }, busMarker);
+    // Watch BOTH signals and measure WHEN the clock moved. The window must
+    // stay below the distance to the next periodic poll (10 s after the
+    // previous one), otherwise the periodic poll could be the cause and the
+    // assertion would prove nothing.
+    const t0 = Date.now();
+    let busSeen = busSeenBefore;
+    let clockMovedAt = -1;
+    for (let i = 0; i < 40; i += 1) {
+      await page.waitForTimeout(250);
+      const s = await page.evaluate(() => ({
+        bus: (document.getElementById("busPill")?.textContent || "").trim(),
+        clock: (document.getElementById("missionUpdated")?.textContent || "").trim(),
+      }));
+      const m = /BUS LIVE (\d+)/.exec(s.bus);
+      if (m && Number(m[1]) > busSeen) busSeen = Number(m[1]);
+      if (clockMovedAt < 0 && s.clock !== clockBefore) clockMovedAt = Date.now() - t0;
+      if (busSeen > busSeenBefore && clockMovedAt >= 0) break;
+    }
+    const framed = busSeen > busSeenBefore;
+    // The periodic poll can fire at the earliest 10 s after the previous poll;
+    // the last one was `age` seconds ago, so it cannot fire before 10 - age.
+    const movedIn = clockMovedAt >= 0 && clockMovedAt < 5000;
+    if (!framed) {
+      console.log("  · SKIP bus-refresh assertion: no bus frame arrived");
+    } else {
+      check(
+        "a bus event repaints the Mission Control without waiting for the poll",
+        movedIn,
+        `last poll ${age}s ago (next in >=${10 - age}s), clock moved after ${clockMovedAt}ms, bus="${busPillText}"`,
+      );
+      // Let the turn finish so the drill does not close the browser mid-answer.
+      await waitForSessionTurn(busMarker);
+    }
+  }
+
+  // 14. The periodic poll must NOT rewrite the DOM when nothing changed —
+  // that rewrite is the flicker the owner complained about.
+  //
+  // The painted markup is the ground truth: if it is identical before and
+  // after the poll, the view had no reason to be rewritten, so the very same
+  // row node must still be alive. The "diperbarui" clock is excluded — it
+  // changes on every fetch by design and lives outside the painted markup.
+  const htmlOf = () =>
+    page.evaluate(() => {
+      const el = document.getElementById("view-mission");
+      if (!el) return "";
+      return el.innerHTML.replace(/(<span class="note" id="missionUpdated">)[^<]*(<\/span>)/, "$1$2");
+    });
+  const tagged = await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll<HTMLElement>("#view-mission .msRow"));
+    if (!rows.length) return { ok: false };
+    rows[0].dataset.probe = "keep";
+    return { ok: true };
+  });
+  const htmlBefore = await htmlOf();
+  await page.waitForTimeout(11000);
+  const htmlAfter = await htmlOf();
+  const rowKept = await page.evaluate(() => !!document.querySelector('#view-mission .msRow[data-probe="keep"]'));
+  if (!tagged.ok) {
+    check("the task row survives the periodic poll untouched", false, "no row to tag");
+  } else if (htmlBefore !== htmlAfter) {
+    // The data really changed, so a repaint was correct — the assertion cannot
+    // be answered in this run.
+    console.log("  · SKIP no-repaint assertion: the mission data changed while waiting");
+  } else {
+    check("the task row survives the periodic poll untouched", rowKept);
+  }
+
+  // 15. the ledger trees are NOT public: they hold the owner's own prompts
+  // and replies, and the dashboard's static file handler used to serve them
+  // to anyone with the URL.
+  const ledgerPublic = await page.evaluate(async () => {
+    const r = await fetch("/data/queue.jsonl");
+    return r.status;
+  });
+  check("the queue ledger is not readable without the token", ledgerPublic === 403, `status=${ledgerPublic}`);
+
+  // 16. the log filter must keep filtering after the first keystroke (the
+  // input is re-created by the paint, so it has to be wired again).
+  await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>('button[data-view="logs"]');
+    if (b) b.click();
+  });
+  await page.waitForTimeout(1200);
+  const logsBefore = await page.evaluate(() => document.querySelectorAll("#view-logs .logline").length);
+  await page.fill("#view-logs #logFilter", "zzz-tidak-ada-log");
+  await page.waitForTimeout(700);
+  const logsFiltered = await page.evaluate(() => document.querySelectorAll("#view-logs .logline").length);
+  await page.fill("#view-logs #logFilter", "");
+  await page.waitForTimeout(700);
+  const logsCleared = await page.evaluate(() => document.querySelectorAll("#view-logs .logline").length);
+  if (!logsBefore) {
+    console.log("  · SKIP log-filter assertion: there are no log rows to filter");
+  } else {
+    check(
+      "the log filter keeps filtering after a keystroke",
+      logsFiltered === 0 && logsCleared === logsBefore,
+      `before=${logsBefore} filtered=${logsFiltered} cleared=${logsCleared}`,
+    );
+  }
+
+  // 17. an open task detail must survive a background refresh (it is not
+  // rebuilt when nothing changed, so the owner keeps reading it).
+  await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>('button[data-view="mission"]');
+    if (b) b.click();
+  });
+  await page.waitForTimeout(1500);
+  await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>("#view-mission [data-mission-open]");
+    if (b) b.click();
+  });
+  await page.waitForTimeout(700);
+  const modalMarked = await page.evaluate(() => {
+    const m = document.querySelector<HTMLElement>("#missionBg .modal");
+    if (!m) return false;
+    m.dataset.probe = "keep";
+    return true;
+  });
+  // Change the status filter: the list behind the open detail repaints, so the
+  // detail must survive a REAL repaint (a quiet window would prove nothing —
+  // the view is not repainted when nothing changed).
+  await page.evaluate(() => {
+    const s = document.querySelector<HTMLSelectElement>("#missionStatus");
+    if (!s || s.options.length < 2) return;
+    s.value = s.options[1].value;
+    s.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(2000);
+  const modalKept = await page.evaluate(() => !!document.querySelector('#missionBg .modal[data-probe="keep"]'));
+  const stillOpen = await page.evaluate(() => {
+    const bg = document.getElementById("missionBg");
+    return !!bg && bg.classList.contains("on");
+  });
+  check(
+    "an open task detail survives a repaint of the list",
+    modalMarked && modalKept && stillOpen,
+    `marked=${modalMarked} kept=${modalKept} open=${stillOpen}`,
+  );
+
+  // 19. a narrow view fits: the activity table used to need 600 px in a
+  // 560 px view and was cut at the right edge.
+  await page.setViewportSize({ width: 560, height: 844 });
+  await page.evaluate(() => {
+    const b = document.querySelector<HTMLElement>('nav button[data-view="activity"]');
+    if (b) b.click();
+  });
+  await page.waitForTimeout(1200);
+  const narrowTable = await page.evaluate(() => {
+    const t = document.querySelector<HTMLElement>("#view-activity table");
+    if (!t) return { ok: false, right: -1, vw: window.innerWidth };
+    const r = t.getBoundingClientRect();
+    return { ok: true, right: Math.round(r.right), vw: window.innerWidth };
+  });
+  check(
+    "the activity table fits a narrow view",
+    narrowTable.ok && narrowTable.right <= narrowTable.vw + 1,
+    `right=${narrowTable.right} vw=${narrowTable.vw}`,
+  );
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(500);
+
   check("no uncaught page errors", errors.length === 0, errors.slice(0, 2).join(" | "));
 
   await browser.close();

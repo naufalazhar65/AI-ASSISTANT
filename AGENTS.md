@@ -2924,3 +2924,168 @@ Audit plan-vs-implementasi (D1-D7) dengan baca diff + ukur di browser, bukan bac
 **Bukti:** tinggi header **sebelum = sesudah** (56/56/56/53 px di 1440/1280/1024/560, tanpa wrap: scrollW == clientW) → requirement "header height must not grow" terbukti terukur · drill +2 assertion (semua selected punya surface + hairline; counter menyebut periodenya) → **58 ok / 0 FAIL** · 9 screenshot after di /tmp/polish-audit.
 
 **Gates (audit):** typecheck 0 · lint 0 error · `npm test` 142 file / 2721 tes · `node --test apps/office-dashboard/*.test.mjs` 73/73 · `verify.ts` EXIT=0 · `drill-office-chat-ui.mts` 58 ok / 0 FAIL · inline script index.html `node --check` OK.
+
+## Sesi 2026-11-11 — AI Office Mission Control / Task Center: satu task satu identitas
+
+Owner brief: bangun **Mission Control** sebagai pusat semua pekerjaan Mia/Agnes/Michelle — terhubung backend (bukan dashboard statis), pakai arsitektur existing (server.js Node built-ins, JSON/JSONL, polling), tanpa mock task/progress, tanpa tombol palsu. Owner 3 keputusan arsitektur: (1) **satu task satu identitas** (jangan task baru tiap update/handoff), (2) **pisahkan task vs execution** (retry = execution baru, riwayat lama kept), (3) **progress jujur** (tahap yang benar-benar dilaporkan, bukan estimasi).
+
+**Audit dulu (4 subagent paralel, read-only):** ada TIGA mesin kerja, bukan satu — `apps/web/src/lib/orchestration*` + `recovery/` (plan→tugas→tahap→ kriteria, bus task_assigned/task_done, cancel plan via HTTP), `apps/web/src/lib/workflow/` (jadwal + execution_id sendiri, approval bentrok nyata), dan dashboard `data/tasks.jsonl` (quick task, satu-satunya "task" milik owner). `lib/tasks.ts` = to-do pribadi (3 status), BUKAN task engine — tidak dipakai. Bus `task_id` = counter per giliran (TIDAK joinable ke id task mana pun).
+
+**Keputusan sumber data:** 1 task dari 3 sumber — dispatch (ledger `source:'dashboard'` = kerja yang owner minta), orkestrasi (`orch:<planId>:<taskId>`), workflow (`wf:<workflow_id>`). **Baris `audit-mirror` = giliran percakapan, BUKAN task** → tidak masuk Mission Control (aturan owner: "Conversation ID tidak boleh otomatis dianggap sebagai Task ID"). 901 baris audit-mirror (yang bikin "Berjalan 725" di board) sengaja dikecualikan.
+
+**Baru:** `apps/office-dashboard/mission.cjs` (SATU pemilik aturan: map status, mapping tool→status, `dispatchTasks`/`orchestrationTasks`/`workflowTasks`, `actionsFor`, `filterTasks`/`sortTasks`, `missionView`) + `mission.test.mjs` (12 tes). `server.js`: `GET/POST /api/mission` (+ `miaPost` untuk memanggil API Mia dengan Bearer server-side), queue item **di-stamp `task_id` saat antre** (bukan saat dispatch → "Antre" dan "Berjalan" satu task), baris ledger bawa `execution_id`/`attempt`/`prompt`, `artifactOpenUrl()` (hanya Artefak yang benar-benar di dalam FILE_ROOTS yang dapat link "buka"). `index.html`: view **Mission Control** (kelas baru `i-mission`), counter + agent roll-up + search/filter/sort + daftar task + overlay detail (`#missionBg`, DI LUAR view supaya poll 3 detik tidak menghapus detail yang sedang dibaca).
+
+**Bukti (bukan klaim):**
+- **Lifecycle dispatch nyata, end-to-end:** dispatch dijeda (fitur nyata) → queue item `task-q-mwbmsrx2-cqqxep` → Mission Control: status **Antre** + aksi **Batal** → cancel → status **Dibatalkan** → **Jalankan ulang** → execution baru **attempt 2** (task_id SAMA) → dispatch lanjut → **Selesai** (jawaban asli Mia) → task tampil **2 execution**: `::1 cancelled` + `::2 completed`, timeline 3 event. Double retry **ditolak** ("Aksi ini tidak tersedia untuk task ini") → tidak ada eksekusi ganda.
+- **Workflow nyata:** workflow dibuat lewat API Mia (`POST /api/workflows action=add`) → task `wf:wf-mwbmr0w5-q7yp` muncul → Mission Control "Jalankan sekarang" → `POST /api/mission` → `run_now` → **eksekusi asli selesai 3,2 dtk** ("ok") → jalankan lagi → **1 task id, 2 execution, riwayat kept** → workflow uji dihapus.
+- Drill +14 assertion (navigasi, counter = angka backend, search benar-benar menyaring, filter status, sort mengurutkan ulang, detail terbuka dengan task id asli, **setiap aksi yang tampil = aksi yangoffers backend**, 3D scene tetap hidup) → **72 ok / 0 FAIL**.
+- Screenshot before/after (probe durable +2 sudut: 06-office-mission, 07-office-mission-detail).
+
+**2 bug nyata yang tertangkap (bukan dari gate hijau):**
+1. **Task yang dibatalkan HILANG dari list** — baris queue berstatus 'cancelled' tanpa baris ledger di-drop (`if (q.status !== 'queued') return`) → status 'Dibatalkan' tak pernah tampil & tak bisa di-retry. → baris cancelled tetap jadi task (status Dibatalkan + execution cancelled) dan **prompt tetap disimpan** supaya retry mungkin.
+2. **Eksekusi terpecah** — baris 'done' multi-line tidak membawa `execution_id` (patch `title: null, status:` hanya kena 5 baris satu-baris) → event masuk grup 'exec-1' terpisah dan task tampil "running" padahal selesai. → baris itu ikut di-stamp + `buildTasks` mewarisi execution_id baris sebelumnya (event tanpa id → milik eksekusi yang sedang dibuka) → 1 execution dengan status completed.
+
+**Jujur:** counter/task berasal dari 3 sumber yang saat ini hanya **dispatch** yang terisi (62–64 task nyata); orkestrasi & workflow file store-nya masih kosong → view jujur kosong, bukan data palsu · **retry dispatch butuh prompt tersimpan** — 62 task lama tidak punya prompt (ledger lama) → tombol retry TIDAK muncul untuk mereka (kebohongan lebih buruk daripada tombol yang tidak ada) · **resume** hanya untuk workflow yang dijadwalkan (dispatch/orkestrasi tidak punya checkpoint yang bisa dilanjutkan → tidak ditawarkan) · **cancel task yang SEDANG jalan tidak ada** (request sudah terkirim ke Mia; hanya antrean yang bisa dibatalkan) · artefak ditampilkan sebagai path; link "buka" hanya dibuat server bila path benar-benar di dalam FILE_ROOTS.
+
+**Gates:** typecheck 0 · lint 0 error · `npm test` 142 file / 2721 tes · `node --test apps/office-dashboard/*.test.mjs` **85/85** · `verify.ts` EXIT=0 (248 OK) · `drill-office-chat-ui.mts` **72 ok / 0 FAIL** · inline script index.html `node --check` OK. 3D scene, kamera, karakter, agent, tool, API, persona, routing — tak tersentuh.
+
+**Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-11 — Audit ulang Mission Control: 6 bug nyata ditemukan (bukan dari review kode)
+
+Owner: "coba audit lagi yang teliti dibagian mission control dashboard office, sepertinya masih ada bugs, dan jangan komit dulu". Cara: **bukti dari data & API yang hidup**, bukan dari baca kode — semua temuan di bawah direproduksi lewat `/api/mission` + file ledger, lalu diperbaiki dan dibuktikan ulang. **Belum commit** (menunggu approval owner).
+
+**1 [TINGGI] Retry tak pernah muncul untuk 62 dari 63 task — termasuk 5 task GAGAL.** `actionsFor()` mensyaratkan `task.prompt`; `dispatchTasks` hanya ambil prompt dari LEDGER (`t.prompt`), dan ledger baru menyimpan prompt sejak perubahan sesi sebelumnya (`dispatchQueueItem` menulis `prompt`). Ukur: 62/63 task dispatch TIDAK punya prompt di ledger — **tapi 62/62 bisa dipulihkan dari `queue.jsonl`** (`q.prompt`, terpotong 300 char). Dampak: 5 task 'Gagal' (401 / Discord push gagal) menampilkan **nol tombol aksi** → owner tak bisa retry dari Mission Control. **Catatan sesi sebelumnya ("62 task lama tidak punya prompt → tombol retry TIDAK muncul, kebohongan lebih buruk daripada tombol yang tidak ada") SALAH** — prompt-nya ada di antrean, cuma tak dibaca. Fix: peta `queuePrompt` + `queueFirstTs` di `dispatchTasks` → prompt jatuh dari antrean, `created_at` = ts antrean TERLAMA (bukan ts retry). Bukti live: 5/5 task gagal kini punya aksi "retry"; retry nyata task `task-q-mvdejk4j-45n52v` (gagal 401 18 Okt) → **BERHASIL** (exec-1 failed + `::2` completed, hasil = jawaban Mia sungguhan).
+
+**2 [SEDANG] Task dibatalkan menampilkan jam MASUK antrean sebagai "Diperbarui".** Baris cancel append dengan `ts` lama (baris yang sama di-merge per `id`) → `updated_at` = waktu antre, bukan waktu batal (ukur: batal 04:58:07, tampil 04:57:57). Fix: baris cancel sekarang membawa `updated_at` baru; `buildQueue` meneruskannya; `mission.cjs` memakai `q.updated_at || q.ts` untuk updated_at/event/completed_at.
+
+**3 [SEDANG] Event "Menunggu eksekusi (percobaan ulang)" tanpa `execution_id`; `task.execution_id` null saat retry menunggu.** Timeline tak bisa mengaitkan event ke eksekusinya, dan pointer "eksekusi sekarang" kosong. Fix: event queued membawa `execution_id` + `attempt` yang konsisten dengan `executionId(taskId, attempt)`, dan `task.execution_id` menunjuk eksekusi itu.
+
+**4 [RINGAN] Kata yang owner LIHAT tidak bisa dicari.** Badge menulis "Gagal" tapi `filterTasks` hanya mencocokkan enum mentah (`failed`) → cari "Gagal" = 0 hasil (terbukti: `q=Gagal` → 2 task kebetulan lewat teks judul; `q=failed` → 5 task). Fix: label status ikut masuk haystack.
+
+**5 [RINGAN, pre-existing] Antrean dispatch LIFO.** `buildQueue` sort ts DESC + `dispatchLoop` ambil yang pertama → **task TERBARU jalan duluan**. Terbukti: A (antre lebih dulu) start 05:00:33, B (antre belakangan) start 05:00:30. Fix: `dispatchLoop` picking item terlama yang waiting (FIFO) tanpa mengubah urutan board.
+
+**6 [RINGAN] Task "Berhenti" (stale) tanpa aksi apa pun.** Dispatch yang tak pernah close = mati, tapi tak bisa di-run ulang. Fix: `stale` ikut syarat retry (prompt tetap jadi syarat).
+
+**Bug ke-7 ketemu saat memverifikasi fix #1 (bukan dari review):** "Durasi" pada task yang di-retry = **rentang antar percobaan** (24 HARI untuk task 18 Okt yang di-retry hari ini) → urutan "Durasi terlama" jadi tidak bermakna. Fix: `taskDuration()` = durasi **eksekusi terakhir** (fallback ke span). Terbukti live: task yang sama kini 3,5 detik, bukan 2.071.082 detik.
+
+**Bukti (bukan "hijau = bukti"):** 6 tes baru di `mission.test.mjs` (18 total) + **3 mutasi nyata** yang membalik fix satu per satu → tes yang tepat GAGAL (prompt-fallback, label-search, duration) lalu dipulihkan. Live: `/api/mission` → 5/5 task gagal punya aksi retry; retry nyata berhasil; `q=Gagal` → 5 task gagal; durasi = 3,5 detik. Data ledger owner dikembalikan ke kondisi sebelum audit (backup/restore `tasks.jsonl`+`queue.jsonl`, 0 baris audit tersisa).
+
+**Dicek dan TERBUKTI BENAR (tidak diubah):** pemetaan status mencakup SELURUH union nyata (`TaskState` 11 nilai, `ExecutionStatus` 10 nilai); kunci session `ps_<planId>_<taskId>` cocok dengan store; path store orkestrasi/session/workflow cocok; kontrak aksi workflow (`run_now`/`cancel`/`resume`) cocok dengan route; `/api/llm` mengembalikan jawaban Mia sungguhan (bukan stub "ok" — itu memang jawaban model); overlay detail selamat dari poll 3 detik; paritas aksi UI↔backend upheld.
+
+**Gates:** typecheck 0 · lint 0 error (1 warning baseline `writeup.ts:65`) · `node --test apps/office-dashboard/*.test.mjs` **91/91** · `drill-office-chat-ui.mts` **72 ok / 0 FAIL** · live re-verified di :3001 (server di-restart, boot > mtime lib). 3D scene, kamera, karakter, agent, tool, API, persona, routing — tak tersentuh. `npm test` penuh + `verify.ts` TIDAK dijalankan (perubahan hanya di `apps/office-dashboard`, di luar cakupan keduanya; keduanya tetap hijau di HEAD).
+
+**Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-11 (lanjutan) — Mission Control UI "belum rapi": 6 cacat layout diperbaiki
+
+Owner: screenshot `/Users/naufalazhar/Desktop/Screenshot 2026-11-11 at 12.09.29.png` + "UI ya masih belum rapi". Cara: baca screenshot + DOM/CSS, ukur di browser (bukan dari review kode), lalu **lihat hasil render** sebagai bukti. **Belum commit**.
+
+**6 cacat nyata (semua terlihat di render):**
+1. **Angka counter tidak sejajar** — label "Menunggu Persetujuan" wrap 2 baris → angkanya turun ~28px dari 63/0/0/58/5. Fix: `#view-mission .stat .k{min-height:2.4em;line-height:1.2}` → semua angka satu baseline.
+2. **Band mati ~48px** antara counter dan kartu agen — margin ganda (`.stats{margin-bottom}` + `.msWrap{gap}`). Fix: `#view-mission .stats{margin-bottom:0}`.
+3. **Dua garis horizontal + 6 garis terputus** — `.vbar` punya border bawah DAN tiap `.stat` punya `border-top` (grid + gap → 6 segmen). Fix: `#view-mission .stat{border-top:0}` → SATU garis kontinu (garis toolbar) di atas kolom counter.
+4. **Placeholder pencarian terpotong** ("Cari judul, id, atau ager") — input flex mengecil. Fix: `.msFilters #missionSearch{flex:1 1 260px;min-width:200px}`.
+5. **"Progress belum tersedia" di 63 baris** — noise; task dispatch memang tidak punya tahap (`progress:null, stages:[]`). Fix: baris LIST diam bila tak ada progres (`missionHasProgress()`); kalimat jujur "Progress belum tersedia" tetap ada di DETAIL overlay (DESIGN.md §14).
+6. **Periode dobel** — note toolbar "63 task · Semua waktu · diperbarui …" + select "Semua waktu" di sebelahnya. Fix: periode dihapus dari note (counter tetap menyebut window-nya, §14).
+
+**DESIGN.md §14 disinkron** (progress: list diam, detail yang jujur; + aturan baru "counter terbaca sebagai satu tabel": satu garis, angka satu baseline, tanpa band mati). Probe screenshot tambah 1 bidikan: `06b-office-mission-dark.png` (tema gelap = tema yang owner pakai).
+
+**Bukti:** render light + dark via `probe-design-screenshot.mjs` → satu garis, angka sejajar, tanpa "Progress belum tersedia", placeholder utuh. Drill `drill-office-chat-ui.mts` **72 ok / 0 FAIL** (semua asersi Mission Control tetap hijau: 4 select, label "Total Task", `.msId` tetap di baris, parity aksi). `node --test apps/office-dashboard/*.test.mjs` **91/91** · typecheck 0 · lint 0 (1 warning baseline) · CJK 0.
+
+**Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-11 (lanjutan) — "realtime auto refresh sangat menggaggu": paint-on-change + bus + poll 10s
+
+Owner: "tapi fitur realtime auto refreshnya sangat menggaggu sekali, ada solusi?" → pilih "Full: paint-on-change + bus + poll 10s". **Belum commit.**
+
+**Akar (bukan dari review kode — dari render):** DUA lapis. (1) `poll(); setInterval(poll, 3000);` berjalan terus tanpa henti; (2) SETIAP poll menulis ulang SELURUH DOM view (`el.innerHTML = fn()`) → animasi entrance diputar ulang (flicker), scroll posisi reset, dan jam "diperbarui HH.MM.SS" berubah tiap tick.
+
+**Perubahan (apps/office-dashboard/index.html, 1 file):**
+1. `paint(el, html)` — helper baru: hanya menyentuh DOM kalau HTML-nya benar-benar BERUBAH (`el.__miaHtml`), dan menyimpan `scrollTop`. Dipakai di view (`render()`), HUD (`renderHud()`, 4 titik), overlay status (`renderOvlStatus()`), filter log (`wireLogFilter`), dan view Mission Control (`missionPaint()`).
+2. Jam "diperbarui" DIPISAH dari HTML yang dipaint (`missionStamp()` menulis `textContent` ke span `#missionUpdated`) — kalau jam ikut di HTML, tiap fetch = "perubahan" = repaint penuh, persis flicker yang mau dihapus.
+3. **Bus-driven refresh**: dashboard sudah menerima SSE event bus Mia (`connectBus()`); tiap frame sekarang memicu `scheduleRefresh()` (debounce 500 ms) → `poll(true)` + `loadMission()`. Perubahan nyata repaint <1 detik.
+4. Poll 3 s → **10 s** (safety net untuk yang tidak dibawa bus: antrean dispatch, cron, file), `poll(fresh)` melewati cache TTL, **skip saat `document.hidden`**, dan `visibilitychange` → poll segera saat tab kembali terlihat. Tombol "Muat ulang" juga `poll(true)` (sebelumnya bisa memutar spinner tanpa data baru karena cache TTL 1,2 s).
+5. Baris toolbar Mission Control: jam dipisah ke span tersendiri (`#missionUpdated`), CSS `#view-mission .vbar .note{margin-top:0}` supaya dua note tetap satu baseline.
+
+**Bukti (bukan "hijau = bukti"):** 2 asersi drill BARU, keduanya berbasis observasi nyata: (a) "the task row survives the periodic poll untouched" — baris pertama diberi `data-probe`, tunggu 11 s (> interval 10 s), lalu node yang sama harus MASIH hidup (identitas node, bukan teks) → repaint tanpa perubahan = tidak ada rewrite; (b) "a bus event repaints the Mission Control without waiting for the poll" — turn nyata dipost ke `/api/office/chat`, lalu dua hal harus TERLIHAT: penghitung bus naik (frame benar-benar datang) DAN jam "diperbarui" bergerak dalam 5 s, DIUKUR saat poll sebelumnya ≤4 s lalu (poll periodik = 10 s, jadi dalam jendela 5 s hanya bus yang bisa menyebabkan repaint). Probe baru `apps/web/probe-bus-refresh.mts` (print bukti, tanpa asersi) mengukur clock bergerak **1,2 s** setelah turn mulai.
+
+**Mutasi (2, arrested — asersi terbukti TIDAK vakum):** (1) `scheduleRefresh()` dimatikan → asersi bus GAGAL dengan bukti "last poll 1s ago (next in >=9s), clock moved after 9755ms" — jam baru bergerak di detik ke-9,7 = TEPAT poll periodik, bukan bus; (2) guard paint-on-change dihapus → asersi "the task row survives the periodic poll untouched" GAGAL. Setelah dipulihkan (file identik byte-wise) → drill **74 ok / 0 FAIL**.
+
+**Koreksi atas laporan sebelumnya (audit lanjutan, bukti dari probe `probe-bus-refresh.mts switch`):** sempat saya laporkan sebagai bug bahwa composer chat "menolak pesan" karena `c.loading` menggantung. itu SALAH. Probe mereproduksi urutan yang sama (kirim → ganti agen → ganti balik → Esc → buka lagi) dan menunjukkan: `sendDisabled: true` — turn sebelumnya masih jalan, jadi penolakan itu guard "satu giliran pada satu waktu" yang memang disengaja (`chat.js`: `if (!text.trim() || chat.busy) return;` — draft tetap, tidak hilang; footer memberi tahu "Agent sedang bekerja…"). Pesan "Riwayat percakapan masih dimuat…" yang terlihat di panel itu sisa dari loadHistory saat panel dibuka ulang, bukan penyebab penolakan. Jadi BUKAN bug produk — asersi bus tidak boleh bergantung pada composer (kondisi giliran owner sendiri), makanya asersi memakai POST langsung ke endpoint.
+
+**DESIGN.md disinkron:** §9 baru "Refresh and live updates" (tidak boleh bergerak sendiri; refresh = event bukan timer; tab tersembunyi tidak dipantau; jam bukan konten; tombol refresh melewati cache) + §14 (baris Mission Control mengikuti kontrak itu).
+
+**Gates:** typecheck 0 · lint 0 · `node --test apps/office-dashboard/*.test.mjs` **91/91** · `drill-office-chat-ui.mts` **74 ok / 0 FAIL** (72 lama + 2 baru) · probe bus: jam bergerak **1,2 s** setelah turn mulai · screenshot probe render ulang (06/06b/07) → 1 garis, angka satu baseline, placeholder utuh, tanpa noise progres · CJK 0.
+
+**Catatan:** asersi drill lama "the typing row sits with the last message" kadang GAGAL (gap=78) — itu asersi yang terikat data owner (riwayat chat owner yang menentukan elemen terakhir; drill tidak bisa mengisolasi sesi). Flaky, bukan efek perubahan ini (render chat ada di chat.js, tidak disentuh).
+
+**Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-12 — Audit kedua Mission Control: 3 auditor paralel + verifikasi sendiri, 20 cacat diperbaiki
+
+Owner: "coba audit sekali lagi yang teliti". Cara: 3 auditor read-only paralel (mission.cjs, server.js, index.html) + verifikasi sendiri (sweep API hidup, scan 63 overlay detail di browser, cek higiene data) — klaim auditor TIDAK langsung dipercaya, tiap-tiap dicek ulang. **Belum commit.**
+
+**Koreksi atas laporan saya sendiri:** saya sempat melaporkan composer chat "menolak pesan" sebagai bug. SALAH — probe `probe-bus-refresh.mts switch` menunjukkan `sendDisabled: true`: turn sebelumnya masih jalan, jadi itu guard "satu giliran pada satu waktu" yang disengaja (`chat.js`: `if (!text.trim() || chat.busy) return;` — draft tetap, footer memberi tahu). Teks "Riwayat percakapan masih dimuat…" cuma sisa loadHistory saat panel dibuka ulang. **Bukan bug produk** (paragraf di sesi sebelumnya sudah dikoreksi).
+
+**server.js (8 cacat, semua diperbaiki):**
+1. **KEAMANAN [TINGGI]** — `curl http://127.0.0.1:3001/data/queue.jsonl` → **HTTP 200, 31.414 byte TANPA token** (prompt + balasan owner publik untuk siapa pun yang punya URL dashboard; `serveStatic` melayani semua file di ROOT, gerbang auth hanya menutup `/api/*`). Fix: `serveStatic` menolak segment `data` dan berkas bertitik → 403. Bukti: `queue_public=403`, `tasks_public=403`.
+2. **DATA HILANG [TINGGI]** — `/api/queue` menyimpan `prompt` (300 char) + `prompt_full`; `dispatchQueueItem` menulis ledger dengan `prompt_full` ✓ tapi mengirim payload ke Mia dengan `prompt` (terpotong) di kedua cabang → sampai 3700 char permintaan owner hilang diam-diam sementara Mission Control menampilkan teks penuh. Fix: `promptFull = item.prompt_full || item.prompt` dipakai untuk payload, `deliverRequested`, dan judul ledger.
+3. **CRASH [TINGGI]** — `dispatchLoop()` dipanggil tanpa `.catch()` di 2 call site → `appendJsonl` yang melempar jadi unhandled rejection → Node mati. Fix: `.catch(() => {})` di keduanya.
+4. **KEJUJURAN [SEDANG]** — cabang non-delivery menandai status 'done' pada HTTP 200 apa pun; `/api/llm` menjawab 200 dengan frame `@@CONFIRM` saat tool berisiko butuh approval → dashboard mencatat "Selesai" padahal tidak ada yang jalan dan tak ada yang bisa menyetujui. Fix: frame `@@CONFIRM` → baris 'failed' dengan detail jujur.
+5. **LATEN [SEDANG]** — `AUTH_TOKEN` = DASHBOARD_TOKEN || MIA's; `UPSTREAM_TOKEN` = MIA's || AUTH_TOKEN; komitenya sendiri bilang upstream wajib pakai UPSTREAM_TOKEN, tapi `dispatchQueueItem`/`miaPost`/proxy chat pakai AUTH_TOKEN → dengan DASHBOARD_TOKEN diset, semua panggilan upstream 401. Fix: upstream pakai `UPSTREAM_TOKEN`.
+6. **LINK PALSU [SEDANG]** — `artifactOpenUrl` menerima `a.path || a.text` (prosa jadi path bogus) tanpa cek keberadaan file. Fix: hanya `a.path` + file harus ADA.
+7. **CSRF [SEDANG]** — body POST tanpa syarat content-type → halaman mana pun bisa mengantre task saat dashboard jalan tanpa token. Fix: `assertJsonContentType` (415) untuk /api/queue, /api/mission, /api/dispatch, /api/office/chat. (Route /api/gemini-live/* TIDAK diberi syarat ini: live.mjs memang tidak mengirim content-type — dilaporkan, bukan ditutup.)
+8. **DATA HILANG [SEDANG]** — `readJsonl` default 512 KB; `data/tasks.jsonl` sudah 417.879 byte dan append-only → task tertua akan hilang diam-diam dari Mission Control. Fix: jendela 4 MB + flag `truncated` yang dilaporkan ke API (UI bisa jujur bilang "terbaru saja").
+
+**index.html (12 cacat; 11 diperbaiki, 1 dibersihkan):**
+- I1 [TINGGI] `renderMissionDetail` membangun ulang `#missionBg` tiap repaint → animasi diputar ulang + scroll detail ter-reset (langgar DESIGN.md §14). Fix: `paint(bg, …)`.
+- I2 [SEDANG] overlay menutup sendiri saat task yang dibaca hilang dari daftar terfilter. Fix: `MISSION.selectedTask` menyimpan salinan task.
+- I3 [SEDANG] `scheduleRefresh` = trailing debounce murni → burst bus (>1 frame/500 ms) menunda refresh tanpa batas (layar beku justru saat paling sibuk). Fix: plafon 2 s.
+- I4 [SEDANG] `loadMission` membuang request saat `MISSION.loading` → baris lama dipaint padahal filter sudah berubah. Fix: flag `pending` + request ulang kalau query berubah.
+- I5 [SEDANG] `<select>` yang difokus kehilangan fokus tiap repaint (dropdown ketutup). Fix: fokus dikembalikan ke kontrol yang dipakai.
+- I6 [SEDANG] `poll(true)` bisa resolve pada request yang dimulai SEBELUM klik → tombol "Muat ulang" mungkin tidak menampilkan data baru. Fix: request fresh di-chain setelah request yang sedang jalan.
+- I7 [RENDAH] `loadMission` tetap fetch di tab tersembunyi. I8 [RENDAH] jam "diperbarui" membeku saat owner mengetik (stamp ada di dalam guard typing) → keduanya diperbaiki.
+- I9 [SEDANG] `render()` di dalam `.then` fetch → lemparan view builder mendarat di `.catch` jaringan → pill API jadi "bad" padahal API menjawab, dan `loadMission` tidak pernah jalan (Mission membeku). Fix: try/catch di sekitar render.
+- I10 [RENDAH] "connectBus diulang 60×/s" → **SALAH**: connectBus dipanggil sekali di dalam init3D. Dihapus dari daftar.
+- I11 [RENDAH] `syncOffice` menulis `tag.innerHTML` tanpa paint(). I12 [TINGGI, pre-existing] handler filter log memanggil `paint(el, vLogs())` yang mengganti `#logFilter` tanpa wiring ulang → filter MATI setelah satu ketikan (render() tidak bisa menolong karena paint() lalu false dan skip wireLogFilter). Semua diperbaiki.
+
+**mission.cjs (7 diperbaiki):** M1 durasi workflow memakai run TERLAMA ( executions dibangun newest-first sementara `taskDuration` mengambil yang terakhir) → executions dibalik jadi oldest-first + attempt = ordinal; M2 satu task terhitung di DUA agen (owner + assignee) → assignee menang; M4/M5/M8/M9/M10/M11/M14 (jalur workflow/orkestrasi) DITERIMA tapi laten (store kosong) → M1/M10/M2/M12/M13 yang ditutup sekarang; M6 counter tidak pernah punya entri untuk status `stale`/`skipped`/`idle` → counter terlihat tidak menjumlah ke "Total Task" → 3 entri COUNTER_META baru + klien menyembunyikannya saat 0; M12 task tanpa timestamp hilang dari filter 24 jam/7 hari → tetap tampil (umur tak diketahui); M13 `plan.tasks` tanpa cek Array.isArray → 500 → ditutup; M7 backend cari baris antrean HANYA oleh `q.task_id` sedangkan board memakai fallback `'task-'+id` → tombol "Batalkan" 409 → fallback sama dipakai.
+
+**Bukti (bukan "hijau = bukti"):** 3 gerbang drill BARU — (a) "the queue ledger is not readable without the token" (403), (b) "the log filter keeps filtering after a keystroke" (isi → 0 baris → kosong → baris kembali), (c) "an open task detail survives a repaint of the list" (node modal yang sama setelah filter berubah → list di belakang berubah, detail tetap). **Mutasi 3, ketiganya arrested**: guard `data/` dimatikan → (a) GAGAL ("status=200"); re-wire `#logFilter` dihapus → (b) GAGAL ("cleared=0", baris tidak pernah kembali); `paint(bg,…)` dikembalikan ke `innerHTML` → (c) GAGAL ("marked=true kept=false" → modal dibangun ulang). Pelajaran saat menyusun (c): versi pertama hanya menunggu 12 s tanpa perubahan data → tidak ada repaint → asersinya VAKUM (mutasi I1 tetap hijau); diperbaiki dengan memaksa repaint sungguhan (ganti filter status).
+
+**Gates:** typecheck 0 · lint 0 · `node --test apps/office-dashboard/*.test.mjs` **91/91** · `drill-office-chat-ui.mts` **76 ok / 0 FAIL** (74 lama + 3 baru − 1 SKIP jujur: asersi "no-repaint" dilewati karena data Mission benar-benar berubah saat menunggu → repaint-nya sah, jadi asersi itu tidak bisa dijawab di run itu; asersi yang sama hijau di run sebelumnya dan terbukti non-vakum lewat mutasi) · live: /api/mission 63 task, counter menjumlah ✓, truncated=false · CJK 0 (garis yang saya tambahkan).
+
+**Dilaporkan, tidak diperbaiki:** S9 `buildMissionState` melakukan sync I/O (~1 MB) di jalur GET →(ms-level, acceptable); route /api/gemini-live/* masih menerima POST tanpa content-type (live.mjs tidak mengirimnya); laten M4/M5/M8/M9/M11/M14 (store workflow/orkestrasi masih kosong).
+
+**Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-12 (lanjutan) — Chevron dropdown: jarak panah ke tepi (diukur, bukan dikira)
+
+Owner: screenshot `Screenshot 2026-11-11 at 23.59.01.png` + "masih ada bug layout, icon panah kebawahnya masih terlalu kepinggir". Cara: **ukur di render** (PIL atas screenshot probe), bukan menebak.
+
+**Bukti (sebelum):** di `06b-office-mission-dark.png` panah native ada di x=704-711, border pill di x=715 → jarak panah–border hanya **3 px**. Faktanya: `padding-right` TIDAK memindahkan panah native Chromium (dibuktikan: setelah `select.inp{padding-right:30px}` jarak tetap 3 px, bahkan baris melebar +18 px per select sehingga ritme baris filter berubah).
+
+**Fix:** `select.inp` pakai chevron sendiri — `appearance:none` + SVG inline sebagai `background-image` (ink tema: `--dim` #655B50 terang, #C6B9AA gelap via `html[data-theme="dark"]`), `background-position:right 12px center`, `padding-right:30px`. Di `forced-colors` chevron dikembalikan ke native (`appearance:auto`) karena background image dibuang mode itu.
+
+**Bukti (sesudah):** jarak panah–border **13 px** (x=698-704 vs border 718) di kedua tema; posisi teks filter tidak berubah (563-632 / 743-813 / 868-918) → ritme baris tetap. Screenshot `/tmp/office-filters-after.png` (dark + light).
+
+**DESIGN.md §9 Inputs:** aturan baru "A dropdown chevron keeps its distance from the edge" + catatan bahwa panah native duduk 3 px dari border dan padding tidak memindahkannya.
+
+**Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-12 (lanjutan) — Audit layout semua view (12 view x 3 lebar) + 1 bug nyata, 1 koreksi diri
+
+Owner: "coba cek layout yang lainnya, khawatirnya masih ada bug juga". Cara: probe layout BARU `apps/web/probe-layout-audit.mts` (durabel, lebar configurable via `OFFICE_AUDIT_WIDTHS`) → 12 view x 3 lebar (1440/1024/560) diukur, bukan dikira: overflow-x halaman, elemen keluar viewport, teks terpotong, target < 24 px, type < 10 px, teks terpotong oleh ancestor; screenshot per view ke `/tmp/office-layout` + contact sheet dibaca mata.
+
+**Pelajaran probe (2, keduanya berulang):** (1) `page.evaluate` dengan helper BERNAMA di dalamnya → esbuild menyuntik `__name` → halaman melempar "ReferenceError: __name is not defined"; semua helper harus inline (arrow langsung). (2) `.sr` (screen-reader only) selalu terbaca "terpotong" → dikecualikan.
+
+**1 bug NYATA [SEDANG] — tabel Activity tidak muat di view sempit.** Terukur: tabel butuh **612 px** di viewport 560 px → kolom "Sumber" terpotong di tepi. Fix: di ≤900 px header boleh wrap (`th{white-space:normal}`), sel boleh breaking (`td{overflow-wrap:anywhere}`), padding sel rapat (10→6 px horizontal; padding sendiri eating 160 px dari lebar tabel). Ukur ulang: 612 → 572 → **≤560 ✓**. Terbukti dengan mutasi (aturan tabel sempit dihapus → gerbang drill "the activity table fits a narrow view" GAGAL, right=612 vw=560).
+
+**Koreksi atas temuan saya sendiri:** sempat saya laporkan "baris log terpotong di tepi kanan" (dari crop screenshot) dan saya menambah `minmax(0,1fr)` di 8 grid. **SALAH.** Potongan itu tepi crop saya sendiri (drawer chat menutup area konten), bukan UI. Bukti: pengukuran langsung `.logbox` → `clientWidth 710 = scrollWidth 710` dan baris suntikan 400 karakter MEMASUK (mClient 456 = mScroll 456, `word-break:break-word` sudah membuat teks wrap) — identik dengan dan tanpa `minmax(0,1fr)`. Jadi perubahan 8 grid itu **pertahanan, bukan perbaikan bug** (dibiarkan: bentuk standar yang mencegah kelas overflow lain, nol dampak visual terukur), dan gerbang drill yang saya buat untuk "log message wraps" **DIBUANG karena tidak bisa gagal (vakum)** — asersi yang tidak bisa gagal bukan jaring pengaman.
+
+**Sisa hasil sweep:** 12 view x 3 lebar → "clean" (tanpa overflow-x, tanpa elemen keluar viewport, tanpa teks terpotong, tanpa target < 24 px, tanpa type < 10 px). Contact sheet dibaca mata: chevron dropdown sudah 13 px dari border, kartu agent/counter/finding rapi, panel chat rapi.
+
+**Gerbang drill:** +1 ("the activity table fits a narrow view" — tabel ≤ viewport di 560). Gates: typecheck 0 · lint 0 · test dashboard 91/91 · drill **77 ok / 1 FAIL** — satu-satunya FAIL = asersi lama "the typing row sits with the last message" (gap=78) yang **flaky, terikat data owner** (riwayat chat owner yang menentukan elemen terakhir; panel chat tidak disentuh perubahan ini — GREEN di run sebelumnya). Probe layout 12x3 clean.
+
+**Belum commit** (menunggu approval owner).

@@ -39,6 +39,9 @@ Verify these paths in the current repository before editing; do not assume the s
 | `chat.css` | Chat panel styles |
 | `chat.js` | Chat panel rendering and interactions |
 | `chat-core.mjs` | Pure chat helpers and related unit tests |
+| `activity.cjs` | Single owner of the tool → human activity phrase map |
+| `mission.cjs` | Mission Control domain rules: task identity, executions, status mapping, filters, and sorting (pure, unit-tested) |
+| `server.js` | Dashboard server: state endpoint, dispatch, Mission Control endpoints, proxies |
 | `design-tokens.json` | Machine-readable mirror of CSS design tokens |
 | `DESIGN.md` | Human-readable source of truth for visual rules and component behaviour |
 
@@ -270,6 +273,17 @@ These dimensions are starting points from the existing layout, not instructions 
 - Empty previews, empty file lists, and missing schedules use a plain note inside the owning panel, not a second nested card.
 - Data grids should size naturally. Related cards should align when they belong together, but do not create awkward empty space just to force uniform heights.
 
+### Refresh and live updates
+
+- **The screen must not move on its own.** A background refresh may change the data, but it must never rewrite the DOM when the content is identical: every rewrite replays the entrance animations, resets the scroll position, and reads as flicker.
+- **A refresh is an event, not a timer.** The dashboard already receives Mia's event bus, so a real change repaints within half a second. The periodic poll is the safety net for what the bus does not carry (dispatch queue, cron, file writes) and runs every 10 s — it is not the primary refresh.
+- **A debounce has a ceiling.** A busy agent emits frames faster than the debounce window; a trailing debounce without a maximum wait would postpone the refresh exactly when the bus is busiest.
+- **A refresh never closes what the owner is reading.** An open detail survives a background refresh (it is not rebuilt when nothing changed), and it does not close because the task left the current filter.
+- **A refresh never takes the controls away.** The control the owner is using keeps its focus and its value; a filter change is fetched, not dropped.
+- **A hidden tab is not watched.** No polling while the document is hidden; the tab refreshes immediately when it becomes visible again.
+- **A clock is not content.** A "last updated" stamp that changes on every fetch lives outside the painted markup — otherwise every poll looks like a change and the whole view repaints, which is exactly the flicker the paint-on-change rule removes.
+- **The manual refresh button bypasses the cache.** It must show the current data, not the value the last poll already fetched.
+
 ### Buttons
 
 - Primary: solid yellow with dark ink, for the principal action in a group.
@@ -283,10 +297,13 @@ These dimensions are starting points from the existing layout, not instructions 
 ### Inputs
 
 - Use a surface that separates the input from its parent panel.
-- Use `--border-strong` only where stronger definition improves usability; standard inputs may use `--border`.
+- Use `--border-strong` only where stronger definition improves usefulness; standard inputs may use `--border`.
 - Focus state must be clearly visible using an accent border and restrained focus ring.
 - Placeholder text must not be the only label for important or persistent settings.
 - Keep text, mic, and send controls aligned in the chat composer.
+- **A flexible column must be allowed to shrink.** A trailing `1fr` keeps its content's minimum width, so one long string (a URL) pushes the row wider than its box instead of wrapping. Flexible columns are `minmax(0, 1fr)`, so the text wraps and stays inside.
+- **A table fits the screen it is on.** Below 900 px the table headers wrap and the cells break long words; a table that needs more width than the view is a table that gets cut.
+- **A dropdown chevron keeps its distance from the edge.** The native arrow sits a few pixels from the border (measured: 3 px) and padding does not move it; a select draws its own chevron at a fixed inset instead, in the theme's own ink.
 
 ### Segmented controls
 
@@ -451,6 +468,24 @@ Additional rules:
 - Evidence, source, confidence, remediation, and verification status should be distinguishable in security reports.
 - Error logs should be filterable when supported; avoid displaying large raw JSON dumps in a standard log row.
 - Empty schedules and missing files should be a plain note inside the owning panel, not a nested card.
+
+### Mission Control (task centre)
+
+Mission Control is the operational view of everything the three agents are doing. It is not a chat transcript and not a decoration: every number, stage, and event on it comes from a backend record.
+
+- **One task has one identity.** A task keeps its id across retries, handoffs, and status updates. A new attempt is a new *execution* of that task, never a new task.
+- **A conversation turn is not a task.** Work that only shows up as a chat turn is not listed as a task; it stays in the log.
+- **Counters describe the list they sit above.** The summary counts exactly the tasks the list shows, and each counter names its window (period). A task is counted once.
+- **Progress is only what the engine reported.** Stages come from the plan or execution history; a task without stages shows no progress line in the list (the same "Progress belum tersedia" repeated on every row is noise) and the detail view says “Progress belum tersedia” instead of showing an invented percentage.
+- **The counters read as one table.** One rule above the columns, every number on the same baseline (a two-line label must not push its number down), and no band of dead space between the rule and the numbers. The visible counters always add up to "Total Task": the six headline counters are always there, the rest (Selesai Sebagian · Dibatalkan · Terblokir · Berhenti · Dilewati · Belum Ada Eksekusi) appear only when they are not zero.
+- **The owner's own data is never public.** The queue and ledger files hold the owner's prompts and replies: they are served by the token-protected API, never as static files.
+- **An action appears only if the backend can perform it.** Retry, resume, and cancel are offered per status, confirmed before they run, and the status only changes after the backend confirms it. A task's prompt is read from the dispatch ledger *or* the queue ledger, so a task dispatched before prompts were stored can still be re-run.
+- **Duration is the last attempt, not the span.** A task retried weeks later reports the duration of the attempt that ran, never the gap between attempts.
+- **Status words carry the meaning** (Antre · Berjalan · Menunggu Persetujuan · Selesai · Selesai Sebagian · Gagal · Terblokir · Dibatalkan · Berhenti). A stale row is “Berhenti”, never “Berjalan”.
+- The detail view holds information, progress stages, execution timeline, delegation, results, and files. Long values are left-aligned blocks, not right-aligned table cells.
+- The detail overlay lives outside the polled view so a background refresh can never wipe what the owner is reading.
+- The list follows the refresh contract of §9: when nothing changed, the rows stay exactly as they are (the same nodes, so nothing animates), and only the "diperbarui" clock moves. A bus event repaints the list without waiting for the next poll tick.
+- One surface per group: counters, agent roll-up, filters, and task list are separate blocks; a task is a row, never a card of its own.
 
 ## 15. Motion and transitions
 
