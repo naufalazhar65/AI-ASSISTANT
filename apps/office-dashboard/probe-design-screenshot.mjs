@@ -50,6 +50,17 @@ await page.waitForTimeout(2500);
 
 await page.screenshot({ path: join(OUT, "01-office-light.png") });
 
+// The GTA VI release billboard stands on the back lawn. The office's own
+// cameras have to read it — that is the whole proof — so shoot it from the
+// default room (the workspace camera the owner sees on load) and from the
+// wide room.
+await page.screenshot({ path: join(OUT, "01b-office-billboard-work.png") });
+await page.evaluate(() => document.querySelector("#roomBar button")?.click());
+await page.waitForTimeout(1600);
+await page.screenshot({ path: join(OUT, "01c-office-billboard-all.png") });
+await page.evaluate(() => document.querySelectorAll("#roomBar button")[1]?.click());
+await page.waitForTimeout(1200);
+
 // Dark theme (the toggle is #modeBtn; the attribute is html[data-theme]).
 await safeClick(page, "#modeBtn");
 await page.waitForTimeout(900);

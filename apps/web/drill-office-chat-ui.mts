@@ -226,8 +226,17 @@ async function clickToggle(page: import("playwright").Page): Promise<void> {
 async function hardReload(page: import("playwright").Page, auth: string): Promise<void> {
   /* "commit" returns while the old document is still on screen: the next
      click then lands on the document that is being replaced. Wait for the
-     new document to be usable. */
-  await page.goto(`${DASH}/?token=${encodeURIComponent(auth)}&_r=${Date.now()}`, { waitUntil: "load" });
+     new document itself instead of the load event — the load event waits for
+     the WebGL scene, and on a busy machine that can outlast any timeout we
+     would dare set. The cache-busting marker in the URL tells the two
+     documents apart. */
+  const marker = "_r=" + String(Date.now());
+  await page.goto(`${DASH}/?token=${encodeURIComponent(auth)}&${marker}`, { waitUntil: "commit" });
+  await page.waitForFunction(
+    (m) => location.search.indexOf(m) >= 0 && !!document.getElementById("chatToggle"),
+    marker,
+    { timeout: 60000 },
+  );
 }
 
 async function openPanel(page: import("playwright").Page): Promise<void> {

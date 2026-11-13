@@ -957,6 +957,10 @@
 
 <link rel="stylesheet" href="/chat.css">
 <script src="/vendor/three.min.js"></script>
+<!-- Countdown maths for the GTA VI release billboard. Classic script on
+     purpose: it publishes the global `MiaCountdown` that the inline scene
+     below reads. -->
+<script src="/countdown.js"></script>
 <!-- Gemini Live client, bundled from apps/web (esbuild). Classic script on
      purpose: it publishes the global `MiaLive` that live.js reads. -->
 <script src="/vendor/live.bundle.js"></script>
@@ -3779,6 +3783,325 @@ function SignBoard(parent, x, y, z, ry, w, text) {
   return g;
 }
 
+/* ── GTA VI release billboard (halaman belakang) ─────────────────────────────
+   A standing billboard on the back lawn, built the way an outdoor
+   advertising board is actually built: a metal frame with visible
+   thickness, two posts behind it down to concrete footings, a rear lattice
+   of braces, mounting brackets, and the display recessed inside the frame.
+
+   The countdown is a live canvas texture: canvasTexture() caches by key and
+   therefore cannot hold a value that changes every second, so these canvases
+   are owned here and repainted from the render loop once a second. The key
+   art and the countdown are two separate planes — the artwork never changes,
+   so only the small countdown band is re-uploaded to the GPU each second.
+
+   The board STANDS ON POSTS, because the building hides the lawn behind it.
+   Measured with a ray cast from each of the office's own cameras: the north
+   wall's silhouette cuts the lawn behind the building at 0.85 m (workspace),
+   1.28 m (wide, portrait canvas) up to 2.02 m (wide, landscape canvas).
+   Everything below that line is behind the wall, so the display starts at
+   2.67 m — above every camera's cut — and the posts carry it there.
+
+   The face plane is checked by the placement audit like any other part: it
+   is recessed in the frame, the way the office's own signboard face is. The
+   posts stand on the lawn, so the board is exempt for the ordinary reason:
+   it touches the ground. */
+var GTA6_BILLBOARD = null;
+var GTA6_ART = null;
+
+/* Proportions. The panel grew 20 % wider and 12 % taller than the first
+   board; the face aspect (9.16 : 3.88) is matched by the key-art canvas
+   (1280 : 542) so the artwork is never stretched. */
+var GTA6_PANEL_W = 10.4;
+var GTA6_PANEL_H = 4.4;
+var GTA6_RAIL = 0.22;
+var GTA6_POST_H = 2.45;
+var GTA6_POST_X = 2.6;
+var GTA6_POST_Z = -0.42;
+var GTA6_FACE_W = GTA6_PANEL_W - GTA6_RAIL * 2;
+var GTA6_FACE_H = GTA6_PANEL_H - GTA6_RAIL * 2;
+var GTA6_ART_W = 1280;
+/* The canvas matches the face exactly (9.96 : 3.96 = 2.515), so the poster is
+   never stretched: 1280 x 509 for the art, half of it for the band. */
+var GTA6_ART_H = 509;
+var GTA6_BAND_H = 254;
+
+/* Key art of the board, copied into the dashboard's own vendor folder: the
+   web app's copy lives on another port, and a cross-origin image would taint
+   the canvas the texture is built from. Loading is optional — without it the
+   board falls back to a flat violet. */
+function loadGTA6Art() {
+  if (typeof Image === 'undefined') return;
+  var img = new Image();
+  img.onload = function () {
+    GTA6_ART = img;
+    var b = GTA6_BILLBOARD;
+    if (!b) return;
+    drawGTA6Art(b.artCtx);
+    b.artTexture.needsUpdate = true;
+  };
+  img.onerror = function () { GTA6_ART = null; };
+  img.src = '/vendor/gta.webp';
+}
+
+/* A canvas texture this board owns. canvasTexture() caches by key, which
+   cannot hold a value that changes every second. */
+function liveCanvasTexture(w, h) {
+  var c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  var ctx = c.getContext('2d');
+  var t = new T.CanvasTexture(c);
+  t.encoding = T.sRGBEncoding;
+  t.anisotropy = 4;
+  return { ctx: ctx, texture: t };
+}
+
+/* A soft round falloff, used for the halo around each floodlight. */
+function softGlowTexture() {
+  var c = document.createElement('canvas');
+  c.width = 64; c.height = 64;
+  var ctx = c.getContext('2d');
+  var g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.45)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  var t = new T.CanvasTexture(c);
+  t.encoding = T.sRGBEncoding;
+  return t;
+}
+
+/* ── the static half: key art and the title block ──
+   The palette comes from the artwork itself — a violet-to-sunset poster —
+   so the type is warm off-white with a golden accent. The title carries its
+   own scrim; the countdown band draws its own, so the art above stays
+   untouched. */
+function drawGTA6Art(ctx) {
+  var W = GTA6_ART_W, H = GTA6_ART_H;
+  if (GTA6_ART) {
+    var s = Math.max(W / GTA6_ART.width, H / GTA6_ART.height);
+    var dw = GTA6_ART.width * s, dh = GTA6_ART.height * s;
+    ctx.drawImage(GTA6_ART, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  } else {
+    ctx.fillStyle = '#1b1033';
+    ctx.fillRect(0, 0, W, H);
+  }
+  /* The four lamps above the rail wash the top of the poster. Baking the
+     wash into the artwork gives the board a lit surface for free — no extra
+     mesh, no per-second repaint — and a soft falloff instead of the hard
+     edge a cone of light would draw across the type. */
+  for (var k = 0; k < 4; k++) {
+    var px = W * (0.125 + k * 0.25);
+    var py = H * 0.14;
+    var pool = ctx.createRadialGradient(px, py, 0, px, py, W * 0.17);
+    pool.addColorStop(0, 'rgba(255,226,176,0.17)');
+    pool.addColorStop(0.5, 'rgba(255,214,150,0.07)');
+    pool.addColorStop(1, 'rgba(255,214,150,0)');
+    ctx.fillStyle = pool;
+    ctx.fillRect(0, 0, W, H);
+  }
+  var gt = ctx.createLinearGradient(0, 0, W * 0.74, H * 0.80);
+  gt.addColorStop(0, 'rgba(16,6,28,0.80)');
+  gt.addColorStop(0.55, 'rgba(16,6,28,0.34)');
+  gt.addColorStop(1, 'rgba(16,6,28,0)');
+  ctx.fillStyle = gt;
+  ctx.fillRect(0, 0, W, H * 0.82);
+  ctx.fillStyle = 'rgba(255,207,139,0.85)';
+  ctx.fillRect(0, 0, W, 8);
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(12,4,22,0.8)';
+  ctx.shadowBlur = 14;
+  ctx.shadowOffsetY = 3;
+  ctx.fillStyle = '#fff4ec';
+  ctx.font = 'bold 112px "Arial Black", "Helvetica Neue", Arial, sans-serif';
+  ctx.fillText('GTA VI', 54, 90);
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = '#ffe4b8';
+  ctx.font = 'bold 40px "Helvetica Neue", Arial, sans-serif';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '8px';
+  ctx.fillText('THE COUNTDOWN IS ON', 58, 176);
+  ctx.letterSpacing = '0px';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+}
+
+/* ── the live half: the countdown band ──
+   Four units on one horizontal line, each with its own label, and the
+   release date under them. On release day the numbers are replaced by the
+   message and the date — never a negative number. */
+function drawGTA6Countdown(ctx, p) {
+  var W = GTA6_ART_W, H = GTA6_BAND_H;
+  ctx.clearRect(0, 0, W, H);
+  var gb = ctx.createLinearGradient(0, 0, 0, H);
+  gb.addColorStop(0, 'rgba(16,6,28,0)');
+  gb.addColorStop(0.42, 'rgba(16,6,28,0.66)');
+  gb.addColorStop(1, 'rgba(16,6,28,0.82)');
+  ctx.fillStyle = gb;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textBaseline = 'middle';
+  if (p.released) {
+    ctx.textAlign = 'center';
+    ctx.shadowColor = 'rgba(12,4,22,0.85)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 3;
+    ctx.fillStyle = '#fff4ec';
+    ctx.font = 'bold 88px "Arial Black", "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('RELEASE DAY', W / 2, 74);
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#ffe4b8';
+    ctx.font = 'bold 36px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('19 NOVEMBER 2026', W / 2, 142);
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    return;
+  }
+
+  var vals = [MiaCountdown.pad2(p.days), MiaCountdown.pad2(p.hours),
+    MiaCountdown.pad2(p.minutes), MiaCountdown.pad2(p.seconds)];
+  var labels = ['DAYS', 'HOURS', 'MINUTES', 'SECONDS'];
+  var margin = 54, gap = 22, bw = (W - margin * 2 - gap * 3) / 4, bh = 140, y0 = 2;
+  for (var i = 0; i < 4; i++) {
+    var x = margin + i * (bw + gap);
+    ctx.fillStyle = 'rgba(18,7,32,0.68)';
+    ctx.fillRect(x, y0, bw, bh);
+    ctx.strokeStyle = 'rgba(255,207,139,0.72)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x + 1.5, y0 + 1.5, bw - 3, bh - 3);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fffaf4';
+    ctx.font = 'bold 124px "Courier New", monospace';
+    ctx.fillText(vals[i], x + bw / 2, y0 + bh / 2);
+    ctx.fillStyle = '#ffe4b8';
+    ctx.font = 'bold 29px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText(labels[i], x + bw / 2, y0 + bh + 36);
+  }
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffe4b8';
+  ctx.font = 'bold 34px "Helvetica Neue", Arial, sans-serif';
+  ctx.fillText('19 NOVEMBER 2026 · 00:00 WIB', W / 2, H - 24);
+}
+
+/* Repaint only when the second actually changed — the texture upload is not
+   free, and the loop runs every frame. */
+function updateGTA6Billboard() {
+  var b = GTA6_BILLBOARD;
+  if (!b || typeof MiaCountdown === 'undefined') return;
+  var now = b.hold != null ? b.hold : Date.now();
+  var p = MiaCountdown.parts(now);
+  var key = p.released ? 'released' : p.days + ':' + p.hours + ':' + p.minutes + ':' + p.seconds;
+  if (key === b.key) return;
+  b.key = key;
+  drawGTA6Countdown(b.bandCtx, p);
+  b.bandTexture.needsUpdate = true;
+}
+
+function BillboardGTA6(parent, x, z) {
+  var g = group(parent, x, 0, z);
+  var W = GTA6_PANEL_W, H = GTA6_PANEL_H, RAIL = GTA6_RAIL;
+  var PH = GTA6_POST_H, PX = GTA6_POST_X, PZ = GTA6_POST_Z;
+  var concrete = mat({ color: '#b0aa9c', roughness: 0.95 });
+
+  /* footing: a concrete pad, a steel plate and two anchor bolts per post */
+  [-PX, PX].forEach(function (px) {
+    RB(g, px, 0.15, PZ, 0.9, 0.30, 0.7, 0.03, concrete);
+    RB(g, px, 0.33, PZ, 0.66, 0.06, 0.66, 0.02, PM.metalDark);
+    CY(g, px - 0.24, 0.40, PZ - 0.24, 0.05, 0.05, 0.12, 8, PM.metal);
+    CY(g, px + 0.24, 0.40, PZ + 0.24, 0.05, 0.05, 0.12, 8, PM.metal);
+  });
+
+  /* the two posts the whole board hangs from */
+  [-PX, PX].forEach(function (px) {
+    add(rbox(0.34, PH, 0.34, 0.04), PM.metalDark, px, PH / 2, PZ, g);
+  });
+  add(rbox(PX * 2, 0.26, 0.30, 0.04), PM.metalDark, 0, PH - 0.14, PZ, g);
+
+  /* rear lattice: a diagonal from each post up to the panel's back */
+  function brace(x1, y1, x2, y2) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    var m = add(rbox(len, 0.16, 0.16, 0.02), PM.metalDark, (x1 + x2) / 2, (y1 + y2) / 2, PZ, g);
+    m.rotation.z = Math.atan2(dy, dx);
+  }
+  brace(-PX, PH - 0.2, -1.1, PH + H - 0.45);
+  brace(-PX, PH - 0.2, 1.1, PH + H - 0.45);
+  brace(PX, PH - 0.2, 1.1, PH + H - 0.45);
+  brace(PX, PH - 0.2, -1.1, PH + H - 0.45);
+
+  /* mounting brackets: the panel is bolted to the posts */
+  [-PX, PX].forEach(function (px) {
+    RB(g, px, PH + 0.32, -0.34, 0.5, 0.2, 0.5, 0.02, PM.metalDark);
+    RB(g, px, PH + H - 0.32, -0.34, 0.5, 0.2, 0.5, 0.02, PM.metalDark);
+  });
+
+  /* the panel body and its metal frame — the rails give the board its
+     thickness, which is what stops it reading as a screen taped to a wall */
+  add(rbox(W, H, 0.26, 0.05), PM.plasticDark, 0, PH + H / 2, 0, g);
+  add(rbox(W, RAIL, 0.34, 0.03), PM.metalDark, 0, PH + H - RAIL / 2, 0, g);
+  add(rbox(W, RAIL, 0.34, 0.03), PM.metalDark, 0, PH + RAIL / 2, 0, g);
+  add(rbox(RAIL, H - RAIL * 2, 0.34, 0.03), PM.metalDark, -W / 2 + RAIL / 2, PH + H / 2, 0, g);
+  add(rbox(RAIL, H - RAIL * 2, 0.34, 0.03), PM.metalDark, W / 2 - RAIL / 2, PH + H / 2, 0, g);
+
+  /* Four floodlights on the top rail. Each is a housing tipped forward so it
+     aims at the panel, a hood over the lens, a small warm lens and a soft
+     halo. The light itself is a wash baked into the artwork: a cone of light
+     with visible edges reads as a shard of glass laid over the poster, not
+     as light — and the board is a display, it does not need a volume. */
+  var lampBody = mat({ color: '#1d1a22', roughness: 0.7 });
+  var lampLens = lampMaterial({ color: '#4a3f2c', emissive: '#ffc46a', roughness: 0.4 }, 0.45, 1.4);
+  var glowTex = softGlowTexture();
+  for (var i = 0; i < 4; i++) {
+    var lx = -W / 2 + (i + 0.5) * (W / 4);
+    add(rbox(0.18, 0.14, 0.18, 0.03), PM.metalDark, lx, PH + H + 0.07, 0.0, g);
+    var lg = group(g, lx, PH + H + 0.19, 0.04);
+    lg.rotation.x = 0.34; // nose down: the lamp is aimed at the panel
+    add(rbox(0.54, 0.26, 0.34, 0.05), lampBody, 0, 0, 0, lg);
+    add(rbox(0.60, 0.05, 0.26, 0.02), lampBody, 0, 0.16, 0.05, lg); // hood
+    add(rbox(0.30, 0.07, 0.05, 0.02), lampLens, 0, -0.06, 0.17, lg);
+    var halo = new T.Mesh(new T.PlaneGeometry(1.05, 0.78),
+      new T.MeshBasicMaterial({
+        map: glowTex, color: 0xffd9a0, transparent: true, opacity: 0.42,
+        depthWrite: false, blending: T.AdditiveBlending
+      }));
+    halo.position.set(lx, PH + H + 0.16, 0.24);
+    halo.castShadow = false;
+    halo.receiveShadow = false;
+    g.add(halo);
+  }
+
+  /* the display: key art on one plane, the countdown band on another, so a
+     ticking second never re-uploads the artwork */
+  var art = liveCanvasTexture(GTA6_ART_W, GTA6_ART_H);
+  var face = new T.Mesh(new T.PlaneGeometry(GTA6_FACE_W, GTA6_FACE_H),
+    new T.MeshBasicMaterial({ map: art.texture }));
+  face.position.set(0, PH + H / 2, 0.135);
+  face.castShadow = false;
+  face.receiveShadow = false;
+  g.add(face);
+
+  var band = liveCanvasTexture(GTA6_ART_W, GTA6_BAND_H);
+  var bandMesh = new T.Mesh(new T.PlaneGeometry(GTA6_FACE_W, GTA6_FACE_H / 2),
+    new T.MeshBasicMaterial({ map: band.texture, transparent: true }));
+  bandMesh.position.set(0, PH + H / 2 - GTA6_FACE_H / 4, 0.142);
+  bandMesh.castShadow = false;
+  bandMesh.receiveShadow = false;
+  g.add(bandMesh);
+
+  GTA6_BILLBOARD = {
+    artCtx: art.ctx, artTexture: art.texture,
+    bandCtx: band.ctx, bandTexture: band.texture,
+    key: '', hold: null
+  };
+  drawGTA6Art(art.ctx);
+  art.texture.needsUpdate = true;
+  updateGTA6Billboard();
+  loadGTA6Art();
+  return g;
+}
+
 function MeetingTable(parent) {
   var g = group(parent, MEETING_TABLE[0], 0, MEETING_TABLE[2]);
   CY(g, 0, 0.74, 0, 1.05, 1.05, 0.08, 40, M.wood);
@@ -4868,6 +5191,15 @@ function buildOutdoors() {
     placeOnFloor(placeFurniture('out:tree-' + i, Tree(scene, t[0], t[1], t[2]),
       { zone: 'outdoor', kind: 'outdoor' }));
   });
+  // The GTA VI release billboard stands on the back lawn. It sits 1.1 m
+  // Far enough behind the building that the board stands clear of the 2.6 m
+  // back wall instead of growing out of its roofline. Measured from the default
+  // camera: at z -6.3 the wall hides everything below ~2 m, so the posts and the
+  // footings never showed and the board read as a screen taped to the roof; at
+  // z -10.6 the sight line passes above the wall and the whole structure stands
+  // on the lawn. Behind the two back trees, whose canopies reach z -7.2.
+  placeOnFloor(placeFurniture('out:billboard-gta6', BillboardGTA6(scene, 2, -10.6),
+    { zone: 'outdoor', kind: 'outdoor', note: 'countdown rilis GTA VI' }));
 }
 
 buildBuilding();
@@ -5706,6 +6038,10 @@ function loop() {
   // fight each other when the button is clicked repeatedly.
   stepTheme(dt);
 
+  // The billboard's countdown ticks in real time. Driven from inside the
+  // render loop — a second rAF would keep running behind the scene.
+  updateGTA6Billboard();
+
   // Labels are projected here, in the same frame the camera was just applied
   // in, so they stay welded to the characters. Driving this from a timer
   // instead makes them lag the camera by up to a full tick while it is moved.
@@ -5733,6 +6069,27 @@ function loop() {
   office.validate = function () { return validateFurniturePlacement({ silent: true }); };
   office.checkParts = function () { return checkUnsupportedParts(); };
   office.placed = PLACED;
+  /* Hold the board at a fixed moment so a screenshot can show the countdown
+     under a minute or the release-day state. Without it every frame would
+     snap the board back to the real clock. */
+  office.billboard = {
+    /* the face rectangle, so a probe can crop the board without repeating
+       the dimensions here (they changed twice already) */
+    face: {
+      w: GTA6_FACE_W, h: GTA6_FACE_H,
+      y: GTA6_POST_H + GTA6_PANEL_H / 2, z: 0.135
+    },
+    hold: function (ms) {
+      var b = GTA6_BILLBOARD;
+      if (!b) return;
+      b.hold = ms; b.key = ''; updateGTA6Billboard();
+    },
+    clear: function () {
+      var b = GTA6_BILLBOARD;
+      if (!b) return;
+      b.hold = null; b.key = ''; updateGTA6Billboard();
+    }
+  };
   var _boxHelpers = [];
   office.debugBounds = function (on) {
     _boxHelpers.forEach(function (h) { scene.remove(h); });

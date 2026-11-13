@@ -196,6 +196,12 @@ async function main() {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
 
+  // The scene reads the countdown maths from a classic script the page loads
+  // separately. The probe runs the inline script alone, so it injects the same
+  // file here — otherwise the board would boot without a countdown.
+  const countdownJs = fs.readFileSync(path.join(HERE, 'countdown.js'), 'utf8');
+  vm.runInContext(countdownJs, sandbox, { filename: 'countdown.js' });
+
   let office;
   try {
     vm.runInContext(evalJs, sandbox, { filename: 'office-inline.js' });
@@ -288,8 +294,54 @@ async function main() {
     ? String(validateRet)
     : util.inspect(validateRet, { depth: 6, breakLength: 160, maxArrayLength: 200 });
 
+  // The GTA VI release board must exist AND carry the live countdown texture.
+  // A board with a static texture would still render, but it would never
+  // tick — so the texture has to be the countdown canvas, not a snapshot.
+  let boardIssue = null;
+  const board = (office.placed || []).find((r) => r.name === 'out:billboard-gta6');
+  if (!board) {
+    boardIssue = 'out:billboard-gta6 is not in the placed registry';
+  } else {
+    let live = false;
+    let art = false;
+    let faceLow = Infinity;
+    board.group.traverse((o) => {
+      const img = o.isMesh && o.material && o.material.map && o.material.map.image;
+      if (img && img.width === 1280 && img.height === 254) live = true;
+      if (img && img.width === 1280 && img.height === 509) art = true;
+      if (o.isMesh && o.geometry && o.geometry.type === 'PlaneGeometry' && o.material && o.material.map) {
+        o.updateWorldMatrix(true, false);
+        o.geometry.computeBoundingBox();
+        const bb = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
+        faceLow = Math.min(faceLow, bb.min.y);
+      }
+    });
+    if (!live) boardIssue = 'the board carries no live 1280x254 countdown band canvas';
+    else if (!art) boardIssue = 'the board has no separate 1280x509 key-art canvas';
+    /* The building hides the lawn behind it: a ray cast from each of the
+       office cameras puts the north wall's silhouette at up to 2.02 m at the
+       board's depth. A panel below that line is behind the wall — the board
+       would render but never be read. */
+    else if (faceLow < 2.3) {
+      boardIssue = `the board face starts at ${faceLow.toFixed(2)} m — below the wall silhouette (2.02 m measured), so the countdown would sit behind the building`;
+    }
+    /* The floodlights must not draw a hard cone of light: a cone has visible
+       edges and reads as a shard of glass laid over the poster, not as light.
+       What they draw instead is a soft halo, and the wash itself is baked
+       into the artwork. */
+    let cones = 0;
+    let halos = 0;
+    board.group.traverse((o) => {
+      if (o.isMesh && o.geometry && o.geometry.type === 'ConeGeometry') cones++;
+      const m = o.isMesh && o.material && o.material.map && o.material.map.image;
+      if (m && m.width === 64 && m.height === 64) halos++;
+    });
+    if (cones > 0) boardIssue = `the floodlights still draw ${cones} hard light cone(s)`;
+    else if (halos < 4) boardIssue = `the floodlights have no soft halo (${halos}/4)`;
+  }
+
   if (AS_JSON) {
-    console.log(JSON.stringify({ pageLogs, census, validateReturn: retStr, validateError: validateErr, checkParts: String(checkPartsRet), checkPartsError: checkPartsErr }, null, 2));
+    console.log(JSON.stringify({ pageLogs, census, validateReturn: retStr, validateError: validateErr, checkParts: String(checkPartsRet), checkPartsError: checkPartsErr, boardIssue }, null, 2));
     return;
   }
   console.log('\n==== scene census ====');
@@ -308,7 +360,8 @@ async function main() {
     && !/0 issue|no .*issue|__miaOffice|error boundary/i.test(l));
   console.log(`\npage log lines: ${pageLogs.length}, suspicious: ${red.length}`);
   for (const l of red.slice(0, 60)) console.log('  !! ' + l);
-  process.exit(red.length || validateErr ? 1 : 0);
+  if (boardIssue) console.log('  !! ' + boardIssue);
+  process.exit(red.length || validateErr || boardIssue ? 1 : 0);
 }
 
 main().catch((e) => { console.error('HARNESS FAILED:', e); process.exit(2); });

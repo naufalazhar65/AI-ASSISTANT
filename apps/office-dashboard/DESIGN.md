@@ -546,6 +546,19 @@ Do not force these exact values if the real repository uses a better tested resp
 - Do not use CSS selectors that unintentionally recolour the canvas or in-scene materials.
 - Test pointer events around overlays carefully; decorative wrappers must not disable interactive controls beneath them or inside them.
 
+### Live scene signage (the countdown board)
+
+The office scene carries one sign that shows live data: the GTA VI release board on the back lawn.
+
+- **One clock.** The board counts down to a moment written in WIB with an explicit offset, never to "now" interpreted in whatever timezone the machine runs in. The maths lives in `countdown.js` and is unit-tested.
+- **Never negative.** Once the target passes, the board reads as released. A countdown that runs backwards is a lie about time.
+- **Redraw only on change.** The texture is repainted when the displayed second changes, not on every frame. A board that re-uploads its texture 60 times a second costs power for nothing.
+- **Height and depth are design decisions, not details.** Both office cameras look down from the front, so the building's back wall hides the lawn behind it. Measured with a ray cast from each camera, the wall's silhouette cuts the back lawn at 0.85 m (workspace), 1.28 m (wide, portrait canvas) up to 2.02 m (wide, landscape canvas) — everything below that line is behind the building. A board close to the wall therefore shows a panel and nothing else: its posts and footings stay hidden and it reads as a screen taped to the roof. The board therefore stands 5 m clear of the wall (z -10.6), where the sight line passes over the wall's top edge, so the legs reach the ground in full view. Height alone cannot fix this — a taller board behind the wall still floats.
+- **The board is lit, not just printed.** Four floodlights sit on the top rail, each a housing tipped forward with a hood over a small warm lens, and a soft halo around it. The light they throw is a wash baked into the artwork and a glow at the lens — never a cone of transparent geometry: a cone has visible edges and reads as a shard of glass laid over the poster, not as light. The lens is an emissive material, so the board costs no extra light in the scene.
+- **The artwork is never stretched.** The key-art canvas matches the face exactly (1280 : 509 for a 9.96 : 3.96 face) and the countdown band is half of it, so the poster keeps its proportions when the panel is resized.
+- **The board carries the key art, and the type belongs to it.** The poster is a violet-to-sunset GTA VI artwork, so the countdown is set in warm off-white with a golden accent, in one horizontal row across the bottom of the board (a poster reads as a poster when the numbers sit on one line), with the artwork keeping the upper half. The units are English — DAYS / HOURS / MINUTES / SECONDS — so the board reads the same as the poster. The art lives in the dashboard's own `vendor/` folder: a cross-origin image would taint the canvas the countdown texture is drawn on.
+- **Placement is audited like furniture.** A sign that clips the wall, floats, or collides with a tree is a placement issue, not a stylistic one.
+
 ## 19. Validation checklist
 
 Before declaring a design change complete:
@@ -568,6 +581,7 @@ Before declaring a design change complete:
 - [ ] Keyboard focus, labels, reduced motion, and forced-colour behaviour remain usable.
 - [ ] Build, lint, and relevant tests have been run; any failures are reported honestly.
 - [ ] A before/after screenshot was inspected at the same viewport size where browser preview is available.
+- [ ] Live scene signage shows real data, ticks, and reads whole from the office's own cameras.
 
 ## 20. Change process
 

@@ -3176,3 +3176,117 @@ Drill #2 (setelah 13 fix) membuka 2 FAIL; masing-masing membongkar **cacat produ
 **Gates:** typecheck 0 · lint 0 · `node --test apps/office-dashboard/*.test.mjs` **93/93** · `drill-office-chat-ui.mts` **81 ok / 0 FAIL** (2 asersi baru) · CJK 0 · DESIGN.md §9 += "A refresh is observable".
 
 **Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-12 — Billboard GTA VI di halaman belakang kantor (countdown rilis 19 Nov 00.00 WIB)
+
+Owner (@1079@, screenshot `Screenshot 2026-11-12 at 15.07.53.png`): "apa kamu bisa buatkan reklame/billboard di halaman belakang kantor itu, isinya countdown rilis GTA 6 tanggal 19 november jam 00.00" → @1103@ "oke kerjakan yang maksimal". Sesi ini awalnya PLAN MODE, lalu owner memberi izin → implementasi.
+
+**Yang dibuat:**
+- `apps/office-dashboard/countdown.js` (BARU, classic script UMD → global `MiaCountdown` di browser, `module.exports` di node). Matematika murni: `TARGET_ISO = '2026-11-19T00:00:00+07:00'` (offset eksplisit → tak bergantung jam server) · `parts(nowMs)` → {days,hours,minutes,seconds,released,totalMs} (released = semua 0, TIDAK PERNAH negatif) · `format()` → "02 : 03 : 04 : 05" · `label()` · `pad2()`. `countdown.test.mjs` (BARU) 6 tes: target dihitung independen (`Date.UTC(2026,10,18,17,0,0)`), parts sebelum/tepat/sesudah target, format, rollover detik.
+- `index.html`: tag `<script src="/countdown.js">` + `liveCanvasTexture()` (canvas sendiri — `canvasTexture()` cache per key, jadi tak bisa dipakai untuk countdown) + `drawGTA6Canvas()` (judul GTA VI, "RILIS 19 NOVEMBER 2026 · 00.00 WIB", 4 kotak HARI/JAM/MENIT/DETIK, strip "SIAP-SIAP BEGADANG") + `BillboardGTA6()` (plinth + panel 5,0 x 2,4 m + face plane) + `updateGTA6Billboard()` (redraw HANYA saat detik berubah) + penempatan di `buildOutdoors()` sebagai `out:billboard-gta6` (kind 'outdoor', x=2, z=-7,9 — di antara dua pohon belakang) + panggilan `updateGTA6Billboard()` di `loop()` (bukan rAF sendiri).
+
+**Penempatan: diukur, bukan dikira.** Kedua kamera kantor looking-down dari depan, jadi dinding belakang 2,6 m menutup lawn di belakangnya sampai ketinggian tertentu: di kamera "Semua" (> 2,1 m di z=-7,9) dan di kamera "Workspace" (> 0,2 m). Papan setinggi 2,4 m (dasar 0,3 m) terbaca UTUH di kedua kamera; papan setinggi 2,8 m di kaki panjang terpotong tepi frame di kamera Workspace (batas frame 2,87 m). Proof: `probe-design-screenshot.mjs` (+2 bidikan `01b-office-billboard-work.png` dan `01c-office-billboard-all.png`) → PNG dibaca mata: di view Workspace board terlihat di lawn di belakang gedung, di view "Semua" board besar & angka terbaca ("06 08 03 31"). Angka di board = sisa waktu sebenarnya (jam page 15.56 WIB → 06:08:03) ✓.
+
+**Gerbang baru (non-vakum):** `probe-furniture-validate.js` → (a) menyuntik `countdown.js` ke sandbox vm (probe menjalankan inline script saja; tanpa suntikan board akan boot tanpa countdown) · (b) **cek board ada DAN memakai tekstur countdown hidup** (canvas 1280x600 di map mesh; board dengan tekstur statis tetap render tapi tak pernah tik) → exit 1 kalau hilang. **Mutasi arrested:** nama board di-rename di index.html → probe GAGAL "out:billboard-gta6 is not in the placed registry" (exit 1) → dipulihkan → exit 0. Validator penempatan: `office.validate()` = [] dan `office.checkParts()` = [] (board tidak clipping dinding, tidak float, tidak menabrak pohon).
+
+**Catatan jujur:** (1) board berdiri di halaman belakang (lawn), bukan menempel di dinding — permintaan owner "halaman belakang"; (2) di kamera "Workspace" (default boot: `roomBar.children[1]`) board kecil (±120 px) tapi angka terbaca; di kamera "Semua" board besar; (3) strip "SIAP-SIAP BEGADANG" di bawah garis atap dinding pada view "Semua" (konten penting sengaja diletakkan di bagian atas kanvas supaya terbaca di kedua kamera); (4) reminder GTA 6 yang sudah ada (18 Nov 23.55 WIB) TIDAK diubah — board memakai target 19 Nov 00.00 sesuai permintaan owner; (5) probe `apps/web/probe-billboard.mts` dipakai sementara untuk mengukur tick, lalu DIHAPUS (typecheck menolak `window.__miaOffice` tanpa deklarasi; bukti ticknya sudah ada di bidikan + matematika unit-tested).
+
+**Gates:** `node --test apps/office-dashboard/*.test.mjs` **99/99** (93 lama + 6 countdown) · `node apps/office-dashboard/probe-furniture-validate.js` EXIT=0 (+ mutasi EXIT=1 arrested) · `npm run typecheck` 0 · `npm run lint` 0 (2 warning baseline) · `npx tsx apps/web/drill-office-chat-ui.mts` **81 ok / 0 FAIL** · CJK 0 · scan Cyrillic 0 · DESIGN.md §18 += "Live scene signage (the countdown board)" + 1 item checklist §19.
+
+**Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-12 (lanjutan) — Papan GTA VI dibesarkan & dinaikkan: yang sebelumnya cuma "sliver" di atas atap
+
+Owner (screenshot `Screenshot 2026-11-12 at 16.16.54.png`): "layoutnya masih belum sesuai, masih terlalu pendek jadi tidak terlihat". Yang tampak di screenshot itu benar: papan hanya memunculkan strip tipis di atas garis atap, judul terbaca, kotak angka terpotong. Angka countdown-nya sendiri TIDAK terbaca.
+
+**Akar (diukur, bukan dikira):** panel lama mulai di 0,37 m di belakang gedung. Dinding belakang (north wall, z=-5,2, tinggi 2,6 m) menutup lawn di belakangnya. Diukur dengan RAY CAST dari kamera tiap view (mata → titik-titik panel, pertama yang kena besides board = siluet dinding): cut = **0,85 m** (view Workspace), **1,28 m** (Semua, canvas portrait), sampai **2,02 m** (Semua, canvas landscape — framing owner: viewport 3022x1169 → canvas 1992x1113). Jadi bagian panel di bawah garis itu tersembunyi di belakang gedung, dan kotak angka ada di sisi tersembunyi itu. Perkiraan lama ("dinding menutup sampai ~1,1 m") terlalu rendah karena tidak pernah di-raycast.
+
+**Perbaikan (apps/office-dashboard/index.html):**
+- Papan berdiri di **kaki 2,3 m** (2 tiang + balok silang) → panel 8,0 x 3,84 m, face 7,84 x 3,68 m, **face mulai di 2,41 m** = 0,39 m di atas cut terburuk yang terukur.
+- Pindah dari z=-7,9 ke **z=-6,6** (1,3 m di belakang dinding → lebih besar di layar) dan lagi di depan kanopi dua pohon belakang (kanopi mulai z=-7,1 / -7,6) → tanpa tabrakan.
+- Tata letak kanvas dibalance ulang: kotak angka 165..345 (digit 120 px), label HARI/JAM/MENIT/DETIK di 381, strip "SIAP-SIAP BEGADANG" di 520. Versi lama menaruh label di 334 dan strip di 366 → keduanya saling tumpang tindih, dan sepertiga bawah papan kosong.
+
+**Gerbang baru (non-vakum):** `probe-furniture-validate.js` → face papan wajib mulai **≥ 2,3 m** (di atas siluet dinding 2,02 m). Mutasi (kaki 2,3 → 1,0) → probe GAGAL "the board face starts at 1.11 m — below the wall silhouette (2.02 m measured), so the countdown would sit behind the building" (exit 1) → dipulihkan → exit 0. Validator penempatan tetap bersih: `office.validate()` = [], `office.checkParts()` = [].
+
+**Proof = render:** bidikan MCP playwright pada framing owner (canvas 1992x1113) → papan membentang 382 x 148 px di tengah atas gedung, **"06 07 26 57" + HARI/JAM/MENIT/DETIK + "SIAP-SIAP BEGADANG" terbaca jelas** (sebelumnya cuma sliver tanpa angka). Tick hidup: dua bidikan berurutan berbeda 4 detik (29 58 → 29 54).
+
+**Catatan jujur:** (1) view "Halaman" (kamera halaman) mengarah ke warung bakso/kopi di kiri → papan TIDAK masuk frame di view itu (hanya di Workspace/Semua); (2) reminder Mia tetap 18 Nov 23.55 WIB — papan tetap 19 Nov 00.00 sesuai permintaan owner; (3) panel sekarang lebih tinggi dari gedung (6,09 m) — itu konsekuensi fisik: panel harus naik di atas siluet dinding; (4) probe `apps/web/probe-billboard-geo.mts` dipakai sementara untuk ukur geometri lalu DIHAPUS (MCP playwright + raycast lebih cepat).
+
+**Gates:** `node --test apps/office-dashboard/*.test.mjs` exit 0 (99/99) · `npm run typecheck` 0 · `npm run lint` 0 · `node apps/office-dashboard/probe-furniture-validate.js` exit 0 (+ mutasi exit 1 arrested) · `npx tsx apps/web/drill-office-chat-ui.mts` **81 ok / 0 FAIL** (run pertama CRASH exit 2 di gate "history reloaded from the server" — timeout 20 s menunggu `.msg.agent .msgBody`; penyebabnya Beban CPU: browser MCP masih membuka scene WebGL 3022x1169 bersamaan dengan drill. Diulang setelah browser ditutup → 81 ok / 0 FAIL. Bukan regresi: perubahan sesi ini cuma scene 3D papan, tidak menyentuh chat) · CJK 0 (1 hit di AGENTS.md — karakter Mandarin dari tulisanku sendiri — sudah dibersihkan).
+
+**Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-12 (lanjutan 2) — Papan GTA VI memakai key art owner + font/warna diselaraskan
+
+Owner: "dan saya ingin backgroundnya menggunakan gambar itu, tinggal kamu sesuaikan saja font dan warnanya agar menyatu" (file `apps/web/public/gta.webp`, poster GTA VI: langit violet→sunset oranye, pasangan + mobil, pohon palem kiri, skyline kota).
+
+**Yang dipakai:** poster di-copy ke `apps/office-dashboard/vendor/gta.jpg` (sips resize 3840x2160 → 1600x900, JPEG q78, 1,35 MB → **303 KB**). Salinan sendiri WAJIB: file owner ada di port web (3000) sedangkan dashboard jalan di 3001, dan gambar lintas-origin akan MENOTAIL canvas tempat texture countdown digambar → `texImage2D` ditolak SecurityError. `server.js` `types` map += `.jpg/.jpeg/.webp` (sebelumnya tidak ada → file jadi `application/octet-stream`). File asli owner di `apps/web/public/gta.webp` TIDAK disentuh.
+
+**index.html:** `loadGTA6Art()` (Image() + onload → redraw; `typeof Image === 'undefined'` dijaga agar probe placement yang jalan di sandbox stub tak crash) + `drawGTA6Canvas()` ditulis ulang:
+- Latar = poster (cover-fit: skala 0,8 → 1280x720, dipotong 30 px atas/bawah) dengan **scrim gradien** di kiri (rgba(18,7,32,0,88) → 0) supaya tipenya terbaca tanpa menutupi subjek poster sedangkan pasangan di kanan tetap terlihat.
+- Palet diambil dari poster: judul "GTA VI" 92 px Arial Black #fff4ec, subjudul 26 px #ffcf8f, angka tetap monospace (96 px #fffaf4) di kotak rgba(28,10,44,0,55) + border emas, label 24 px #ffcf8f, strip "SIAP-SIAP BEGADANG" 32 px #ffcf8f, bar atas emas. Bayangan teks (blur 18, y+4) supaya tipenya "nempel" di poster.
+- Tata letak countdown pindah ke **kolom kiri 2x2** (kotak 252x132, gap 26/56): judul dan angka tidak menimpa subjek poster.
+
+**Proof = render (MCP playwright, framing owner):** crop papan → "GTA VI / RILIS 19 NOVEMBER 2026 · 00.00 WIB / 06 07 14 58 / HARI JAM MENIT DETIK / SIAP-SIAP BEGADANG" di kiri, pasangan di kanan, poster menyatu; scene penuh → papan berdiri di atap belakang gedung, terbaca dari view Workspace.
+
+**Gates:** `node apps/office-dashboard/probe-furniture-validate.js` exit 0 (sandbox tanpa Image → board jatuh ke fallback violet, gate tetap hijau: yang diperiksa adalah tekstur countdown hidup 1280x600 + face ≥ 2,3 m) · `node --test apps/office-dashboard/*.test.mjs` exit 0 · `npm run typecheck` 0 · `npm run lint` 0 · `npx tsx apps/web/drill-office-chat-ui.mts` **81 ok / 0 FAIL** · CJK 0.
+
+**Belum commit** (menunggu approval owner).
+
+### Lanjutan 3 — Countdown satu baris horizontal penuh + satuan English
+
+Owner: "utuk countdown nya buat full horizontal saja dan gunakan bahasa inggris untuk hari jam menit dan detiknya".
+
+**Perubahan (`apps/office-dashboard/index.html`, `drawGTA6Canvas`):**
+- Kotak angka jadi **satu baris horizontal penuh** (4 kotak selebar papan: margin 56, gap 24, lebar 274, tinggi 150, y 316..466) — bukan lagi 2x2 di kolom kiri. Alasannya: poster yang utuh lebih terbaca sebagai poster kalau angkanya satu baris.
+- Satuan **English**: DAYS / HOURS / MINUTES / SECONDS (sebelumnya HARI/JAM/MENIT/DETIK). Subjudul & strip ikut English biar satu bahasa dengan poster: "RELEASE 19 NOVEMBER 2026 · 00:00 WIB" dan "READY FOR THE BIG NIGHT"; state rilis → "OUT NOW" (pusat, di area baris).
+- Scrim diganti dua arah: gradien **bawah** (rgba(18,7,32,0)→0,9) untuk baris angka + gradien **kiri-atas** (0,55→0) untuk judul. Artwork tetap memenuhi separuh atas (pasangan + langit), baris angka menutupi mobil di bawah — memang gaya poster.
+
+**Proof = render:** crop papan → "GTA VI / RELEASE 19 NOVEMBER 2026 · 00:00 WIB / 06 | 07 | 06 | 39" dengan label DAYS·HOURS·MINUTES·SECONDS di bawah tiap kotak, "READY FOR THE BIG NIGHT" di kiri bawah.
+
+**Gates:** probe furniture exit 0 · dashboard tests exit 0 · typecheck 0 · lint 0 · drill office **81 ok / 0 FAIL** (run pertama 80 ok / 1 FAIL = asersi lama "typing portrait lines up..." yang flaky dan terikat state sesi drill sendiri — `messages=null n=0` (belum ada balasan agen saat diukur); diulang → hijau. Tidak terkait perubahan 3D papan).
+
+**Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-13 — Papan GTA VI berdiri bebas di halaman + 4 floodlight (referensi "Neon Vice City")
+
+Owner memberi referensi `/Users/naufalazhar/Downloads/Neon Vice City Countdown Billboard.png` ("gunakan gambar tersebut sebagai referensi untuk pembuatannya, coba perbaiki"), lalu mengoreksi arahnya: **"jangan ubah yang lain, ubah lammpunya saja, coba kembalikan dulu ke sebelumnya"** → semua redesign artwork/tipografi/truss yang sempat saya buat (GTA VI chromatic-offset, "COUNTDOWN" brush script, kotak neon cyan-magenta) **DIKEMBALIKAN** ke versi sebelumnya (poster + "GTA VI" + "THE COUNTDOWN IS ON" + 4 kotak emas + baris tanggal). Yang DIPERTAHANKAN dari referensi: **4 floodlight di atas panel**.
+
+**Akar masalah nyata (diukur, bukan dikira) — papan "nempel" di atap gedung.** Kedua kamera kantor looking-down dari depan; dinding belakang (north wall z=-5,2, tinggi 2,6 m) menutup lawn di belakangnya. Hitung tinggi yang terlihat di z=-6,3: titik tanah hanya terlihat bila sinar dari kamera melewati tepi atas dinding → **hanya di atas ~1,99 m**. Jadi tiang + pondasi papan SELALU tertutup gedung: yang tampil cuma panel, dan papan terbaca seperti layar besar yang ditempel di atap. Bukti: render MCP playwright (framing owner) → tiang/pad tidak terlihat sama sekali.
+
+**Perbaikan (ukurannya, bukan tebakan):**
+- **Papan mundur ke z=-10,6** (5 m di belakang dinding; di kedalaman itu sinar kamera melewati tepi atas dinding → seluruh struktur berdiri di rumput) dan **dibesar**: W 9,6→10,4 m, H 4,32→4,4 m, tiang ±2,4→±2,6 m. Ukuran final ditentukan dari hasil visual di kamera utama (spec: "dihentikan dari hasil visual"), bukan dari angka spekulasi.
+- Kandidat posisi diuji langsung di browser (page.evaluate menggeser group) lalu difoto: z=-6,3 (tiang tertutup), z=-8,6 (tiang masih terpotong atap), z=-10,4/-11,2 (tiang + pondasi terlihat, pohon membingkai), x=-11,4 (pergi dari frame, buruk). Yang dipakai z=-10,6.
+- **4 floodlight** di rail atas: housing gelap + lens emissive (lampMaterial) + cone additive transparan. Cone diletakkan di **group terpisah** (`fx`, anak scene, bukan group furniture) supaya validator penempatan tak pernah menilai volume transparan, dan mesh furniture tak membengkak.
+
+**Proof = render (MCP playwright, framing owner 1512x900 + crop):** papan berdiri di lawn belakang — dua tiang gelap + dua pondasi beton menyentuh rumput, pohon membingkai kiri-kanan, 4 lampu di atas dengan cahaya menyapu panel, "GTA VI / THE COUNTDOWN IS ON / 05 11 47 50 (DAYS HOURS MINUTES SECONDS) / 19 NOVEMBER 2026 · 00:00 WIB" terbaca. State lain: <1 menit → "00 00 00 45" (tak ada angka negatif); tepat target → "RELEASE DAY + 19 NOVEMBER 2026"; malam → display menyala lembut, bukan neon.
+
+**Tidak diubah (sesuai instruksi owner):** artwork/tipografi papan, struktur truss, kamera/FOV/zoom, gedung, interior, furnitur, pohon, jalan, karakter, animasi, label, HUD, chat, sidebar, navigasi.
+
+**Gates:** probe furniture exit 0 (803 mesh, +16 dari lampu; `office.validate()` = [], `office.checkParts()` = [], 0 baris mencurigakan) · `node --test apps/office-dashboard/*.test.mjs` 99/99 · `npm run typecheck` 0 (dua error di probe-billboard.mts diperbaiki: canvas null + cast `.click()`) · `npm run lint` 0 · `npx tsx apps/web/drill-office-chat-ui.mts` **81 ok / 0 FAIL** · CJK 0 · DESIGN.md §18 dua bullet diperbarui (ketinggian+kedalaman, dan papan yang diterangi).
+
+**Catatan jujur:** (1) fps di headless = 1-3 (software renderer) → bukan angka performa nyata; board menambah 16 mesh, tidak menambah real light; (2) ganti room di room bar TIDAK menggeser kamera (terukur) → probe waited "settle" dan tidak room-switch; (3) posisi/ukuran papan (z=-10,6, W 10,4) adalah hasil pengukuran visual, kalau owner mau board kembali di posisi lama cukup satu angka; (4) probe sementara `apps/web/probe-billboard-vis.mts` dihapus.
+
+**Belum commit** (menunggu approval owner).
+
+## Sesi 2026-11-13 (lanjutan) — Cahaya floodlight jadi natural + audit cacat visual papan
+
+Owner: "cahaya lampunya masih kurang natural, dan coba dek apa saja yang masih jelek di billboard itu" → inspeksi render pakai MCP playwright (bukan dari review kode), lalu perbaiki. **Belum commit** (menunggu approval owner).
+
+**Yang TERLIHAT di render (bukti):** empat lampu itu kotak hitam dengan "lensa" pucat menghadap kamera, dan tiap lampu menyorot **kerucut cahaya transparan bersudut tajam** yang menggores poster — ujungnya terlihat jelas sebagai belah kaca, bukan cahaya. Itu sebabnya cahaya terasa tidak natural. Selain itu: poster **teregang 6,5 % horizontal** (kanvas art 1280x542 vs face 9,96x3,96 → aspect 2,362 vs 2,515), dan **light bar** (strip neon di bawah rail atas) tergambar seperti tabung fluoresen yang ditempel di atas poster.
+
+**Perbaikan (`apps/office-dashboard/index.html`):**
+1. **Kerucut dihapus** — cahaya jadi (a) *wash* yang di-bake ke kanvas artwork: 4 pool radial lembut tepat di posisi lampu (rgba(255,226,176,0.17)), (b) halo radial lembut (tekstur 64x64, additive) di depan tiap lens. Nol mesh cahaya volumetrik, nol tepi tajam.
+2. **Lampu dibuat natural:** housing miring 0,34 rad (membidik panel), hood di atas lens, lens kecil + hangat (#ffc46a, night intensity 1,4 supaya tidak clipping jadi putih), housing duduk di rail (tanpa celah melayang). Lampu lama + light bar atas digantikan.
+3. **Poster tak lagi teregang:** ART_H 542→509, BAND_H 271→254 (canvas = aspect face persis).
+4. **Tipografi countdown diperjelas:** digit 104→124 px (kotak 274x140), jarak label satuan dibesar (y0+bh+36) supaya tidak menempel kotak di ujung jauh (perspektif memampatkan), tanggal turun ke H-24.
+5. **Gradien band dilembutkan** (0,93→0,82 di bawah) → separuh bawah poster tetap terlihat, papan tidak terlihat seperti slab hitam.
+6. **Probe tidak lagi membawa konstanta basi:** `office.billboard.face` kini melaporkan dimensi face; `probe-billboard.mts` membacanya dari halaman (sebelumnya hardcode 9,16x3,88 — sudah basi setelah panel membesar).
+
+**Gerbang (non-vakum):** `probe-furniture-validate.js` → (a) canvas band 1280x254 + art 1280x509, (b) face >= 2,3 m, (c) **tidak boleh ada ConeGeometry** + minimal 4 halo. Mutasi: satu kerucut disisipkan → probe GAGAL "the floodlights still draw 1 hard light cone(s)" (exit 1) → dipulihkan → exit 0.
+
+**Proof = render (MCP playwright, framing owner 3022x1169):** siang — lampu duduk di rail dengan halo lembut, tidak ada segitiga kaca di atas poster, angka-angka terbaca; malam — lens hangat + halo, papan menerangi dirinya sendiri tanpa neon. State lain (`probe-billboard.mts`): < 1 menit "00 00 00 45", tepat target "RELEASE DAY + 19 NOVEMBER 2026" (tanpa angka negatif).
+
+**Gates:** probe furniture exit 0 · `node --test apps/office-dashboard/*.test.mjs` 99/99 · typecheck 0 · lint 0 · `probe-billboard.mts` exit 0 (4 state, 0 page error, fps 2 headless = software renderer, bukan angka performa) · `drill-office-chat-ui.mts` **81 ok / 0 FAIL** · CJK 0 · Cyrillic 0.
+
+**Catatan harness (bukan cacat produk):** drill sempat CRASH exit 2 dua kali di `page.goto` (timeout 30 s) — mesin sedang load 14 (Chrome owner + VS Code + probe WebGL barengan) dan `waitUntil: "load"` menunggu event load yang ikut menunggu scene WebGL. `hardReload` kini menunggu **dokumen barunya** (marker `_r=` di URL + `#chatToggle` ada, timeout 60 s) bukan event load: ini bukan melonggarkan asersi, justru lebih tegas soal dokumen mana yang dipakai (dokumen lama punya `_r=` berbeda, jadi tidak bisa lolos). Setelah fix: drill hijau 81 ok / 0 FAIL.
