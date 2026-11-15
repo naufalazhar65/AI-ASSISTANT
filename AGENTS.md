@@ -3159,7 +3159,7 @@ Owner: "karna sudah terlanjur kamu komit, coba kamu audit sekali lagi yang telit
 
 **Catatan jujur:** drill punya 2 gate yang bergantung pada urutan (reload `hardReload` yang hanya menunggu "commit" → klik berikutnya mendarat di dokumen lama). `hardReload` kini menunggu "load"; bila masih gagal, itu cacat harness, bukan produk (probe navigasi di dashboard owner: klik nav Logs → view tampil + input terisi, di 1440 dan 560).
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit**: `44bd9a9 fix(office-dashboard): audit post-commit — queue archive, restart safety, honest refresh`.
 
 ### Lanjutan: gerbang drill yang salah (vakum) → 2 cacat produk nyata, evidence-first
 
@@ -3175,7 +3175,7 @@ Drill #2 (setelah 13 fix) membuka 2 FAIL; masing-masing membongkar **cacat produ
 
 **Gates:** typecheck 0 · lint 0 · `node --test apps/office-dashboard/*.test.mjs` **93/93** · `drill-office-chat-ui.mts` **81 ok / 0 FAIL** (2 asersi baru) · CJK 0 · DESIGN.md §9 += "A refresh is observable".
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit**: `44bd9a9`.
 
 ## Sesi 2026-11-12 — Billboard GTA VI di halaman belakang kantor (countdown rilis 19 Nov 00.00 WIB)
 
@@ -3193,7 +3193,7 @@ Owner (@1079@, screenshot `Screenshot 2026-11-12 at 15.07.53.png`): "apa kamu bi
 
 **Gates:** `node --test apps/office-dashboard/*.test.mjs` **99/99** (93 lama + 6 countdown) · `node apps/office-dashboard/probe-furniture-validate.js` EXIT=0 (+ mutasi EXIT=1 arrested) · `npm run typecheck` 0 · `npm run lint` 0 (2 warning baseline) · `npx tsx apps/web/drill-office-chat-ui.mts` **81 ok / 0 FAIL** · CJK 0 · scan Cyrillic 0 · DESIGN.md §18 += "Live scene signage (the countdown board)" + 1 item checklist §19.
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit**: `7b75f9b feat(office-dashboard): GTA VI release billboard standing free on the back lawn`.
 
 ## Sesi 2026-11-12 (lanjutan) — Papan GTA VI dibesarkan & dinaikkan: yang sebelumnya cuma "sliver" di atas atap
 
@@ -3214,7 +3214,7 @@ Owner (screenshot `Screenshot 2026-11-12 at 16.16.54.png`): "layoutnya masih bel
 
 **Gates:** `node --test apps/office-dashboard/*.test.mjs` exit 0 (99/99) · `npm run typecheck` 0 · `npm run lint` 0 · `node apps/office-dashboard/probe-furniture-validate.js` exit 0 (+ mutasi exit 1 arrested) · `npx tsx apps/web/drill-office-chat-ui.mts` **81 ok / 0 FAIL** (run pertama CRASH exit 2 di gate "history reloaded from the server" — timeout 20 s menunggu `.msg.agent .msgBody`; penyebabnya Beban CPU: browser MCP masih membuka scene WebGL 3022x1169 bersamaan dengan drill. Diulang setelah browser ditutup → 81 ok / 0 FAIL. Bukan regresi: perubahan sesi ini cuma scene 3D papan, tidak menyentuh chat) · CJK 0 (1 hit di AGENTS.md — karakter Mandarin dari tulisanku sendiri — sudah dibersihkan).
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit**: `7b75f9b`.
 
 ## Sesi 2026-11-12 (lanjutan 2) — Papan GTA VI memakai key art owner + font/warna diselaraskan
 
@@ -3231,7 +3231,7 @@ Owner: "dan saya ingin backgroundnya menggunakan gambar itu, tinggal kamu sesuai
 
 **Gates:** `node apps/office-dashboard/probe-furniture-validate.js` exit 0 (sandbox tanpa Image → board jatuh ke fallback violet, gate tetap hijau: yang diperiksa adalah tekstur countdown hidup 1280x600 + face ≥ 2,3 m) · `node --test apps/office-dashboard/*.test.mjs` exit 0 · `npm run typecheck` 0 · `npm run lint` 0 · `npx tsx apps/web/drill-office-chat-ui.mts` **81 ok / 0 FAIL** · CJK 0.
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit** — sesi ini diserap `7b75f9b` (artwork final masuk sebagai `apps/office-dashboard/vendor/gta.webp`).
 
 ### Lanjutan 3 — Countdown satu baris horizontal penuh + satuan English
 
@@ -3246,7 +3246,7 @@ Owner: "utuk countdown nya buat full horizontal saja dan gunakan bahasa inggris 
 
 **Gates:** probe furniture exit 0 · dashboard tests exit 0 · typecheck 0 · lint 0 · drill office **81 ok / 0 FAIL** (run pertama 80 ok / 1 FAIL = asersi lama "typing portrait lines up..." yang flaky dan terikat state sesi drill sendiri — `messages=null n=0` (belum ada balasan agen saat diukur); diulang → hijau. Tidak terkait perubahan 3D papan).
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit** — diserap `7b75f9b`.
 
 ## Sesi 2026-11-13 — Papan GTA VI berdiri bebas di halaman + 4 floodlight (referensi "Neon Vice City")
 
@@ -3267,11 +3267,11 @@ Owner memberi referensi `/Users/naufalazhar/Downloads/Neon Vice City Countdown B
 
 **Catatan jujur:** (1) fps di headless = 1-3 (software renderer) → bukan angka performa nyata; board menambah 16 mesh, tidak menambah real light; (2) ganti room di room bar TIDAK menggeser kamera (terukur) → probe waited "settle" dan tidak room-switch; (3) posisi/ukuran papan (z=-10,6, W 10,4) adalah hasil pengukuran visual, kalau owner mau board kembali di posisi lama cukup satu angka; (4) probe sementara `apps/web/probe-billboard-vis.mts` dihapus.
 
-**Belum commit** (menunggu approval owner).
+**Sudah commit**: `7b75f9b`.
 
 ## Sesi 2026-11-13 (lanjutan) — Cahaya floodlight jadi natural + audit cacat visual papan
 
-Owner: "cahaya lampunya masih kurang natural, dan coba dek apa saja yang masih jelek di billboard itu" → inspeksi render pakai MCP playwright (bukan dari review kode), lalu perbaiki. **Belum commit** (menunggu approval owner).
+Owner: "cahaya lampunya masih kurang natural, dan coba dek apa saja yang masih jelek di billboard itu" → inspeksi render pakai MCP playwright (bukan dari review kode), lalu perbaiki. **Sudah commit**: `7b75f9b`.
 
 **Yang TERLIHAT di render (bukti):** empat lampu itu kotak hitam dengan "lensa" pucat menghadap kamera, dan tiap lampu menyorot **kerucut cahaya transparan bersudut tajam** yang menggores poster — ujungnya terlihat jelas sebagai belah kaca, bukan cahaya. Itu sebabnya cahaya terasa tidak natural. Selain itu: poster **teregang 6,5 % horizontal** (kanvas art 1280x542 vs face 9,96x3,96 → aspect 2,362 vs 2,515), dan **light bar** (strip neon di bawah rail atas) tergambar seperti tabung fluoresen yang ditempel di atas poster.
 
@@ -3323,7 +3323,7 @@ Owner: "coba audit billboard coutdown gta 6 nya apakah masih ada yg jelek?" → 
 
 **Gates:** typecheck 0 · lint 0 · `node --test apps/office-dashboard/*.test.mjs` **99/99** · `probe-furniture-validate.js` exit 0 (meshes 814, suspicious 0) · `drill-office-chat-ui.mts` **81 ok / 0 FAIL** · `verify.ts` **EXIT=0** (193 blok OK) · `probe-billboard.mts` 4 state exit 0.
 
-**Jujur:** di view default owner (431 px) **hanya judul + angka yang terbaca**; subtitle & tanggal tetap kecil — itu limit ukuran, bukan bug, dan DESIGN.md §18 sekarang menyatakan kontraknya. **BELUM commit** — menunggu approval owner.
+**Jujur:** di view default owner (431 px) **hanya judul + angka yang terbaca**; subtitle & tanggal tetap kecil — itu limit ukuran, bukan bug, dan DESIGN.md §18 sekarang menyatakan kontraknya. **Sudah commit + push**: `991e273 fix(office-dashboard): repair GTA VI countdown billboard visuals` (origin/main).
 
 ## Sesi 2026-11-15 (lanjutan) — audit visual ronde kedua: angka di sel, pagar bingkai, lampu yang tak terlihat
 
@@ -3351,4 +3351,4 @@ Owner: "Artwork karakter terpotong di bagian atas … berikan safe margin sekita
 
 **Gates:** `probe-furniture-validate.js` exit 0 · `node --test apps/office-dashboard/*.test.mjs` 99/99 · inline `node --check` OK. Probe scratch `apps/web/probe-bb-inspect.mts` dipakai lalu dihapus. DESIGN.md §18 diperbarui (crop dari hairline + safe margin 5 %).
 
-**Belum commit.**
+**Sudah commit + push**: `991e273` (origin/main).
