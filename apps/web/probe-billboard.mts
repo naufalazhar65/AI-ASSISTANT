@@ -104,8 +104,11 @@ async function main() {
       width: geo.wpx + 48,
       height: hpx + 48
     };
-    await page.screenshot({ path: join(OUT, name + ".png") });
-    await page.screenshot({ path: join(OUT, name + "-board.png"), clip });
+    /* The night scene carries many point lights, and a software renderer takes
+       long enough to paint one frame that the default 30 s screenshot budget
+       runs out. The frame is still coming; it is just slow. */
+    await page.screenshot({ path: join(OUT, name + ".png"), timeout: 90000 });
+    await page.screenshot({ path: join(OUT, name + "-board.png"), clip, timeout: 90000 });
     console.log(name, "board px:", geo.wpx.toFixed(0) + "x" + hpx.toFixed(0), "clip:", JSON.stringify(clip));
   };
 

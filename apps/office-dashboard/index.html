@@ -3822,9 +3822,20 @@ var GTA6_FACE_W = GTA6_PANEL_W - GTA6_RAIL * 2;
 var GTA6_FACE_H = GTA6_PANEL_H - GTA6_RAIL * 2;
 var GTA6_ART_W = 1280;
 /* The canvas matches the face exactly (9.96 : 3.96 = 2.515), so the poster is
-   never stretched: 1280 x 509 for the art, half of it for the band. */
+   never stretched: 1280 x 509 for the art, and a strip of it for the band. */
 var GTA6_ART_H = 509;
-var GTA6_BAND_H = 254;
+/* The countdown lives in an OPAQUE strip across the lower part of the face.
+   Opaque, because a translucent strip lets the poster's people show straight
+   through the numbers. 224 of 509 rows = 44 % of the face: enough for the
+   digits, small enough that the couple stays visible above it. */
+var GTA6_BAND_H = 224;
+var GTA6_BAND_M = GTA6_FACE_H * GTA6_BAND_H / GTA6_ART_H;
+/* Vertical crop of the key art. The strip eats the bottom of the face, so the
+   poster is shifted up — but only as far as the subject allows: the man's hair
+   starts at source y 269 of 2160, which is canvas y 90 at the 3840→1280 scale
+   (1/3). At -64 his head lands on row 26 of 509, a 5 % safe margin; the old
+   -140 started the crop at source y 420 and sliced the top of his head off. */
+var GTA6_ART_Y = -64;
 
 /* Key art of the board, copied into the dashboard's own vendor folder: the
    web app's copy lives on another port, and a cross-origin image would taint
@@ -3882,7 +3893,7 @@ function drawGTA6Art(ctx) {
   if (GTA6_ART) {
     var s = Math.max(W / GTA6_ART.width, H / GTA6_ART.height);
     var dw = GTA6_ART.width * s, dh = GTA6_ART.height * s;
-    ctx.drawImage(GTA6_ART, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.drawImage(GTA6_ART, (W - dw) / 2, GTA6_ART_Y, dw, dh);
   } else {
     ctx.fillStyle = '#1b1033';
     ctx.fillRect(0, 0, W, H);
@@ -3895,66 +3906,93 @@ function drawGTA6Art(ctx) {
     var px = W * (0.125 + k * 0.25);
     var py = H * 0.14;
     var pool = ctx.createRadialGradient(px, py, 0, px, py, W * 0.17);
-    pool.addColorStop(0, 'rgba(255,226,176,0.17)');
-    pool.addColorStop(0.5, 'rgba(255,214,150,0.07)');
+    pool.addColorStop(0, 'rgba(255,226,176,0.13)');
+    pool.addColorStop(0.5, 'rgba(255,214,150,0.05)');
     pool.addColorStop(1, 'rgba(255,214,150,0)');
     ctx.fillStyle = pool;
     ctx.fillRect(0, 0, W, H);
   }
-  var gt = ctx.createLinearGradient(0, 0, W * 0.74, H * 0.80);
-  gt.addColorStop(0, 'rgba(16,6,28,0.80)');
-  gt.addColorStop(0.55, 'rgba(16,6,28,0.34)');
-  gt.addColorStop(1, 'rgba(16,6,28,0)');
+  /* A soft dark plate under the title only. The sky behind it is the brightest
+     part of the poster, and pale gold type on a bright sky reads as a smudge at
+     office distance; the rest of the artwork keeps its own light. It is an
+     ellipse, not a rectangle: a filled rect leaves a visible seam along its
+     right and bottom edge, and that seam reads as a pasted block. */
+  ctx.save();
+  ctx.translate(80, 40);
+  ctx.scale(1.2, 0.45);
+  var gt = ctx.createRadialGradient(0, 0, 0, 0, 0, 760);
+  gt.addColorStop(0, 'rgba(12,4,20,0.92)');
+  gt.addColorStop(0.55, 'rgba(12,4,20,0.72)');
+  gt.addColorStop(1, 'rgba(12,4,20,0)');
   ctx.fillStyle = gt;
-  ctx.fillRect(0, 0, W, H * 0.82);
+  ctx.fillRect(-1000, -2000, 2000, 4000);
+  ctx.restore();
   ctx.fillStyle = 'rgba(255,207,139,0.85)';
   ctx.fillRect(0, 0, W, 8);
 
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(12,4,22,0.8)';
-  ctx.shadowBlur = 14;
-  ctx.shadowOffsetY = 3;
-  ctx.fillStyle = '#fff4ec';
-  ctx.font = 'bold 112px "Arial Black", "Helvetica Neue", Arial, sans-serif';
-  ctx.fillText('GTA VI', 54, 90);
-  ctx.shadowBlur = 10;
+  ctx.shadowColor = 'rgba(0,0,0,0.85)';
+  ctx.shadowBlur = 16;
+  ctx.shadowOffsetY = 4;
+  ctx.fillStyle = '#fff8f0';
+  ctx.font = 'bold 108px "Arial Black", "Helvetica Neue", Arial, sans-serif';
+  ctx.fillText('GTA VI', 54, 86);
+  ctx.shadowBlur = 12;
   ctx.fillStyle = '#ffe4b8';
-  ctx.font = 'bold 40px "Helvetica Neue", Arial, sans-serif';
-  if ('letterSpacing' in ctx) ctx.letterSpacing = '8px';
-  ctx.fillText('THE COUNTDOWN IS ON', 58, 176);
-  ctx.letterSpacing = '0px';
+  ctx.font = 'bold 44px "Helvetica Neue", Arial, sans-serif';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '7px';
+  ctx.fillText('THE COUNTDOWN IS ON', 58, 164);
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
   ctx.shadowBlur = 0;
   ctx.shadowOffsetY = 0;
 }
 
 /* ── the live half: the countdown band ──
-   Four units on one horizontal line, each with its own label, and the
-   release date under them. On release day the numbers are replaced by the
-   message and the date — never a negative number. */
+   An opaque strip across the lower part of the face: four units, each a pair
+   of digit cells the way a departure board shows them, the unit name directly
+   under its pair, and the release date at the foot. On release day the numbers
+   are replaced by the message and the date — never a negative number. */
+
+/* Size a digit so it fills its cell whatever font the machine actually has:
+   measure once, then scale. A fixed size leaves a wide gap in the middle of
+   the cell on a font with narrow digits. */
+function fitGTA6Digit(ctx, ch, maxW) {
+  var max = 132;
+  ctx.font = 'bold ' + max + 'px "Arial Black", "Helvetica Neue", Arial, sans-serif';
+  var w = ctx.measureText(ch).width;
+  if (!w || w <= maxW) return max;
+  return Math.max(28, Math.floor(max * maxW / w));
+}
+
 function drawGTA6Countdown(ctx, p) {
   var W = GTA6_ART_W, H = GTA6_BAND_H;
   ctx.clearRect(0, 0, W, H);
+  /* An opaque panel: a translucent band lets the poster's people show through
+     the digits, and the numbers stop reading as numbers. */
   var gb = ctx.createLinearGradient(0, 0, 0, H);
-  gb.addColorStop(0, 'rgba(16,6,28,0)');
-  gb.addColorStop(0.42, 'rgba(16,6,28,0.66)');
-  gb.addColorStop(1, 'rgba(16,6,28,0.82)');
+  gb.addColorStop(0, '#1e1236');
+  gb.addColorStop(1, '#0a0616');
   ctx.fillStyle = gb;
   ctx.fillRect(0, 0, W, H);
+  /* Gold rule along the top edge: the strip reads as a panel of the board,
+     not as a crop of the picture. */
+  ctx.fillStyle = 'rgba(255,207,139,0.85)';
+  ctx.fillRect(0, 0, W, 4);
 
   ctx.textBaseline = 'middle';
   if (p.released) {
     ctx.textAlign = 'center';
-    ctx.shadowColor = 'rgba(12,4,22,0.85)';
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
     ctx.shadowBlur = 12;
     ctx.shadowOffsetY = 3;
     ctx.fillStyle = '#fff4ec';
-    ctx.font = 'bold 88px "Arial Black", "Helvetica Neue", Arial, sans-serif';
-    ctx.fillText('RELEASE DAY', W / 2, 74);
+    ctx.font = 'bold 78px "Arial Black", "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('RELEASE DAY', W / 2, 96);
     ctx.shadowBlur = 6;
     ctx.fillStyle = '#ffe4b8';
-    ctx.font = 'bold 36px "Helvetica Neue", Arial, sans-serif';
-    ctx.fillText('19 NOVEMBER 2026', W / 2, 142);
+    ctx.font = 'bold 34px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText('19 NOVEMBER 2026', W / 2, 160);
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
     return;
@@ -3963,26 +4001,54 @@ function drawGTA6Countdown(ctx, p) {
   var vals = [MiaCountdown.pad2(p.days), MiaCountdown.pad2(p.hours),
     MiaCountdown.pad2(p.minutes), MiaCountdown.pad2(p.seconds)];
   var labels = ['DAYS', 'HOURS', 'MINUTES', 'SECONDS'];
-  var margin = 54, gap = 22, bw = (W - margin * 2 - gap * 3) / 4, bh = 140, y0 = 2;
+  var margin = 54, gap = 22, col = (W - margin * 2 - gap * 3) / 4;
+  /* One frame per unit with a single split-flap seam. Two separately framed
+     cells a few pixels apart read as a fence bolted over the digits, and the
+     doubled gold line competes with the numerals instead of separating them. */
+  var cellW = 252, cellH = 116, cellY = 14, half = cellW / 2;
   for (var i = 0; i < 4; i++) {
-    var x = margin + i * (bw + gap);
-    ctx.fillStyle = 'rgba(18,7,32,0.68)';
-    ctx.fillRect(x, y0, bw, bh);
-    ctx.strokeStyle = 'rgba(255,207,139,0.72)';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(x + 1.5, y0 + 1.5, bw - 3, bh - 3);
+    var cx = margin + i * (col + gap);
+    var bx = cx + (col - cellW) / 2;
+    ctx.fillStyle = 'rgba(255,255,255,0.055)';
+    ctx.fillRect(bx, cellY, cellW, cellH);
+    ctx.strokeStyle = 'rgba(255,207,139,0.4)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bx + 1, cellY + 1, cellW - 2, cellH - 2);
+    ctx.fillStyle = 'rgba(255,207,139,0.2)';
+    ctx.fillRect(bx + half - 1, cellY + 12, 2, cellH - 24);
+    for (var d = 0; d < 2; d++) {
+      var ch = vals[i].charAt(d);
+      var size = fitGTA6Digit(ctx, ch, half - 28);
+      ctx.font = 'bold ' + size + 'px "Arial Black", "Helvetica Neue", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      /* The ink metrics are relative to the CURRENT baseline, so the baseline
+         has to be alphabetic BEFORE measuring. Measuring under "middle" then
+         drawing under "alphabetic" lifts every digit out of its cell. */
+      ctx.textBaseline = 'alphabetic';
+      var tm = ctx.measureText(ch);
+      var asc = tm.actualBoundingBoxAscent || size * 0.72;
+      var desc = tm.actualBoundingBoxDescent || 0;
+      ctx.fillStyle = '#fffaf4';
+      /* Centre the INK, not the em box: digits have no descender, so a middle
+         baseline leaves them riding high in the frame. */
+      ctx.fillText(ch, bx + d * half + half / 2, cellY + (cellH - (asc + desc)) / 2 + asc);
+    }
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#fffaf4';
-    ctx.font = 'bold 124px "Courier New", monospace';
-    ctx.fillText(vals[i], x + bw / 2, y0 + bh / 2);
+    ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffe4b8';
-    ctx.font = 'bold 29px "Helvetica Neue", Arial, sans-serif';
-    ctx.fillText(labels[i], x + bw / 2, y0 + bh + 36);
+    ctx.font = 'bold 30px "Helvetica Neue", Arial, sans-serif';
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '3px';
+    /* letterSpacing also adds space after the last glyph, which shifts a
+       centred run left by half the tracking */
+    ctx.fillText(labels[i], bx + half + 1.5, 162);
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
   }
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#ffe4b8';
-  ctx.font = 'bold 34px "Helvetica Neue", Arial, sans-serif';
-  ctx.fillText('19 NOVEMBER 2026 · 00:00 WIB', W / 2, H - 24);
+  ctx.fillStyle = 'rgba(255,228,184,0.72)';
+  ctx.font = 'bold 24px "Helvetica Neue", Arial, sans-serif';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
+  ctx.fillText('19 NOVEMBER 2026 · 00:00 WIB', W / 2 + 1, 199);
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
 }
 
 /* Repaint only when the second actually changed — the texture upload is not
@@ -4055,40 +4121,124 @@ function BillboardGTA6(parent, x, z) {
   var glowTex = softGlowTexture();
   for (var i = 0; i < 4; i++) {
     var lx = -W / 2 + (i + 0.5) * (W / 4);
-    add(rbox(0.18, 0.14, 0.18, 0.03), PM.metalDark, lx, PH + H + 0.07, 0.0, g);
-    var lg = group(g, lx, PH + H + 0.19, 0.04);
-    lg.rotation.x = 0.34; // nose down: the lamp is aimed at the panel
-    add(rbox(0.54, 0.26, 0.34, 0.05), lampBody, 0, 0, 0, lg);
-    add(rbox(0.60, 0.05, 0.26, 0.02), lampBody, 0, 0.16, 0.05, lg); // hood
-    add(rbox(0.30, 0.07, 0.05, 0.02), lampLens, 0, -0.06, 0.17, lg);
-    var halo = new T.Mesh(new T.PlaneGeometry(1.05, 0.78),
-      new T.MeshBasicMaterial({
-        map: glowTex, color: 0xffd9a0, transparent: true, opacity: 0.42,
-        depthWrite: false, blending: T.AdditiveBlending
-      }));
-    halo.position.set(lx, PH + H + 0.16, 0.24);
+    /* A clamp plate on the rail and a short arm: the fixture has to read as
+       bolted to the board, not as four boxes hovering over the sky. */
+    add(rbox(0.38, 0.09, 0.30, 0.02), PM.metalDark, lx, PH + H + 0.02, 0.03, g);
+    add(rbox(0.10, 0.16, 0.10, 0.02), PM.metalDark, lx, PH + H + 0.13, 0.03, g);
+    var lg = group(g, lx, PH + H + 0.26, 0.075);
+    lg.rotation.x = 0.46; // nose down: the lens faces the panel and the camera
+    add(rbox(0.62, 0.28, 0.30, 0.05), lampBody, 0, 0, 0, lg);
+    /* A short visor over the lens only. The old hood sat in front of the lens
+       and hid the light, which is why the fixtures read as black boxes with a
+       gold sticker. */
+    add(rbox(0.64, 0.06, 0.16, 0.02), lampBody, 0, 0.17, 0.09, lg);
+    add(rbox(0.46, 0.17, 0.05, 0.02), lampLens, 0, -0.05, 0.165, lg);
+    /* The lit face. A flat emissive box reads as a gold plaque screwed to a
+       black brick; a soft additive disc over it reads as a lamp that is on.
+       Double-sided, because the fixture is tilted at the board and a camera
+       above it sees the back of this plane — a single-sided glow disappears
+       exactly where the board is looked at from. */
+    var lensFaceMat = new T.MeshBasicMaterial({
+      map: glowTex, color: 0xffc27a, transparent: true, opacity: 0.62,
+      depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide
+    });
+    registerTheme(lensFaceMat, { opacity: 0.5 }, { opacity: 0.95 });
+    var lensFace = new T.Mesh(new T.PlaneGeometry(0.52, 0.24), lensFaceMat);
+    lensFace.position.set(0, -0.05, 0.19);
+    lensFace.castShadow = false;
+    lensFace.receiveShadow = false;
+    lg.add(lensFace);
+    /* The halo travels with the lens, so the glow blooms around the lit face
+       instead of hanging behind the housing. */
+    var haloMat = new T.MeshBasicMaterial({
+      map: glowTex, color: 0xffd9a0, transparent: true, opacity: 0.28,
+      depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide
+    });
+    registerTheme(haloMat, { opacity: 0.2 }, { opacity: 0.55 });
+    var halo = new T.Mesh(new T.PlaneGeometry(1.1, 0.72), haloMat);
+    halo.position.set(0, -0.05, 0.22);
     halo.castShadow = false;
     halo.receiveShadow = false;
-    g.add(halo);
+    lg.add(halo);
   }
+
+  /* ── ground uplights ────────────────────────────────────────────────
+     The floodlights wash the display; they leave the structure black, so the
+     posts and the concrete pads read as a silhouette stuck to the grass. These
+     two fixtures stand at the foot of the posts and throw a warm wash up the
+     steel and across the footing — the same trick the street lamps use on
+     the pavement. The light is a real point light, so the metal and the
+     concrete actually receive it, with a soft halo on the lens and a pool on
+     the grass. No cone: a cone has visible edges and reads as a shard of
+     glass, not as light. */
+  var groundMat = mat({ color: '#262a30', roughness: 0.7 });
+  var groundLens = lampMaterial({ color: '#4a3f2c', emissive: '#ffc46a', roughness: 0.4 }, 0.35, 1.5);
+  /* the glow is registered with the theme: a lamp that burns as hard at noon
+     as at midnight reads as a painted disc, not as light */
+  var groundGlowMat = new T.MeshBasicMaterial({
+    map: glowTex, transparent: true, opacity: 0.4,
+    depthWrite: false, blending: T.AdditiveBlending
+  });
+  registerTheme(groundGlowMat, { color: '#8a7350' }, { color: '#ffd9a0' });
+  var poolMat = new T.MeshBasicMaterial({
+    map: glowTex, transparent: true, opacity: 0.3,
+    depthWrite: false, blending: T.AdditiveBlending
+  });
+  registerTheme(poolMat, { color: '#8a7350' }, { color: '#ffd9a0' });
+  [-PX, PX].forEach(function (px) {
+    /* A can uplighter standing at the foot of the post: a short housing with
+       a lens on top, so the light goes up the steel instead of out at the
+       camera. The point light does the real work — the metal and the concrete
+       actually receive it — the halo and the pool are the soft spill around
+       the fixture. */
+    var fz = PZ + 0.30;
+    add(rbox(0.30, 0.16, 0.26, 0.03), groundMat, px, 0.08, fz, g);
+    add(rbox(0.19, 0.05, 0.17, 0.012), groundLens, px, 0.185, fz, g);
+    var gh = new T.Mesh(new T.PlaneGeometry(0.40, 0.34), groundGlowMat);
+    gh.position.set(px, 0.19, fz);
+    gh.castShadow = false;
+    gh.receiveShadow = false;
+    g.add(gh);
+    /* the pool of light on the grass — the halo on the lens alone would light
+       the fixture but leave the ground black */
+    var pool = new T.Mesh(new T.PlaneGeometry(1.3, 1.3), poolMat);
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.set(px, 0.02, fz);
+    pool.castShadow = false;
+    pool.receiveShadow = false;
+    g.add(pool);
+    var pl = new T.PointLight('#ffc98a', 0.5, 3.2, 2);
+    pl.position.set(px, 0.3, fz);
+    registerTheme(pl, { intensity: 0.5, distance: 3.2, decay: 2 }, { intensity: 2.0, distance: 3.2, decay: 2 });
+    g.add(pl);
+  });
 
   /* the display: key art on one plane, the countdown band on another, so a
      ticking second never re-uploads the artwork */
   var art = liveCanvasTexture(GTA6_ART_W, GTA6_ART_H);
-  var face = new T.Mesh(new T.PlaneGeometry(GTA6_FACE_W, GTA6_FACE_H),
-    new T.MeshBasicMaterial({ map: art.texture }));
+  var faceMat = new T.MeshBasicMaterial({ map: art.texture });
+  var face = new T.Mesh(new T.PlaneGeometry(GTA6_FACE_W, GTA6_FACE_H), faceMat);
   face.position.set(0, PH + H / 2, 0.135);
   face.castShadow = false;
   face.receiveShadow = false;
   g.add(face);
 
   var band = liveCanvasTexture(GTA6_ART_W, GTA6_BAND_H);
-  var bandMesh = new T.Mesh(new T.PlaneGeometry(GTA6_FACE_W, GTA6_FACE_H / 2),
-    new T.MeshBasicMaterial({ map: band.texture, transparent: true }));
-  bandMesh.position.set(0, PH + H / 2 - GTA6_FACE_H / 4, 0.142);
+  var bandMat = new T.MeshBasicMaterial({ map: band.texture });
+  var bandMesh = new T.Mesh(new T.PlaneGeometry(GTA6_FACE_W, GTA6_BAND_M), bandMat);
+  bandMesh.position.set(0, PH + H / 2 - GTA6_FACE_H / 2 + GTA6_BAND_M / 2, 0.142);
   bandMesh.castShadow = false;
   bandMesh.receiveShadow = false;
   g.add(bandMesh);
+
+  /* At night the board is lit by its own four lamps, not by the sun. The
+     display tints down and warms with the theme; without this the panel stays
+     a daylight photo in a dark office and reads as a self-lit screen. */
+  /* A lit display, not a photo: at night the panel warms and dims a little so
+     it belongs to the dark office, but the countdown stays bright enough to
+     read — it is the one part of the board that is genuinely self-lit. */
+  registerTheme(faceMat, { color: '#ffffff' }, { color: '#cfb28d' });
+  registerTheme(bandMat, { color: '#ffffff' }, { color: '#f6e6d0' });
 
   GTA6_BILLBOARD = {
     artCtx: art.ctx, artTexture: art.texture,

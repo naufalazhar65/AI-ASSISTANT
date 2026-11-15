@@ -307,16 +307,20 @@ async function main() {
     let faceLow = Infinity;
     board.group.traverse((o) => {
       const img = o.isMesh && o.material && o.material.map && o.material.map.image;
-      if (img && img.width === 1280 && img.height === 254) live = true;
+      if (img && img.width === 1280 && img.height === 224) live = true;
       if (img && img.width === 1280 && img.height === 509) art = true;
-      if (o.isMesh && o.geometry && o.geometry.type === 'PlaneGeometry' && o.material && o.material.map) {
+      /* Only the display counts here. A light pool lying flat on the grass is
+         also a mapped plane, and it is by definition below the wall line —
+         measuring it would report the board as buried. */
+      if (o.isMesh && o.geometry && o.geometry.type === 'PlaneGeometry'
+          && img && (img.width === 1280)) {
         o.updateWorldMatrix(true, false);
         o.geometry.computeBoundingBox();
         const bb = o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
         faceLow = Math.min(faceLow, bb.min.y);
       }
     });
-    if (!live) boardIssue = 'the board carries no live 1280x254 countdown band canvas';
+    if (!live) boardIssue = 'the board carries no live 1280x224 countdown band canvas';
     else if (!art) boardIssue = 'the board has no separate 1280x509 key-art canvas';
     /* The building hides the lawn behind it: a ray cast from each of the
        office cameras puts the north wall's silhouette at up to 2.02 m at the
@@ -331,13 +335,23 @@ async function main() {
        into the artwork. */
     let cones = 0;
     let halos = 0;
+    let uplights = 0;
+    let pools = 0;
     board.group.traverse((o) => {
       if (o.isMesh && o.geometry && o.geometry.type === 'ConeGeometry') cones++;
       const m = o.isMesh && o.material && o.material.map && o.material.map.image;
       if (m && m.width === 64 && m.height === 64) halos++;
+      if (o.isPointLight) uplights++;
+      /* a light pool lies flat on the grass: its plane is rotated a quarter turn */
+      if (o.isMesh && o.geometry && o.geometry.type === 'PlaneGeometry'
+          && Math.abs(o.rotation.x + Math.PI / 2) < 0.01) pools++;
     });
     if (cones > 0) boardIssue = `the floodlights still draw ${cones} hard light cone(s)`;
     else if (halos < 4) boardIssue = `the floodlights have no soft halo (${halos}/4)`;
+    /* The posts and the concrete footings need light of their own: the panel
+       floodlights wash the display and leave the structure black. */
+    else if (uplights < 2) boardIssue = `the board has no ground uplight for its posts (${uplights}/2)`;
+    else if (pools < 2) boardIssue = `the ground uplights cast no pool of light on the grass (${pools}/2)`;
   }
 
   if (AS_JSON) {

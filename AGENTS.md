@@ -3290,3 +3290,65 @@ Owner: "cahaya lampunya masih kurang natural, dan coba dek apa saja yang masih j
 **Gates:** probe furniture exit 0 · `node --test apps/office-dashboard/*.test.mjs` 99/99 · typecheck 0 · lint 0 · `probe-billboard.mts` exit 0 (4 state, 0 page error, fps 2 headless = software renderer, bukan angka performa) · `drill-office-chat-ui.mts` **81 ok / 0 FAIL** · CJK 0 · Cyrillic 0.
 
 **Catatan harness (bukan cacat produk):** drill sempat CRASH exit 2 dua kali di `page.goto` (timeout 30 s) — mesin sedang load 14 (Chrome owner + VS Code + probe WebGL barengan) dan `waitUntil: "load"` menunggu event load yang ikut menunggu scene WebGL. `hardReload` kini menunggu **dokumen barunya** (marker `_r=` di URL + `#chatToggle` ada, timeout 60 s) bukan event load: ini bukan melonggarkan asersi, justru lebih tegas soal dokumen mana yang dipakai (dokumen lama punya `_r=` berbeda, jadi tidak bisa lolos). Setelah fix: drill hijau 81 ok / 0 FAIL.
+
+## Sesi 2026-11-15 — Audit + repair visual papan countdown GTA VI (baca dari render, bukan dari review kode)
+
+Owner: "coba audit billboard coutdown gta 6 nya apakah masih ada yg jelek?" → "perbaiki yang menurutmu masih jelek, kerjakan dengan maksimal".
+
+**Audit (MCP playwright + dump kanvas native 1280 px + probe durable `apps/web/probe-billboard.mts`).** 10 cacat terverifikasi dari render:
+1. **Subjek poster tembus ke dalam angka** — fill kotak `rgba(18,7,32,0.68)` terlalu transparan → badan perempuan + mobil terlihat di balik angka "2 8" dan teks tanggal.
+2. **Band menutup 50 % bawah poster** → pasangan/mobil hilang; papan baca "langit + slab gelap".
+3. **Angka terbaca "0 4", bukan "04"** — Courier New 124 px: side-bearing ~32 px di antara digit, pasangan cuma 149 px dari kotak 276 px.
+4. **Malam = siang** — plane display `MeshBasicMaterial`, tak pernah redup/warm → papan jadi foto self-lit di kantor gelap (bukti: capture siang vs malam identik brightness meski theme terverifikasi aktif).
+5. Tanggal jadi banner selebar papan, nempel tepi bawah panel (34 px, y = H-24).
+6. Label unit melayang DI LUAR kotak di atas poster → lepas dari angkanya.
+7. Subtitle "THE COUNTDOWN IS ON" emas tipis di atas langit terang → noda; di close-up kayak WordArt buram.
+8. Scrim diagonal gelapkan sisi kiri 74 % → komposisi tak seimbang.
+9. **Title punya tepi rectangle keras** (cobaan pertama: linear gradient 660×250 → seam vertikal + horizontal terlihat).
+10. Label unit + tanggal **tidak terbaca di view default owner** (board cuma 431 px) → "03" = hari atau menit?
+
+**Yang DIBUKTI TIDAK rusak:** geometri plane (band tepat di bawah tengah art, rail di luar face 9,96 m), isi kanvas native, animasi tick per detik, halo tanpa cone, theme toggle, page error 0, `office.validate()` = [], `checkParts()` = [].
+
+**Perbaikan (apps/office-dashboard/index.html):**
+- `GTA6_BAND_H` 254 → **224** (+ `GTA6_BAND_M` = tinggi fisiknya, `GTA6_ART_Y` = -140). Strip jadi **opaque** (gradient `#1e1236`→`#0a0616` + garis emas atas) → subjek tak bisa tembus angka.
+- **Satu digit per sel**: tiap unit = 2 sel (122×118, gap 8) → "04" pasti terbaca dua angka. Font **Arial Black** + `fitGTA6Digit()` (ukur dulu, lalu skala) → digit mengisi sel di font apa pun.
+- Label **DAYS / HRS / MIN / SEC** (pendek + 34 px) di bawah pasangannya; tanggal 26 px di y=196 dengan padding bawah 17 px.
+- Judul: **plate radial oval** (bukan rect) → seam hilang; judul 108 px + subtitle 44 px, shadow lebih rapat.
+- **Night tint**: `registerTheme(faceMat/bandMat, {color:'#ffffff'}, {color:'#c7a67c'})` → malam ≠ siang tanpa sistem baru.
+- `probe-furniture-validate.js`: ekspektasi band canvas 1280x**224**.
+- `probe-billboard.mts`: timeout screenshot 30 s → **90 s** (scene malam + software renderer = flake, bukan cacat).
+- `apps/web/probe-bb-inspect.mts` (probe scratch dari sesi sebelumnya) **dihapus** — dirinya sendiri menulis "Deleted after the audit".
+
+**Bukti = render:** 50-day.png (kamera dekat) → judul tajam, "04 16" besar di sel bersih, tanpa bleed-through; 51-night.png → papan jadi **sign menyala** hangat di kantor gelap; dump kanvas native → "GTA VI" + pasangan penuh + strip 8 sel + label + tanggal, semua rapi; probe durable 4 state (01 default / 02 < 1 menit / 03 release day / 04 malam) → 431×171 px, 0 page error.
+
+**Gates:** typecheck 0 · lint 0 · `node --test apps/office-dashboard/*.test.mjs` **99/99** · `probe-furniture-validate.js` exit 0 (meshes 814, suspicious 0) · `drill-office-chat-ui.mts` **81 ok / 0 FAIL** · `verify.ts` **EXIT=0** (193 blok OK) · `probe-billboard.mts` 4 state exit 0.
+
+**Jujur:** di view default owner (431 px) **hanya judul + angka yang terbaca**; subtitle & tanggal tetap kecil — itu limit ukuran, bukan bug, dan DESIGN.md §18 sekarang menyatakan kontraknya. **BELUM commit** — menunggu approval owner.
+
+## Sesi 2026-11-15 (lanjutan) — audit visual ronde kedua: angka di sel, pagar bingkai, lampu yang tak terlihat
+
+Owner: "coba cek billboard countdown gta 6 nya apa yang masih jelek?" — diperiksa dari **render nyata** (kanvas band 1280x224 diekstrak dari tekstur + crop papan di framing 1512x900 siang & malam), bukan dari review kode.
+
+**Enam cacat, semua diperbaiki (`apps/office-dashboard/index.html`):**
+1. **Angka naik ke atas sel** (terukur dari kanvas: ink 14..110 di sel 12..130 → 2 px atas, 20 px bawah). `textBaseline='middle'` menaruh baseline di tengah em box, digit tak punya descender. Sekarang baseline dihitung dari `actualBoundingBoxAscent/Descent` → 9/11 px. **Jebakan yang tertangkap di iterasi pertama:** metrik dibaca saat baseline masih `middle` lalu digambar `alphabetic` → semua digit terangkat keluar sel (render: angka terpotong tepi atas kanvas). Ukur dan gambar harus di baseline yang sama.
+2. **Pagar bingkai.** Delapan sel berbingkai (gap 8 px, dua garis emas 10 px terpisah) terbaca sebagai pagar di atas angka. Jadi **satu bingkai per unit + satu seam split-flap**; "03" tetap dua flap, tapi terbaca satu angka.
+3. **Label `HRS/MIN/SEC`** → **DAYS/HOURS/MINUTES/SECONDS** (30 px, tracking 3, dikompensasi `+ls/2` karena letterSpacing juga menambah spasi setelah glyph terakhir). "SECONDS" muat di frame 252 px.
+4. **Tanggal** 24 px / opasitas 0.72 / y 199 — di bawah label, tidak lagi bersaing dengan angka.
+5. **Lampu baca sebagai kotak hitam + stiker emas; halo tak terlihat sama sekali.** Akarnya bukan opacity: halo adalah plane anak group lampu yang **dimiringkan 0.46 rad**, jadi dari kamera di atas ia tampil dari **punggung** → backface-culled. Sekarang `side: DoubleSide` + glow disc di depan lensa + opacity bertema (siang 0.2 / malam 0.55); clamp plate + arm menghubungkan housing ke rail.
+6. **Malam: angka redup.** Band dulu ikut di-tint `#c7a67c`; sekarang band `#f6e6d0` (readout memang self-lit), art `#cfb28d` (poster tetap hangat).
+
+**Bukti:** kanvas band → padding 9/11 px simetris, frame+seam, label penuh; crop 1512x900 DPR2 siang & malam → lampu punya bidang menyala + spill, angka malam terbaca, 0 page error. `probe-furniture-validate.js` exit 0, `node --test apps/office-dashboard/*.test.mjs` **99/99**, inline `node --check` OK. Probe scratch `apps/web/probe-bb-inspect.mts` dipakai lalu dihapus.
+
+**Keputusan yang bisa dibalik:** penggabungan 8 sel → 4 frame dan label panjang adalah penilaian visual, bukan bug terukur. Kalau owner lebih suka split-flap 8 sel / label pendek, blok `drawGTA6Countdown` bisa dikembalikan. DESIGN.md §18 diperbarui ke kontrak baru (frame per unit, unit berupa kata, digit di-center dari ink, glow double-sided, band tetap terang saat malam).
+
+### Lanjutan — kepala karakter terpotong di batas atas artwork
+
+Owner: "Artwork karakter terpotong di bagian atas … berikan safe margin sekitar 4–6 % … pastikan wajah dan kepala terlihat utuh."
+
+**Terukur:** rambut pria mulai di source y **269** (dari 2160). Crop lama `GTA6_ART_Y = -140` mulai di source 420 → **151 px rambut terpotong** (±45 % kepala); itu sebabnya ubun-ubunnya menempel/terpotong batas atas. Crop baru `GTA6_ART_Y = -64` menaruh kepala di baris **26 dari 509 = 5,1 %** margin. Dibuktikan dari kanvas hasil render: piksel gelap teratas di area rambut = baris 26; zoom kepala utuh; 3D render siang 0 page error.
+
+**Konsekuensi yang diterima (bukan bug):** band countdown kini mulai sedikit lebih tinggi (di pinggang, bukan paha) dan hood mobil tidak lagi masuk area di atas band — itu harga dari kepala yang utuh. Kalau mobil ingin terlihat lagi, satu-satunya jalan adalah mengecilkan artwork (letterbox) atau memendekkan band; keduanya keputusan desain, bukan perbaikan.
+
+**Gates:** `probe-furniture-validate.js` exit 0 · `node --test apps/office-dashboard/*.test.mjs` 99/99 · inline `node --check` OK. Probe scratch `apps/web/probe-bb-inspect.mts` dipakai lalu dihapus. DESIGN.md §18 diperbarui (crop dari hairline + safe margin 5 %).
+
+**Belum commit.**
